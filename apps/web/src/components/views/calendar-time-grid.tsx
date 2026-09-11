@@ -13,20 +13,28 @@ import {
   layoutDayEvents,
   parseDateValue,
   shiftDateValue,
+  splitTimedEventAcrossDays,
 } from './calendar-time-grid-layout';
 import type { TimedEvent } from './calendar-time-grid-layout';
 
 /** #470 — px per hour on the scrollable axis. 24 * 48 = 1152px tall, a size
  *  that reads clearly without needing an unreasonably tall page. */
 const HOUR_HEIGHT = 48;
-/** Drag snaps to a quarter-hour — fine enough to feel precise, coarse enough
- *  that a small pointer jitter doesn't miss the slot you meant. */
-const SNAP_MINUTES = 15;
+/** #471 AC3 — the increments this grid offers; the toolbar's <select> mirrors
+ *  this exact list so there's one place naming what's possible. */
+export const CALENDAR_INCREMENT_OPTIONS = [10, 15, 30, 60] as const;
+/** #470's original hardcoded snap, now the default when a view hasn't chosen
+ *  one (#471 AC3) — an existing view's drag/create feel doesn't change. */
+const DEFAULT_INCREMENT_MINUTES = 15;
 
 interface PositionedEvent {
   row: RecordRow;
   startMinutes: number;
   endMinutes: number;
+  /** #471 AC2 — this day's segment of a possibly multi-day event; false for
+   *  every event #470 ever produced (same-day, so both are always false). */
+  continuesFromPrevDay: boolean;
+  continuesToNextDay: boolean;
 }
 
 /**
@@ -47,6 +55,8 @@ export function CalendarTimeGrid({
   colorField,
   memberNames,
   readOnly,
+  incrementMinutes,
+  collapsedHours,
   onOpen,
   onCreate,
   onReschedule,
@@ -62,6 +72,12 @@ export function CalendarTimeGrid({
   colorField: Field | undefined;
   memberNames: Map<string, string>;
   readOnly: boolean;
+  /** #471 AC3 — drag-snap and click-to-create granularity. Undefined =
+   *  DEFAULT_INCREMENT_MINUTES, #470's original hardcoded behaviour. */
+  incrementMinutes?: number;
+  /** #471 AC4/AC7 — render only this hour window; the all-day row (AC5) is
+   *  built from a separate map and is never affected by this. */
+  collapsedHours?: { start: number; end: number };
   onOpen: (id: string) => void;
   onCreate: (iso: string) => void;
   onReschedule: (rec: string, values: Record<string, unknown>) => void;
@@ -69,38 +85,61 @@ export function CalendarTimeGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const snapMinutes = incrementMinutes ?? DEFAULT_INCREMENT_MINUTES;
+  const windowStartMin = (collapsedHours?.start ?? 0) * 60;
+  const windowEndMin = (collapsedHours?.end ?? 24) * 60;
+  const visibleHours = useMemo(
+    () => Array.from({ length: (windowEndMin - windowStartMin) / 60 }, (_, i) => (collapsedHours?.start ?? 0) + i),
+    [collapsedHours?.start, windowEndMin, windowStartMin],
+  );
 
   const dayKeys = useMemo(() => days.map((d) => fmtDate(d)), [days]);
 
   // #470 AC5 — split into all-day (no time component) vs timed, per day.
+  // #471 AC2 — a multi-day timed event gets a PositionedEvent on every day it
+  // spans (splitTimedEventAcrossDays), not just its first — the reverse of
+  // #470's own clip-to-first-day placeholder, which its comment named as
+  // exactly the case this ticket exists to fix.
   const { allDayByDay, timedByDay } = useMemo(() => {
     const allDay = new Map<string, RecordRow[]>();
     const timed = new Map<string, PositionedEvent[]>();
     for (const row of rows) {
       const raw = fieldValue(row, dateField);
       if (typeof raw !== 'string') continue;
-      const { dayKey, minutes } = parseDateValue(raw);
-      if (!dayKeys.includes(dayKey)) continue;
+      const { dayKey: startDayKey, minutes } = parseDateValue(raw);
       if (minutes === null) {
-        const list = allDay.get(dayKey) ?? [];
+        if (!dayKeys.includes(startDayKey)) continue;
+        const list = allDay.get(startDayKey) ?? [];
         list.push(row);
-        allDay.set(dayKey, list);
+        allDay.set(startDayKey, list);
         continue;
       }
       const endRaw = endDateField ? fieldValue(row, endDateField) : undefined;
       const endParsed = typeof endRaw === 'string' ? parseDateValue(endRaw) : null;
-      // An end value on a DIFFERENT day than the start is clipped to this
-      // day's midnight — a simple, correct-enough multi-day treatment (the
-      // ticket only asks same-day overlap to be handled well, AC4).
-      const endMinutes =
-        endParsed && endParsed.dayKey === dayKey && endParsed.minutes !== null && endParsed.minutes > minutes
-          ? endParsed.minutes
-          : endParsed && endParsed.dayKey > dayKey
-            ? 24 * 60
-            : minutes + DEFAULT_DURATION_MINUTES;
-      const list = timed.get(dayKey) ?? [];
-      list.push({ row, startMinutes: minutes, endMinutes: Math.max(endMinutes, minutes + MIN_EVENT_MINUTES) });
-      timed.set(dayKey, list);
+      // Same rule #470 used for a single day, extended across days: a valid
+      // end is either later the SAME day, or on a genuinely LATER day — an
+      // end before its own start (same day) is nonsensical and falls back to
+      // the fixed default duration exactly as #470 did.
+      const hasValidSameDayEnd =
+        endParsed && endParsed.dayKey === startDayKey && endParsed.minutes !== null && endParsed.minutes > minutes;
+      const hasValidMultiDayEnd = endParsed && endParsed.dayKey > startDayKey && endParsed.minutes !== null;
+      const endDayKey = hasValidMultiDayEnd ? endParsed!.dayKey : startDayKey;
+      const endMinutesOfEndDay = hasValidSameDayEnd
+        ? Math.max(endParsed!.minutes!, minutes + MIN_EVENT_MINUTES)
+        : hasValidMultiDayEnd
+          ? endParsed!.minutes!
+          : minutes + DEFAULT_DURATION_MINUTES;
+      for (const span of splitTimedEventAcrossDays(startDayKey, minutes, endDayKey, endMinutesOfEndDay, dayKeys)) {
+        const list = timed.get(span.dayKey) ?? [];
+        list.push({
+          row,
+          startMinutes: span.startMinutes,
+          endMinutes: span.endMinutes,
+          continuesFromPrevDay: span.continuesFromPrevDay,
+          continuesToNextDay: span.continuesToNextDay,
+        });
+        timed.set(span.dayKey, list);
+      }
     }
     return { allDayByDay: allDay, timedByDay: timed };
   }, [rows, dateField, endDateField, dayKeys]);
@@ -124,7 +163,7 @@ export function CalendarTimeGrid({
     // an all-day chip dragged in its own row never acquires a time (AC5's
     // promise the other direction: all-day stays all-day when moved).
     const deltaMinutes =
-      minutes === null ? 0 : Math.round(event.delta.y / (HOUR_HEIGHT / 60) / SNAP_MINUTES) * SNAP_MINUTES;
+      minutes === null ? 0 : Math.round(event.delta.y / (HOUR_HEIGHT / 60) / snapMinutes) * snapMinutes;
     if (deltaDays === 0 && deltaMinutes === 0) return;
     const values: Record<string, unknown> = { [dateField.apiName]: shiftDateValue(raw, deltaDays, deltaMinutes) };
     if (endDateField) {
@@ -183,10 +222,11 @@ export function CalendarTimeGrid({
           })}
         </div>
 
-        {/* Hour grid */}
+        {/* Hour grid — #471 AC4/AC7: only `visibleHours` render when a
+            collapsed window is set; the all-day row above is unaffected. */}
         <div ref={scrollRef} className="flex flex-1 overflow-y-auto">
           <div className="w-12 shrink-0">
-            {Array.from({ length: 24 }, (_, h) => (
+            {visibleHours.map((h) => (
               <div key={h} style={{ height: HOUR_HEIGHT }} className="border-b border-border-default pr-1 text-right text-[10px] text-faint">
                 {h === 0 ? '' : `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`}
               </div>
@@ -194,7 +234,16 @@ export function CalendarTimeGrid({
           </div>
           {days.map((_, i) => {
             const iso = dayKeys[i]!;
-            const events = timedByDay.get(iso) ?? [];
+            // Clip to the visible window: an event entirely outside it is
+            // simply not drawn (a collapsed window hides that hour range),
+            // one crossing an edge is clipped to it.
+            const events = (timedByDay.get(iso) ?? [])
+              .filter((e) => e.endMinutes > windowStartMin && e.startMinutes < windowEndMin)
+              .map((e) => ({
+                ...e,
+                startMinutes: Math.max(e.startMinutes, windowStartMin),
+                endMinutes: Math.min(e.endMinutes, windowEndMin),
+              }));
             const layout = layoutDayEvents(events.map((e): TimedEvent => ({ id: e.row.id, startMinutes: e.startMinutes, endMinutes: e.endMinutes })));
             return (
               <DayColumn
@@ -206,13 +255,16 @@ export function CalendarTimeGrid({
                 colorField={colorField}
                 memberNames={memberNames}
                 readOnly={readOnly}
+                windowStartMin={windowStartMin}
+                windowEndMin={windowEndMin}
                 onOpen={(id) => {
                   if (Date.now() - lastDragEnd.current < 200) return;
                   onOpen(id);
                 }}
                 onCreate={(minutes) => {
+                  const snapped = Math.round(minutes / snapMinutes) * snapMinutes;
                   const pad = (n: number) => String(n).padStart(2, '0');
-                  onCreate(`${iso}T${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}:00`);
+                  onCreate(`${iso}T${pad(Math.floor(snapped / 60))}:${pad(snapped % 60)}:00`);
                 }}
               />
             );
@@ -254,6 +306,8 @@ function DayColumn({
   colorField,
   memberNames,
   readOnly,
+  windowStartMin,
+  windowEndMin,
   onOpen,
   onCreate,
 }: {
@@ -264,28 +318,34 @@ function DayColumn({
   colorField: Field | undefined;
   memberNames: Map<string, string>;
   readOnly: boolean;
+  /** #471 AC4/AC7 — the collapsed hour window, in minutes since midnight;
+   *  {0, 1440} when there is no collapse (#470's only behaviour). Events and
+   *  the hour ruler are positioned relative to `windowStartMin`, not midnight. */
+  windowStartMin: number;
+  windowEndMin: number;
   onOpen: (id: string) => void;
   onCreate: (minutes: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${iso}` });
+  const hours = (windowEndMin - windowStartMin) / 60;
   return (
     <div
       ref={setNodeRef}
       className={cn('relative flex-1 border-l border-border-default', isOver && 'bg-accent-soft')}
-      style={{ height: 24 * HOUR_HEIGHT }}
+      style={{ height: hours * HOUR_HEIGHT }}
       onClick={(e) => {
         if (readOnly || e.target !== e.currentTarget) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const minutes = Math.round(((e.clientY - rect.top) / HOUR_HEIGHT) * 60);
-        onCreate(Math.max(0, Math.min(24 * 60 - MIN_EVENT_MINUTES, minutes)));
+        const minutes = windowStartMin + Math.round(((e.clientY - rect.top) / HOUR_HEIGHT) * 60);
+        onCreate(Math.max(windowStartMin, Math.min(windowEndMin - MIN_EVENT_MINUTES, minutes)));
       }}
     >
-      {Array.from({ length: 24 }, (_, h) => (
+      {Array.from({ length: hours }, (_, h) => (
         <div key={h} style={{ top: h * HOUR_HEIGHT, height: HOUR_HEIGHT }} className="pointer-events-none absolute inset-x-0 border-b border-border-default" />
       ))}
       {events.map(({ row, startMinutes, endMinutes }) => {
         const pos = layout.get(row.id) ?? { col: 0, cols: 1 };
-        const top = (startMinutes / 60) * HOUR_HEIGHT;
+        const top = ((startMinutes - windowStartMin) / 60) * HOUR_HEIGHT;
         const height = ((endMinutes - startMinutes) / 60) * HOUR_HEIGHT;
         const widthPct = 100 / pos.cols;
         return (

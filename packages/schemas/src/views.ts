@@ -308,6 +308,17 @@ export const viewConfigSchema = z.object({
    *  timeline's start/end pair below. Unset = a fixed client-computed default
    *  duration, never stored. */
   calendar_end_date_field_id: z.uuid().optional(),
+  /** #471 AC3 — the day/week grid's drag-snap and click-to-create granularity.
+   *  Undefined = 15, the increment #470 already hardcoded, so an existing
+   *  view's behaviour doesn't change just because this field now exists. */
+  calendar_increment_minutes: z.union([z.literal(10), z.literal(15), z.literal(30), z.literal(60)]).optional(),
+  /** #471 AC4/AC7 — collapse the day/week grid's rendered hour axis to this
+   *  window; the all-day row (AC5's territory) is NEVER affected by this —
+   *  a collapsed window hides hours, not records. Undefined = all 24 hours,
+   *  #470's only behaviour. `start < end`, both in [0, 24]. */
+  calendar_collapsed_hours: z
+    .object({ start: z.number().int().min(0).max(23), end: z.number().int().min(1).max(24) })
+    .optional(),
   /** Timeline (MN-092) — start (required) + optional end date field. */
   start_date_field_id: z.uuid().optional(),
   end_date_field_id: z.uuid().optional(),

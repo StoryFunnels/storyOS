@@ -102,6 +102,53 @@ export function layoutDayEvents(events: TimedEvent[]): Map<string, EventLayout> 
   return layout;
 }
 
+export interface DaySpan {
+  dayKey: string;
+  startMinutes: number;
+  endMinutes: number;
+  /** True when this day isn't the event's first day — the segment picks up
+   *  from midnight rather than the event's real start time. */
+  continuesFromPrevDay: boolean;
+  /** True when this day isn't the event's last day — the segment runs to
+   *  midnight rather than the event's real end time. */
+  continuesToNextDay: boolean;
+}
+
+/**
+ * #471 AC2 — one multi-day event split into a segment per day it spans,
+ * clipped to `visibleDayKeys` (the days actually on screen). #470 clipped a
+ * multi-day event to its FIRST day only (documented there as "correct-enough"
+ * pending this ticket); this is the real multi-day treatment: every day the
+ * event's [start, end) interval touches gets its own [0/start, end/1440)
+ * segment, so the event visibly continues across the days it spans rather
+ * than vanishing at the first midnight.
+ *
+ * `visibleDayKeys` must be sorted ascending (calendar-time-grid.tsx's own
+ * `dayKeys` already is, by construction from `days`).
+ */
+export function splitTimedEventAcrossDays(
+  startDayKey: string,
+  startMinutes: number,
+  endDayKey: string,
+  endMinutes: number,
+  visibleDayKeys: string[],
+): DaySpan[] {
+  const spans: DaySpan[] = [];
+  for (const dayKey of visibleDayKeys) {
+    if (dayKey < startDayKey || dayKey > endDayKey) continue;
+    const isFirst = dayKey === startDayKey;
+    const isLast = dayKey === endDayKey;
+    spans.push({
+      dayKey,
+      startMinutes: isFirst ? startMinutes : 0,
+      endMinutes: isLast ? endMinutes : MINUTES_PER_DAY,
+      continuesFromPrevDay: !isFirst,
+      continuesToNextDay: !isLast,
+    });
+  }
+  return spans;
+}
+
 /**
  * The new ISO value to write back after dragging an event by `deltaMinutes`
  * (vertical, within a day) and `deltaDays` (horizontal, week mode only).

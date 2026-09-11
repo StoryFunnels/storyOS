@@ -52,6 +52,12 @@ export interface ViewConfig {
    *  uses. Unset = a fixed default duration, computed client-side, never
    *  stored (see calendar-time-grid-layout.ts's DEFAULT_DURATION_MINUTES). */
   calendar_end_date_field_id?: string;
+  /** #471 AC3 — day/week grid's snap/create granularity. Undefined = 15,
+   *  matching #470's hardcoded behaviour. */
+  calendar_increment_minutes?: 10 | 15 | 30 | 60;
+  /** #471 AC4/AC7 — collapses the day/week grid's rendered hour axis to this
+   *  window; never affects the all-day row. Undefined = all 24 hours. */
+  calendar_collapsed_hours?: { start: number; end: number };
   /** Timeline (MN-092). */
   start_date_field_id?: string;
   end_date_field_id?: string;
