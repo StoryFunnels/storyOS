@@ -7,6 +7,8 @@ import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { PackManifest } from '@storyos/schemas';
 import { STARTER_PACKS } from '../src/packs/starter-packs';
+import { ConnectionsService } from '../src/connections/connections.service';
+import type { ConnectionFetcher } from '../src/connections/providers';
 
 /**
  * Business Packs — the pack format (MN-218 / #160).
@@ -813,6 +815,75 @@ describe('requirements and validation', () => {
     const ws = await newWorkspace('Req BYO');
     const result = await installOk(ws, { ...base, requires: { connections: [], ai: 'byo' } });
     expect(result.unmet).toEqual([]);
+  }, 60_000);
+
+  /**
+   * #600 — suggested DATA sources (Shopify/YouTube/Apify-style providers),
+   * distinct from requires.connections' chat/dev-tool set, reported through
+   * the SAME unmet channel rather than a second one.
+   */
+  it('#600: reports a suggested source as unmet, same shape as a connection', async () => {
+    const ws = await newWorkspace('Req Suggested Source');
+    const result = await installOk(ws, {
+      ...base,
+      requires: { connections: [], ai: 'byo' },
+      suggested_sources: [{ provider: 'apify.actor', note: 'crawl your own site for content ideas' }],
+    });
+    expect(result.unmet).toHaveLength(1);
+    expect(result.unmet[0].kind).toBe('source');
+    expect(result.unmet[0].name).toBe('apify.actor');
+    expect(result.unmet[0].detail).toContain('apify.actor');
+    expect(result.unmet[0].detail).toContain('crawl your own site for content ideas');
+    // Reported, never fatal — same property requires.connections already has.
+    expect((await listDatabases(ws)).map((d) => d.name)).toContain('Leads');
+  }, 60_000);
+
+  it('#600: a provider the workspace already has connected is not re-suggested', async () => {
+    // apifyProvider.healthCheck hits a real URL — stub it for this test only
+    // (same approach as apify-source.test.ts), restored in `finally` so it
+    // never leaks into a later test in this file.
+    const connections = app.get(ConnectionsService);
+    const previousFetcher = connections.fetcher;
+    const healthCheckFetcher: ConnectionFetcher = async () => ({ status: 200, json: async () => ({}), text: async () => '' });
+    connections.fetcher = healthCheckFetcher;
+    try {
+      const ws = await newWorkspace('Req Source Already Connected');
+      const spaceId = (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+      const dbId = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: spaceId, name: 'Crawl targets' })).json().id;
+      const urlField = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${dbId}/fields`, {
+        display_name: 'URL', type: 'text', config: {},
+      })).json();
+      const conn = await as(admin.token, 'POST', `/workspaces/${ws}/connections`, {
+        provider: 'apify', name: 'Existing Apify', auth: { api_key: 'apify_test_token' },
+      });
+      expect(conn.statusCode, conn.body).toBe(201);
+      const source = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${dbId}/sources`, {
+        name: 'Existing crawl',
+        connection_id: conn.json().id,
+        provider_source: 'apify.actor',
+        config: { actor_id: 'apify/website-content-crawler', input: {}, monthly_run_cap: 1 },
+        field_mapping: { url: urlField.id },
+        external_key_field_id: urlField.id,
+        schedule: '15m',
+      });
+      expect(source.statusCode, source.body).toBe(201);
+
+      const result = await installOk(ws, {
+        ...base,
+        requires: { connections: [], ai: 'byo' },
+        suggested_sources: [{ provider: 'apify.actor' }],
+      });
+      expect(result.unmet.filter((u: { kind: string }) => u.kind === 'source')).toHaveLength(0);
+    } finally {
+      connections.fetcher = previousFetcher;
+    }
+  }, 60_000);
+
+  it('#600: MUST KEEP WORKING — no suggested_sources means no source entries, connection/ai reporting unaffected', async () => {
+    const ws = await newWorkspace('Req No Suggestions');
+    const result = await installOk(ws, { ...base, requires: { connections: ['slack'], ai: 'byo' } });
+    expect(result.unmet).toHaveLength(1);
+    expect(result.unmet[0].kind).toBe('connection');
   }, 60_000);
 
   it('a bad semver is a 422, not a 500', async () => {
