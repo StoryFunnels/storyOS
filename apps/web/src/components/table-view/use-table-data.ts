@@ -215,7 +215,19 @@ export function useMembers(ws: string, enabled: boolean) {
   });
 }
 
-const recordsKey = (ws: string, db: string) => ['records', ws, db];
+// Exported for use-table-data.unit.test.ts, which pins the prefix separation
+// this fix depends on — everything else in this file still only calls these
+// as plain helpers.
+export const recordsKey = (ws: string, db: string) => ['records', ws, db];
+// #728 fix — a query key TanStack Query would happily prefix-match against
+// recordsKey's own ['records', ws, db]. It used to (below), and every
+// optimistic update in useRecordMutations paid for it: setQueriesData/
+// getQueriesData match by PREFIX, so a plain-number count cache entry got
+// run through updaters written for { pages: [...] }, threw on the first
+// `.pages.map(...)`, and — because the throw happened inside onMutate,
+// before mutationFn — silently aborted record edit/create/delete with no
+// network request and no real error message. Its own key, not a shared one.
+export const recordCountKey = (ws: string, db: string) => ['records-count', ws, db];
 
 export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<string, unknown>) {
   const body = queryBody ?? { limit: 100 };
@@ -252,7 +264,7 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
  */
 export function useRecordCount(ws: string, db: string, filter?: unknown) {
   return useQuery({
-    queryKey: [...recordsKey(ws, db), 'count', filter],
+    queryKey: [...recordCountKey(ws, db), filter],
     queryFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
         params: { path: { ws, db } },
@@ -265,11 +277,27 @@ export function useRecordCount(ws: string, db: string, filter?: unknown) {
   });
 }
 
+/**
+ * #728 fix — true only for the `{ pages: [...] }` shape every `setAll`
+ * updater below assumes. `recordsKey` used to also match `useRecordCount`'s
+ * cache entry (a plain number) via prefix, and the updaters threw on the
+ * first `.pages` access; that collision is gone now that the count has its
+ * own key (see `recordCountKey`), but this guard stays — a FUTURE query
+ * sharing this same prefix then fails safe (the cache entry comes back
+ * untouched) instead of silently reintroducing the exact same abort.
+ */
+export function isRecordsPageCache(data: unknown): data is { pages: RecordsPage[] } {
+  return Boolean(data) && Array.isArray((data as { pages?: unknown }).pages);
+}
+
 export function useRecordMutations(ws: string, db: string) {
   const qc = useQueryClient();
   const key = recordsKey(ws, db);
-  const setAll = (updater: (old: { pages: RecordsPage[] } | undefined) => unknown) =>
-    qc.setQueriesData({ queryKey: key }, updater as never);
+  const countKey = recordCountKey(ws, db);
+  const setAll = (updater: (old: { pages: RecordsPage[] }) => unknown) =>
+    qc.setQueriesData({ queryKey: key }, (old: unknown) =>
+      isRecordsPageCache(old) ? updater(old) : old,
+    );
 
   const updateRecord = useMutation({
     mutationFn: async ({ rec, values }: { rec: string; values: Record<string, unknown> }) => {
@@ -283,8 +311,7 @@ export function useRecordMutations(ws: string, db: string) {
     onMutate: async ({ rec, values }) => {
       await qc.cancelQueries({ queryKey: key });
       const previous = qc.getQueriesData({ queryKey: key });
-      setAll((old: { pages: RecordsPage[] } | undefined) => {
-        if (!old) return old;
+      setAll((old) => {
         return {
           ...old,
           pages: old.pages.map((page) => ({
@@ -315,6 +342,13 @@ export function useRecordMutations(ws: string, db: string) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
+      // The count is filter-scoped (table-view.tsx passes the view's own
+      // filter to useRecordCount), and a field edit CAN change whether a
+      // record matches that filter — moving it in or out of the view changes
+      // the "N records" total, not just the row set. Used to refresh for
+      // free through the same prefix collision this file fixes; needs its
+      // own invalidation now that the count has its own key.
+      void qc.invalidateQueries({ queryKey: countKey });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
       // #199 — My Work lists records from EVERY database, so an edit made anywhere
@@ -337,13 +371,17 @@ export function useRecordMutations(ws: string, db: string) {
       return data as unknown as RecordRow;
     },
     onSuccess: (created) => {
-      setAll((old: { pages: RecordsPage[] } | undefined) => {
-        if (!old || old.pages.length === 0) return old;
+      setAll((old) => {
+        if (old.pages.length === 0) return old;
         const pages = [...old.pages];
         const last = pages[pages.length - 1]!;
         pages[pages.length - 1] = { ...last, data: [...last.data, created] };
         return { ...old, pages };
       });
+      // A new record changes the view's total — same count invalidation
+      // `key` used to trigger incidentally via the prefix collision this
+      // fixes; now explicit, since it no longer happens for free.
+      void qc.invalidateQueries({ queryKey: countKey });
     },
     onError: () => toast.error('Could not create record'),
   });
@@ -356,14 +394,13 @@ export function useRecordMutations(ws: string, db: string) {
       if (error) throw error;
     },
     onSuccess: (_data, rec) => {
-      setAll((old: { pages: RecordsPage[] } | undefined) =>
-        old
-          ? {
-              ...old,
-              pages: old.pages.map((p) => ({ ...p, data: p.data.filter((r) => r.id !== rec) })),
-            }
-          : old,
-      );
+      setAll((old) => ({
+        ...old,
+        pages: old.pages.map((p) => ({ ...p, data: p.data.filter((r) => r.id !== rec) })),
+      }));
+      // A deleted (or restored) record changes the view's total — see the
+      // matching note in createRecord.
+      void qc.invalidateQueries({ queryKey: countKey });
       // #265: one restore closure, used by BOTH the toast button and the
       // Cmd-Z stack, so the two routes can't drift into doing different things.
       const restore = async () => {
@@ -373,6 +410,7 @@ export function useRecordMutations(ws: string, db: string) {
         );
         if (error) throw error;
         void qc.invalidateQueries({ queryKey: key });
+        void qc.invalidateQueries({ queryKey: countKey });
       };
       pushUndo({ label: 'Restored from trash', run: restore });
       toast.success('Moved to trash', {
