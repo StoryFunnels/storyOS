@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AutoLinkRules, RelationCardinality } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -667,6 +667,27 @@ export class RelationsService {
     let removedIds: string[] = [];
 
     await this.db.transaction(async (tx) => {
+      // #686 — replaceLinks is delete-then-insert, and the insert had no
+      // onConflictDoNothing (unlike addLinks' insert above, which is safely
+      // conflict-tolerant because ADD never claims to clear anything first).
+      // Two concurrent PUTs for the SAME (relation, record) can both delete
+      // nothing-yet-committed, then both insert an overlapping target,
+      // hitting record_links_uq as an unhandled 500. onConflictDoNothing
+      // alone would silence the error but let the two requests' target sets
+      // MERGE (whichever half of each didn't conflict survives) rather than
+      // the whole-set replace PUT promises. A transaction-scoped advisory
+      // lock keyed to this exact (relation, record) pair forces genuine
+      // serialization: the second PUT waits for the first's delete+insert to
+      // fully commit, then runs its own delete+insert against a clean,
+      // already-committed base — converging on exactly ONE full requested
+      // set, never a 500, never a mixture. Auto-released at commit/rollback,
+      // no manual unlock needed (same hashtext() keying convention as
+      // AutomationsService.tickInner's and GithubService's per-key locks,
+      // but xact-scoped+blocking here since a foreground PUT must wait its
+      // turn rather than skip like those background ticks do).
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`link-replace:${ctx.relation.id}:${recordId}`}))`,
+      );
       const removed = await tx
         .delete(recordLinks)
         .where(and(eq(recordLinks.relationId, ctx.relation.id), eq(myCol, recordId)))
@@ -689,13 +710,22 @@ export class RelationsService {
         );
       }
       if (targets.length) {
-        await tx.insert(recordLinks).values(
-          targets.map((t) => ({
-            relationId: ctx.relation.id,
-            fromRecordId: ctx.side === 'a' ? recordId : t.id,
-            toRecordId: ctx.side === 'a' ? t.id : recordId,
-          })),
-        );
+        // Defense in depth alongside the advisory lock above: addLinks
+        // doesn't take this lock (its own insert is already
+        // onConflictDoNothing-safe), so it could in principle still race a
+        // row into existence between this delete and this insert. Matching
+        // that same tolerance here means the rare cross-function overlap
+        // degrades to "keep the existing row" rather than a 500.
+        await tx
+          .insert(recordLinks)
+          .values(
+            targets.map((t) => ({
+              relationId: ctx.relation.id,
+              fromRecordId: ctx.side === 'a' ? recordId : t.id,
+              toRecordId: ctx.side === 'a' ? t.id : recordId,
+            })),
+          )
+          .onConflictDoNothing();
         await this.writeLinkEvents(
           tx as unknown as Db,
           workspaceId,
