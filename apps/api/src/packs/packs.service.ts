@@ -34,7 +34,7 @@ import type {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields as fieldsTable, packInstallItems, packInstalls, workspaces } from '../db/schema';
+import { fields as fieldsTable, packInstallItems, packInstalls, sources, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
@@ -1693,6 +1693,31 @@ export class PacksService {
           `This pack asks for StoryOS's managed AI, which is not available yet. Its agents ` +
           `install but will not run until you point them at your own model over MCP.`,
       });
+    }
+
+    // #600 — suggested DATA sources, reported the same way (never blocks
+    // install). A source already connected anywhere in the workspace (any
+    // target database — the suggestion is about the PROVIDER, not this
+    // pack's own databases) is not re-suggested.
+    if (manifest.suggested_sources.length > 0) {
+      const connectedProviders = new Set(
+        (
+          await this.db.query.sources.findMany({
+            where: eq(sources.workspaceId, membership.workspaceId),
+            columns: { providerSource: true },
+          })
+        ).map((s) => s.providerSource),
+      );
+      for (const suggestion of manifest.suggested_sources) {
+        if (connectedProviders.has(suggestion.provider)) continue;
+        unmet.push({
+          kind: 'source',
+          name: suggestion.provider,
+          detail: suggestion.note
+            ? `This pack works well with ${suggestion.provider} (${suggestion.note}) — not connected in this workspace yet.`
+            : `This pack works well with ${suggestion.provider}, which is not connected in this workspace yet.`,
+        });
+      }
     }
     return unmet;
   }

@@ -130,6 +130,34 @@ export const PACK_AI_NEEDS = ['none', 'byo', 'storyos'] as const;
 export const packAiNeedSchema = z.enum(PACK_AI_NEEDS);
 export type PackAiNeed = (typeof PACK_AI_NEEDS)[number];
 
+/**
+ * #600 — a pack recommending a DATA source (Shopify/YouTube/Apify-style
+ * providers under apps/api/src/sources/providers/), distinct from
+ * `requires.connections`' chat/dev-tool set above. Deliberately a
+ * SUGGESTION, never a requirement: a source needs a connection the
+ * installing workspace may not have, and — same reasoning `PACK_CONNECTIONS`
+ * already established for `email` vs. Slack/GitHub/Linear — nothing here
+ * ever auto-creates a source. `provider` is free text (like
+ * `connections.provider` on the live `sources` table), not an enum, because
+ * the source-provider registry (`SOURCE_PROVIDER_REGISTRY`) lives in
+ * apps/api and this package must not depend on it; an unrecognised id is
+ * surfaced as-is rather than rejected at parse time, matching how
+ * `checkRequirements` already treats an unrecognised connection name.
+ */
+export const packSuggestedSourceSchema = z.object({
+  provider: z.string().min(1).max(100),
+  /** Why this pack wants it — shown alongside the provider's own name when surfaced. */
+  note: z.string().max(300).optional(),
+  /**
+   * Starter config to pre-fill when the user connects this source (e.g. a
+   * placeholder shop domain, a default Apify actor id) — never used to
+   * auto-connect anything on its own; the user still completes the connect
+   * flow themselves.
+   */
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+export type PackSuggestedSource = z.infer<typeof packSuggestedSourceSchema>;
+
 export const packRequiresSchema = z.object({
   connections: z.array(packConnectionSchema).default([]),
   ai: packAiNeedSchema.default('none'),
@@ -327,12 +355,27 @@ export const packManifestSchema = architectPlanSchema.extend({
   sample_records: z.array(packSampleRecordSchema).default([]),
   /** Skills (#40) bundled into this pack, installed/matched by name. */
   skills: z.array(packSkillSchema).default([]),
+  /** #600 — data sources this pack recommends connecting (Shopify/YouTube/
+   *  Apify-style providers), distinct from `requires.connections`' chat/
+   *  dev-tool set. Never auto-created — see packSuggestedSourceSchema's own
+   *  doc for why. */
+  suggested_sources: z.array(packSuggestedSourceSchema).default([]),
 });
 export type PackManifest = z.infer<typeof packManifestSchema>;
 
-/** One unmet requirement, as install reports it. */
+/**
+ * One unmet requirement, as install reports it. `'source'` (#600) is
+ * reported through this SAME channel deliberately — both `connection` and
+ * `source` entries already share the property that made this "unmet, never
+ * fatal" in the first place: install succeeds either way, and the entry is
+ * how the operator learns what to do next. A `source` entry is a
+ * recommendation rather than a true requirement, but the reporting shape
+ * (kind/name/detail, surfaced in the same array) is identical, and giving a
+ * suggestion a second channel is exactly the drift this codebase's own
+ * `checkRequirements` comment already warns against.
+ */
 export const packUnmetRequirementSchema = z.object({
-  kind: z.enum(['connection', 'ai']),
+  kind: z.enum(['connection', 'ai', 'source']),
   name: z.string(),
   detail: z.string(),
 });
