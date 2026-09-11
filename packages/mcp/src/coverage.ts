@@ -268,17 +268,13 @@ export const DEFERRED: CoverageRule[] = [
       '#406 — rotates a webhook_received rule\'s token + secret, returned in the response body, shown once, never listed again (the same secret-in-a-transcript objection as POST /webhooks above). Do this in-app.',
   },
   {
-    // #682 — narrowed from `(GET|POST) .../workspaces(/{ws})?`, which also
-    // matched the bare `GET /workspaces` (the LIST op) — already reached by
-    // `list_workspaces` since before this rule was written. The old, broader
-    // regex hid that overlap from the dead-rule check (still matched real
-    // operations, just partly ones a tool already covered); see #682's
-    // "a deferred entry never turns out to be already-covered" test, added
-    // for exactly this. Left deferred: creating a workspace (plan-gated,
-    // #683) and reading ONE workspace's own details by id (also #683).
-    match: /^(GET \/api\/v1\/workspaces\/\{ws\}|POST \/api\/v1\/workspaces)$/,
-    reason:
-      "#406 — reading one workspace's own details by id, and creating a workspace. `list_workspaces` covers listing; creation is plan-gated and worth deciding deliberately.",
+    // #683 — narrowed from #682's own narrowing (GET .../workspaces/{ws} |
+    // POST .../workspaces): the GET half (the single-workspace getter) is
+    // reached now, by get_workspace. Creating a workspace stays deferred —
+    // plan-gated, Ievgen's call, not a default extension of this lane's api
+    // sanction.
+    match: /^POST \/api\/v1\/workspaces$/,
+    reason: "#406 — creating a workspace is plan-gated and worth deciding deliberately, not a default agent capability.",
   },
 ];
 
