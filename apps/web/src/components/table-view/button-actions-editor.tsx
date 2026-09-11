@@ -74,6 +74,68 @@ const WEBHOOK_SAFE_ACTIONS = new Set([
   'notify_user',
 ]);
 
+/** #285 — the "Then" type-select's option list, extracted so the flow-diagram
+ * canvas's own "add action" control offers exactly the same set, grouped the
+ * same way (#152's Common/Advanced split), rather than a second hand-kept
+ * list that drifts from this one (#375/#380/#383/#399/#408/#422's shape). */
+export const ACTION_TYPE_GROUPS: Array<{ label: string; options: Array<{ value: string; label: string }> }> = [
+  {
+    label: 'Common',
+    options: [
+      { value: 'set_values', label: 'Set fields on this record' },
+      { value: 'create_record', label: 'Create a record' },
+      { value: 'update_linked', label: 'Update linked records' },
+      { value: 'add_comment', label: 'Add a comment' },
+      { value: 'notify_user', label: 'Notify a person' },
+      { value: 'send_slack_message', label: 'Send a Slack message' },
+      { value: 'send_email', label: 'Send an email' },
+    ],
+  },
+  {
+    label: 'Advanced · developer',
+    options: [
+      { value: 'send_webhook', label: 'Send a webhook' },
+      { value: 'http_request', label: 'Call an API (HTTP request)' },
+    ],
+  },
+];
+
+/** #285 — one place building a fresh action's starting shape for a given
+ * type, shared by the "Then" list's type-select (changing an existing
+ * action's type) and the flow-diagram canvas's "add action" control
+ * (appending a new one) — the same reasoning `ACTION_TYPE_GROUPS` above is
+ * extracted for, applied to the OTHER half of the same switch. */
+export function defaultActionFor(
+  type: string,
+  ctx: { db: string; relationFields: Field[]; mailConnectionId?: string; restrictToWebhookSafe?: boolean },
+): ButtonAction {
+  if (type === 'set_values') return { type: 'set_values', values: {} };
+  if (type === 'create_record') {
+    return {
+      type: 'create_record',
+      database_id: ctx.db,
+      values: { name: ctx.restrictToWebhookSafe ? '{payload.name}' : 'New record for {Title}' },
+    };
+  }
+  if (type === 'notify_user') return { type: 'notify_user', user: '@me', message: '' };
+  if (type === 'update_linked') {
+    return { type: 'update_linked', relation_field_id: ctx.relationFields[0]?.id ?? '', values: {} };
+  }
+  if (type === 'send_webhook') return { type: 'send_webhook', url: '' };
+  if (type === 'send_slack_message') return { type: 'send_slack_message', text: '' };
+  if (type === 'send_email') {
+    return {
+      type: 'send_email',
+      connection_id: ctx.mailConnectionId ?? '',
+      to: '',
+      subject: '',
+      body_markdown: '',
+    };
+  }
+  if (type === 'http_request') return { type: 'http_request', method: 'GET', url: '' };
+  return { type: 'add_comment', body_template: '' };
+}
+
 type Member = { id: string; name: string };
 
 /** Compact declarative action builder: set fields / create linked record / comment. */
@@ -140,40 +202,17 @@ export function ButtonActionsEditor({
             <select
               className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
               value={action.type}
-              onChange={(e) => {
-                const t = e.target.value;
-                if (t === 'set_values') patch(i, { type: 'set_values', values: {} });
-                else if (t === 'create_record') {
-                  patch(i, {
-                    type: 'create_record',
-                    database_id: db,
-                    values: {
-                      name: restrictToWebhookSafe ? '{payload.name}' : 'New record for {Title}',
-                    },
-                  });
-                } else if (t === 'notify_user')
-                  patch(i, { type: 'notify_user', user: '@me', message: '' });
-                else if (t === 'update_linked')
-                  patch(i, {
-                    type: 'update_linked',
-                    relation_field_id: relationFields[0]?.id ?? '',
-                    values: {},
-                  });
-                else if (t === 'send_webhook') patch(i, { type: 'send_webhook', url: '' });
-                else if (t === 'send_slack_message')
-                  patch(i, { type: 'send_slack_message', text: '' });
-                else if (t === 'send_email')
-                  patch(i, {
-                    type: 'send_email',
-                    connection_id: mailConnections.data?.[0]?.id ?? '',
-                    to: '',
-                    subject: '',
-                    body_markdown: '',
-                  });
-                else if (t === 'http_request')
-                  patch(i, { type: 'http_request', method: 'GET', url: '' });
-                else patch(i, { type: 'add_comment', body_template: '' });
-              }}
+              onChange={(e) =>
+                patch(
+                  i,
+                  defaultActionFor(e.target.value, {
+                    db,
+                    relationFields,
+                    mailConnectionId: mailConnections.data?.[0]?.id,
+                    restrictToWebhookSafe,
+                  }),
+                )
+              }
             >
               {/* MN-254: a webhook_received rule has no triggering record, so only
                   WEBHOOK_SAFE_ACTIONS are offered — the backend rejects the rest with
@@ -182,26 +221,20 @@ export function ButtonActionsEditor({
                   API-integration developer tooling (raw webhooks, arbitrary HTTP
                   with headers/json-path) sit in their own group so a
                   non-technical user isn't offered them as peers of "Add a
-                  comment". Same options, honestly labelled. */}
-              <optgroup label="Common">
-                {offersAction('set_values') && (
-                  <option value="set_values">Set fields on this record</option>
-                )}
-                <option value="create_record">Create a record</option>
-                {offersAction('update_linked') && (
-                  <option value="update_linked">Update linked records</option>
-                )}
-                {offersAction('add_comment') && <option value="add_comment">Add a comment</option>}
-                <option value="notify_user">Notify a person</option>
-                <option value="send_slack_message">Send a Slack message</option>
-                {offersAction('send_email') && <option value="send_email">Send an email</option>}
-              </optgroup>
-              <optgroup label="Advanced · developer">
-                <option value="send_webhook">Send a webhook</option>
-                {offersAction('http_request') && (
-                  <option value="http_request">Call an API (HTTP request)</option>
-                )}
-              </optgroup>
+                  comment". Same options, honestly labelled. #285 — the group/option
+                  list itself now lives in ACTION_TYPE_GROUPS, shared with the flow
+                  diagram canvas's own "add action" control. */}
+              {ACTION_TYPE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options
+                    .filter((o) => offersAction(o.value))
+                    .map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
             </select>
             <button
               type="button"
@@ -406,7 +439,7 @@ export function ButtonActionsEditor({
       <button
         type="button"
         className="flex items-center gap-1 self-start text-[13px] text-muted hover:text-ink"
-        onClick={() => onChange([...actions, { type: 'add_comment', body_template: '' }])}
+        onClick={() => onChange([...actions, defaultActionFor('add_comment', { db, relationFields })])}
       >
         <Plus className="h-3.5 w-3.5" /> Add action
       </button>
