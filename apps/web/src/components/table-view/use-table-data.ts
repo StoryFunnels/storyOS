@@ -342,6 +342,13 @@ export function useRecordMutations(ws: string, db: string) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
+      // The count is filter-scoped (table-view.tsx passes the view's own
+      // filter to useRecordCount), and a field edit CAN change whether a
+      // record matches that filter — moving it in or out of the view changes
+      // the "N records" total, not just the row set. Used to refresh for
+      // free through the same prefix collision this file fixes; needs its
+      // own invalidation now that the count has its own key.
+      void qc.invalidateQueries({ queryKey: countKey });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
       // #199 — My Work lists records from EVERY database, so an edit made anywhere
