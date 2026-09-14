@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { CommentComposer } from '../entity/panels';
 import { CardFieldChip } from './board-view';
 import { CellEditor, OptionChip, richTextPreview, optionColor } from '../table-view/cells';
+import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
@@ -52,6 +53,14 @@ export function FeedView({
       { name: 'Untitled' },
       { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
     );
+
+  // #702 — feed was found rendering `row.number` unconditionally too, the same
+  // defect #701 fixed for list view: one field, opposite defaults depending on
+  // which view type you're looking at. Same shared decision, not a third copy.
+  const numberHidden = useMemo(() => {
+    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
+    return isNumberColumnHidden(config.hidden_field_ids, real?.id);
+  }, [config.hidden_field_ids, database.data]);
 
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(
@@ -180,7 +189,7 @@ export function FeedView({
                     >
                       <Maximize2 className="h-3 w-3" /> Open
                     </Link>
-                    {row.number !== null && <span className="tabular-nums">#{row.number}</span>}
+                    {row.number !== null && !numberHidden && <span className="tabular-nums">#{row.number}</span>}
                   </div>
                 </div>
                 {canComment && (

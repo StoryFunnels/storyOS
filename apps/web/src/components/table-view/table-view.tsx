@@ -1010,11 +1010,19 @@ export function TableView({
                       derived straight from this view's own filtered/sorted
                       row order (`item.index`), so it recalculates for free
                       whenever that order changes. It is not a field — never
-                      stored, never itself hideable. The permanent record
-                      number (MN-087) is now opt-in alongside it via Fields →
-                      Hide fields (#289) rather than the thing shown by
-                      default; both fade to row actions on hover, same as
-                      before.
+                      stored, never itself hideable. It fades to row actions
+                      on hover, same as before.
+
+                      #699 AC5 — the permanent record number (opt-in via
+                      Fields → Row gutter, #289) used to fade out WITH the
+                      index, so a field the user explicitly switched on
+                      vanished the moment they pointed at its own row while
+                      Priority (an ordinary column) stayed put — the same
+                      "a toggle that can't change what you see" defect AC1
+                      fixed elsewhere in this file, just triggered by hover
+                      instead of by nothing. It's pulled out as its own small
+                      corner badge below, NEVER tied to hover/selection state,
+                      so switching it on has one meaning in every row state.
                     */}
                     <span
                       className={cn(
@@ -1023,8 +1031,12 @@ export function TableView({
                       )}
                     >
                       {item.index + 1}
-                      {row.number !== null && !numberHidden && <span>·{row.number}</span>}
                     </span>
+                    {row.number !== null && !numberHidden && (
+                      <span className="pointer-events-none absolute right-0.5 top-0.5 text-[9px] tabular-nums text-faint">
+                        {row.number}
+                      </span>
+                    )}
                     <div
                       className={cn(
                         'absolute inset-0 flex items-center justify-center gap-0.5',
