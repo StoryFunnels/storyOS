@@ -5372,6 +5372,12 @@ export interface components {
                     success_message?: string;
                     /** Format: uri */
                     redirect_url?: string;
+                    theme?: {
+                        accent?: string;
+                        surface?: string;
+                        text?: string;
+                        radius?: number;
+                    };
                 };
                 share?: {
                     public_token?: string;
@@ -5555,6 +5561,12 @@ export interface components {
                     success_message?: string;
                     /** Format: uri */
                     redirect_url?: string;
+                    theme?: {
+                        accent?: string;
+                        surface?: string;
+                        text?: string;
+                        radius?: number;
+                    };
                 };
                 share?: {
                     public_token?: string;
@@ -5734,6 +5746,12 @@ export interface components {
                     success_message?: string;
                     /** Format: uri */
                     redirect_url?: string;
+                    theme?: {
+                        accent?: string;
+                        surface?: string;
+                        text?: string;
+                        radius?: number;
+                    };
                 };
                 share?: {
                     public_token?: string;

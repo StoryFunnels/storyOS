@@ -3,6 +3,21 @@ import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
 import { systemFieldId } from './system-fields';
 
+/**
+ * #711 — a settable embed colour: `#rgb` or `#rrggbb`, nothing else.
+ *
+ * These values end up inside a `style` attribute on a PUBLIC, UNAUTHENTICATED
+ * page, so the shape is an allowlist rather than a sanity check. A hex literal
+ * cannot express `url(...)` (the exfiltration vector), cannot close the
+ * declaration and open another, and cannot reference another custom property.
+ * Anchored, so nothing can trail the value.
+ *
+ * Alpha is excluded deliberately, not forgotten — see the `theme` comment.
+ */
+export const hexColourSchema = z
+  .string()
+  .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Expected a hex colour such as #1c1917 or #abc');
+
 export const viewTypeSchema = z.enum([
   'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
 ]);
@@ -365,6 +380,47 @@ export const viewConfigSchema = z.object({
       /** Shown after a successful submit; optional redirect instead. */
       success_message: z.string().max(500).optional(),
       redirect_url: z.string().url().max(500).optional(),
+      /**
+       * #711 phase 1 — how an EMBEDDED form should look on the host's page.
+       *
+       * Stored HERE rather than passed on the iframe URL (AC1, amended): with
+       * URL parameters, changing one colour means the customer goes back into
+       * their CMS and re-pastes the iframe. Stored on the form, they change it
+       * once and every existing embed updates. They restyle many times and
+       * paste the iframe once.
+       *
+       * FOUR CONTROLS, NOT EIGHTEEN TOKENS. The form uses 18 distinct tokens;
+       * exposing 18 is a stylesheet, not a design. Everything else derives —
+       * see docs/design/form-embed-theming-spec.md §1 and the web-side
+       * `embedThemeStyle`. Two tokens are deliberately NOT settable here:
+       * `--text-on-dark` (the submit button's LABEL — a pale accent plus white
+       * text makes the form's primary action unreadable, so it is derived with
+       * a 4.5:1 floor) and `--error` (semantic, not brand: a host whose brand
+       * is red would otherwise make validation indistinguishable from submit).
+       *
+       * HEX ONLY, and 6- or 3-digit only. No alpha: a translucent `text` or
+       * `surface` composites against whatever the host put behind the iframe,
+       * which we cannot see or reason about, so the contrast floors below it
+       * would be computed against a colour that is not what the visitor sees.
+       * These values come from colour pickers in the builder (AC4 — an
+       * embedder never hand-writes this), and a picker emits hex.
+       *
+       * Absent = emit nothing at all, NOT defaults. See §2 of the spec: an
+       * unthemed embed must stay byte-identical, not merely look the same.
+       */
+      theme: z
+        .object({
+          /** Submit button, focus ring. Derives `--primary`, `--accent`, `--text-on-dark`. */
+          accent: hexColourSchema.optional(),
+          /** The INPUT surface (the card is gone in embed mode, #711 phase 0).
+           *  Derives `--bg-card`, `--bg-hover`, `--border-default`, `--border-strong`. */
+          surface: hexColourSchema.optional(),
+          /** Derives the whole `--text-*` hierarchy by mixing toward `surface`. */
+          text: hexColourSchema.optional(),
+          /** Control radius in px. The other radii derive multiplicatively. */
+          radius: z.number().int().min(0).max(16).optional(),
+        })
+        .optional(),
     })
     .optional(),
   /**
