@@ -4003,7 +4003,7 @@ export interface paths {
         /** Public form definition (link/public access only) */
         get: operations["PublicFormsController_get"];
         put?: never;
-        /** Submit a public form → creates or (portal-scoped) edits a record (anonymous) */
+        /** Submit a public form → creates or (portal-scoped) edits a record (anonymous). Multipart with a "payload" JSON text part when the form has an attachment field. */
         post: operations["PublicFormsController_submit"];
         delete?: never;
         options?: never;
@@ -12034,9 +12034,10 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["PublicSubmitDto"];
+                "multipart/form-data": components["schemas"]["PublicSubmitDto"];
             };
         };
         responses: {

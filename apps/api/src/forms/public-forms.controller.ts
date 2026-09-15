@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UnprocessableEntityException } from '@nestjs/common';
-import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 import { createZodDto, ZodValidationException } from 'nestjs-zod';
@@ -59,6 +59,14 @@ export class PublicFormsController {
   @Post(':token')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiConsumes('application/json', 'multipart/form-data')
+  // #710 — CI's OpenAPI/SDK drift check caught this the first time round:
+  // dropping `@Body() body: PublicSubmitDto` (needed so multipart doesn't hit
+  // the global ZodValidationPipe on an undefined body) also silently dropped
+  // the documented request shape, since Swagger derives it from that
+  // decorator. `@ApiBody` is a docs-only annotation — it doesn't run the pipe
+  // — so this restores the schema without reintroducing the bug it was
+  // removed to fix.
+  @ApiBody({ type: PublicSubmitDto, required: false })
   @ApiOperation({
     summary:
       'Submit a public form → creates or (portal-scoped) edits a record (anonymous). ' +
