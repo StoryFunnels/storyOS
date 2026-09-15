@@ -95,12 +95,42 @@ well but leaves a 6px modal radius at `r = 0`, so: multiplicative.
 --accent           = accent
 --border-accent    = accent
 --text-on-dark     = DERIVED, never exposed — see §3
+
+(Shipped in phase 1: colour controls accept HEX ONLY, not rgb()/hsl(). The
+contrast floors need relative luminance, which needs parsing; a colour picker
+emits hex and §6's builder is the only thing that writes this config. Alpha is
+excluded because a translucent surface composites against whatever the host put
+behind the iframe, so a floor measured against it would be measured against a
+colour the visitor never sees.)
 ```
 
-The percentages are chosen to preserve the three-step text hierarchy
-(ink → muted → faint) that `#326` built deliberately and that `#637`/`#669`
-spent six PRs defending. Deriving them means an embedder **cannot flatten it**
-by picking three greys that happen to be close together.
+The percentages preserve the three-step text hierarchy (ink → muted → faint)
+that `#326` built deliberately and that `#637`/`#669` spent six PRs defending.
+Deriving them means an embedder **cannot flatten it** by picking three greys
+that happen to be close together.
+
+> **CORRECTED IN PHASE 1 (PR #791). These percentages are a STARTING POINT,
+> not the rule — the contrast floor is the rule.**
+>
+> This section originally presented the percentages as the derivation. Checked
+> against a real host brand, as the ticket asked: text `#2c2419` on surface
+> `#fbf7ef` put `--text-muted` at **4.32:1** — below the 4.5:1 it needs, and
+> below the **5.44:1 the unthemed form already achieves**. The spec's own
+> numbers would have made a themed form *less* readable than an unthemed one.
+>
+> A fixed percentage cannot hold a contrast floor across arbitrary host
+> colours, because the ratio depends on how far apart the two colours are to
+> begin with — so no better constant exists. What ships instead: start at the
+> percentage above, then step back toward the ink until the ratio clears
+> **4.5:1** for `--text-secondary` and `--text-muted` (real content text) and
+> **3:1** for `--text-faint` (the attribution — parity with what the unthemed
+> form already does, rather than fixing `#706` in passing). Re-measured in the
+> browser after the change: 4.58:1.
+>
+> This only works when BOTH `text` and `surface` are set. With `text` alone the
+> surface is whatever `--bg-card` resolves to at render time and cannot be
+> measured, so those three steps fall back to `color-mix` at the percentages
+> above and the floors do not apply.
 
 ---
 
