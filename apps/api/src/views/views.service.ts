@@ -532,8 +532,33 @@ export class ViewsService {
     // about `share` — would otherwise silently unpublish a shared view the
     // moment anything else about it changed. Carried forward regardless of
     // what `patch.config` contains.
+    //
+    // #713 — `form.public_token`/`form.access` need the SAME protection, but
+    // not the SAME mechanism: unlike `share` (minted server-side, immutable
+    // outside its own dedicated endpoint), a form's token is client-set on an
+    // ordinary PATCH (public-views.service.ts's own comment says so) — the
+    // form builder genuinely needs to keep writing `access`, and #711 needs
+    // `form.theme` writable too. So this is surgical, not wholesale:
+    //  - `patch.config.form` absent entirely (an unrelated edit — sorts,
+    //    columns, anything outside the form builder — that carries no `form`
+    //    key at all): the OLD `form` subtree is restored wholesale, same as
+    //    `share`. This is the actual reported bug — an ordinary table-view
+    //    edit wiped a form it never touched or knew existed.
+    //  - `patch.config.form` present (the form builder IS saving): trusted
+    //    as sent, EXCEPT `public_token`/`access` fall back to the old value
+    //    only when the incoming form object doesn't itself supply one — so
+    //    a deliberate revoke/regenerate (the caller DOES set access/token)
+    //    still works, matching this ticket's own AC #3.
+    const oldForm = (view.config as ViewConfig | null)?.form;
+    const form = patch.config?.form
+      ? {
+          ...patch.config.form,
+          public_token: patch.config.form.public_token ?? oldForm?.public_token,
+          access: patch.config.form.access ?? oldForm?.access,
+        }
+      : oldForm;
     const config = patch.config
-      ? { ...patch.config, share: (view.config as ViewConfig | null)?.share }
+      ? { ...patch.config, share: (view.config as ViewConfig | null)?.share, form }
       : patch.config;
 
     const [updated] = await this.db

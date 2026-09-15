@@ -304,4 +304,89 @@ describe('public forms (MN-101)', () => {
     const after = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 100 })).json().data.length;
     expect(after).toBe(before);
   });
+
+  /**
+   * #713 — the reported bug, reproduced exactly: an ordinary view-config edit
+   * that never mentions `form` at all (the table-view's own field-visibility
+   * panel, sort picker, anything outside the form builder) used to wipe
+   * `config.form.public_token`/`access` wholesale, since `update()` replaces
+   * `config` and nothing carried `form` forward the way `share` already was.
+   */
+  describe('editing unrelated view config must not destroy the form (#713)', () => {
+    it('a config PATCH that omits `form` entirely leaves the public link untouched', async () => {
+      const view = await makeForm('public', 'tok-713-untouched');
+      const patch = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`, {
+        // The shape a table-view's OWN settings panel would send — no `form`
+        // key anywhere, exactly like the real report (editing an unrelated
+        // part of the view).
+        config: { sorts: [], hidden_field_ids: [nameFieldId], card_field_ids: [], column_widths: {} },
+      });
+      expect(patch.statusCode, patch.body).toBeLessThan(300);
+
+      const def = await pub('GET', '/public/forms/tok-713-untouched');
+      expect(def.statusCode, 'the form must still resolve by its original token').toBe(200);
+      expect(def.json().title).toBe('Contact us');
+    });
+
+    it('the form builder saving its OWN settings (fields, title) still keeps the same token/access', async () => {
+      const view = await makeForm('public', 'tok-713-builder-save');
+      const patch = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`, {
+        config: {
+          sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+          form: {
+            title: 'Contact us (edited)',
+            access: 'public',
+            fields: [{ field_id: nameFieldId, required: true, label: 'Your name' }],
+            // Deliberately no public_token here — the form builder's own save
+            // never re-sends the token it didn't generate; it must not be
+            // required to, and it must not lose it either.
+          },
+        },
+      });
+      expect(patch.statusCode, patch.body).toBeLessThan(300);
+
+      const def = await pub('GET', '/public/forms/tok-713-builder-save');
+      expect(def.statusCode, 'the SAME token must still resolve').toBe(200);
+      expect(def.json().title).toBe('Contact us (edited)');
+    });
+
+    it('a caller that DOES explicitly change access can still revoke the public link', async () => {
+      const view = await makeForm('public', 'tok-713-revoke');
+      const revoke = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`, {
+        config: {
+          sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+          form: {
+            title: 'Contact us',
+            access: 'members', // explicit revoke
+            fields: [{ field_id: nameFieldId }],
+          },
+        },
+      });
+      expect(revoke.statusCode, revoke.body).toBeLessThan(300);
+
+      const def = await pub('GET', '/public/forms/tok-713-revoke');
+      expect(def.statusCode, 'a deliberate revoke must still take effect, not be overridden by the carve-out').toBe(404);
+    });
+
+    it('a caller that DOES explicitly set a new token can regenerate the public link', async () => {
+      const view = await makeForm('public', 'tok-713-old');
+      const regen = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`, {
+        config: {
+          sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+          form: {
+            title: 'Contact us',
+            access: 'public',
+            public_token: 'tok-713-new',
+            fields: [{ field_id: nameFieldId }],
+          },
+        },
+      });
+      expect(regen.statusCode, regen.body).toBeLessThan(300);
+
+      const oldDef = await pub('GET', '/public/forms/tok-713-old');
+      expect(oldDef.statusCode, 'the OLD token must stop working once explicitly regenerated').toBe(404);
+      const newDef = await pub('GET', '/public/forms/tok-713-new');
+      expect(newDef.statusCode).toBe(200);
+    });
+  });
 });
