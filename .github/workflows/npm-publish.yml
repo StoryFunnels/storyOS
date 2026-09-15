@@ -21,6 +21,10 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
+      # Workspace deps (@storyos/schemas, @storyos/sdk) resolve through
+      # dist/ — they exist only once built. A clean CI checkout has no
+      # dist/, so prepublishOnly's tsc cannot find them. Build first.
+      - run: pnpm build
       - run: pnpm --filter @storyos/mcp publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
