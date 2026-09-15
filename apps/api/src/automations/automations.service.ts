@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -629,7 +630,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         .set({ failureStreak: 0 })
         .where(eq(automations.id, rule.id));
     } catch (error) {
-      const message = (error as Error).message?.slice(0, 500) ?? 'failed';
+      const message = this.describeActionError(error);
       // Upsert: the placeholder above may or may not have landed yet
       // (entitlements.can() can throw before it does), so this covers both —
       // ON CONFLICT DO UPDATE is simpler here than a runRowInserted flag
@@ -903,7 +904,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       await this.db.update(automations).set({ failureStreak: 0 }).where(eq(automations.id, ruleId));
     } catch (error) {
       const streak = rule.failureStreak + 1;
-      const message = (error as Error).message?.slice(0, 500) ?? 'failed';
+      const message = this.describeActionError(error);
       if (runRowInserted) {
         await this.db
           .update(automationRuns)
@@ -919,6 +920,39 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       if (streak >= MAX_FAILURES)
         this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
     }
+  }
+
+  /**
+   * #714 — records.service.ts's six field-validation throw sites carry a
+   * real `details: [{ path: 'values.<field>', message: '<reason> }]` array
+   * (`UnprocessableEntityException({ message, details })`), but the two
+   * catch blocks above were reading only `(error as Error).message`. On a
+   * Nest HttpException constructed from an OBJECT body, `.message` resolves
+   * to just that object's own `message` string — `details` lives on the
+   * response body, reachable only through `getResponse()`. So a real
+   * "expected an option id" reason for a specific field was silently
+   * collapsed to the generic "Record values validation failed" every time,
+   * and a customer diagnosing it had nothing to go on but that.
+   */
+  private describeActionError(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'object' && response !== null && 'details' in response) {
+        const details = (response as { details?: unknown }).details;
+        if (Array.isArray(details) && details.length > 0) {
+          const base = (response as { message?: string }).message ?? error.message;
+          const fields = details
+            .map((d) =>
+              d && typeof d === 'object' && 'path' in d
+                ? `${(d as { path: string }).path}: ${(d as { message?: string }).message ?? 'invalid'}`
+                : String(d),
+            )
+            .join('; ');
+          return `${base} (${fields})`.slice(0, 500);
+        }
+      }
+    }
+    return ((error instanceof Error ? error.message : String(error)) || 'failed').slice(0, 500);
   }
 
   private async logRun(
