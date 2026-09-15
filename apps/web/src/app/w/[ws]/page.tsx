@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Blocks, CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -19,6 +19,8 @@ import {
 } from '@/lib/activation';
 import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
+import { takePendingShare } from '@/lib/pending-share';
+import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -58,6 +60,19 @@ export default function WorkspaceHome() {
     retry: false,
     refetchOnWindowFocus: true,
   });
+
+  /*
+   * #217 — the wizard's last step, offered exactly once: right after landing
+   * in a workspace just built by the describe-your-work step. `false` on
+   * both the server and the first client render (same hydration dance as
+   * `useTyronPanel`/`useRememberedThread`), then flips true post-mount if
+   * `/new-workspace` left the flag — never on a later visit to this page,
+   * whether the prompt was used or skipped.
+   */
+  const [showShare, setShowShare] = useState(false);
+  useEffect(() => {
+    if (takePendingShare(ws)) setShowShare(true);
+  }, [ws]);
 
   const registry = useTemplateRegistry();
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -107,6 +122,8 @@ export default function WorkspaceHome() {
         Model anything as related databases — client work, content, planning. It all lives in the
         sidebar.
       </p>
+
+      {showShare && <ShareWorkspaceCard ws={ws} onDone={() => setShowShare(false)} />}
 
       {showChecklist && (
         <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">

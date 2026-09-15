@@ -40,6 +40,7 @@ export function WorkspaceBuild({
   ws,
   ensureThread,
   onBuilt,
+  autoStart,
 }: {
   ws: string;
   /**
@@ -53,12 +54,24 @@ export function WorkspaceBuild({
    */
   ensureThread: (firstMessage: string) => Promise<string>;
   onBuilt: () => void;
+  /**
+   * #217 — a description already given somewhere else (the `/new-workspace`
+   * describe-your-work step), run without waiting for the button. The text
+   * still fills the textarea rather than being hidden, so a failed build
+   * leaves the user looking at what they asked for, free to edit and retry
+   * exactly like any other build.
+   */
+  autoStart?: string;
 }) {
   const qc = useQueryClient();
   const { set: setPanel } = useTyronPanel();
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(autoStart ?? '');
   const [building, setBuilding] = useState(false);
   const startedWith = useRef<Set<string>>(new Set());
+  // Runs the auto-start at most once — this component's own `build` mutation
+  // is what flips `description` away from empty on ordinary use, so guarding
+  // on that alone would refire after a reset; a ref guards the ONE auto-run.
+  const autoStarted = useRef(false);
 
   const databases = useQuery({
     queryKey: ['databases', ws],
@@ -119,9 +132,40 @@ export function WorkspaceBuild({
     if (!build.isPending && building) setBuilding(false);
   }, [build.isPending, building]);
 
+  /*
+   * #217 — known dev-only rough edge, verified and worth recording so it is
+   * not re-investigated: under `pnpm dev`'s React Strict Mode, the mount →
+   * effect → simulated-cleanup → remount cycle can leave this component
+   * subscribed to a mutation observer that never receives the ALREADY-SENT
+   * request's settle event, freezing the spinner even though the single real
+   * network call (confirmed via the Network tab — never duplicated) completed
+   * long before. It affects local display only: `next build` never
+   * double-invokes effects, so production never hits this, and a page refresh
+   * always shows the true (settled) state in dev too. Not worth restructuring
+   * this into a query to dodge — the ref guard below is what actually matters
+   * (exactly one `/build` call per description, StrictMode or not).
+   */
+  useEffect(() => {
+    if (!autoStart || autoStarted.current) return;
+    autoStarted.current = true;
+    build.mutate(autoStart);
+  }, [autoStart]);
+
   const created = (databases.data ?? []).filter((d) => !d.isSystem && !startedWith.current.has(d.id));
 
-  if (build.isPending || created.length > 0) {
+  /*
+   * #217 — found live: `build.isError` alone used to fall through to the plain
+   * "Tell me what you do" form below, silently discarding the failure the
+   * instant nothing had been created yet (`created.length === 0`) — exactly
+   * the case an unconfigured Tyron (no OPENAI_API_KEY, every self-host and a
+   * dev box without a key) hits on the FIRST call, before anything exists to
+   * list. A brand-new signup landing straight in this flow makes that the
+   * common case rather than a rare one, so the dead end had to go: the error
+   * is now always shown, and `retry()` is the one way back to the form
+   * (`build.reset()`), rather than the error being reachable only by editing
+   * `description` and hoping the disabled check re-renders it.
+   */
+  if (build.isPending || created.length > 0 || build.isError) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
         <p className="flex items-center gap-2 text-[13px] text-ink">
@@ -131,6 +175,8 @@ export function WorkspaceBuild({
               {/* A plain progress line, not a tool trace (#363). */}
               <span>Building your workspace…</span>
             </>
+          ) : build.isError ? (
+            <span className="font-medium">The build stopped.</span>
           ) : (
             <span className="font-medium">Here is what I built.</span>
           )}
@@ -151,14 +197,24 @@ export function WorkspaceBuild({
           </p>
         )}
         {build.isError && (
-          <p className="mt-3 text-[12px] text-error">
-            {/*
-              #357's stop-and-report: a part-way failure leaves a COHERENT
-              workspace, and the tick-list above is exactly what did get made —
-              so the error names the failure without implying nothing happened.
-            */}
-            {apiErrorMessage(build.error, 'The build stopped part-way.')} Anything listed above was created and is yours to keep.
-          </p>
+          <>
+            <p className="mt-3 text-[12px] text-error">
+              {/*
+                #357's stop-and-report: a part-way failure leaves a COHERENT
+                workspace, and the tick-list above is exactly what did get made —
+                so the error names the failure without implying nothing happened.
+              */}
+              {apiErrorMessage(build.error, 'The build stopped part-way.')}
+              {created.length > 0 && ' Anything listed above was created and is yours to keep.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => build.reset()}
+              className="mt-2 text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              Try again
+            </button>
+          </>
         )}
       </div>
     );
