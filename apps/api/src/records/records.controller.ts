@@ -163,7 +163,7 @@ export class RecordsController {
     @Body() body: AggregateRecordsDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.aggregate(databaseId, body, req.user.id);
+    return this.recordsService.aggregate(databaseId, body, req.user.id, req.membership);
   }
 
   @Post('batch')

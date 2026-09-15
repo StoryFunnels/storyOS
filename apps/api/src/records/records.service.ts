@@ -2814,7 +2814,19 @@ export class RecordsService {
     return projected!;
   }
 
-  /** Resolve a record by its public per-database number (MN-087, pretty URLs). */
+  /**
+   * Resolve a record by its public per-database number (MN-087, pretty URLs).
+   *
+   * #474 — the controller's own gate (`assertDb`) only checks database-level
+   * access, unlike `GET /:rec`'s `assertRecordAccess`. That used to be fine
+   * because a database grant meant the whole database anyway; now that
+   * `assertDb` also lets a record-scoped-only guest through (this ticket's
+   * phase 1), a bare database-level pass here would let that guest enumerate
+   * every number 1, 2, 3, ... and read any record in the database, not just
+   * the one they were granted. Checked here, after resolving the row,
+   * because `effectiveForRecord` needs the row's id — the number is not
+   * useful for an access check on its own.
+   */
   async getByNumber(
     databaseId: string,
     number: number,
@@ -2828,6 +2840,20 @@ export class RecordsService {
       ),
     });
     if (!row) throw new NotFoundException('Record not found');
+    if (membership) {
+      const database = await this.db.query.databases.findFirst({
+        where: eq(databases.id, databaseId),
+        columns: { spaceId: true },
+      });
+      const effective = database
+        ? await this.access.effectiveForRecord(membership, {
+            id: row.id,
+            databaseId,
+            spaceId: database.spaceId,
+          })
+        : null;
+      if (!effective) throw new NotFoundException('Record not found');
+    }
     const defs = await this.fieldDefs(databaseId);
     const [projected] = await this.attachLinks([this.project(row, defs)], defs, membership);
     return projected!;
@@ -4062,6 +4088,7 @@ export class RecordsService {
       q?: string;
     },
     currentUserId: string,
+    membership?: Membership,
   ): Promise<{
     op: string;
     field: string | null;
@@ -4095,6 +4122,13 @@ export class RecordsService {
         compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }),
       );
     }
+    // #474 — the same narrowing list/query apply. Without this, a count/sum
+    // over a database a guest only holds record-scoped grants in would
+    // aggregate every record, not just theirs — a count leak on top of a
+    // row-visibility leak, and #474's own routing explicitly named the
+    // aggregate paths as required, not optional.
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
     const where = and(...(conditions as SQL[]));
 
     if (input.op === 'count') {
