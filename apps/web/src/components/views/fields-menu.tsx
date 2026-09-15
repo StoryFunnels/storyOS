@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { ChevronRight, GripVertical } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
@@ -45,6 +46,7 @@ export function FieldsMenu({
   align = 'start',
   searchPlaceholder = 'Filter fields…',
   emptyLabel = 'No fields.',
+  footer,
 }: {
   fields: Field[];
   isVisible: (field: Field) => boolean;
@@ -67,6 +69,12 @@ export function FieldsMenu({
   align?: 'start' | 'end';
   searchPlaceholder?: string;
   emptyLabel?: string;
+  /** #699 — an optional section rendered below the field list, OUTSIDE it —
+   *  for a control that must never read as "one more field in this list"
+   *  (Dara's finding: list membership itself is the promise "this becomes a
+   *  column," which is exactly the promise a merged-gutter toggle can't keep).
+   *  Not filtered by the search box; not part of `fields`/`isVisible`. */
+  footer?: ReactNode;
 }) {
   const [q, setQ] = useState('');
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -141,6 +149,7 @@ export function FieldsMenu({
           )}
           {list.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">{emptyLabel}</p>}
         </div>
+        {footer}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -67,3 +67,20 @@ describe('#408 — every column the table renders can be turned off', () => {
     expect(NON_TOGGLABLE.has('created_by')).toBe(true);
   });
 });
+
+/**
+ * #699 AC1 — `id` (the raw internal UUID system field) was the mirror-image
+ * defect of #408: already in HIDDEN_TYPES (the table never renders it as a
+ * column) but MISSING from NON_TOGGLABLE, so it offered a toggle in Hide
+ * fields that changed nothing when clicked. Same invariant as `created_by`
+ * above; this test is what makes the fix durable rather than a one-off edit.
+ */
+describe('#699 — id is excluded from BOTH, like created_by', () => {
+  it('id was already un-rendered (this ticket only needed to fix the toggle side)', () => {
+    expect(HIDDEN_TYPES.has('id')).toBe(true);
+  });
+
+  it('id no longer offers a no-op toggle', () => {
+    expect(NON_TOGGLABLE.has('id')).toBe(true);
+  });
+});

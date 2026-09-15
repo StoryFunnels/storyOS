@@ -7,6 +7,7 @@ import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS, optionColor } from '../table-view/cells';
+import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
@@ -47,6 +48,16 @@ export function ListView({
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.name])),
     [memberQuery.data],
   );
+  // #701 — the SAME decision table-view.tsx already makes via number-column.ts:
+  // the permanent record number defaults to hidden (#659) and is opt-in via
+  // Fields → Row gutter. This view was rendering `row.number` unconditionally
+  // (no hidden-check at all), so the toggle had no effect here — the same
+  // "one field, opposite defaults depending on which view type" defect #699's
+  // AC1 fixed for `id`.
+  const numberHidden = useMemo(() => {
+    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
+    return isNumberColumnHidden(config.hidden_field_ids, real?.id);
+  }, [config.hidden_field_ids, database.data]);
   const memberImages = useMemo(
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.image])),
     [memberQuery.data],
@@ -149,7 +160,7 @@ export function ListView({
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-                      {row.number !== null && <span className="w-8 shrink-0 text-[11px] tabular-nums text-faint">{row.number}</span>}
+                      {row.number !== null && !numberHidden && <span className="w-8 shrink-0 text-[11px] tabular-nums text-faint">{row.number}</span>}
                       <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title || 'Untitled'}</span>
                       <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                         {cardFields.map((field) => {

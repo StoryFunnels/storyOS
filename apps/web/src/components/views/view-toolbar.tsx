@@ -317,22 +317,34 @@ export function ViewToolbar({
   const filterable = augmented.filter((f) => opsForField(f).length > 0);
 
   /**
-   * #289 — what the Hide-fields / Cards pickers may offer. Every column a view
-   * actually RENDERS, plus the public id: it renders in the table's row gutter
-   * rather than as a column, so it never had a field id to hide by and was the
-   * one visible thing no user could turn off. Offered here under the canonical
-   * system-field id so table-view can honour it (see `numberHidden` there).
+   * #289/#699/#702 — what the Hide-fields / Cards pickers may offer.
    *
-   * Only `title` stays non-togglable — hiding it would leave rows unidentifiable.
-   * Types the views don't render (created_by / id-as-column) are deliberately NOT
-   * listed: a toggle that can't change what you see is worse than no toggle.
+   * `rendered` is every ORDINARY column a view actually renders — no synthetic
+   * entries mixed in. `title` stays non-togglable (hiding it would leave rows
+   * unidentifiable); so does `id` (#699 — the raw internal UUID renders as a
+   * column nowhere, so its toggle did nothing) and `created_by` (views don't
+   * render it either): a toggle that can't change what you see is worse than
+   * no toggle.
+   *
+   * The synthetic permanent-number id is deliberately NOT part of `rendered`
+   * (only meaningful when the database has no REAL `number` field row of its
+   * own). #659 made it render as a suffix inside table view's row-index
+   * gutter, not as an ordinary column — table view offers it as its own "Row
+   * gutter" section (`HiddenFieldsButton` below), separate from this generic
+   * list, per #699 AC2. #702 found the SAME synthetic id was also being handed
+   * to the five card-based view types' picker (board/calendar/gallery/list/
+   * feed) even though none of them read it: nothing there renders a gutter for
+   * it to merge into, so it's excluded from `rendered` entirely rather than
+   * offering a toggle with no effect on any of them.
    */
-  const togglable = useMemo(() => {
-    const rendered = fields.filter((f) => !NON_TOGGLABLE.has(f.type));
+  const rendered = useMemo(() => fields.filter((f) => !NON_TOGGLABLE.has(f.type)), [fields]);
+  /** #699 — the synthetic number system-field entry, only when the database
+   *  has no real `number` field of its own (in which case that real field
+   *  already flows through `rendered` with ordinary present-means-hidden
+   *  semantics, per number-column.ts's own comment). */
+  const numberEntry = useMemo(() => {
     const hasNumber = fields.some((f) => f.apiName === 'number');
-    if (hasNumber) return rendered;
-    const numberEntry = augmented.find((f) => f.apiName === 'number');
-    return numberEntry ? [...rendered, numberEntry] : rendered;
+    return hasNumber ? undefined : augmented.find((f) => f.apiName === 'number');
   }, [fields, augmented]);
 
   return (
@@ -386,15 +398,31 @@ export function ViewToolbar({
           — the generic Cards popover no longer applies to them. */}
       {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
         <CardFieldsButton
-          fields={togglable}
+          fields={rendered}
           shown={config.card_field_ids}
           onChange={(card_field_ids) => onPatch({ card_field_ids })}
           size={viewType === 'board' || viewType === 'gallery' ? config.card_size ?? 'medium' : undefined}
           onSizeChange={(card_size) => onPatch({ card_size })}
+          /*
+           * #702 — confirmed at build time: list and feed both render the
+           * permanent number inline (list-view.tsx / feed-view.tsx, #701's
+           * fix and this ticket's own fix respectively); board, calendar and
+           * gallery render it NOWHERE, so they get no control at all rather
+           * than a toggle with no effect (AC2's decision (b) for those three,
+           * (a) for these two).
+           */
+          numberEntry={(viewType === 'list' || viewType === 'feed') ? numberEntry : undefined}
+          numberShown={numberEntry ? isFieldVisible(config.hidden_field_ids, numberEntry.id) : undefined}
+          onNumberChange={
+            numberEntry
+              ? (next) => onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, numberEntry.id, next) })
+              : undefined
+          }
         />
       ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
-          fields={togglable}
+          fields={rendered}
+          numberEntry={numberEntry}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
@@ -2649,7 +2677,7 @@ function SortRow({
 /**
  * What may never be toggled off.
  *
- * `title` only — hiding it would leave rows unidentifiable.
+ * `title` — hiding it would leave rows unidentifiable.
  *
  * #408 — the previous version of this comment read "system timestamps never
  * render in grids or on cards", and that was FALSE: Created at and Updated at
@@ -2663,8 +2691,16 @@ function SortRow({
  * removes the column, and the choice survives a reload. `created_by` is here
  * because views genuinely do not render it — a toggle that cannot change what
  * you see is worse than no toggle.
+ *
+ * #699 — `id` (the raw internal UUID, `isSystem: true`) joined this set for the
+ * SAME reason `created_by` is here: no view ever renders it as a column, so its
+ * toggle did nothing when clicked. Unlike `created_by`, `id` was actually
+ * OFFERED before this fix — an unenforced rule, not an enforced one; this line
+ * is what makes it real rather than a claim in a comment (which is exactly how
+ * #699 itself was found: this same paragraph once asserted a rule the code
+ * didn't implement).
  */
-export const NON_TOGGLABLE = new Set(['title', 'created_by']);
+export const NON_TOGGLABLE = new Set(['title', 'created_by', 'id']);
 
 /** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
 function CardFieldsButton({
@@ -2673,12 +2709,22 @@ function CardFieldsButton({
   onChange,
   size,
   onSizeChange,
+  numberEntry,
+  numberShown,
+  onNumberChange,
 }: {
   fields: Field[];
   shown: string[];
   onChange: (ids: string[]) => void;
   size?: 'small' | 'medium' | 'large';
   onSizeChange: (size: 'small' | 'medium' | 'large') => void;
+  /** #702 — the synthetic permanent-number field, offered here ONLY for the
+   *  card-based view types that actually render it (list, feed) — see
+   *  ViewToolbar's own call site for which those are and why. Undefined on
+   *  board/calendar/gallery, which render it nowhere. */
+  numberEntry?: Field;
+  numberShown?: boolean;
+  onNumberChange?: (next: boolean) => void;
 }) {
   return (
     <DropdownMenu>
@@ -2716,6 +2762,7 @@ function CardFieldsButton({
           </div>
         )}
         <CardFieldPicker fields={fields} shown={shown} onChange={onChange} />
+        {numberEntry && onNumberChange && <RowGutterToggle shown={Boolean(numberShown)} onChange={onNumberChange} />}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -2819,11 +2866,19 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
  * is persisted as `hidden_field_ids`; reorder writes `field.position` via `onReorder`. */
 function HiddenFieldsButton({
   fields,
+  numberEntry,
   hidden,
   onChange,
   onReorder,
 }: {
   fields: Field[];
+  /** #699 AC2 — the synthetic permanent-number field, rendered as its OWN
+   *  labelled "Row gutter" section below, never mixed into the ordinary field
+   *  list: Dara's finding was that list MEMBERSHIP itself promises "this
+   *  becomes a column," a promise this entry can't keep (it merges into the
+   *  row-index gutter cell instead). Undefined when the database has a real
+   *  `number` field row, which already flows through `fields` normally. */
+  numberEntry?: Field;
   hidden: string[];
   onChange: (ids: string[]) => void;
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
@@ -2832,7 +2887,12 @@ function HiddenFieldsButton({
   // #659 — the number field's entry in `hidden` is polarity-inverted (default
   // hidden, so presence means shown); see number-column.ts, shared with
   // table-view.tsx's own reading of the same array so the two can't drift.
-  const hiddenCount = countHiddenFields(hidden, new Set(fields.map((f) => f.id)));
+  const candidateIds = useMemo(
+    () => new Set(numberEntry ? [...fields.map((f) => f.id), numberEntry.id] : fields.map((f) => f.id)),
+    [fields, numberEntry],
+  );
+  const hiddenCount = countHiddenFields(hidden, candidateIds);
+  const numberShown = numberEntry ? isFieldVisible(hidden, numberEntry.id) : false;
   return (
     <FieldsMenu
       fields={fields}
@@ -2842,6 +2902,44 @@ function HiddenFieldsButton({
       triggerIcon={EyeOff}
       triggerLabel={hiddenCount ? `${hiddenCount} hidden` : 'Hide fields'}
       triggerActive={hiddenCount > 0}
+      footer={
+        numberEntry && <RowGutterToggle shown={numberShown} onChange={(next) => onChange(toggleFieldVisibility(hidden, numberEntry.id, next))} />
+      }
     />
+  );
+}
+
+/**
+ * #699 AC2 / #702 — the "Row gutter" section: one control for the synthetic
+ * permanent-number field, shared by every surface that actually renders it
+ * (table view's Hide-fields footer, and the Cards picker on the OTHER view
+ * types that render it inline — currently list and feed; #702 found
+ * board/calendar/gallery render it nowhere, so they get no control at all
+ * rather than one with no effect). Extracted so a future surface that starts
+ * rendering the number reuses this instead of re-casing the toggle a third
+ * time (field-surfaces.md's rule).
+ */
+function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <div className="mt-1 border-t border-border-default pt-1">
+      <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-faint">Row gutter</p>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={shown}
+        onClick={() => onChange(!shown)}
+        className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+      >
+        <span
+          className={cn(
+            'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
+            shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
+          )}
+        >
+          <span className="h-3 w-3 rounded-full bg-card" />
+        </span>
+        <span className="truncate">Show record number in the row gutter</span>
+      </button>
+    </div>
   );
 }
