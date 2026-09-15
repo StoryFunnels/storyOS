@@ -288,6 +288,7 @@ export default function AdminPage() {
 
   const o = overview.data!;
   const c = costs.data!;
+
   const flagged = c.workspaces.filter((w) => w.belowMarginFloor);
 
   return (
@@ -305,7 +306,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Cost &amp; Margin</h2>
-          <span className="text-[12px] text-faint">
+          <span className="text-[12px] text-muted">
             Margin floor: {c.marginFloorPercent}% · Fixed infra: {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo
             (allocated below)
           </span>
@@ -410,7 +411,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Runs</h2>
-          <span className="text-[12px] text-faint">#300/MN-216c — every workspace, read-only + kill-switch</span>
+          <span className="text-[12px] text-muted">#300/MN-216c — every workspace, read-only + kill-switch</span>
         </div>
         <p className="mb-3 text-[13px] text-muted">
           Agent runs across every workspace. Cancel is a status flip only — it never touches what the
@@ -438,7 +439,7 @@ export default function AdminPage() {
               <tbody>
                 {runs.data.length === 0 && (
                   <tr>
-                    <Td className="text-faint">No runs on this instance yet.</Td>
+                    <Td className="text-muted">No runs on this instance yet.</Td>
                   </tr>
                 )}
                 {runs.data.map((r) => {
@@ -491,7 +492,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
-          <span className="text-[12px] text-faint">MN-220 — submissions awaiting (or having had) review</span>
+          <span className="text-[12px] text-muted">MN-220 — submissions awaiting (or having had) review</span>
         </div>
         <p className="mb-3 text-[13px] text-muted">
           v1 is curated: nothing here is listed on the marketplace until approved.
@@ -502,18 +503,18 @@ export default function AdminPage() {
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
-              <p className="text-[13px] text-faint">No submissions yet.</p>
+              <p className="text-[13px] text-muted">No submissions yet.</p>
             )}
             {packSubmissions.data.map((s) => (
               <div key={s.id} className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[13px] font-medium text-ink">
-                    {s.name} v{s.version} <span className="text-faint">({s.slug})</span>
+                    {s.name} v{s.version} <span className="text-muted">({s.slug})</span>
                   </p>
                   <SubmissionStatusBadge status={s.status} />
                 </div>
                 <p className="mt-0.5 text-[12px] text-muted">{s.summary}</p>
-                <p className="mt-1 text-[12px] text-faint">
+                <p className="mt-1 text-[12px] text-muted">
                   {s.vertical} · {s.license}
                   {s.attribution ? ` · by ${s.attribution}` : ''} · submitted{' '}
                   {new Date(s.submitted_at).toLocaleDateString()}
@@ -674,7 +675,7 @@ function BillingSection() {
     <section className="mb-8">
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-medium text-ink">Billing</h2>
-        <span className="text-[12px] text-faint">
+        <span className="text-[12px] text-muted">
           #304 — comp/Enterprise grants; never touches live Stripe
         </span>
       </div>
@@ -716,11 +717,11 @@ function BillingSection() {
               <span>
                 Plan: <strong className="text-ink">{PLAN_LABEL[b.plan] ?? b.plan}</strong>
               </span>
-              <span className="text-faint">
+              <span className="text-muted">
                 Stripe: {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
               </span>
               {b.currentPeriodEnd && (
-                <span className="text-faint">Until {new Date(b.currentPeriodEnd).toLocaleDateString()}</span>
+                <span className="text-muted">Until {new Date(b.currentPeriodEnd).toLocaleDateString()}</span>
               )}
             </div>
             {b.override ? (
@@ -762,7 +763,7 @@ function BillingSection() {
                 </button>
               </div>
             ) : (
-              <p className="mt-2 border-t border-border-default pt-2 text-[12px] text-faint">
+              <p className="mt-2 border-t border-border-default pt-2 text-[12px] text-muted">
                 No entitlement override — plan defaults apply.
               </p>
             )}
@@ -901,7 +902,7 @@ function BillingSection() {
               <tbody>
                 {b.auditTrail.length === 0 && (
                   <tr>
-                    <Td className="text-faint">No changes recorded for this workspace yet.</Td>
+                    <Td className="text-muted">No changes recorded for this workspace yet.</Td>
                   </tr>
                 )}
                 {b.auditTrail.map((e) => (
@@ -932,6 +933,11 @@ function SubmissionStatusBadge({ status }: { status: PackSubmissionRow['status']
 }
 
 function StatusBadge({ status }: { status: string | null }) {
+  // #706 — KEEPS --text-faint deliberately. This em-dash is a placeholder for
+  // the ABSENCE of a status, not text carrying a status: it says "nothing here"
+  // and reading it more clearly tells you nothing more. Genuinely decorative,
+  // which is what globals.css #326 reserves faint for. Do not "finish the job"
+  // by moving it — faint clears the 3:1 that a non-text graphic is judged at.
   if (!status) return <span className="text-faint">—</span>;
   const tone =
     status === 'Failed'
@@ -947,7 +953,7 @@ function StatusBadge({ status }: { status: string | null }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
-      <p className="text-[12px] text-faint">{label}</p>
+      <p className="text-[12px] text-muted">{label}</p>
       <p className="text-lg font-semibold text-ink">{value}</p>
     </div>
   );
