@@ -14169,6 +14169,28 @@
                     "type": "string",
                     "maxLength": 500,
                     "format": "uri"
+                  },
+                  "theme": {
+                    "type": "object",
+                    "properties": {
+                      "accent": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "surface": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "text": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "radius": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16
+                      }
+                    }
                   }
                 }
               },
@@ -14828,6 +14850,28 @@
                     "type": "string",
                     "maxLength": 500,
                     "format": "uri"
+                  },
+                  "theme": {
+                    "type": "object",
+                    "properties": {
+                      "accent": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "surface": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "text": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "radius": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16
+                      }
+                    }
                   }
                 }
               },
@@ -15467,6 +15511,28 @@
                     "type": "string",
                     "maxLength": 500,
                     "format": "uri"
+                  },
+                  "theme": {
+                    "type": "object",
+                    "properties": {
+                      "accent": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "surface": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "text": {
+                        "type": "string",
+                        "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                      },
+                      "radius": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16
+                      }
+                    }
                   }
                 }
               },

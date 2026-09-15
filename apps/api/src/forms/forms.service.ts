@@ -91,6 +91,7 @@ export class FormsService {
       submit_text?: string;
       success_message?: string;
       redirect_url?: string;
+      theme?: Record<string, unknown>;
     };
     if (form.access !== 'link' && form.access !== 'public') {
       throw new NotFoundException('Form not found'); // members-only is not public
@@ -279,6 +280,12 @@ export class FormsService {
       success_message: form.success_message ?? null,
       redirect_url: form.redirect_url ?? null,
       hide_branding: hideBranding,
+      // #711 phase 1 — how an EMBEDDED form should look on the host's page.
+      // Served to an unauthenticated visitor because it IS the presentation of
+      // the thing they were sent; it carries no workspace data. `?? null`
+      // rather than `?? {}`: an unthemed form must emit no style attribute at
+      // all, and the renderer distinguishes absent from empty (spec §2).
+      theme: form.theme ?? null,
       fields: chosen.map((f) => ({
         field_id: f.id,
         api_name: f.apiName,

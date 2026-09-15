@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
+import { embedThemeStyle } from './embed-theme';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
 // #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
@@ -45,6 +46,8 @@ interface FormDef {
   redirect_url: string | null;
   /** Paid-plan white-label (#269) — hides the "Powered by StoryOS" attribution. */
   hide_branding: boolean;
+  /** #711 — the stored embed theme, or null. Re-validated before it is used. */
+  theme: unknown;
   fields: FormField[];
 }
 
@@ -129,12 +132,20 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   const wrap = embed ? '' : 'min-h-screen bg-app px-4 py-12';
   const card = embed ? '' : 'rounded-[var(--radius-modal)] border border-border-default bg-card p-8';
 
+  // #711 phase 1 — the host's own colours, stored on the FORM rather than passed
+  // on the iframe URL, so changing one does not mean re-pasting the embed
+  // snippet into their CMS. Applied only in embed mode: the standalone
+  // /f/{token} page is OURS, and a host's brand colours on it would be neither
+  // theirs nor ours. Undefined when the form carries no theme, so an unthemed
+  // embed renders no style attribute at all rather than an empty one.
+  const themeStyle = embed ? embedThemeStyle(def?.theme) : undefined;
+
   if (status === 'loading') {
-    return <div className={wrap}><p className="mx-auto max-w-xl text-sm text-muted">Loading…</p></div>;
+    return <div className={wrap} style={themeStyle}><p className="mx-auto max-w-xl text-sm text-muted">Loading…</p></div>;
   }
   if (status === 'notfound') {
     return (
-      <div className={wrap}>
+      <div className={wrap} style={themeStyle}>
         <div className={`mx-auto max-w-xl text-center ${card}`}>
           <h1 className="text-lg font-semibold text-ink">Form not found</h1>
           <p className="mt-2 text-sm text-muted">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
@@ -144,7 +155,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   }
   if (status === 'done') {
     return (
-      <div className={wrap}>
+      <div className={wrap} style={themeStyle}>
         <div className={`mx-auto max-w-xl text-center ${card}`}>
           <h1 className="text-lg font-semibold text-ink">Thank you</h1>
           <p className="mt-2 text-sm text-ink-secondary">{def?.success_message ?? 'Your response has been submitted.'}</p>
@@ -154,7 +165,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   }
 
   return (
-    <div className={wrap}>
+    <div className={wrap} style={themeStyle}>
       <form onSubmit={submit} className={`mx-auto flex max-w-xl flex-col gap-5 ${card}`}>
         <div>
           <h1 className="text-xl font-semibold text-ink">{def!.title}</h1>
