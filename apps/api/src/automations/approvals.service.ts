@@ -5,9 +5,11 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { approvals, automations, databases, sourceRuns } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import type { AgentPrincipal } from '../agents/agent-principal';
+import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
 import { JobRunnerService } from './job-runner.service';
 import type { ActionEffect } from './actions.service';
 
@@ -31,13 +33,41 @@ export interface WriteBackPushAction {
   values: Record<string, unknown>;
 }
 
+/**
+ * #603 — an agent run's staged action (ADR-0010 §4), the third producer this
+ * table now carries. `run_id` doubles as the row's own `runId` column value
+ * (agents.service.ts's convention: one outstanding gate per run, looked up by
+ * `findByRunId`) — kept here too since `action_snapshot` is what a reader
+ * actually inspects to know what kind of gate this is and what it needs to
+ * re-apply. `runs_db_id` is carried because applying/canceling the gate means
+ * writing back to the run RECORD, and that write needs the database id
+ * `RecordsService.update` takes — the run's own `ctx.databaseId` (below)
+ * already IS this same id, so it's redundant on the wire but named here for
+ * clarity at the two read sites (resolveGate, applyProposedAction).
+ *
+ * Only TYPES are imported from `agents/` (erased at compile time) — this
+ * file adds no runtime dependency on AgentsModule. The actual "how do I
+ * apply this" logic stays in AgentsService, which already depends on
+ * ApprovalsService one-way (AgentsModule imports AutomationsModule); this
+ * table only needs to know the SHAPE of what it's storing.
+ */
+export interface AgentProposedActionSnapshot {
+  type: 'agent_proposed_action';
+  runs_db_id: string;
+  run_id: string;
+  proposed: ProposedAction;
+  steps: AgentStep[];
+  principal?: AgentPrincipal;
+  usage?: { tokensIn: number; tokensOut: number };
+}
+
 /** The FROZEN payload a gated action carries between "queued for approval"
  * and "approved" — `action` has every {Field}/{payload} token already
  * interpolated (actions.service.ts renders it before calling `create()`
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot;
   ctx: { workspaceId: string; databaseId: string; recordId: string | null; actorId: string };
 }
 
@@ -49,11 +79,20 @@ export interface CreateApprovalInput {
   recordId: string | null;
   actionIndex: number;
   /** Already rendered — see ApprovalActionSnapshot's doc. */
-  action: AutomationAction | WriteBackPushAction;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot;
   previewText: string;
   /** The rule's run actor (or the button-presser, when there's no rule) —
    * used as the approver only when no rule (and hence no owner) exists. */
   requesterActorId: string;
+  /**
+   * #603 — an agent run's gate wants the SAME notification the direct
+   * `agents.service.ts` staging code always sent (`approval_requested`, a
+   * summary naming the agent and the action), not the automation-shaped
+   * `action_approval_requested`/previewText default below. Omitted by every
+   * existing (automation) caller, so their behavior is unchanged byte-for-
+   * byte — this is additive, not a new default.
+   */
+  notification?: { type: NotificationType; snippet: string };
 }
 
 function toDto(row: ApprovalRow) {
@@ -107,10 +146,15 @@ export class ApprovalsService {
     return fallbackActorId;
   }
 
-  /** Called from actions.service.ts's execute() in place of running a
-   * `require_approval` action. Never throws on the notify half — a
-   * notification failure must not stop the approval from existing. */
-  async create(input: CreateApprovalInput): Promise<ActionEffect> {
+  /**
+   * #603 — the shared insert+notify core, extracted so a non-automation
+   * producer (agents.service.ts) can get the real row back (it needs the id
+   * for nothing today — lookup is by `run_id`, see `findByRunId` — but the
+   * full row is the more honest return type than `create()`'s automation-
+   * shaped `ActionEffect`). `create()` below is now a thin wrapper kept for
+   * `actions.service.ts`'s existing call site — behavior unchanged.
+   */
+  async createRow(input: CreateApprovalInput): Promise<ApprovalRow> {
     const approverId = await this.approverFor(input.ruleId, input.requesterActorId);
     const snapshot: ApprovalActionSnapshot = {
       action: input.action,
@@ -141,9 +185,9 @@ export class ApprovalsService {
         databaseId: input.databaseId,
         recordId: input.recordId ?? undefined,
         actorId: input.requesterActorId,
-        type: 'action_approval_requested',
+        type: input.notification?.type ?? 'action_approval_requested',
         recipients: [approverId],
-        snippet: input.previewText.slice(0, 140),
+        snippet: input.notification?.snippet ?? input.previewText.slice(0, 140),
         refId: created!.id,
         // The rule owner must be asked even when they're the one whose rule
         // fired it — same reasoning as #210's agent-run gate.
@@ -151,11 +195,33 @@ export class ApprovalsService {
       })
       .catch((error: unknown) => this.logger.warn(`approval notify failed: ${String(error)}`));
 
+    return created!;
+  }
+
+  /** Called from actions.service.ts's execute() in place of running a
+   * `require_approval` action. Never throws on the notify half — a
+   * notification failure must not stop the approval from existing. */
+  async create(input: CreateApprovalInput): Promise<ActionEffect> {
+    const created = await this.createRow(input);
     return {
       type: 'pending_approval',
       record_id: input.recordId ?? undefined,
-      summary: `Waiting for approval (approval ${created!.id}): ${input.previewText}`,
+      summary: `Waiting for approval (approval ${created.id}): ${input.previewText}`,
     };
+  }
+
+  /** #603 — the run-keyed lookup agents.service.ts's controller-facing
+   * approve/reject uses: one outstanding gate per run, by construction (a
+   * run halts at its first gated step and stays parked until decided), so
+   * "most recent pending row for this run" is unambiguous. Generic on
+   * `runId` rather than agent-specific — reusable by anything else keyed by
+   * a run the way `approvals.run_id`'s own no-FK design already intends. */
+  async findByRunId(workspaceId: string, runId: string): Promise<ApprovalRow | null> {
+    const row = await this.db.query.approvals.findFirst({
+      where: and(eq(approvals.workspaceId, workspaceId), eq(approvals.runId, runId)),
+      orderBy: [desc(approvals.createdAt)],
+    });
+    return row ?? null;
   }
 
   /**
@@ -230,23 +296,31 @@ export class ApprovalsService {
   }
 
   /**
-   * The shared half of approve/reject (mirrors agents.service.ts's own
-   * resolveGate — same idea, different table). The transition is a single
-   * `UPDATE … WHERE status = 'pending' RETURNING *`: under a concurrent
-   * double-approve, only the request that actually flips the row gets a
-   * non-empty `updated` back, so only ONE caller ever reaches the `enqueue()`
-   * below — the job's own `idempotencyKey` uniqueness is defense in depth,
-   * not what makes this idempotent.
+   * #603 — the generic status-flip half of approve/reject, extracted so a
+   * non-automation producer (agents.service.ts's `resolveGate`) can share it
+   * too: atomic transition, approver-facing audit comment, expiry check.
+   * What happens NEXT (apply the action, or just record a rejection) is
+   * still producer-specific — `resolve()` below does it for automations/
+   * write-back via the job queue; `AgentsService.resolveGate` does it
+   * synchronously for agent runs (see that method for why it can't go
+   * through the same async queue: an agent approval applies inline, in the
+   * same request, matching the product behavior this ticket must not change).
+   *
+   * The transition is a single `UPDATE … WHERE status = 'pending' RETURNING
+   * *`: under a concurrent double-approve, only the request that actually
+   * flips the row gets `applied: true` back — the job queue's own
+   * `idempotencyKey` uniqueness (used by `resolve()` below) is defense in
+   * depth on top of this, not what makes either caller idempotent.
    */
-  private async resolve(
+  async decide(
     workspaceId: string,
     id: string,
     actorId: string,
     verdict: 'approved' | 'rejected',
     reason?: string,
-  ): Promise<ApprovalRow> {
+  ): Promise<{ row: ApprovalRow; applied: boolean }> {
     const approval = await this.get(workspaceId, id);
-    if (approval.status !== 'pending') return approval; // already decided — idempotent no-op
+    if (approval.status !== 'pending') return { row: approval, applied: false }; // already decided — idempotent no-op
     if (approval.expiresAt < new Date()) {
       await this.db
         .update(approvals)
@@ -263,8 +337,47 @@ export class ApprovalsService {
     if (!updated) {
       // Lost a race to a concurrent approve/reject/expire between the read
       // above and this write — the other caller's decision stands.
-      return this.get(workspaceId, id);
+      return { row: await this.get(workspaceId, id), applied: false };
     }
+
+    if (updated.recordId) {
+      const text =
+        verdict === 'approved'
+          ? `Approved: ${updated.previewText}`
+          : `Rejected: ${updated.previewText}${reason ? ` — ${reason}` : ''}`;
+      await this.comments
+        .create(workspaceId, updated.recordId, [{ type: 'text', text }], actorId)
+        .catch((error: unknown) => this.logger.warn(`approval audit comment failed: ${String(error)}`));
+    }
+    return { row: updated, applied: true };
+  }
+
+  /**
+   * The automation/write-back half of approve/reject: decide, then dispatch
+   * by kind. `agent_proposed_action` is refused HERE — before `decide()`
+   * ever runs, so a wrong-endpoint call can't half-decide a row it then
+   * can't act on — because applying it needs `AgentsService`, which this
+   * module cannot import without a cycle (AgentsModule already imports
+   * AutomationsModule the other way). Use `AgentsService.resolveGate` via
+   * `POST /agents/runs/:run/approve|reject` for that kind instead.
+   */
+  private async resolve(
+    workspaceId: string,
+    id: string,
+    actorId: string,
+    verdict: 'approved' | 'rejected',
+    reason?: string,
+  ): Promise<ApprovalRow> {
+    const approval = await this.get(workspaceId, id);
+    const preSnapshot = approval.actionSnapshot as ApprovalActionSnapshot;
+    if (preSnapshot.action.type === 'agent_proposed_action') {
+      throw new UnprocessableEntityException(
+        'This is an agent-run approval — resolve it via POST /agents/runs/:run/approve or /reject',
+      );
+    }
+
+    const { row: updated, applied } = await this.decide(workspaceId, id, actorId, verdict, reason);
+    if (!applied) return updated;
 
     const snapshot = updated.actionSnapshot as ApprovalActionSnapshot;
     if (verdict === 'approved') {
@@ -292,16 +405,6 @@ export class ApprovalsService {
         status: 'rejected',
         stats: { pushed: false, external_key: action.external_key, pushed_keys: Object.keys(action.values), approval_id: updated.id, decided_by: actorId, reason: reason ?? null },
       });
-    }
-
-    if (updated.recordId) {
-      const text =
-        verdict === 'approved'
-          ? `Approved: ${updated.previewText}`
-          : `Rejected: ${updated.previewText}${reason ? ` — ${reason}` : ''}`;
-      await this.comments
-        .create(workspaceId, updated.recordId, [{ type: 'text', text }], actorId)
-        .catch((error: unknown) => this.logger.warn(`approval audit comment failed: ${String(error)}`));
     }
     return updated;
   }
