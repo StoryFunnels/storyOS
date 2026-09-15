@@ -45,12 +45,12 @@ function runInitScript(opts: {
   prefersDark?: boolean;
   /** Safari blocks storage in third-party iframes: getItem THROWS (AC6). */
   storageThrows?: boolean;
-}): string | null {
-  let attr: string | null = null;
+}): Record<string, string> {
+  const attrs: Record<string, string> = {};
   const documentStub = {
     documentElement: {
       setAttribute: (name: string, value: string) => {
-        if (name === 'data-theme') attr = value;
+        attrs[name] = value;
       },
     },
   };
@@ -74,30 +74,36 @@ function runInitScript(opts: {
     'URLSearchParams',
     THEME_INIT_SCRIPT,
   )(documentStub, localStorageStub, windowStub, locationStub, URLSearchParams);
-  return attr;
+  return attrs;
 }
 
 describe('THEME_INIT_SCRIPT', () => {
   it('pins an embedded form to light even when the visitor’s OS is dark', () => {
     expect(
-      runInitScript({ pathname: '/f/abc', search: '?embed=1', prefersDark: true }),
+      runInitScript({ pathname: '/f/abc', search: '?embed=1', prefersDark: true })['data-theme'],
     ).toBe('light');
   });
 
   it('pins an embedded form to light even when the visitor explicitly chose dark for StoryOS', () => {
     expect(
-      runInitScript({ pathname: '/f/abc', search: '?embed=1', stored: 'dark', prefersDark: true }),
+      runInitScript({ pathname: '/f/abc', search: '?embed=1', stored: 'dark', prefersDark: true })[
+        'data-theme'
+      ],
     ).toBe('light');
   });
 
   it('leaves every other route following the visitor, so nothing else changes', () => {
-    expect(runInitScript({ pathname: '/w/ws', search: '', prefersDark: true })).toBe('dark');
-    expect(runInitScript({ pathname: '/w/ws', search: '', prefersDark: false })).toBe('light');
-    expect(runInitScript({ pathname: '/w/ws', search: '', stored: 'dark' })).toBe('dark');
+    expect(runInitScript({ pathname: '/w/ws', search: '', prefersDark: true })['data-theme']).toBe('dark');
+    expect(runInitScript({ pathname: '/w/ws', search: '', prefersDark: false })['data-theme']).toBe(
+      'light',
+    );
+    expect(runInitScript({ pathname: '/w/ws', search: '', stored: 'dark' })['data-theme']).toBe('dark');
   });
 
   it('still follows the visitor on a public form opened directly', () => {
-    expect(runInitScript({ pathname: '/f/abc', search: '', prefersDark: true })).toBe('dark');
+    expect(runInitScript({ pathname: '/f/abc', search: '', prefersDark: true })['data-theme']).toBe(
+      'dark',
+    );
   });
 
   /**
@@ -114,7 +120,26 @@ describe('THEME_INIT_SCRIPT', () => {
         search: '?embed=1',
         prefersDark: true,
         storageThrows: true,
-      }),
+      })['data-theme'],
     ).toBe('light');
+  });
+
+  /**
+   * globals.css keys the transparent embed body off this attribute. `body` is an
+   * ancestor of the React root, so the page component cannot reach it — the
+   * signal has to come from the same place that pins the theme.
+   */
+  describe('data-embed, which drives the transparent body', () => {
+    it('marks an embedded form', () => {
+      expect(runInitScript({ pathname: '/f/abc', search: '?embed=1' })['data-embed']).toBe('1');
+    });
+
+    it('does not mark a form opened directly', () => {
+      expect(runInitScript({ pathname: '/f/abc', search: '' })['data-embed']).toBeUndefined();
+    });
+
+    it('does not mark any app route', () => {
+      expect(runInitScript({ pathname: '/w/ws', search: '?embed=1' })['data-embed']).toBeUndefined();
+    });
   });
 });

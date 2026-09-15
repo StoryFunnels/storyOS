@@ -113,7 +113,21 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   // "stock Tailwind palette" framing (it's not a neutral-*/gray-* utility), but
   // the same class of bug — this page cannot follow dark mode until every
   // color on it, including the outer wrapper, resolves through a token.
-  const wrap = embed ? 'p-4' : 'min-h-screen bg-app px-4 py-12';
+  // #711 — an embedded form renders NAKED: the host already has a container on
+  // their page, and drawing our own card inside it is a card inside a card.
+  // So in embed mode we drop the page background, the wrapper padding, and the
+  // card's surface/border/radius/padding. Inputs keep their own borders — an
+  // input still has to look like an input — and `mx-auto max-w-xl` stays,
+  // because centring and a readable measure are LAYOUT, not chrome: without it
+  // a wide iframe would stretch every text input to its full width.
+  //
+  // `card` is applied at all THREE states below, not just the form. "Form not
+  // found" and "Thank you" carry the same chrome, and the success state is the
+  // one that renders at the most important moment in the flow — an applicant
+  // has just submitted their CV. Fixing only the form would make a white card
+  // reappear in the middle of the host's page exactly then.
+  const wrap = embed ? '' : 'min-h-screen bg-app px-4 py-12';
+  const card = embed ? '' : 'rounded-[var(--radius-modal)] border border-border-default bg-card p-8';
 
   if (status === 'loading') {
     return <div className={wrap}><p className="mx-auto max-w-xl text-sm text-muted">Loading…</p></div>;
@@ -121,7 +135,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   if (status === 'notfound') {
     return (
       <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-[var(--radius-modal)] border border-border-default bg-card p-8 text-center">
+        <div className={`mx-auto max-w-xl text-center ${card}`}>
           <h1 className="text-lg font-semibold text-ink">Form not found</h1>
           <p className="mt-2 text-sm text-muted">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
         </div>
@@ -131,7 +145,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   if (status === 'done') {
     return (
       <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-[var(--radius-modal)] border border-border-default bg-card p-8 text-center">
+        <div className={`mx-auto max-w-xl text-center ${card}`}>
           <h1 className="text-lg font-semibold text-ink">Thank you</h1>
           <p className="mt-2 text-sm text-ink-secondary">{def?.success_message ?? 'Your response has been submitted.'}</p>
         </div>
@@ -141,7 +155,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
 
   return (
     <div className={wrap}>
-      <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-5 rounded-[var(--radius-modal)] border border-border-default bg-card p-8">
+      <form onSubmit={submit} className={`mx-auto flex max-w-xl flex-col gap-5 ${card}`}>
         <div>
           <h1 className="text-xl font-semibold text-ink">{def!.title}</h1>
           {def!.description && <p className="mt-1 text-sm text-muted">{def!.description}</p>}
@@ -151,19 +165,40 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           // (the SAME evaluator that already gates visibility) can turn a field's
           // required-ness off even while it stays visible.
           const requiredNow = f.required && isFormFieldVisible(f.required_when, values);
+          const control = (
+            <Input
+              token={token}
+              field={f}
+              required={requiredNow}
+              value={values[f.api_name]}
+              onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
+            />
+          );
+          const labelText = (
+            <span className="text-[13px] font-medium text-ink-secondary">
+              {f.label}
+              {requiredNow && <span className="ml-0.5 text-error">*</span>}
+            </span>
+          );
+          // #711 — a checkbox reads "[x] I consent", never a caption with a box
+          // on the line below. The column layout is imposed by THIS wrapper, so
+          // it has to be fixed here; styling the input alone cannot move it.
+          // The help text stays beneath the whole row rather than joining it.
+          if (f.type === 'checkbox') {
+            return (
+              <label key={f.field_id} className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-2">
+                  {control}
+                  {labelText}
+                </span>
+                {f.help && <span className="text-[12px] text-muted">{f.help}</span>}
+              </label>
+            );
+          }
           return (
             <label key={f.field_id} className="flex flex-col gap-1.5">
-              <span className="text-[13px] font-medium text-ink-secondary">
-                {f.label}
-                {requiredNow && <span className="ml-0.5 text-error">*</span>}
-              </span>
-              <Input
-                token={token}
-                field={f}
-                required={requiredNow}
-                value={values[f.api_name]}
-                onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
-              />
+              {labelText}
+              {control}
               {f.help && <span className="text-[12px] text-muted">{f.help}</span>}
             </label>
           );

@@ -357,6 +357,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* #711 — an embedded form paints NO background of its own, so the host's own
+   backdrop shows through the iframe. Without this the rule above paints
+   --bg-app unconditionally, which put a cream band between the host's
+   container and our card: two slightly different creams stacked, visible
+   before any colour is configured.
+
+   Keyed on <html data-embed>, set by the same pre-paint script that pins the
+   theme (lib/theme.tsx), because `body` is an ANCESTOR of the React root and
+   so cannot be styled from the page component. The standalone /f/{token} page
+   has no data-embed and keeps its --bg-app. */
+html[data-embed] body {
+  background: transparent;
+}
+
 ::selection {
   background: var(--accent-soft);
 }
