@@ -644,6 +644,26 @@ describe('create_view / update_view (#270)', () => {
         config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
       },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
+      {
+        id: 'view-form-configured',
+        name: 'Intake Form',
+        type: 'form',
+        // #715 — a form that already has real config: two fields, one with a
+        // visible_when, and a live link token. update_view calls in the
+        // #715 tests below deliberately touch something ELSE (sorts) to
+        // prove none of this gets silently dropped.
+        config: {
+          form: {
+            title: 'Pet Intake',
+            fields: [
+              { field_id: 'f-name' },
+              { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
+            ],
+            access: 'link',
+            public_token: 'existing-token-abc',
+          },
+        },
+      },
     ],
   };
 
@@ -763,7 +783,7 @@ describe('create_view / update_view (#270)', () => {
     expect(res.content[0]!.text).toMatch(/No field matches "not_a_real_field"/);
   });
 
-  it('update_view rebuilds the form config and issues a fresh public_token when form_access is re-specified', async () => {
+  it('update_view issues a fresh public_token when form_access is explicitly re-specified (documented, deliberate)', async () => {
     const { handlers, patched } = registerAndGet(['update_view']);
     const res = (await handlers.update_view!({
       workspace: 'JCM Agency',
@@ -775,6 +795,110 @@ describe('create_view / update_view (#270)', () => {
     const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string };
     expect(form.access).toBe('link');
     expect(typeof form.public_token).toBe('string');
+  });
+
+  /**
+   * #715 — SILENT DATA LOSS, confirmed live before this fix against a real
+   * running server: an update_view call touching only `sorts` (nothing
+   * form-related) took a 2-field form with a `visible_when` and a live
+   * 'link' token down to 0 fields and 'members'. `buildViewConfig`'s form
+   * branch ran unconditionally whenever the view's STORED type was 'form' —
+   * v.type, not something this call chose — and rebuilt `config.form` from
+   * only the form_* params THIS call happened to pass, which for an
+   * unrelated edit is none of them.
+   */
+  describe('#715 — a form edit must not drop config it did not touch', () => {
+    it('an unrelated field (sorts) leaves every existing form field, including visible_when, untouched', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      const res = (await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        sorts: [{ field: 'name', direction: 'asc' }],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as {
+        fields: Array<{ field_id: string; required?: boolean; visible_when?: unknown }>;
+        access: string;
+        public_token: string;
+        title: string;
+      };
+      expect(form.fields).toEqual([
+        { field_id: 'f-name' },
+        { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
+      ]);
+      expect(form.title).toBe('Pet Intake');
+      expect(form.access).toBe('link');
+      expect(form.public_token).toBe('existing-token-abc'); // not rotated — form_access was never mentioned
+    });
+
+    it('omitting form_access on an unrelated edit never downgrades access or drops the live token', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_title: 'Pet Intake v2' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string; title: string };
+      expect(form.title).toBe('Pet Intake v2');
+      expect(form.access).toBe('link'); // the old bug reset this to 'members'
+      expect(form.public_token).toBe('existing-token-abc');
+    });
+
+    it('omitting form_fields entirely preserves the whole existing fields array as-is', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_submit_text: 'Go' });
+      const form = (patched[0]!.body as { config: { form: { fields: unknown[] } } }).config.form;
+      expect(form.fields).toHaveLength(2); // the old bug emptied this to []
+    });
+
+    it('re-listing form_fields keeps each kept field\'s visible_when unless the call overrides it', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      // Re-list both fields by bare name (no visible_when mentioned) plus a NEW field.
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', 'email', 'pipeline_stage'],
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; visible_when?: unknown; required?: boolean }> } } }).config.form;
+      // f-email's visible_when/required carried forward even though this call only named it by string.
+      expect(form.fields).toEqual([
+        { field_id: 'f-name' },
+        { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
+        { field_id: 'f-stage' },
+      ]);
+    });
+
+    it('overriding visible_when on a re-listed field replaces just that rule, not the rest of the field', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', { field: 'email', visible_when: { field: 'name', op: 'not_empty' } }],
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; required?: boolean; visible_when?: unknown }> } } }).config.form;
+      expect(form.fields[1]).toEqual({
+        field_id: 'f-email',
+        required: true, // not mentioned in this call — carried forward
+        visible_when: { field_id: 'f-name', op: 'not_empty' }, // replaced
+      });
+    });
+
+    it('create_view accepts visible_when/required_when on a form field — the coverage gap half of #715', async () => {
+      const { handlers, posted } = registerAndGet(['create_view']);
+      const res = (await handlers.create_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        name: 'New Form',
+        type: 'form',
+        form_fields: [
+          'name',
+          { field: 'email', visible_when: { field: 'name', op: 'not_empty' }, required_when: { field: 'name', op: 'eq', value: 'Given' } },
+        ],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (posted[0]!.body as { config: { form: { fields: Array<{ field_id: string; visible_when?: unknown; required_when?: unknown }> } } }).config.form;
+      expect(form.fields[1]!.visible_when).toEqual({ field_id: 'f-name', op: 'not_empty' });
+      expect(form.fields[1]!.required_when).toEqual({ field_id: 'f-name', op: 'eq', value: 'Given' });
+    });
   });
 
   it('update_view leaves config untouched when only renaming', async () => {
