@@ -1,8 +1,8 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
+import { Inject, Injectable, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import { DB } from '../../db/db.module';
 import type { Db } from '../../db/client';
-import { tyronMessages, tyronThreads } from '../../db/schema';
+import { memberships, tyronMessages, tyronThreads } from '../../db/schema';
 import { env } from '../../config/env';
 import type { Membership } from '../../workspaces/workspace-access.guard';
 import { TokensService } from '../../tokens/tokens.service';
@@ -15,6 +15,8 @@ import type { Role } from '../../workspaces/workspace-access.guard';
 import type { ChatMessage } from './chat-client';
 import { runTurn, type TurnEvent } from './turn-loop';
 import { BUILD_MAX_TOOL_CALLS, BUILD_MAX_TURNS, BUILD_SYSTEM_PROMPT } from './build-workspace';
+import { ApprovalsService, type TyronToolCallSnapshot } from '../../automations/approvals.service';
+import { JobRunnerService } from '../../automations/job-runner.service';
 
 /** One tool call awaiting the user's yes or no (#357d). */
 interface PendingAction {
@@ -40,14 +42,93 @@ interface PendingAction {
  * this file changing shape.
  */
 @Injectable()
-export class TyronService {
+export class TyronService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly tokens: TokensService,
     private readonly threads: TyronThreadsService,
     private readonly spendGuard: TyronSpendGuardService,
     private readonly chatClientResolver: TyronChatClientResolver,
+    /** #542 — an `approval_gate` verdict creates a real row here instead of
+     * a same-user yes/no; AgentsModule already imports AutomationsModule, so
+     * this needs no new module wiring. */
+    private readonly approvals: ApprovalsService,
+    private readonly jobs: JobRunnerService,
   ) {}
+
+  /**
+   * #542 — registers the `tyron_tool_call` job kind, the same registration
+   * pattern MN-256/257/258/259/263's provider modules use to add themselves
+   * to the queue without a circular import. Applying an approved outward
+   * call is genuinely asynchronous work (the member has already left the
+   * turn that asked; nothing is waiting on this synchronously the way an
+   * agent-run approval's apply is), so the durable queue is the right fit
+   * here — unlike the agent-run gate (#603), which deliberately stayed
+   * synchronous for exactly the opposite reason.
+   */
+  onModuleInit(): void {
+    this.jobs.registerExecutor('tyron_tool_call', async (payload) => {
+      const { action } = payload as { action: TyronToolCallSnapshot };
+      await this.applyApprovedToolCall(action);
+    });
+  }
+
+  /**
+   * Apply an approved outward tool call, minting a token for the ORIGINAL
+   * member — never the approving admin — so attribution and effective scope
+   * both stay exactly what they would have been had the member's own turn
+   * executed it directly. Scope is re-derived from the member's CURRENT
+   * role, not whatever it was at staging time — the same
+   * never-trust-a-stale-principal rule #603's demotion fix applies to the
+   * agent-run gate.
+   */
+  private async applyApprovedToolCall(action: TyronToolCallSnapshot): Promise<void> {
+    const workspaceId = (
+      await this.db.query.tyronThreads.findFirst({
+        where: eq(tyronThreads.id, action.thread_id),
+        columns: { workspaceId: true },
+      })
+    )?.workspaceId;
+    const member = workspaceId
+      ? await this.db.query.memberships.findFirst({
+          where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, action.member_user_id)),
+        })
+      : undefined;
+    if (!workspaceId || !member) {
+      // The thread or the membership is gone (workspace left, member
+      // removed) between staging and approval — nothing safe to apply.
+      await this.db.insert(tyronMessages).values({
+        threadId: action.thread_id,
+        role: 'assistant',
+        content: `${action.message}\n\nThis was approved, but I can no longer find who asked for it, so I didn't run it.`,
+      });
+      return;
+    }
+    const minted = await this.tokens.create(
+      action.member_user_id,
+      workspaceId,
+      'Tyron (approved)',
+      scopeForRole(member.role as Role),
+      true,
+      'agent',
+    );
+    const catalog = new McpToolCatalog(env().TYRON_MCP_URL, minted.token);
+    try {
+      const result = await catalog.call(action.tool, action.arguments);
+      const content = result.isError
+        ? `${action.message}\n\nApproved, but it didn't go through: ${result.text}`
+        : `${action.message}\n\nApproved — done.`;
+      await this.db.insert(tyronMessages).values({
+        threadId: action.thread_id,
+        role: 'assistant',
+        content,
+        actions: result.isError ? [] : [{ name: action.tool, arguments: action.arguments }],
+      });
+    } finally {
+      await catalog.close();
+      await this.tokens.revoke(action.member_user_id, minted.id).catch(() => {});
+    }
+  }
 
   /**
    * The outcome of a turn, in the shape the panel renders.
@@ -145,7 +226,8 @@ export class TyronService {
       const history = (await this.historyFor(threadId)).slice(0, -1);
 
       let reply = '';
-      let question: { message: string; tool: string } | undefined;
+      let question: { message: string; tool: string; kind: 'confirm' | 'approval_gate' } | undefined;
+      let questionCall: { name: string; arguments: Record<string, unknown> } | undefined;
       let pending: PendingAction | null = null;
       let stopped: string | undefined;
       const actions: Array<{ name: string; arguments: Record<string, unknown> }> = [];
@@ -161,7 +243,7 @@ export class TyronService {
           },
           onQuestion: (q, call) => {
             question = q;
-            pending = { name: call.name, arguments: call.arguments, message: q.message };
+            questionCall = call;
           },
           onStopped: (s) => {
             stopped = s;
@@ -171,6 +253,60 @@ export class TyronService {
             usage = u;
           },
         });
+      }
+
+      /**
+       * #542 — `confirm` and `approval_gate` fork here. `confirm` is the
+       * SAME chat user answering their own yes/no, exactly as before
+       * (`pending`, resolved by `confirmPending`). `approval_gate` is
+       * outward-facing — send-something-outside-the-workspace scale — and
+       * must not be answerable by the same person who asked; it becomes a
+       * real row in the shared `approvals` table, decided by a DIFFERENT
+       * workspace admin, the same self-approval boundary the MCP layer
+       * already enforces for approve/reject (tools.ts's own "removes the
+       * gate, not weakens it" comment).
+       */
+      if (question?.kind === 'approval_gate' && questionCall) {
+        const approverId = await this.pickOtherAdmin(membership.workspaceId, membership.userId);
+        if (!approverId) {
+          question = {
+            ...question,
+            message:
+              `${question.message} I can't ask anyone else to approve this — you're the only admin in this ` +
+              `workspace, and this class of action can't be self-approved. Add a second admin, or do this yourself outside Tyron.`,
+          };
+        } else {
+          await this.approvals.createRow({
+            workspaceId: membership.workspaceId,
+            // #542 — see TyronToolCallSnapshot's own doc: no database this
+            // call is naturally scoped to, so the workspace id stands in.
+            databaseId: membership.workspaceId,
+            ruleId: null,
+            runId: null,
+            recordId: null,
+            actionIndex: 0,
+            action: {
+              type: 'tyron_tool_call',
+              thread_id: threadId,
+              member_user_id: membership.userId,
+              tool: questionCall.name,
+              arguments: questionCall.arguments,
+              message: question.message,
+            },
+            previewText: question.message,
+            requesterActorId: approverId,
+            notification: {
+              type: 'approval_requested',
+              snippet: `Tyron wants to ${question.message}`,
+            },
+          });
+          question = {
+            ...question,
+            message: `${question.message} I've sent this to a workspace admin to approve — I'll let you know what they decide.`,
+          };
+        }
+      } else if (question?.kind === 'confirm' && questionCall) {
+        pending = { name: questionCall.name, arguments: questionCall.arguments, message: question.message };
       }
 
       const spoken = question?.message ?? stopped ?? reply;
@@ -251,6 +387,26 @@ export class TyronService {
       maxTurns: BUILD_MAX_TURNS,
     });
     return { reply: result.reply };
+  }
+
+  /**
+   * #542 — a workspace admin OTHER than `excludeUserId`, for an
+   * `approval_gate` verdict's approver. Self-approval would make the gate
+   * decorative in exactly the way this ticket exists to stop — the same
+   * boundary packages/mcp/src/tools.ts already enforces for agent-run
+   * approve/reject. Returns undefined when the excluded user is the only
+   * admin, which the caller treats as "refuse the action" rather than
+   * silently picking them anyway or leaving the gate unresolvable forever.
+   */
+  private async pickOtherAdmin(workspaceId: string, excludeUserId: string): Promise<string | undefined> {
+    const other = await this.db.query.memberships.findFirst({
+      where: and(
+        eq(memberships.workspaceId, workspaceId),
+        eq(memberships.role, 'admin'),
+        ne(memberships.userId, excludeUserId),
+      ),
+    });
+    return other?.userId;
   }
 
   /** Store or clear the outstanding question. */
@@ -373,7 +529,10 @@ function applyEvent(
   event: TurnEvent,
   on: {
     onText: (t: string) => void;
-    onQuestion: (q: { message: string; tool: string }, call: { name: string; arguments: Record<string, unknown> }) => void;
+    onQuestion: (
+      q: { message: string; tool: string; kind: 'confirm' | 'approval_gate' },
+      call: { name: string; arguments: Record<string, unknown> },
+    ) => void;
     onStopped: (s: string) => void;
     onDone: (
       a: Array<{ name: string; arguments: Record<string, unknown> }>,
@@ -387,7 +546,7 @@ function applyEvent(
       on.onText(event.text);
       return;
     case 'question':
-      on.onQuestion({ message: event.verdict.message, tool: event.tool }, event.call);
+      on.onQuestion({ message: event.verdict.message, tool: event.tool, kind: event.verdict.kind }, event.call);
       return;
     case 'stopped':
       on.onStopped(event.stop.message);

@@ -149,8 +149,13 @@ describe('outward actions reuse the EXISTING approval gate', () => {
    * places to get it wrong. These classes mirror `APPROVAL_POLICY_KINDS` in
    * agent-runtime.ts rather than forming a second opinion about what counts as
    * outward.
+   *
+   * #542 audit correction: `send_message`/`post_social` were never real MCP
+   * tool names — grepped the live catalog, zero matches — so this suite was
+   * asserting behavior for tools that cannot occur, while missing several
+   * that DO exist and ARE genuinely outward. Replaced with the real set.
    */
-  it.each(['run_button', 'run_skill', 'send_email', 'send_message', 'post_social'])(
+  it.each(['run_button', 'run_skill', 'send_email', 'share_view', 'create_portal_recipient', 'update_webhook', 'sync_source', 'rerun_action'])(
     'routes to the approval gate, not a confirmation: %s',
     (tool) => {
       expect(classifyWrite({ tool }).kind).toBe('approval_gate');

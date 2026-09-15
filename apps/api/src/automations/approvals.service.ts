@@ -3,7 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, sourceRuns } from '../db/schema';
+import { approvals, automations, databases, sourceRuns, tyronMessages } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
@@ -61,13 +61,41 @@ export interface AgentProposedActionSnapshot {
   usage?: { tokensIn: number; tokensOut: number };
 }
 
+/**
+ * #542 — a Tyron-classified `approval_gate` tool call (write-safety.ts), the
+ * fourth producer. Unlike the other three, there is no database this call is
+ * naturally scoped to — Tyron's outward tools (`share_view`, `sync_source`,
+ * `update_webhook`, …) are workspace-level, not per-database — so `ctx.
+ * databaseId` below is stamped with the WORKSPACE id as a deliberate
+ * placeholder (documented at that call site), not a real database. It never
+ * matches a real database uuid, so a restricted guest's `list()` scoping
+ * (which only ever WIDENS visibility for a matching id) fails closed rather
+ * than open; the only path that resolves one of these today already
+ * requires the approver to be an admin (see resolveApprovalGate below), so
+ * this is belt-and-braces, not the actual access boundary.
+ *
+ * `member_user_id` is who to re-mint a token FOR when applying (attribution
+ * stays the member who asked Tyron, per ADR-0016 §1 — never the approving
+ * admin, who is authorizing, not acting).
+ */
+export interface TyronToolCallSnapshot {
+  type: 'tyron_tool_call';
+  thread_id: string;
+  member_user_id: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  /** The confirmation text Tyron already showed in the thread — reused
+   *  verbatim so the approver reads the exact same sentence the member did. */
+  message: string;
+}
+
 /** The FROZEN payload a gated action carries between "queued for approval"
  * and "approved" — `action` has every {Field}/{payload} token already
  * interpolated (actions.service.ts renders it before calling `create()`
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot;
   ctx: { workspaceId: string; databaseId: string; recordId: string | null; actorId: string };
 }
 
@@ -79,7 +107,7 @@ export interface CreateApprovalInput {
   recordId: string | null;
   actionIndex: number;
   /** Already rendered — see ApprovalActionSnapshot's doc. */
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot;
   previewText: string;
   /** The rule's run actor (or the button-presser, when there's no rule) —
    * used as the approver only when no rule (and hence no owner) exists. */
@@ -404,6 +432,19 @@ export class ApprovalsService {
         finishedAt: new Date(),
         status: 'rejected',
         stats: { pushed: false, external_key: action.external_key, pushed_keys: Object.keys(action.values), approval_id: updated.id, decided_by: actorId, reason: reason ?? null },
+      });
+    } else if (snapshot.action.type === 'tyron_tool_call') {
+      // #542 — the member is waiting in their own thread, not watching this
+      // approval row; a rejection has to reach them there or it reads as
+      // Tyron simply never answering. Direct insert (not TyronThreadsService.
+      // appendMessage, which requires a Membership to assert thread
+      // ownership) — this fires from a REJECTING ADMIN's request, who does
+      // not own the member's thread and should not need to.
+      const action = snapshot.action;
+      await this.db.insert(tyronMessages).values({
+        threadId: action.thread_id,
+        role: 'assistant',
+        content: `${action.message}\n\nA workspace admin reviewed this and said no.${reason ? ` Their reason: ${reason}` : ''}`,
       });
     }
     return updated;

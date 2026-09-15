@@ -182,6 +182,30 @@ describe('write safety gates the loop', () => {
   });
 
   /**
+   * #542 audit correction: `delete_records` (the BULK tool) takes a `records`
+   * argument, not `record_ids` — the singular `delete_record`'s param name.
+   * `extractIntent` only ever checked `record_ids`, so a real bulk delete's
+   * `affected` came back `undefined` and the question fell through to
+   * DESTRUCTIVE_NAME's generic "I don't recognise it" wording instead of a
+   * real count. This is the regression test for that fix.
+   */
+  it('a bulk delete (records, not record_ids) still shows the real count', async () => {
+    const events = await collect(
+      runTurn('clean up the stale ones', {
+        chat: scriptedChat([
+          { toolCalls: [{ id: '1', name: 'delete_records', arguments: { records: ['a', 'b', 'c'] } }] },
+        ]),
+        catalog: fakeCatalog(),
+        history: [],
+      }),
+    );
+    const q = events.find((e) => e.type === 'question');
+    if (q?.type !== 'question') throw new Error('unreachable');
+    expect(q.verdict.message).toContain('3 records');
+    expect(q.verdict.message).not.toContain("don't recognise");
+  });
+
+  /**
    * The batch check is why this is asserted separately: a model can return an
    * allowed write and a delete in ONE reply, and executing the allowed half
    * first would apply changes the user never got to approve alongside the delete.
@@ -203,6 +227,26 @@ describe('write safety gates the loop', () => {
       }),
     );
     expect(catalog.calls, 'the allowed write must not slip through beside the delete').toEqual([]);
+  });
+
+  /**
+   * #542 — an outward tool's `question` event carries `kind: 'approval_gate'`
+   * on the wire, not just internally — this is what TyronService now
+   * branches on to route it to a real approvals-table row instead of the
+   * same chat user's own yes/no (see tyron.service.ts's `takeTurn`). A
+   * regression here would silently fall back to the confirm path.
+   */
+  it('an outward tool carries kind: approval_gate on its question event', async () => {
+    const events = await collect(
+      runTurn('share this board with a client', {
+        chat: scriptedChat([{ toolCalls: [{ id: '1', name: 'share_view', arguments: {} }] }]),
+        catalog: fakeCatalog(),
+        history: [],
+      }),
+    );
+    const q = events.find((e) => e.type === 'question');
+    if (q?.type !== 'question') throw new Error('unreachable');
+    expect(q.verdict.kind).toBe('approval_gate');
   });
 
   /**

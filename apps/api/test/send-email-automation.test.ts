@@ -12,6 +12,7 @@ import type { ConnectionFetcher } from '../src/connections/providers';
 import { EntitlementsService } from '../src/billing/entitlements.service';
 import { AutomationsService } from '../src/automations/automations.service';
 import { JobRunnerService } from '../src/automations/job-runner.service';
+import { TokensService } from '../src/tokens/tokens.service';
 import { seal } from '../src/common/secretbox';
 import { verifySvixSignature } from '../src/connections/resend-webhook.controller';
 
@@ -227,6 +228,25 @@ describe('send_email approval-gate default (MN-256)', () => {
     const scenario = await setupScenario();
     const res = await createRule(scenario, { require_approval: false }, member.token);
     expect(res.statusCode).toBe(422);
+  });
+
+  /**
+   * #542 — the role check alone let an agent acting AS an admin (an
+   * admin-scoped PAT, Tyron, an MCP client) turn the gate off just as
+   * freely as the admin themselves typing it into the rule builder — an
+   * instruction could author its way around the one action class this
+   * codebase otherwise gates well by default. `source` closes that: the
+   * actor genuinely IS an admin here (their workspace role never changes),
+   * but the SAVE itself was not made by a human at the keyboard.
+   */
+  it('an admin-scoped AGENT token cannot save require_approval: false on send_email either (422)', async () => {
+    const scenario = await setupScenario();
+    const minted = await app
+      .get(TokensService)
+      .create(adminId, wsId, 'test agent token', 'admin', true, 'agent');
+    const res = await createRule(scenario, { require_approval: false }, minted.token);
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.message).toMatch(/human decision/i);
   });
 
   it('a non-admin member CAN still save the default (unset) or an explicit true', async () => {
