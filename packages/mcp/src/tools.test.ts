@@ -783,12 +783,12 @@ describe('create_view / update_view (#270)', () => {
     expect(res.content[0]!.text).toMatch(/No field matches "not_a_real_field"/);
   });
 
-  it('update_view issues a fresh public_token when form_access is explicitly re-specified (documented, deliberate)', async () => {
+  it('update_view mints a public_token moving a NEVER-shared form to link (there is none yet to reuse)', async () => {
     const { handlers, patched } = registerAndGet(['update_view']);
     const res = (await handlers.update_view!({
       workspace: 'JCM Agency',
       database: 'leads_2',
-      view: 'Signup Form',
+      view: 'Signup Form', // #715/#718 fixture: type form, no config at all — no prior token
       form_access: 'link',
     })) as { isError?: boolean };
     expect(res.isError).toBeUndefined();
@@ -839,6 +839,34 @@ describe('create_view / update_view (#270)', () => {
       expect(form.title).toBe('Pet Intake v2');
       expect(form.access).toBe('link'); // the old bug reset this to 'members'
       expect(form.public_token).toBe('existing-token-abc');
+    });
+
+    /**
+     * #718 (AC2, corrected mid-build by Dara after Otto caught it in the
+     * ORIGINAL fix) — the other half of the token bug. The first version of
+     * this fix minted a fresh token whenever `form_access` was explicitly
+     * re-passed, on the theory that this was already-documented, deliberate
+     * rotation. It wasn't a real feature, and it meant a caller who passed
+     * `form_access: 'link'` specifically to avoid the members-only default
+     * (the OTHER bug, tested above) got a dead embed anyway — a brand new
+     * token silently invalidating every URL already pasted somewhere. An
+     * existing token must be reused, full stop; this tool has no rotate
+     * action.
+     */
+    it('explicitly re-passing form_access on a form that ALREADY has a token reuses it — never mints a new one', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_access: 'link' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string };
+      expect(form.access).toBe('link');
+      expect(form.public_token).toBe('existing-token-abc'); // reused, not rotated
+    });
+
+    it('explicitly changing form_access to members DOES clear the token — a deliberate revoke still works', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_access: 'members' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token?: string };
+      expect(form.access).toBe('members');
+      expect(form.public_token).toBeUndefined();
     });
 
     it('omitting form_fields entirely preserves the whole existing fields array as-is', async () => {

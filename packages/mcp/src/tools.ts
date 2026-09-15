@@ -3416,16 +3416,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           : (existingForm?.fields ?? []);
 
       const access = o.form_access ?? existingForm?.access ?? 'members';
-      // link/public is unreachable without a token. Minting a fresh one only
-      // when form_access was actually passed matches the documented behavior
-      // (re-passing form_access rotates the link, invalidating the old one);
-      // an edit that didn't touch form_access must not invalidate a live link.
-      const public_token =
-        o.form_access !== undefined
-          ? access !== 'members'
-            ? randomUUID().replace(/-/g, '')
-            : undefined
-          : existingForm?.public_token;
+      // #718 (AC2, corrected by Dara after this was first written — the
+      // ORIGINAL version here minted a fresh token whenever form_access was
+      // explicitly re-passed, which is the OTHER half of the same bug: the
+      // careful caller who passes form_access: 'link' specifically to avoid
+      // the members-only default still got a dead embed, because a brand
+      // new token silently invalidated every URL already pasted somewhere.
+      // Mint ONLY when moving to link/public AND there isn't one already —
+      // an existing token is reused unconditionally, never rotated by an
+      // ordinary update_view call. Rotating one on purpose isn't something
+      // this tool does at all yet (no dedicated regenerate action, unlike
+      // automations' regenerate-hook) — a real, separate capability gap.
+      const public_token = access !== 'members' ? (existingForm?.public_token ?? randomUUID().replace(/-/g, '')) : undefined;
 
       config.form = {
         title: o.form_title !== undefined ? o.form_title : existingForm?.title,
@@ -3545,7 +3547,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update view',
       description:
-        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when` on a field `form_fields` did not mention, which stay exactly as stored (#715). One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when unless you override them. Re-passing form_access on a form that already has a public/link token issues a NEW token, invalidating the old link; omitting form_access on an unrelated edit leaves the current access and its token untouched.',
+        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when` on a field `form_fields` did not mention, which stay exactly as stored (#715), and a form\'s live public_token, which is never rotated by this call (#718) — a link/public form keeps its existing token whether or not you re-pass form_access, and a token is only EVER minted the first time access moves off \'members\'. One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when unless you override them.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
