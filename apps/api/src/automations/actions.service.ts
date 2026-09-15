@@ -239,6 +239,14 @@ export class AutomationActionsService {
     actions: AutomationAction[],
     triggerType?: string,
     actorRole?: string,
+    /**
+     * #542 — carried alongside `actorRole` for the same MN-256 check below.
+     * `actorRole` alone answers "is this person an admin"; it says nothing
+     * about whether a HUMAN typed this save or an agent (Tyron, an MCP
+     * client) made it on their behalf while acting with their role. Only
+     * omitted by the same two callers `actorRole` already is.
+     */
+    source?: ChangeSource,
   ): Promise<void> {
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
@@ -343,9 +351,25 @@ export class AutomationActionsService {
         // MN-256: only an admin may save a send_email action with the
         // approval gate explicitly turned off — a member can still turn it
         // ON (require_approval: true), or leave it at the default.
-        if (action.require_approval === false && actorRole !== undefined && actorRole !== 'admin') {
+        //
+        // #542 — `actorRole` alone let an agent acting AS an admin (Tyron,
+        // an admin-scoped PAT) turn the gate off just as freely as the
+        // admin themselves typing it in — an instruction can author its way
+        // around the one action class this codebase otherwise gates well.
+        // The role check establishes WHO; this establishes that a HUMAN
+        // actually made the call, not something generated on their behalf.
+        // `source === undefined` (the two run-time-only callers noted on
+        // `validate`'s own doc) is treated as human — it means "no request
+        // context", never "an agent with the context stripped".
+        if (
+          action.require_approval === false &&
+          actorRole !== undefined &&
+          (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
+        ) {
           throw new UnprocessableEntityException(
-            'Only a workspace admin can turn off approval for a send_email action.',
+            source !== undefined && source !== 'human'
+              ? 'Turning off approval for a send_email action has to be a human decision, typed by a workspace admin — not something authored on their behalf.'
+              : 'Only a workspace admin can turn off approval for a send_email action.',
           );
         }
       }
