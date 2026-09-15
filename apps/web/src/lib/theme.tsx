@@ -34,7 +34,7 @@ export function isEmbeddedForm(pathname: string, search: string): boolean {
 /** The pre-paint script (see layout.tsx) sets <html data-theme> before React hydrates,
  * so there's no flash. Keep this logic in sync with that inline script — and with
  * `isEmbeddedForm` above, whose logic the first two statements mirror. */
-export const THEME_INIT_SCRIPT = `(function(){try{if(/^\\/f\\//.test(location.pathname)&&new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.setAttribute('data-theme','light');return;}var t=localStorage.getItem('${THEME_STORAGE_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var r=(t==='dark'||(t==='system'&&m))?'dark':'light';document.documentElement.setAttribute('data-theme',r);}catch(e){}})();`;
+export const THEME_INIT_SCRIPT = `(function(){try{if(/^\\/f\\//.test(location.pathname)&&new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.setAttribute('data-theme','light');document.documentElement.setAttribute('data-embed','1');return;}var t=localStorage.getItem('${THEME_STORAGE_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var r=(t==='dark'||(t==='system'&&m))?'dark':'light';document.documentElement.setAttribute('data-theme',r);}catch(e){}})();`;
 
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -61,9 +61,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // this the guard in THEME_INIT_SCRIPT would hold only until hydration: the
     // mount effect below re-applies the visitor's own preference to the SAME
     // attribute, so the form would paint light and then flip to dark.
-    const r =
-      isEmbeddedForm(window.location.pathname, window.location.search) ? 'light' : resolve(pref);
+    const embedded = isEmbeddedForm(window.location.pathname, window.location.search);
+    const r = embedded ? 'light' : resolve(pref);
     document.documentElement.setAttribute('data-theme', r);
+    // Paired with the theme pin: globals.css keys the transparent body off this,
+    // and `body` cannot be reached from the page component because it is an
+    // ancestor of the React root.
+    if (embedded) document.documentElement.setAttribute('data-embed', '1');
     setResolved(r);
   }, []);
 
