@@ -254,6 +254,12 @@ export default function NewWorkspacePage() {
       pack_slug: selectedSlug,
       onboarding_path: choice === 'marketplace' ? 'marketplace' : selectedSlug ? 'pack' : 'blank',
     });
+    // #217 — Otto's ruling applies to every onboarding path, not just the AI-
+    // build one: "land in something real, then share it." onSubmitDescribe
+    // already sets this; this sibling path (pack/blank/marketplace) missed it
+    // (Vera, 2026-09-10) — the same one-time share prompt must fire regardless
+    // of which choice created the workspace.
+    setPendingShare(wsId);
 
     if (choice === 'marketplace') {
       router.replace(`/w/${wsId}/packs#community-marketplace`);
