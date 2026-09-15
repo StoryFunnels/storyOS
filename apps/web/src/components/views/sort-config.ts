@@ -24,10 +24,13 @@ interface SortableFieldLike {
 /**
  * MN-260/MN-267: a formula field is sortable only if its full dependency chain
  * (through other formulas too) never reaches a `lookup` field — mirrors the
- * API's formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, the same
- * way view-toolbar.tsx's own SORTABLE set is meant to mirror records.service.ts's
- * SORTABLE_FIELD_TYPES — a claim that drifted false for `user` until #662, and
- * has no test holding it true going forward (see #657's AC #6). `rollup`
+ * API's formulaDependsOnlyOnOwnRecord (records.service.ts) exactly.
+ *
+ * #680 — view-toolbar.tsx's own `SORTABLE` set used to hand-copy the api's
+ * SORTABLE_FIELD_TYPES and drifted twice (missing `user` until #662, missing
+ * `relation` until this ticket); it now imports that export directly instead
+ * of maintaining a second literal, and hideable-columns.unit.test.ts-adjacent
+ * coverage (sort-config.unit.test.ts) asserts the two stay equal. `rollup`
  * is no longer excluded here: MN-267 built real recompute-on-related-record-
  * change plumbing for it (RollupInvalidationSubscriber, materialized into the
  * same computed_values column formula uses), so a formula reaching into a
