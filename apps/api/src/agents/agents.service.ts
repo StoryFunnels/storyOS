@@ -30,6 +30,11 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
 import { JobRunnerService } from '../automations/job-runner.service';
+import {
+  ApprovalsService,
+  type AgentProposedActionSnapshot,
+  type ApprovalActionSnapshot,
+} from '../automations/approvals.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
@@ -186,6 +191,11 @@ export class AgentsService implements OnModuleInit {
      * built this for, so it registers 'run_agent' the same way MN-256/257/
      * 258/259/263's provider modules register theirs. */
     private readonly jobs: JobRunnerService,
+    /** #603 — the shared approval-gate storage/lifecycle both this service
+     * and automation actions now create/resolve through. AgentsModule
+     * already imports AutomationsModule (one-way), so this needs no new
+     * module wiring. */
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
@@ -1217,6 +1227,39 @@ export class AgentsService implements OnModuleInit {
     // the owner is asked in the Inbox with the exact proposal in front of them.
     // Nothing has been applied — approve/reject decides whether it ever is.
     if (staged) {
+      // #603 — the gate's DECISION AUTHORITY is now the shared `approvals`
+      // table (same one automation actions use — one place to list, expire,
+      // and access-scope every pending gate, not two). `pending_action` on
+      // the run record stays a write-through DISPLAY copy for
+      // `getPendingApproval()` and the run row's own "what's blocking this"
+      // read — resolveGate below reads the AUTHORITATIVE copy from the
+      // approvals row, never this one, so the two can never disagree about
+      // which is the source of truth.
+      const previewText = `${agent.name} wants to ${staged.summary} — approve or reject (${staged.kind})`;
+      await this.approvals.createRow({
+        workspaceId,
+        databaseId: runsDb.id,
+        ruleId: null,
+        runId: run.id,
+        recordId: run.id,
+        actionIndex: 0,
+        action: {
+          type: 'agent_proposed_action',
+          runs_db_id: runsDb.id,
+          run_id: run.id,
+          proposed: staged,
+          steps,
+          principal,
+          usage: runtime.usage,
+        },
+        previewText,
+        // No rule ⇒ approverFor() falls back to this actor — exactly the
+        // "ask the owner" rule #210 always applied, now expressed through
+        // the shared resolver instead of a literal `[owner.userId]` here.
+        requesterActorId: owner.userId,
+        notification: { type: 'approval_requested', snippet: previewText },
+      });
+
       let waiting = await this.recordsService.update(
         workspaceId,
         runsDb.id,
@@ -1235,21 +1278,6 @@ export class AgentsService implements OnModuleInit {
         actorId,
       );
 
-      await this.notifications.notify({
-        workspaceId,
-        databaseId: runsDb.id,
-        recordId: run.id,
-        actorId,
-        type: 'approval_requested',
-        recipients: [owner.userId],
-        // The EXACT proposed action (ADR-0010 §4) — an approval you can't read
-        // is not an approval. The kind is spelled out too, so the owner can see
-        // which of their gates caught this.
-        snippet: `${agent.name} wants to ${staged.summary} — approve or reject (${staged.kind})`,
-        // The run acts as the agent, not as the person who pressed Run, so the
-        // owner must be asked even when they are that person (#210).
-        allowSelf: true,
-      });
       // The provider work has already happened even though a proposed mutation
       // is waiting for a human. Charge it now; approval remains idempotent.
       if (runtime.runClass === 'storyos_ai') {
@@ -1573,11 +1601,52 @@ export class AgentsService implements OnModuleInit {
       throw new UnprocessableEntityException('This run is not waiting for approval');
     }
 
-    const staged = parseStaged(run.values['pending_action']);
+    // #603 — the AUTHORITATIVE staged data now lives on the shared `approvals`
+    // row (same table automation actions use); `run.values['pending_action']`
+    // is kept only as a display copy (see dispatchRun's staging comment) and
+    // is the fallback here purely for a run staged before this change
+    // deployed — one still `Waiting approval` with no approvals row to its
+    // name. Once every pre-deploy run has drained, this fallback is dead code
+    // (worth deleting then, not now — it costs nothing while it's rare).
+    const approvalRow = await this.approvals.findByRunId(membership.workspaceId, run.id);
+    const snapshotAction =
+      approvalRow?.actionSnapshot &&
+      (approvalRow.actionSnapshot as ApprovalActionSnapshot).action.type === 'agent_proposed_action'
+        ? ((approvalRow.actionSnapshot as ApprovalActionSnapshot).action as AgentProposedActionSnapshot)
+        : null;
+    const staged: StagedAction | null = snapshotAction
+      ? {
+          action: snapshotAction.proposed,
+          steps: snapshotAction.steps,
+          principal: snapshotAction.principal,
+          usage: snapshotAction.usage,
+        }
+      : parseStaged(run.values['pending_action']);
     if (!staged) {
       throw new UnprocessableEntityException(
         'This run is waiting for approval but has no staged action to resolve',
       );
+    }
+    // #603 — `expireStale()` (piggybacked on AutomationsService.tick(), same
+    // as automation approvals) only touches the approvals row, never this
+    // run record's own status — so the guard above (`run.values['status']
+    // !== waitingId`) stays true for a run whose gate expired a week ago.
+    // Without this second check, re-approving a long-stale run would still
+    // apply the now-ancient action. `decide()` below would itself refuse a
+    // non-pending row, but only AFTER the apply already ran — too late.
+    if (approvalRow && approvalRow.status !== 'pending') {
+      throw new UnprocessableEntityException(
+        `This approval is no longer pending (${approvalRow.status}) and cannot be resolved`,
+      );
+    }
+    // A row can be `status: 'pending'` and still be PAST its expiry — nothing
+    // has swept it yet (the sweep piggybacks a tick, same as the automation
+    // case). Checked here too, not only inside `decide()` below, for the
+    // same reason as the status check above: `decide()` runs AFTER apply,
+    // so its own expiry check alone would apply the stale action first and
+    // only fail afterward — the worst of both outcomes.
+    if (approvalRow && approvalRow.expiresAt < new Date()) {
+      throw new UnprocessableEntityException('This approval expired before it was decided');
     }
 
     const actorId = membership.userId;
@@ -1620,6 +1689,23 @@ export class AgentsService implements OnModuleInit {
         }`,
         detail: 'The proposed action was not applied. The run was canceled with no side effects.',
       });
+    }
+
+    // #603 — flip the shared approvals row (notify/audit-comment included)
+    // AFTER apply/reject succeeds above, never before: applying is what can
+    // fail, and the existing contract is that a failed apply leaves the gate
+    // open for a retry. Flipping first would mark the row "approved" against
+    // an action that was never actually applied — worse than today, not an
+    // upgrade. No row exists for a run staged before this change deployed
+    // (the `parseStaged` fallback above) — nothing to flip then, skip it.
+    if (approvalRow) {
+      await this.approvals.decide(
+        membership.workspaceId,
+        approvalRow.id,
+        actorId,
+        verdict === 'approve' ? 'approved' : 'rejected',
+        reason,
+      );
     }
 
     let resolved = await this.recordsService.update(
