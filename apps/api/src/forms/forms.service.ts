@@ -13,6 +13,7 @@ import {
   type FormVisibilityRule,
   type PublicFormVisibilityRule,
 } from '@storyos/schemas';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { BillingService } from '../billing/billing.service';
 import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
@@ -24,7 +25,8 @@ import { RecordsService } from '../records/records.service';
 import { compileFilter } from '../records/query-compiler';
 import { cleanFilterNode } from '../views/views.service';
 
-/** Field types a public form can render/accept (MN-101, MN-224: relation + user). */
+/** Field types a public form can render/accept (MN-101, MN-224: relation + user;
+ *  #710: attachment, multipart-only — see `submit`'s `file` parameter). */
 const SUPPORTED = new Set([
   'title',
   'text',
@@ -39,6 +41,7 @@ const SUPPORTED = new Set([
   'workflow',
   'user',
   'relation',
+  'attachment',
 ]);
 
 interface FormFieldCfg {
@@ -69,6 +72,7 @@ export class FormsService {
     private readonly billing: BillingService,
     private readonly portalRecipients: PortalRecipientsService,
     private readonly portalActivity: PortalActivityService,
+    private readonly attachments: AttachmentsService,
   ) {}
 
   /** Resolve a public token → its view + form config + database, or 404. */
@@ -123,6 +127,20 @@ export class FormsService {
     let chosen = orderIds
       .map((id) => byId.get(id))
       .filter((f): f is (typeof fieldRows)[number] => Boolean(f) && SUPPORTED.has(f!.type));
+
+    // #710 — a public form supports at most ONE attachment field: the global
+    // multipart plugin caps a request at one file (app.setup.ts's `files: 1`,
+    // shared with the authenticated upload path, not a limit invented here).
+    // A second configured attachment field is dropped rather than rendered
+    // broken — the same silent-drop convention the relation case below uses
+    // for a field that can't actually work.
+    let seenAttachment = false;
+    chosen = chosen.filter((f) => {
+      if (f.type !== 'attachment') return true;
+      if (seenAttachment) return false;
+      seenAttachment = true;
+      return true;
+    });
 
     const selectIds = chosen
       .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
@@ -410,6 +428,13 @@ export class FormsService {
    * byte unchanged (MUST KEEP WORKING). Editing is a portal-only capability —
    * `recordId` on a form whose view isn't portal-scoped is a 422, not a
    * silent no-op or a generic write.
+   *
+   * #710 — `file` is new and optional: an ordinary JSON submission never
+   * supplies it, so that path is byte-for-byte unchanged (MUST KEEP WORKING).
+   * An attachment field has no representation in `records.values` at all
+   * (files live in the separate `attachments` table, keyed by record+field —
+   * see AttachmentsService) — it is handled entirely out of band from
+   * `values`/`clean` below, never written into the record's jsonb.
    */
   async submit(
     token: string,
@@ -417,6 +442,7 @@ export class FormsService {
     honeypot?: string,
     recipientToken?: string,
     recordId?: string,
+    file?: { filename: string; mime: string; data: Buffer },
   ) {
     // Bots fill hidden fields — accept and silently drop so they don't retry.
     if (honeypot && honeypot.trim() !== '') return { ok: true };
@@ -434,6 +460,14 @@ export class FormsService {
     // the server can't drift into disagreeing about what was on screen.
     const visible = visibleFormFields(def.fields, values);
     const visibleNames = new Set(visible.map((f) => f.api_name));
+    const attachmentField = visible.find((f) => f.type === 'attachment');
+
+    // #710 — a file with nowhere to go is a submitter-facing mistake worth
+    // naming, not a silent drop: the file would otherwise vanish with no
+    // signal anyone chose that.
+    if (file && !attachmentField) {
+      throw new UnprocessableEntityException('this form has no attachment field');
+    }
 
     // Enforce the form's own required flags (a form concern, not a DB constraint)
     // — but only for fields the submitter could actually SEE. A required field
@@ -444,13 +478,20 @@ export class FormsService {
     // required-ness off even while the field itself stays visible. Independently
     // re-derived here rather than trusting a client claim, same reasoning as
     // `visible` above.
+    // #710 — attachment is excluded from this values-keyed check: its answer
+    // never lives in `values` (file bytes aren't JSON), so it's checked
+    // separately against `file` right below instead.
     const missing = visible
+      .filter((f) => f.type !== 'attachment')
       .filter((f) => f.required && isFormFieldVisible(f.required_when, values))
       .filter((f) => {
         const v = values[f.api_name];
         return v == null || v === '' || (Array.isArray(v) && v.length === 0);
       })
       .map((f) => f.label);
+    if (attachmentField?.required && isFormFieldVisible(attachmentField.required_when, values) && !file) {
+      missing.push(attachmentField.label);
+    }
     if (missing.length) {
       throw new UnprocessableEntityException(`Required: ${missing.join(', ')}`);
     }
@@ -458,7 +499,11 @@ export class FormsService {
     // Only accept values for fields the form exposes AND the rules reveal (#263):
     // a hidden field's value is refused server-side, so hiding is a real gate and
     // not merely a client-side courtesy a crafted POST could walk straight past.
-    const allowed = visibleNames;
+    // #710 — the attachment field's api_name is excluded even though it's
+    // visible: it has no jsonb representation (see the method doc comment),
+    // so letting it through here would try to write a bogus value into a
+    // column shape that doesn't exist for that type.
+    const allowed = new Set([...visibleNames].filter((name) => name !== attachmentField?.api_name));
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) if (allowed.has(k)) clean[k] = v;
 
@@ -514,6 +559,9 @@ export class FormsService {
         throw new NotFoundException('Record not found');
       }
       const updated = await this.records.update(database.workspaceId, database.id, recordId, clean, null);
+      if (file && attachmentField) {
+        await this.attachments.upload(database.workspaceId, updated.id, file, null, attachmentField.field_id, 'human');
+      }
       await this.portalActivity.record({
         workspaceId: database.workspaceId,
         recipientId: portal.recipient.id,
@@ -526,6 +574,11 @@ export class FormsService {
 
     // Anonymous author: createdBy/actor is null (renders as a deactivated user).
     const created = await this.records.create(database.workspaceId, database.id, clean, null);
+    // #710 — attached to the just-created record, same reuse of the
+    // authenticated upload path (size cap, storage, thumbnail) noted above.
+    if (file && attachmentField) {
+      await this.attachments.upload(database.workspaceId, created.id, file, null, attachmentField.field_id, 'human');
+    }
     if (portal) {
       await this.portalActivity.record({
         workspaceId: database.workspaceId,

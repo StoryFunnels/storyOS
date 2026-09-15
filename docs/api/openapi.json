@@ -9306,9 +9306,14 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicSubmitDto"
+              }
+            },
+            "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/PublicSubmitDto"
               }
@@ -9320,7 +9325,7 @@
             "description": ""
           }
         },
-        "summary": "Submit a public form → creates or (portal-scoped) edits a record (anonymous)",
+        "summary": "Submit a public form → creates or (portal-scoped) edits a record (anonymous). Multipart with a \"payload\" JSON text part when the form has an attachment field.",
         "tags": [
           "public"
         ]

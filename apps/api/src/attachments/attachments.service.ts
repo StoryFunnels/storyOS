@@ -81,7 +81,10 @@ export class AttachmentsService {
     workspaceId: string,
     recordId: string,
     file: { filename: string; mime: string; data: Buffer },
-    actorId: string,
+    // #710 — null for an anonymous public-form submission (uploadedBy is a
+    // nullable column, same "renders as a deactivated user" convention
+    // RecordsService.create already uses for an anonymous author).
+    actorId: string | null,
     fieldId?: string,
     source: ChangeSource = 'human',
   ) {
@@ -176,7 +179,7 @@ export class AttachmentsService {
     recordId: string,
     fieldId: string,
     attachmentId: string,
-    actorId: string,
+    actorId: string | null,
   ) {
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
     if (!record) return;
