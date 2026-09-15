@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { SORTABLE_FIELD_TYPES } from '@storyos/schemas';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { SortSpec } from './sort-config';
+import { SORTABLE } from './view-toolbar';
 
 /**
  * MN-252: the sort-builder's pure logic — drag-reorder precedence, the "+ Add"
@@ -85,6 +87,30 @@ describe('directionLabel — field-type-aware idioms (nice-to-have AC)', () => {
   it('uses A→Z / Z→A for a user field, matching created_by/updated_by', () => {
     expect(directionLabel('user', 'asc')).toBe('A → Z');
     expect(directionLabel('user', 'desc')).toBe('Z → A');
+  });
+});
+
+/**
+ * #680 — the durable fix #657/#662 both asked for and neither PR actually
+ * added: a test that fails the moment the web `SORTABLE` set and the api's
+ * `SORTABLE_FIELD_TYPES` (packages/schemas/src/fields.ts) disagree, rather
+ * than relying on someone noticing a new field type silently didn't reach
+ * the Sort By picker. `SORTABLE` now imports the shared export directly
+ * (view-toolbar.tsx), so this passes by construction — it exists to catch a
+ * FUTURE regression (someone re-introducing a hand-copied literal), not to
+ * prove today's set matches.
+ */
+describe('SORTABLE — drift guard against the schema\'s SORTABLE_FIELD_TYPES (#657/#662/#680)', () => {
+  it('the web Sort By picker\'s sortable types are exactly the api\'s SORTABLE_FIELD_TYPES', () => {
+    expect([...SORTABLE].sort()).toEqual([...SORTABLE_FIELD_TYPES].sort());
+  });
+
+  it('relation is sortable (the specific gap #680 found — #657 added it to the api, #662\'s fix missed it here)', () => {
+    expect(SORTABLE.has('relation')).toBe(true);
+  });
+
+  it('user is sortable (the gap #662 fixed)', () => {
+    expect(SORTABLE.has('user')).toBe(true);
   });
 });
 

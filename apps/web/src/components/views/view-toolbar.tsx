@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AddSummaryWidgetButton } from './summary-widget-strip';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
-import { isIncompleteCondition } from '@storyos/schemas';
+import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -75,7 +75,7 @@ import {
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
-import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
+import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
 
@@ -255,27 +255,19 @@ const RELATIVE_RANGES = [
   'next_30_days',
 ];
 
-export const SORTABLE = new Set([
-  // #172: workflow sorts like select (the API SORTABLE set already includes it).
-  'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow', 'checkbox', 'created_at', 'updated_at',
-  // #662 — `user` was already in the api's SORTABLE_FIELD_TYPES (records.service.ts)
-  // but missing here, so the picker never offered it even though the API accepted
-  // it. A MULTI user field is excluded below (sortableFields), matching the api's
-  // own refusal (validateSorts: `user` && config.multi === true 422s).
-  'user',
-  // MN-260: formula is materialized server-side and reads through fieldExpr()
-  // like any stored field now — SortButton further narrows to same-record-only
-  // formulas via isSortableFormula (sort-config.ts).
-  // MN-267: rollup now has real recompute-on-related-record-change plumbing
-  // (RollupInvalidationSubscriber, apps/api/src/records/rollup-invalidation.subscriber.ts)
-  // and is materialized the same way formula is, so it's sortable too. `lookup`
-  // stays excluded: still no such plumbing for it.
-  'formula', 'rollup',
-  // #352 — all system field compiler types are sortable (stable via the id
-  // tiebreak the API appends). Adds `id`, `created_by`, `updated_by`
-  // (`created_at`/`updated_at` were already sortable above).
-  ...SYSTEM_SORTABLE_TYPES,
-]);
+/**
+ * #680 — DERIVED from the schema's own `SORTABLE_FIELD_TYPES`, never a second
+ * hand-maintained list. This set used to be a literal copy "mirroring" the
+ * api's SORTABLE_FIELD_TYPES (records.service.ts) by hand, and it drifted
+ * TWICE: #657 added `relation` to the api's list and this file's copy missed
+ * it (Epic and every other relation field stayed unsortable in the picker
+ * despite the API accepting the sort); #662 fixed `user` here by hand instead
+ * of importing the shared export, which is why the drift for `relation`
+ * wasn't caught by the same fix. Importing the export directly makes a THIRD
+ * occurrence structurally impossible — there is no longer a second literal to
+ * forget updating.
+ */
+export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
 
 export function ViewToolbar({
   fields,
@@ -2404,14 +2396,17 @@ export function SortButton({
     (f) =>
       SORTABLE.has(f.type) &&
       isSortableFormula(f, byApiName) &&
-      // #662 — a MULTI user field has no single value to order by; offering it
-      // here would just 422 at save time (validateSorts, records.service.ts).
-      !(f.type === 'user' && f.config['multi'] === true),
+      // #662/#680 — a MULTI user or relation field has no single value to order
+      // by; offering it here would just 422 at save time (validateSorts,
+      // records.service.ts's identical `(user || relation) && config.multi` check —
+      // #680 found this picker was still missing the `relation` half of it).
+      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true),
   );
   // MN-267: rollup is sortable now (real recompute-on-related-record-change
-  // plumbing exists — see SORTABLE's comment above); `lookup` is the one still
-  // fully excluded, and a formula reaching into one inherits that same
-  // cross-record staleness and is excluded too — see isSortableFormula above.
+  // plumbing exists, so it's in SORTABLE_FIELD_TYPES); `lookup` is the one
+  // still fully excluded (not in that shared list at all), and a formula
+  // reaching into one inherits that same cross-record staleness and is
+  // excluded too — see isSortableFormula above.
   const hasUnsortableComputedFields = fields.some(
     (f) => f.type === 'lookup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
   );
