@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
 
@@ -122,14 +123,20 @@ export function FieldsMenu({
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-64">
-        <input
+        <Input
           autoFocus
           placeholder={searchPlaceholder}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           // Radix menus grab keystrokes for typeahead — keep them in the box.
           onKeyDown={(e) => e.stopPropagation()}
-          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
+          size="sm"
+          // #688 group B — this joins `sm` rather than keeping its own copy; its
+          // plain `rounded` (4px) was the one hand-rolled input site NOT using
+          // the `--radius-control` token (6px), called out on the ticket as
+          // "almost certainly an oversight" — going through the primitive
+          // fixes it as a side effect of removing the duplication.
+          className="mb-1 w-full outline-none"
         />
         <div className="max-h-72 overflow-y-auto">
           {onReorder ? (

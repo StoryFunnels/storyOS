@@ -16,6 +16,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { TILE_OPS, formatTileValue, opLabel, opNeedsField } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
@@ -330,8 +331,13 @@ function WidgetCard({
               </select>
             </label>
           )}
-          <input
-            className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink placeholder:text-muted"
+          {/* #688 group B — decided: this joins the primitive as `xs`, its own
+              named size, rather than being rounded to `sm`'s 1px taller shape.
+              Its plain `rounded` (4px) was the same token bypass fields-menu's
+              search box had; the primitive fixes it to `--radius-control` (6px)
+              as a side effect. */}
+          <Input
+            size="xs"
             placeholder={title}
             value={widget.title}
             onChange={(e) => onPatch({ title: e.target.value })}

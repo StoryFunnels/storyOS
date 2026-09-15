@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
 import { AgentAvatar } from './agent-avatar';
 import { useRememberedThread } from '@/lib/tyron-thread';
 import { takePendingBuild } from '@/lib/pending-build';
@@ -389,9 +390,10 @@ export function TyronConversation({ ws }: { ws: string }) {
 
       <div className="shrink-0 border-t border-border-default p-3">
         <div className="flex items-end gap-2">
-          <textarea
+          <Textarea
             ref={composerRef}
             rows={1}
+            size="default"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -404,7 +406,9 @@ export function TyronConversation({ ws }: { ws: string }) {
             }}
             placeholder="Ask Tyron…"
             aria-label="Message Tyron"
-            className="max-h-32 min-h-8 flex-1 resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            // #689 — bespoke min/max-height: a chat composer that grows with
+            // content up to a cap, not a fixed prose box.
+            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
           />
           <button
             type="button"

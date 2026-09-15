@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Input } from '@/components/ui/input';
 import { CopyToDialog } from '@/components/entity/copy-to-dialog';
 import { CellEditor, cellToText } from './cells';
 import { useFieldMutations } from './field-dialog-shared';
@@ -465,9 +466,10 @@ function BulkLinkPicker({
       <p className="mb-1.5 text-[12px] font-medium text-muted">
         Link {count} record{count === 1 ? '' : 's'} via “{field.displayName}” — replaces existing links
       </p>
-      <input
+      <Input
         autoFocus
-        className="mb-1 h-8 w-full rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
+        size="sm"
+        className="mb-1 w-full"
         placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
         value={search}
         onChange={(e) => setSearch(e.target.value)}

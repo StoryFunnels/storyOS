@@ -15,6 +15,7 @@ import {
 } from '@storyos/schemas';
 import type { FormulaFieldInfo } from '@storyos/schemas';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { DatabaseDetail, Field } from './use-table-data';
 
@@ -322,11 +323,12 @@ export function FormulaEditor({
         </div>
       </div>
       <div className="relative">
-        <textarea
+        <Textarea
           id="formula-src"
           ref={taRef}
           rows={3}
-          className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-border-strong"
+          size="default"
+          className="min-h-0 w-full font-mono outline-none focus:border-border-strong"
           placeholder={'if({Estimate} > 5, "big", "small")'}
           value={expression}
           onChange={(e) => {

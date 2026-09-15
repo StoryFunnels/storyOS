@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from '@/components/ui/select';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { Input } from '@/components/ui/input';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
@@ -321,12 +322,12 @@ export function DashboardView({
 
             {showEditor && (
               <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
-                <input
+                <Input
                   aria-label="Tile label"
                   placeholder={defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''))}
                   value={tile.label}
                   onChange={(e) => updateTile(tile.id, { label: e.target.value })}
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                  size="sm"
                 />
                 {/* #304 — what this tile measures. Scoped to the dashboard's own
                     SPACE in v1: offering a picker wider than the access story is
@@ -431,10 +432,12 @@ export function DashboardView({
                     180px — and a number input beside a select overflows the card
                     at that width, which is what it did on first render. */}
                 <div className="flex flex-col gap-1.5">
-                  <input
+                  <Input
                     type="number"
                     aria-label="Target"
                     placeholder="Target (optional)"
+                    size="sm"
+                    className="w-full min-w-0"
                     value={tile.comparison?.target ?? ''}
                     onChange={(e) => {
                       const raw = e.target.value;
@@ -448,7 +451,6 @@ export function DashboardView({
                         comparison: { target, direction: tile.comparison?.direction ?? 'up' },
                       });
                     }}
-                    className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
                   />
                   {tile.comparison?.target != null && (
                     <Select

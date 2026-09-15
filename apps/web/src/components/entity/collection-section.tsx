@@ -9,6 +9,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, OPTION_COLORS } from '@/components/table-view/cells';
+import { Input } from '@/components/ui/input';
 import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
@@ -402,9 +403,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 </button>
               )}
               {creating && !targetTitleComputed && (
-                <input
+                <Input
                   autoFocus
-                  className="h-7 w-64 rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
+                  size="sm"
+                  className="h-7 w-64"
                   placeholder={`New ${targetDb.data?.name ?? 'record'} — Enter to create, linked here`}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}

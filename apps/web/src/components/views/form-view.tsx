@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { FreeGuestTip } from '@/components/free-guest-tip';
 import { OptionChip } from '../table-view/cells';
 import { Avatar } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field, SelectOption } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
@@ -936,8 +937,9 @@ function MetaInput({ label, value, placeholder, onChange }: { label: string; val
   return (
     <label className="flex items-center gap-2">
       <span className="w-24 shrink-0 text-muted">{label}</span>
-      <input
-        className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px]"
+      <Input
+        size="sm"
+        className="flex-1"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

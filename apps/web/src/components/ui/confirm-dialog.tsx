@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import type { ReactNode } from 'react';
 import { Dialog, DialogContent } from './dialog';
 import { Button } from './button';
+import { Input } from './input';
 
 interface ConfirmOptions {
   title: string;
@@ -66,12 +67,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {opts.requireTyped && (
               <label className="mb-5 block text-body text-ink-secondary">
                 Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
-                <input
+                <Input
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   aria-label={`Type ${opts.requireTyped} to confirm`}
-                  className="mt-1.5 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-body text-ink"
+                  size="sm"
+                  className="mt-1.5 w-full"
                 />
               </label>
             )}
