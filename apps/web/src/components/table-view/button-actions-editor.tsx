@@ -237,6 +237,9 @@ export function ButtonActionsEditor({
                 </optgroup>
               ))}
             </select>
+            {/* #706 — the four delete buttons in this file KEEP faint: each
+                contains only a Trash2 icon, a non-text graphic judged at 3:1,
+                which faint clears. They also darken to text-error on hover. */}
             <button
               type="button"
               className="p-1 text-faint hover:text-error"
@@ -359,7 +362,7 @@ export function ButtonActionsEditor({
                 value={action.url}
                 onChange={(e) => patch(i, { ...action, url: e.target.value })}
               />
-              <p className="text-[11px] text-faint">
+              <p className="text-[11px] text-muted">
                 Sends the whole record, signed with the workspace webhook secret; failures
                 retry automatically.
               </p>
@@ -579,7 +582,7 @@ function SetValueEditor({
       const ids = Array.isArray(value) ? (value as string[]) : [];
       const options = field.options ?? [];
       if (options.length === 0)
-        return <span className="flex-1 text-[11px] text-faint">No options</span>;
+        return <span className="flex-1 text-[11px] text-muted">No options</span>;
       return (
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {options.map((o) => {
@@ -964,7 +967,7 @@ function HttpRequestEditor({
           ))}
         </select>
         {(connections.data ?? []).length === 0 && (
-          <p className="text-[11px] text-faint">
+          <p className="text-[11px] text-muted">
             No HTTP connections yet —{' '}
             <Link href={`/w/${ws}/settings/connections`} target="_blank" className="underline underline-offset-2 hover:no-underline">
               add one
@@ -982,7 +985,7 @@ function HttpRequestEditor({
           capture={capture}
           onChange={(next) => onChange({ ...action, capture: next })}
         />
-        <p className="text-[11px] text-faint">
+        <p className="text-[11px] text-muted">
           Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
           fields above. Secrets from the connection are never shown in run results.
         </p>
@@ -1016,6 +1019,9 @@ function CaptureRowsEditor({
               onChange(capture.map((r, j) => (j === i ? { ...r, path: e.target.value } : r)))
             }
           />
+          {/* #706 — KEEPS faint: a connector glyph between two selects, not
+              text. Non-text graphic at 3:1, which faint clears; the selects
+              either side carry the meaning. */}
           <span className="text-[11px] text-faint">→</span>
           <select
             className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
@@ -1160,7 +1166,7 @@ function UpdateLinkedEditor({
   );
   if (relationFields.length === 0) {
     return (
-      <p className="text-[12px] text-faint">This database has no relations to update through.</p>
+      <p className="text-[12px] text-muted">This database has no relations to update through.</p>
     );
   }
   return (
@@ -1233,7 +1239,7 @@ function ActionConditionRow({
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-t border-border-default pt-1.5">
-      <span className="text-[11px] text-faint">Only if</span>
+      <span className="text-[11px] text-muted">Only if</span>
       <select
         className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
         value={condition?.field ?? ''}
