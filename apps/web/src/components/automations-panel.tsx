@@ -703,7 +703,7 @@ function RuleEditor({
           </select>
           {triggerType === 'record_linked' &&
             (relationFields.length === 0 ? (
-              <p className="text-[12px] text-faint">
+              <p className="text-[12px] text-muted">
                 This database has no relation fields yet — add one first.
               </p>
             ) : (
