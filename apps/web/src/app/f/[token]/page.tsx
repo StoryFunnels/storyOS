@@ -73,6 +73,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hp, setHp] = useState('');
+  // #724 — kept separate from `values` (which gets JSON.stringify'd directly):
+  // a File object isn't JSON-serializable, and the server never expects the
+  // attachment field's answer inside `values` at all (see forms.service.ts's
+  // submit — the file rides as its own multipart part, matched to whichever
+  // field is type 'attachment' since a form allows at most one).
+  const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetch(`${API}/api/v1/public/forms/${token}`, { credentials: 'omit' })
@@ -89,12 +95,27 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/api/v1/public/forms/${token}`, {
-        method: 'POST',
-        credentials: 'omit',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ values, hp }),
-      });
+      // #724 — a plain JSON POST stays the default (MUST KEEP WORKING per
+      // #710); multipart only kicks in when a file was actually picked, so a
+      // form with an (optional, unfilled) attachment field behaves exactly
+      // as it did before this field type existed.
+      const res = file
+        ? await fetch(`${API}/api/v1/public/forms/${token}`, {
+            method: 'POST',
+            credentials: 'omit',
+            body: (() => {
+              const fd = new FormData();
+              fd.append('payload', JSON.stringify({ values, hp }));
+              fd.append('file', file, file.name);
+              return fd;
+            })(),
+          })
+        : await fetch(`${API}/api/v1/public/forms/${token}`, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ values, hp }),
+          });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error?.message ?? 'Something went wrong. Please try again.');
@@ -176,15 +197,21 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           // (the SAME evaluator that already gates visibility) can turn a field's
           // required-ness off even while it stays visible.
           const requiredNow = f.required && isFormFieldVisible(f.required_when, values);
-          const control = (
-            <Input
-              token={token}
-              field={f}
-              required={requiredNow}
-              value={values[f.api_name]}
-              onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
-            />
-          );
+          // #724 — the attachment field's answer lives in the separate `file`
+          // state, never in `values` (see the `submit` comment above), so it
+          // gets its own control rather than going through the generic `Input`.
+          const control =
+            f.type === 'attachment' ? (
+              <AttachmentInput required={requiredNow} file={file} onChange={setFile} />
+            ) : (
+              <Input
+                token={token}
+                field={f}
+                required={requiredNow}
+                value={values[f.api_name]}
+                onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
+              />
+            );
           const labelText = (
             <span className="text-[13px] font-medium text-ink-secondary">
               {f.label}
@@ -270,6 +297,46 @@ function PublicOptionToggle({
     >
       <OptionChip option={option} />
     </button>
+  );
+}
+
+/**
+ * #724 — the file picker for a form's (at most one) attachment field. Kept
+ * outside `Input` since its answer lives in its own `file` state, not
+ * `values` — see the page's `submit` and render-loop comments.
+ */
+function AttachmentInput({
+  required,
+  file,
+  onChange,
+}: {
+  required: boolean;
+  file: File | null;
+  onChange: (f: File | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {/* A native file input's displayed filename can't be reset via `value` —
+          keying on the file's presence forces a remount when "Remove" clears
+          it, so the input doesn't keep showing a filename for a file the
+          form no longer has. */}
+      <input
+        key={file ? file.name + file.lastModified : 'empty'}
+        type="file"
+        required={required}
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        className="flex-1 rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none file:mr-3 file:rounded file:border-0 file:bg-hover file:px-2 file:py-1 file:text-[12px] file:text-ink"
+      />
+      {file && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-[12px] text-muted underline hover:text-ink"
+        >
+          Remove
+        </button>
+      )}
+    </div>
   );
 }
 

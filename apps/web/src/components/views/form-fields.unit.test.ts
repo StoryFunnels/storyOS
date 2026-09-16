@@ -1,12 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import {
   FORM_FIELD_TYPES,
+  canAddFormField,
   patchFieldConfig,
   reorderFieldSelection,
   resolveFormFieldIds,
   toggleFieldSelection,
 } from './form-fields';
 import type { FormFieldCfg } from './form-fields';
+
+/**
+ * #724 — a literal copy of apps/api/src/forms/forms.service.ts's `SUPPORTED`
+ * set, NOT a cross-package import: it's a private constant in an app the web
+ * package can't reach at build time. This is the same limitation #724 itself
+ * hit — form-fields.ts's own comment claimed to mirror SUPPORTED, and that
+ * claim drifted the moment #710 added `attachment` there. A literal mirror
+ * still beats a comment: it turns "does the picker offer everything the
+ * server accepts" into an assertion that fails the moment either side
+ * changes without the other, instead of a claim nobody re-checks. Keep this
+ * list in sync with forms.service.ts's SUPPORTED by hand when either changes.
+ */
+const API_SUPPORTED_MIRROR = new Set([
+  'title',
+  'text',
+  'rich_text',
+  'number',
+  'date',
+  'checkbox',
+  'url',
+  'email',
+  'select',
+  'multi_select',
+  'workflow',
+  'user',
+  'relation',
+  'attachment',
+]);
 
 describe('resolveFormFieldIds (#224 back-compat)', () => {
   it('uses form.fields when present, ignoring card_field_ids', () => {
@@ -82,9 +111,10 @@ describe('patchFieldConfig', () => {
 });
 
 describe('FORM_FIELD_TYPES', () => {
-  it('includes relation and user (#224) and excludes rich_text (unreachable via the sidebar)', () => {
+  it('includes relation, user and attachment (#224, #724) and excludes rich_text (unreachable via the sidebar)', () => {
     expect(FORM_FIELD_TYPES.has('relation')).toBe(true);
     expect(FORM_FIELD_TYPES.has('user')).toBe(true);
+    expect(FORM_FIELD_TYPES.has('attachment')).toBe(true);
     expect(FORM_FIELD_TYPES.has('rich_text')).toBe(false);
   });
 
@@ -92,5 +122,29 @@ describe('FORM_FIELD_TYPES', () => {
     for (const t of ['formula', 'lookup', 'rollup', 'button', 'id', 'created_at', 'updated_at', 'created_by']) {
       expect(FORM_FIELD_TYPES.has(t)).toBe(false);
     }
+  });
+
+  it('#724 — matches the API SUPPORTED set exactly, minus the one documented exclusion (rich_text)', () => {
+    const expected = new Set(API_SUPPORTED_MIRROR);
+    expected.delete('rich_text');
+    const missing = [...expected].filter((t) => !FORM_FIELD_TYPES.has(t));
+    const extra = [...FORM_FIELD_TYPES].filter((t) => !expected.has(t));
+    expect(missing, 'a type the API accepts but the builder never offers').toEqual([]);
+    expect(extra, 'a type the builder offers that the API would reject').toEqual([]);
+  });
+});
+
+describe('canAddFormField (#724 — at most one attachment field per form)', () => {
+  it('allows an attachment field when none is selected yet', () => {
+    expect(canAddFormField(['text', 'email'], 'attachment')).toBe(true);
+  });
+
+  it('refuses a second attachment field', () => {
+    expect(canAddFormField(['text', 'attachment'], 'attachment')).toBe(false);
+  });
+
+  it('never blocks a non-attachment field, regardless of what is already selected', () => {
+    expect(canAddFormField(['attachment'], 'text')).toBe(true);
+    expect(canAddFormField(['attachment'], 'relation')).toBe(true);
   });
 });
