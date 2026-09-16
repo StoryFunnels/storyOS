@@ -315,7 +315,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Cost &amp; Margin</h2>
-          <span className="text-[12px] text-faint">
+          <span className="text-[12px] text-muted">
             Margin floor: {c.marginFloorPercent}% · Fixed infra:{' '}
             {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo (allocated below)
           </span>
@@ -429,7 +429,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Runs</h2>
-          <span className="text-[12px] text-faint">
+          <span className="text-[12px] text-muted">
             #300/MN-216c — every workspace, read-only + kill-switch
           </span>
         </div>
@@ -512,7 +512,7 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
-          <span className="text-[12px] text-faint">
+          <span className="text-[12px] text-muted">
             MN-220 — submissions awaiting (or having had) review
           </span>
         </div>
@@ -756,12 +756,12 @@ function BillingSection() {
               <span>
                 Plan: <strong className="text-ink">{PLAN_LABEL[b.plan] ?? b.plan}</strong>
               </span>
-              <span className="text-faint">
+              <span className="text-muted">
                 Stripe:{' '}
                 {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
               </span>
               {b.currentPeriodEnd && (
-                <span className="text-faint">
+                <span className="text-muted">
                   Until {new Date(b.currentPeriodEnd).toLocaleDateString()}
                 </span>
               )}
