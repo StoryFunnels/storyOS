@@ -19,7 +19,48 @@ Token groups, by name (`globals.css` for values):
 
 31 of these are redeclared under `:root[data-theme='dark']` — see [Dark mode](#dark-mode) below.
 
-**`--text-faint` carries a strict rule, and it is not fully enforced yet.** `globals.css`'s own comment on the token: reserved for genuinely decorative text (record numbers, "Saved", empty-computed em dashes) — anything that carries an affordance (a section label, an empty-state instruction, a keyboard-shortcut hint) uses `--text-muted` instead, which clears WCAG AA where `--text-faint` does not (measured 3.00–3.44:1 on light surfaces, still below 4.5 in dark). Ticket #637 is re-pointing violating call sites to `--text-muted`, **one surface per PR, by design** — as of this writing that covers five sites in the shared primitives (`input.tsx`, `date-picker.tsx`, `dropdown-menu.tsx`, `icon-picker.tsx`); other surfaces (sidebar section labels among them) still use `--text-faint` for affordance-carrying text and are pending their own pass. Don't read "some call sites still violate the rule" as a doc error — it's mid-migration, tracked incrementally on purpose.
+**`--text-faint` carries a strict rule.** `globals.css`'s own comment on the
+token: reserved for genuinely decorative text — anything that carries an
+affordance uses `--text-muted` instead, which clears WCAG AA where
+`--text-faint` does not (measured 3.00–3.44:1 on light surfaces, 3.55–4.40:1 in
+dark; muted clears on all six).
+
+**The named-surface sweep is complete.** `#637` → `#669` → `#706` ran it one
+surface per PR by design. `#706` closed the list: **18 surfaces, 169 sites, 126
+moved to `--text-muted`, 43 kept faint**, each keep carrying its reason in the
+code so the next reader does not "finish the job" on a deliberate decision.
+
+**The heuristic that decided all 169, and the one to apply when writing new
+code: does this site use faint for a GLYPH or for PROSE?**
+
+- **Glyphs keep it.** An icon-only button (accessible name on `title` or
+  `aria-label`), an icon fallback, a drag handle, a connector arrow, an em-dash
+  standing in for an absent value. These are non-text graphics, judged at 3:1,
+  which faint clears on every surface.
+- **Prose moves.** Section headings, empty states, form help, placeholder text,
+  status and provenance labels, timestamps, and the unselected half of a
+  segmented control — you read that label in order to choose it, so "currently
+  inactive" is not the same as "decorative".
+
+The ratio falls out of the file rather than being a target: prose-heavy surfaces
+moved nearly everything (`connections` 10/10, `sources-dialog` 11/11),
+glyph-heavy ones kept most (`record-detail` 4/9, `view-toolbar` 24/45). Do not
+aim for a percentage — ask the question.
+
+**Two traps, both of which cost time during the sweep.** A de-emphasis often
+*does* carry meaning (an out-of-month calendar day, a deleted record's title);
+the question is not whether it means something but whether a **co-signal**
+exists and is actually visible — measure it. The calendar's was a 1.07:1
+background, i.e. nothing; the inbox's was a strikethrough, i.e. plenty. And
+`grep text-faint` counts the token's own documentation, so a file's count reads
+high; subtract prose mentions in comments before trusting a number.
+
+**The ~174-site tail outside those 18 surfaces was accepted explicitly, not
+scheduled** (`#706`). `#688`/`#689`'s `Input`/`Textarea` primitives make a
+placeholder `--text-muted` by construction, so that category cannot drift again.
+**They do not govern a bare `<p>`** — an empty state added six minutes after the
+sweep cleared its file proved it — so the acceptance rests on detection rather
+than prevention, and `#722` wires the contrast probe into CI to supply it.
 
 **Select-option colors** (user-pickable, for tags/kanban columns). Fifteen, and
 the source of truth is
