@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { DocumentsService } from './documents.service';
 
@@ -23,18 +22,23 @@ class PutDocumentDto extends createZodDto(putDocumentSchema) {}
 export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
-    private readonly databases: DatabasesService,
     private readonly records: RecordsService,
   ) {}
 
+  // #474 phase 8 — was `databases.assertAccess(db, min)` + `getRow`
+  // (existence only): database-level, so a record's BlockNote description
+  // was readable/writable under DB-level access alone, the same gap
+  // sections 5/6 had (and #473 already fixed for attachments.controller.ts —
+  // this is the sibling `documents.controller.ts` the enumeration named as
+  // sharing the identical pattern). assertRecordAccess folds existence + the
+  // per-record check into the one call every other single-record route uses.
   private async assertRecord(
     req: WorkspaceRequest,
     databaseId: string,
     recordId: string,
     min: 'viewer' | 'editor' = 'viewer',
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, min);
-    await this.records.getRow(databaseId, recordId);
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, min);
   }
 
   @Get()
