@@ -286,6 +286,9 @@ export function DashboardView({
                   are only reading is its own small hazard, so the delete leaves
                   view mode entirely rather than merely being discouraged. */}
               {showEditor && (
+                // #706 — KEEPS faint: this button contains only a Trash2 icon,
+                // a non-text graphic judged at 3:1, which faint clears. Its
+                // accessible name is the title attribute.
                 <button
                   type="button"
                   title="Remove tile"
@@ -309,7 +312,7 @@ export function DashboardView({
                 magnitude, which is the difference between a number you trust
                 and one you go and verify. */}
             {!showEditor && srcId && (
-              <span className="flex items-center gap-1 text-[11px] text-faint">
+              <span className="flex items-center gap-1 text-[11px] text-muted">
                 <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
                 {tile.filter != null && (
                   <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
@@ -417,7 +420,7 @@ export function DashboardView({
                   )}
                 </div>
                 {opNeedsField(tile.op) && numberFields.length === 0 && (
-                  <span className="text-[11px] text-faint">This database has no number fields to aggregate.</span>
+                  <span className="text-[11px] text-muted">This database has no number fields to aggregate.</span>
                 )}
 
                 {/* #388 — a target, so the number supports a decision.
@@ -506,7 +509,7 @@ export function DashboardView({
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
           {!readOnly && (
-            <p className="text-[13px] text-faint">
+            <p className="text-[13px] text-muted">
               Add a metric tile (count, sum, average) or a chart grouped by a field.
             </p>
           )}
@@ -732,7 +735,7 @@ function TileValue({
             style={{ width: `${progress.ratio * 100}%` }}
           />
         </span>
-        <span className="shrink-0 text-[11px] font-normal text-faint">{progress.label}</span>
+        <span className="shrink-0 text-[11px] font-normal text-muted">{progress.label}</span>
       </span>
     </span>
   );
