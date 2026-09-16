@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { brandIconSlug, setIconName } from '@storyos/schemas/icons';
-import { filterOpSchema, queryRecordsSchema } from '@storyos/schemas';
+import { filterOpSchema, queryRecordsSchema, viewConfigSchema } from '@storyos/schemas';
 import { buildIconCatalog, coerceStringified, coerceInputSchema, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
 import { z } from 'zod';
 import type { Ctx } from './client.js';
@@ -670,8 +670,18 @@ describe('create_view / update_view (#270)', () => {
           form: {
             title: 'Pet Intake',
             fields: [
-              { field_id: 'f-name' },
-              { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
+              { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+              {
+                field_id: 'f-email',
+                required: true,
+                visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+                required_when: { field_id: 'f-name', op: 'not_empty' },
+              },
+              // #716 — a hidden field stamping a fixed value, exactly the
+              // Borderlands one-form-per-job shape (a fixed relation target
+              // here would be `value: <record id>`; a plain string works
+              // fine as a fixture since MCP passes `value` through as-is).
+              { field_id: 'f-stage', hidden: true, value: 'opt-new' },
             ],
             access: 'link',
             public_token: 'existing-token-abc',
@@ -832,14 +842,20 @@ describe('create_view / update_view (#270)', () => {
       })) as { isError?: boolean };
       expect(res.isError).toBeUndefined();
       const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as {
-        fields: Array<{ field_id: string; required?: boolean; visible_when?: unknown }>;
+        fields: Array<Record<string, unknown>>;
         access: string;
         public_token: string;
         title: string;
       };
       expect(form.fields).toEqual([
-        { field_id: 'f-name' },
-        { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
+        { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+        {
+          field_id: 'f-email',
+          required: true,
+          visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+          required_when: { field_id: 'f-name', op: 'not_empty' },
+        },
+        { field_id: 'f-stage', hidden: true, value: 'opt-new' },
       ]);
       expect(form.title).toBe('Pet Intake');
       expect(form.access).toBe('link');
@@ -887,7 +903,7 @@ describe('create_view / update_view (#270)', () => {
       const { handlers, patched } = registerAndGet(['update_view']);
       await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_submit_text: 'Go' });
       const form = (patched[0]!.body as { config: { form: { fields: unknown[] } } }).config.form;
-      expect(form.fields).toHaveLength(2); // the old bug emptied this to []
+      expect(form.fields).toHaveLength(3); // the old bug emptied this to []
     });
 
     it('re-listing form_fields keeps each kept field\'s visible_when unless the call overrides it', async () => {
@@ -899,12 +915,18 @@ describe('create_view / update_view (#270)', () => {
         view: 'Intake Form',
         form_fields: ['name', 'email', 'pipeline_stage'],
       });
-      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; visible_when?: unknown; required?: boolean }> } } }).config.form;
-      // f-email's visible_when/required carried forward even though this call only named it by string.
+      const form = (patched[0]!.body as { config: { form: { fields: Array<Record<string, unknown>> } } }).config.form;
+      // Every existing per-field property carried forward even though this
+      // call only named each field by string.
       expect(form.fields).toEqual([
-        { field_id: 'f-name' },
-        { field_id: 'f-email', required: true, visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' } },
-        { field_id: 'f-stage' },
+        { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+        {
+          field_id: 'f-email',
+          required: true,
+          visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+          required_when: { field_id: 'f-name', op: 'not_empty' },
+        },
+        { field_id: 'f-stage', hidden: true, value: 'opt-new' },
       ]);
     });
 
@@ -916,11 +938,12 @@ describe('create_view / update_view (#270)', () => {
         view: 'Intake Form',
         form_fields: ['name', { field: 'email', visible_when: { field: 'name', op: 'not_empty' } }],
       });
-      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; required?: boolean; visible_when?: unknown }> } } }).config.form;
+      const form = (patched[0]!.body as { config: { form: { fields: Array<Record<string, unknown>> } } }).config.form;
       expect(form.fields[1]).toEqual({
         field_id: 'f-email',
         required: true, // not mentioned in this call — carried forward
         visible_when: { field_id: 'f-name', op: 'not_empty' }, // replaced
+        required_when: { field_id: 'f-name', op: 'not_empty' }, // not mentioned — carried forward
       });
     });
 
@@ -940,6 +963,82 @@ describe('create_view / update_view (#270)', () => {
       const form = (posted[0]!.body as { config: { form: { fields: Array<{ field_id: string; visible_when?: unknown; required_when?: unknown }> } } }).config.form;
       expect(form.fields[1]!.visible_when).toEqual({ field_id: 'f-name', op: 'not_empty' });
       expect(form.fields[1]!.required_when).toEqual({ field_id: 'f-name', op: 'eq', value: 'Given' });
+    });
+
+    /**
+     * #716 — the schema gained `hidden`/`value` (a fixed value a form stamps
+     * onto every submission without ever showing the field) after #715's fix
+     * first shipped. Same coverage-gap shape: the MCP must be able to WRITE
+     * these, and — the #718 lesson repeated one level down — an edit that
+     * doesn't mention a field must not silently reset its hidden/value.
+     */
+    it('create_view accepts hidden+value on a form field — the #716 half of the same gap', async () => {
+      const { handlers, posted } = registerAndGet(['create_view']);
+      const res = (await handlers.create_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        name: 'Job Application',
+        type: 'form',
+        form_fields: ['name', { field: 'pipeline_stage', hidden: true, value: 'opt-new' }],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (posted[0]!.body as { config: { form: { fields: Array<{ field_id: string; hidden?: boolean; value?: unknown }> } } }).config.form;
+      expect(form.fields[1]).toEqual({ field_id: 'f-stage', hidden: true, value: 'opt-new' });
+    });
+
+    it('re-listing form_fields by bare name carries an existing hidden+value forward untouched', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', 'email', 'pipeline_stage'], // re-listed by bare name, nothing overridden
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; hidden?: boolean; value?: unknown }> } } }).config.form;
+      expect(form.fields[2]).toEqual({ field_id: 'f-stage', hidden: true, value: 'opt-new' });
+    });
+
+    /**
+     * THE GENERALIZABLE FIX (worth more than either ticket, per the review
+     * that asked for it): a test that asserts the MCP's form-field surface
+     * covers the STORED schema's own field list, read directly off
+     * `viewConfigSchema` — not a hand-maintained list of property names in a
+     * comment that quietly goes stale the next time a #716-shaped ticket
+     * lands. 260 passing tests missed #718's three defaults because the fake
+     * DATABASE's form view had no config to destroy; this test closes the
+     * matching hole one level down — a form FIELD with every key the schema
+     * actually defines, round-tripped through an edit that mentions none of
+     * them by name. If a future ticket adds a tenth property and nobody
+     * updates buildViewConfig's field-merge to carry it forward, this fails
+     * with the new key's own name, not a symptom three steps removed from it.
+     */
+    it("covers every key the stored schema's own form-field object defines — not a hand-maintained list of them", () => {
+      const formSchema = viewConfigSchema.shape.form.unwrap();
+      const fieldsArraySchema = (formSchema.shape.fields as { def: { innerType: { def: { element: { shape: Record<string, unknown> } } } } }).def.innerType.def.element;
+      const realFieldKeys = Object.keys(fieldsArraySchema.shape).sort();
+      // This pins the real key LIST rather than just checking "does the
+      // schema still have these keys" — the point is that a schema change
+      // (a #716-shaped ticket adding an tenth property) is caught HERE, at
+      // the one place meant to track it, instead of silently in whichever
+      // hand-written preservation test happens to exercise the new property
+      // (or in no test at all, which is #718's own history). Update this
+      // list deliberately when the schema changes, and when you do, also
+      // update the fixture in the test right below so the NEW property gets
+      // a real preservation test too, not just a mention in this list.
+      expect(realFieldKeys).toEqual(
+        ['field_id', 'help', 'hidden', 'label', 'relation_filter', 'required', 'required_when', 'value', 'visible_when'].sort(),
+      );
+    });
+
+    it('the fixture used by the #715/#716/#718 preservation tests above actually sets every one of those real keys', () => {
+      const formSchema = viewConfigSchema.shape.form.unwrap();
+      const fieldsArraySchema = (formSchema.shape.fields as { def: { innerType: { def: { element: { shape: Record<string, unknown> } } } } }).def.innerType.def.element;
+      const realFieldKeys = Object.keys(fieldsArraySchema.shape);
+      const fixtureFields = (DATABASE.views.find((v) => v.id === 'view-form-configured') as { config: { form: { fields: Array<Record<string, unknown>> } } })
+        .config.form.fields;
+      const keysSetAcrossFixture = new Set(fixtureFields.flatMap((f) => Object.keys(f)));
+      const uncovered = realFieldKeys.filter((k) => !keysSetAcrossFixture.has(k) && k !== 'relation_filter'); // relation_filter: not yet MCP-writable, see buildViewConfig's own comment
+      expect(uncovered, `fixture never sets: ${uncovered.join(', ')} — a preservation bug in one of these would go uncaught`).toEqual([]);
     });
   });
 
