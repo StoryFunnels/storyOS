@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { AbuseModule } from '../abuse/abuse.module';
+import { ActionGatesModule } from '../action-gates/action-gates.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
@@ -27,6 +28,7 @@ import { BulkRecordJobsService } from './bulk-record-jobs.service';
     AbuseModule,
     BillingModule,
     UsersModule,
+    ActionGatesModule,
     forwardRef(() => AttachmentsModule),
   ],
   controllers: [RecordsController],

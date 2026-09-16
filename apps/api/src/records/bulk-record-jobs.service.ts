@@ -162,7 +162,23 @@ export class BulkRecordJobsService implements OnModuleInit, OnModuleDestroy {
     try {
       if (job.op === 'delete') {
         const result = await this.records.batchDelete(job.workspaceId, job.databaseId, chunkIds, job.actorId, source);
-        succeeded += result.deleted;
+        if ('pending_approval' in result) {
+          // #542 Phase 2 — a workspace-declared gate held this chunk rather
+          // than deleting it. Reported as a per-record failure (naming the
+          // approval) rather than silently counted as succeeded or crashing
+          // the whole job — the durable-job UI already has a place to show
+          // per-record failure messages, and "held for approval" is exactly
+          // as actionable there as any other reason a chunk didn't apply.
+          failed = [
+            ...failed,
+            ...chunkIds.map((record_id) => ({
+              record_id,
+              message: `Held for approval (${result.approval_id}): ${result.message}`,
+            })),
+          ];
+        } else {
+          succeeded += result.deleted;
+        }
       } else {
         const result = await this.records.batchUpdate(
           job.workspaceId,

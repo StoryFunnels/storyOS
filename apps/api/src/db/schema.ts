@@ -1819,6 +1819,63 @@ export const approvals = pgTable(
   (t) => [index('approvals_workspace_status_expiry_idx').on(t.workspaceId, t.status, t.expiresAt)],
 );
 
+/**
+ * #542 Phase 2 — a workspace-DECLARED gate over an action class, the thing
+ * ticket #542 itself distinguishes from `AgentsService`'s existing per-agent
+ * `approval_policy` field: that one is a checkbox an agent's OWNER sets on
+ * that one agent's own record, so an agent whose owner forgot to check it
+ * sails straight through. This table is the operator's own rule, checked
+ * regardless of what any individual agent declares about itself — "the
+ * platform stops the agent, not the prompt."
+ *
+ * Only one action class exists today: 'delete_records'. The column is text,
+ * not an enum, so adding 'publish'/'spend' (Phase 3, per this ticket's own
+ * phasing) never needs a migration, only a new value.
+ *
+ * Scope is workspace by default (`space_id`/`database_id` both null); a
+ * narrower row at either level overrides the workspace default for that
+ * scope — resolution is database beats space beats workspace, most-specific
+ * wins, mirroring the `access_grants` precedent for scoped rows.
+ *
+ * `approver_id` is REQUIRED and validated at write time (ActionGatesService)
+ * to be a real admin of the workspace — deliberately not resolved dynamically
+ * at check time the way `approvals.approver_id` falls back through a rule's
+ * owner, because ticket #542's own AC demands a gate can never exist with no
+ * one able to clear it: naming a real admin up front is what makes that
+ * refusal possible to enforce at declaration time rather than discovered
+ * later as a lockout.
+ */
+export const actionGatePolicies = pgTable(
+  'action_gate_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    actionClass: text('action_class').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    approverId: text('approver_id').notNull(),
+    createdBy: text('created_by').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    // Scope columns are part of the key (not a partial unique index on the
+    // nullable columns alone) so Postgres treats NULL-vs-NULL as distinct
+    // rows the same way it already does for every other nullable-scope
+    // uniqueness constraint in this schema (e.g. access_grants) — two
+    // different admins can't accidentally collide on "the workspace-wide
+    // delete_records policy" only because both left space/database null,
+    // but a single workspace-wide row per action class is still the
+    // intended shape, enforced by ActionGatesService's own upsert-by-scope
+    // lookup rather than the DB constraint (Postgres can't express "unique
+    // including NULLs as equal" without a separate partial index per scope
+    // shape, which isn't worth the complexity for an admin-only write path).
+    index('action_gate_policies_workspace_class_idx').on(t.workspaceId, t.actionClass),
+  ],
+);
+
 /** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its
  * owner, 'shared' to every active member of the workspace. There is no
  * separate teams table yet, so "team-shared" today means "workspace-shared" —

@@ -97,6 +97,9 @@ function makeService(db: Db) {
     // #599: these unit tests never exercise duplicate(), so AttachmentsService
     // is never consulted.
     { duplicateAll: vi.fn() } as never,
+    // #542 Phase 2: these unit tests never exercise a delete path, so the
+    // action-class gate is never consulted.
+    { check: vi.fn().mockResolvedValue({ held: false }) } as never,
   );
 }
 

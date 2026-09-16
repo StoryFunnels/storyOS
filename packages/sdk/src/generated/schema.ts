@@ -1230,6 +1230,42 @@ export interface paths {
         patch: operations["PreferencesController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/action-gates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List this workspace's declared action-class gate policies */
+        get: operations["ActionGatesController_list"];
+        put?: never;
+        /** Declare a gate over an action class (starting with delete_records), scoped to workspace/space/database */
+        post: operations["ActionGatesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/action-gates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a gate policy */
+        delete: operations["ActionGatesController_remove"];
+        options?: never;
+        head?: never;
+        /** Enable/disable a gate policy, or change its approver */
+        patch: operations["ActionGatesController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
         parameters: {
             query?: never;
@@ -4580,6 +4616,18 @@ export interface components {
                 dismissedWorkspaces?: string[];
             };
         };
+        CreateGatePolicyDto: {
+            action_class: string;
+            /** Format: uuid */
+            space_id?: string | null;
+            /** Format: uuid */
+            database_id?: string | null;
+            approver_id: string;
+        };
+        UpdateGatePolicyDto: {
+            enabled?: boolean;
+            approver_id?: string;
+        };
         CreateAutomationDto: {
             name: string;
             trigger: {
@@ -7869,6 +7917,86 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PreferencesPatchDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActionGatesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActionGatesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGatePolicyDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActionGatesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActionGatesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGatePolicyDto"];
             };
         };
         responses: {

@@ -63,6 +63,7 @@ import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -110,6 +111,19 @@ const TRASH_RETENTION_DAYS = 30;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * #542 Phase 2 — a delete method's alternative return: a workspace-declared
+ * gate held this delete instead of performing it. Deliberately a return
+ * value, not a thrown exception — `AllExceptionsFilter` reshapes any thrown
+ * `HttpException`'s body into a fixed `{error:{code,message,...}}` envelope,
+ * which would silently discard `approval_id`.
+ */
+export interface PendingApprovalResult {
+  pending_approval: true;
+  approval_id: string;
+  message: string;
+}
+
+/**
  * The RecordsRepository seam (ADR-0002): every record read/write in the
  * system flows through this service. Storage strategy changes happen here,
  * behind an unchanged public API.
@@ -133,6 +147,12 @@ export class RecordsService {
      *  (AttachmentsModule already imports RecordsModule for its own guards). */
     @Inject(forwardRef(() => AttachmentsService))
     private readonly attachmentsService: AttachmentsService,
+    /** #542 Phase 2 — the action-class gate check for deletes. Called from
+     *  INSIDE softDelete/batchDelete themselves (not only at the controller),
+     *  so every current and future caller is covered by construction — most
+     *  notably AgentsService.applyProposedAction's record_delete branch,
+     *  which calls these methods directly and bypasses RecordsController. */
+    private readonly actionGates: ActionGatesService,
   ) {}
 
   /**
@@ -3748,6 +3768,45 @@ export class RecordsService {
     });
   }
 
+  /**
+   * #542 Phase 2 — checked from INSIDE softDelete/batchDelete (not only at
+   * the controller) so every caller is covered by construction, including
+   * AgentsService.applyProposedAction's direct in-process call. Returns a
+   * `PendingApprovalResult` (never throws — this codebase's global exception
+   * filter reshapes any thrown HttpException's body into a fixed
+   * `{error:{code,message,...}}` envelope, which would silently discard the
+   * approval id) when a declared gate holds this delete; the caller must
+   * check the return value and skip the actual write in that case.
+   * `source === 'human'` short-circuits inside ActionGatesService itself —
+   * a person at the keyboard is never held.
+   */
+  private async checkDeleteGate(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource,
+  ): Promise<PendingApprovalResult | null> {
+    const result = await this.actionGates.check({
+      workspaceId,
+      databaseId,
+      actionClass: DELETE_RECORDS_ACTION_CLASS,
+      source,
+      requesterActorId: actorId,
+      recordIds,
+      previewText:
+        recordIds.length === 1
+          ? `Delete record ${recordIds[0]} in database ${databaseId}`
+          : `Delete ${recordIds.length} records in database ${databaseId}`,
+    });
+    if (!result.held) return null;
+    return {
+      pending_approval: true,
+      approval_id: result.approvalId,
+      message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.',
+    };
+  }
+
   async softDelete(
     workspaceId: string,
     databaseId: string,
@@ -3755,8 +3814,10 @@ export class RecordsService {
     actorId: string,
     depth = 0,
     source: ChangeSource = 'human',
-  ) {
+  ): Promise<{ deleted: true } | PendingApprovalResult> {
     await this.getRow(databaseId, recordId);
+    const held = await this.checkDeleteGate(workspaceId, databaseId, [recordId], actorId, source);
+    if (held) return held;
     await this.db.transaction(async (tx) => {
       await tx.update(records).set({ deletedAt: new Date() }).where(eq(records.id, recordId));
       await tx.insert(activityEvents).values({
@@ -3899,7 +3960,28 @@ export class RecordsService {
     recordIds: string[],
     actorId: string,
     source: ChangeSource = 'human',
-  ) {
+    /**
+     * #542 Phase 2 — internal only, set exclusively by
+     * ApprovalsService's own apply-on-approve job executor: an already-
+     * approved gate calling back into this same method must not re-trigger
+     * the check it just cleared (the policy is still enabled, so a second
+     * check would stage a second approval forever rather than ever
+     * deleting anything). No REST/MCP/agent caller passes this — they all
+     * go through the public 5-arg signature, so this can only be reached
+     * from code inside this codebase that explicitly opts in.
+     */
+    skipGate = false,
+  ): Promise<{ deleted: number; record_ids: string[] } | PendingApprovalResult> {
+    // Gated on the WHOLE requested selection, once, before any chunk runs —
+    // per #542's own adversarial framing this is exactly the vector that
+    // makes a single-record gate decorative if a bulk endpoint skips it.
+    // batchDelete's chunking (see its own doc above) is a transaction-size/
+    // idempotency concern only; the record set doesn't need a second,
+    // per-chunk check for correctness.
+    if (!skipGate) {
+      const held = await this.checkDeleteGate(workspaceId, databaseId, recordIds, actorId, source);
+      if (held) return held;
+    }
     const allIds: string[] = [];
     for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
       const rows = await this.db.query.records.findMany({

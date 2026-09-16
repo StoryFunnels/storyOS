@@ -8,6 +8,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { MeController } from './auth/me.controller';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { ActionGatesModule } from './action-gates/action-gates.module';
 import { DatabasesModule } from './databases/databases.module';
 import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
@@ -96,6 +97,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     MembersDbModule,
     DatabasesModule,
     FieldsModule,
+    ActionGatesModule,
     RecordsModule,
     AiFieldModule,
     RelationsModule,

@@ -2794,6 +2794,100 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/action-gates": {
+      "get": {
+        "operationId": "ActionGatesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List this workspace's declared action-class gate policies",
+        "tags": [
+          "action-gates"
+        ]
+      },
+      "post": {
+        "operationId": "ActionGatesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGatePolicyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Declare a gate over an action class (starting with delete_records), scoped to workspace/space/database",
+        "tags": [
+          "action-gates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/action-gates/{id}": {
+      "patch": {
+        "operationId": "ActionGatesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGatePolicyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Enable/disable a gate policy, or change its approver",
+        "tags": [
+          "action-gates"
+        ]
+      },
+      "delete": {
+        "operationId": "ActionGatesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Remove a gate policy",
+        "tags": [
+          "action-gates"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
       "get": {
         "operationId": "AttachmentsController_list",
@@ -11175,6 +11269,48 @@
                 }
               }
             }
+          }
+        }
+      },
+      "CreateGatePolicyDto": {
+        "type": "object",
+        "properties": {
+          "action_class": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "nullable": true
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "nullable": true
+          },
+          "approver_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "action_class",
+          "approver_id"
+        ]
+      },
+      "UpdateGatePolicyDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "approver_id": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },
