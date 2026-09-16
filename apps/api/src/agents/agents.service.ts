@@ -1528,12 +1528,33 @@ export class AgentsService implements OnModuleInit {
     this.assertActionAllowed(principal, action);
 
     if (payload.apply === 'record_delete') {
-      await this.recordsService.softDelete(
+      const result = await this.recordsService.softDelete(
         workspaceId,
         payload.database_id,
         payload.record_id,
         actorId,
+        depth,
+        // #542 Phase 2 — this used to default to 'human' by omission, which
+        // meant an agent's own delete was indistinguishable from a person's
+        // at the keyboard: a naive "skip the gate for source==='human'"
+        // check (which is exactly what a workspace-declared action-class
+        // gate needs) would have been fooled by this exact call into never
+        // gating an agent-proposed delete at all. `actorId` above is still
+        // the human OWNER for attribution (ADR-0010 §2); `source` is what
+        // the gate and the change log actually key on.
+        'agent',
       );
+      if ('pending_approval' in result) {
+        // A WORKSPACE-declared gate (separate from this agent's own
+        // approval_policy field, already checked above by the caller) held
+        // this delete. Nothing was applied — report that plainly rather than
+        // claiming success.
+        return {
+          tool: 'action.pending_approval',
+          summary: `Held for approval (${action.kind}): ${action.summary}`,
+          detail: result.message,
+        };
+      }
       return {
         tool: 'action.applied',
         summary: `Applied (${action.kind}): ${action.summary}`,

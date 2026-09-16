@@ -619,6 +619,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
   // an agent can queue work for a human to decide but never decide for one.
   list_approvals: 'read',
+  // #542 Phase 2 — read-only by design, and deliberately not write-capable
+  // even at admin scope: an agent that could create/disable the very gate
+  // meant to constrain agents would defeat the ticket's own point ("the
+  // platform stops the agent, not the prompt"). Declaring/changing a gate
+  // is a human act, same line #441 draws for grants — see coverage.ts.
+  list_action_gates: 'read',
   /*
    * #439 — the inbox. Reads are `read`. Marking read/archived is a `write`
    * because it changes what a PERSON will see next time they look, even though
@@ -6405,6 +6411,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res);
       },
     ),
+  );
+
+  reg(
+    'list_action_gates',
+    {
+      title: 'List action-class gate policies',
+      description:
+        '#542: this workspace\'s declared gate policies over an action class (currently only "delete_records") — scope (workspace/space/database), ' +
+        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only in the app, not reachable via MCP — ' +
+        'an agent that could change the gate meant to constrain agents would defeat the point.',
+      inputSchema: {
+        workspace: z.string(),
+      },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/action-gates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
   );
 
   reg(

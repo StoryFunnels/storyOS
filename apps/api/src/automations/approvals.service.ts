@@ -1,12 +1,13 @@
-import { Inject, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, desc, eq, lt } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, sourceRuns, tyronMessages } from '../db/schema';
+import { approvals, automations, databases, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
+import { RecordsService } from '../records/records.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import type { AgentPrincipal } from '../agents/agent-principal';
 import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
@@ -89,13 +90,33 @@ export interface TyronToolCallSnapshot {
   message: string;
 }
 
+/**
+ * #542 Phase 2 — a workspace-declared action-class gate's held action, the
+ * fifth producer. Unlike the other four, this one is never approved by
+ * enqueueing a JobRunnerService executor: the actual delete is applied
+ * directly below in `resolve()`, since `ApprovalsService` already has a safe
+ * dependency on `RecordsService` (via AutomationsModule's existing import of
+ * RecordsModule) — no new executor plumbing needed for a single call.
+ *
+ * `record_ids` is always an array (length 1 for a single-record delete) so
+ * approve/reject/preview code has one shape regardless of which entry point
+ * (`RecordsController.remove` vs `.batchDelete`) produced it.
+ */
+export interface ActionClassGateSnapshot {
+  type: 'action_class_gate';
+  action_class: string;
+  database_id: string;
+  record_ids: string[];
+  requester_source: string;
+}
+
 /** The FROZEN payload a gated action carries between "queued for approval"
  * and "approved" — `action` has every {Field}/{payload} token already
  * interpolated (actions.service.ts renders it before calling `create()`
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot;
   ctx: { workspaceId: string; databaseId: string; recordId: string | null; actorId: string };
 }
 
@@ -151,7 +172,7 @@ function toDto(row: ApprovalRow) {
  * timer, the same way `JobRunnerService`'s reaper piggybacks its own tick.
  */
 @Injectable()
-export class ApprovalsService {
+export class ApprovalsService implements OnModuleInit {
   private readonly logger = new Logger(ApprovalsService.name);
 
   constructor(
@@ -160,7 +181,38 @@ export class ApprovalsService {
     private readonly notifications: NotificationsService,
     private readonly jobs: JobRunnerService,
     private readonly access: AccessService,
+    // #542 Phase 2 — safe: AutomationsModule already imports RecordsModule
+    // one-way (automation actions write records today), so this adds no new
+    // module edge. Used only to APPLY an already-approved 'action_class_gate'
+    // (see onModuleInit below) — the CHECK half lives in the separate,
+    // dependency-free ActionGatesService that RecordsService itself calls,
+    // which is what keeps that direction from becoming a cycle.
+    private readonly records: RecordsService,
   ) {}
+
+  /** Registers the executor JobRunnerService.enqueue() looks up by `kind`
+   * when `resolve()` below approves an 'action_class_gate' snapshot — same
+   * registration pattern TyronService uses for 'tyron_tool_call'. */
+  onModuleInit(): void {
+    this.jobs.registerExecutor('action_class_gate', async (payload) => {
+      const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      // Preserve the TRUE original source (agent/automation/mcp) rather than
+      // guessing — the whole point of #357's ChangeSource work is that this
+      // stays attributable through an approval detour, not collapsed to one
+      // generic value once a human has signed off on it.
+      await this.records.batchDelete(
+        ctx.workspaceId,
+        action.database_id,
+        action.record_ids,
+        ctx.actorId,
+        action.requester_source as ChangeSource,
+        // Already approved — re-checking here would find the SAME policy
+        // still enabled and stage a second approval forever instead of ever
+        // deleting anything.
+        true,
+      );
+    });
+  }
 
   /** Rule owner by default, `automations.approver_id` as a per-rule override
    * (Step 2) — falls back to the requesting actor when there's no rule at

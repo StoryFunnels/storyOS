@@ -86,6 +86,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#446 — submitting a pack to the marketplace publishes this workspace's schema under its name, for review by others. An agent may build the manifest (export_pack) and read its status (list_pack_submissions); pressing submit is a human act, the same line #442 draws for publishing a shared skill (ADR-0010).",
   },
   {
+    match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/action-gates(\/\{id\})?/,
+    reason:
+      "#542 Phase 2 — declaring, enabling/disabling or reconfiguring an action-class gate is the platform's own restraint on an agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could disable the very gate meant to constrain it — the same self-widening-blast-radius line #441 draws for grants. The read half is reachable (list_action_gates): an agent can see what applies to it, it just cannot change it.",
+  },
+  {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
     reason:
       'Inbound receiver, unauthenticated by design and signature-verified. Something calls US here; there is nothing for an agent to invoke.',
