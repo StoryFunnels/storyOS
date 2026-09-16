@@ -3307,10 +3307,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         help?: string;
         visible_when?: FormVisibilityRuleOpt;
         required_when?: FormVisibilityRuleOpt;
+        hidden?: boolean;
+        value?: unknown;
       };
   /** Stored shape of one form field (packages/schemas/src/views.ts) — what a
-   *  form actually persists, and therefore everything #715's fix must not
-   *  drop on a write that didn't mean to touch it. `relation_filter` is
+   *  form actually persists, and therefore everything #715/#716's fix must
+   *  not drop on a write that didn't mean to touch it. `relation_filter` is
    *  intentionally not yet MCP-settable (it resolves against the relation's
    *  TARGET database, not this one — a real coverage gap, left for a
    *  follow-up rather than half-done here) but IS preserved on every write. */
@@ -3322,6 +3324,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     visible_when?: { field_id: string; op: string; value?: unknown };
     required_when?: { field_id: string; op: string; value?: unknown };
     relation_filter?: unknown;
+    hidden?: boolean;
+    value?: unknown;
   };
   type StoredForm = {
     title?: string;
@@ -3398,6 +3402,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const existingByFieldId = new Map((existingForm?.fields ?? []).map((f) => [f.field_id, f]));
       const resolveRule = (r: FormVisibilityRuleOpt) => ({ field_id: anyField(detail, r.field), op: r.op, value: r.value });
 
+      // #716 — SPREAD THE EXISTING FIELD FIRST, same reasoning #718 already
+      // established one level up for the form object as a whole: naming keys
+      // one at a time (required/label/help/…) is exactly how `hidden`/`value`
+      // themselves would have been silently dropped the moment #716 shipped,
+      // if this had stayed a hand-enumerated rebuild. Spreading `existing`
+      // makes the NEXT property #716-shaped ticket adds safe by construction
+      // instead of by remembering to update this function again.
       const fields =
         o.form_fields !== undefined
           ? o.form_fields.map((f): StoredFormField => {
@@ -3405,18 +3416,20 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
               const field_id = anyField(detail, ref);
               const existing = existingByFieldId.get(field_id);
               if (typeof f === 'string') {
-                // A bare ref names only WHICH field shows — carry its other
-                // settings forward rather than resetting them to unset.
+                // A bare ref names only WHICH field shows — carry every other
+                // setting forward rather than resetting it to unset.
                 return existing ? { ...existing, field_id } : { field_id };
               }
               return {
+                ...existing,
                 field_id,
                 required: f.required !== undefined ? f.required : existing?.required,
                 label: f.label ?? existing?.label,
                 help: f.help ?? existing?.help,
                 visible_when: f.visible_when ? resolveRule(f.visible_when) : existing?.visible_when,
                 required_when: f.required_when ? resolveRule(f.required_when) : existing?.required_when,
-                relation_filter: existing?.relation_filter, // not yet MCP-settable — never dropped
+                hidden: f.hidden !== undefined ? f.hidden : existing?.hidden,
+                value: f.value !== undefined ? f.value : existing?.value,
               };
             })
           : (existingForm?.fields ?? []);
@@ -3489,6 +3502,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       required_when: formVisibilityRuleShape
         .optional()
         .describe('#715 — `required` above only bites when this also holds (or is unset).'),
+      hidden: z
+        .boolean()
+        .optional()
+        .describe(
+          '#716 — never shown to the visitor; pair with `value` to stamp a fixed value onto every submission (a tenant/job/source id, a UTM tag). Cannot be combined with visible_when (the API rejects that as a config error) — hidden means never rendered to anyone, visible_when means conditionally rendered.',
+        ),
+      value: z
+        .unknown()
+        .optional()
+        .describe(
+          '#716 — the fixed value a hidden field stamps onto every record this form creates, applied server-side from stored config — a visitor can never override it by posting their own value for that field. Shape depends on the field\'s type (a relation target id/number, a select/workflow option, plain text); validated when the view is saved.',
+        ),
     }),
   ]);
 
@@ -3513,7 +3538,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
         form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
         form_submit_text: z.string().max(50).optional().describe('form: submit button label (default "Submit").'),
-        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when} for per-field overrides. Omit to fall back to card_fields.'),
+        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when, hidden, value} for per-field overrides. `hidden`+`value` stamps a fixed value onto every submission without ever showing that field to the visitor — a job/tenant id, a UTM tag. Omit to fall back to card_fields.'),
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
         form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
@@ -3578,7 +3603,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update view',
       description:
-        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when` on a field `form_fields` did not mention, which stay exactly as stored (#715), and a form\'s live public_token, which is never rotated by this call (#718) — a link/public form keeps its existing token whether or not you re-pass form_access, and a token is only EVER minted the first time access moves off \'members\'. One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when unless you override them.',
+        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when`/`hidden`/`value` on a field `form_fields` did not mention, which stay exactly as stored (#715/#716), and a form\'s live public_token, which is never rotated by this call (#718) — a link/public form keeps its existing token whether or not you re-pass form_access, and a token is only EVER minted the first time access moves off \'members\'. One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when/hidden/value unless you override them.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
