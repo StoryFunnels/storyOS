@@ -1,5 +1,26 @@
 'use client';
 
+/**
+ * #706 — THE --text-faint SITES IN THIS FILE ARE CLASSIFIED. 21 of them stay
+ * faint deliberately; do not "finish the job" by sweeping them.
+ *
+ * Every remaining one is a NON-TEXT GRAPHIC, judged at 3:1 rather than the
+ * 4.5:1 that applies to text, which faint clears on every surface this toolbar
+ * renders over. They fall into three families:
+ *
+ *   - ICON-ONLY BUTTONS whose accessible name is a `title` attribute — remove
+ *     (X), unpin, "More" (MoreHorizontal), the enable/disable eye, the
+ *     CircleHelp links, and the per-row remove buttons.
+ *   - ICON FALLBACKS passed to <EntityIcon> for a field with no icon of its own.
+ *   - DRAG HANDLES (GripVertical), which additionally only appear on hover.
+ *
+ * The 24 sites that DID move were text: section headings, empty states,
+ * placeholder values, unselected segmented-control labels, and the "Clear all"
+ * and "Empty values" labels. The rule this follows is globals.css's own —
+ * faint is reserved for genuinely decorative text, and anything carrying an
+ * affordance uses --text-muted.
+ */
+
 import { useEffect, useMemo, useState } from 'react';
 import { AddSummaryWidgetButton } from './summary-widget-strip';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
@@ -880,7 +901,7 @@ export function FilterValueEditor({
         onChange={(ids) => onChange({ ...condition, value: ids })}
       />
     ) : (
-      <span className="text-faint">unavailable</span>
+      <span className="text-muted">unavailable</span>
     );
   }
   return null;
@@ -922,7 +943,7 @@ function DateFilterInput({
     <span className="relative inline-block">
       <button
         type="button"
-        className={cn(boxed, !value && 'text-faint')}
+        className={cn(boxed, !value && 'text-muted')}
         onClick={() => setEditing((v) => !v)}
       >
         {value ? value.slice(0, 10) : 'pick date…'}
@@ -1506,12 +1527,12 @@ export function FilterBuilderPanel({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           {sectionLabel ?? 'Filters'}
         </span>
         <span className="flex items-center gap-2">
           {onClearAll && nodes.length > 0 && (
-            <button type="button" onClick={onClearAll} className="text-[11px] text-faint hover:text-ink">
+            <button type="button" onClick={onClearAll} className="text-[11px] text-muted hover:text-ink">
               Clear all
             </button>
           )}
@@ -1528,14 +1549,14 @@ export function FilterBuilderPanel({
       </div>
 
       {personalScopeHint && (
-        <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+        <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-muted">
           Narrows the shared view for you only — teammates keep seeing the Global filters above.
         </p>
       )}
 
       {nodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
-          <p className="mb-2 text-[12px] text-faint">
+          <p className="mb-2 text-[12px] text-muted">
             {personalScopeHint
               ? 'No personal filter yet — narrow this view down further, just for you.'
               : 'No filters yet — narrow this view down to what matters.'}
@@ -1621,7 +1642,7 @@ function GroupVisibilityToggles({
   const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[12px] text-ink hover:bg-hover';
   return (
     <div className="border-t border-border-default py-1">
-      <span className="block px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Groups</span>
+      <span className="block px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Groups</span>
       <label className={row}>
         Hide empty groups
         <input
@@ -1670,7 +1691,7 @@ function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange
           key={c}
           type="button"
           onClick={() => onChange(c)}
-          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {c}
         </button>
@@ -1800,7 +1821,7 @@ function GroupRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -1923,7 +1944,7 @@ function ConditionRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -2178,7 +2199,7 @@ function OptionMultiPick({
       ))}
       <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-faint')}>
+          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-muted')}>
             {selected.length ? '+ add' : 'pick…'}
           </button>
         </DropdownMenuTrigger>
@@ -2212,7 +2233,7 @@ function OptionMultiPick({
                 <span className="truncate">{option.label}</span>
               </label>
             ))}
-            {filtered.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>}
+            {filtered.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted">No matches.</p>}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2305,7 +2326,7 @@ function RecordPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}
+          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-muted')}
         >
           {label}
         </button>
@@ -2350,7 +2371,7 @@ function RecordPicker({
             </button>
           ))}
           {results.data?.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>
+            <p className="px-2 py-1.5 text-[12px] text-muted">No matches.</p>
           )}
         </div>
       </PopoverContent>
@@ -2459,7 +2480,7 @@ export function SortButton({
               {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
                   order lives in the Filter panel's Groups section. The old label is
                   why this was filed as a bug rather than a missing feature. */}
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Sort cards</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Sort cards</span>
               <a
                 href="https://docs.storyos.dev/concepts/views/#filters--sorts"
                 target="_blank"
@@ -2472,14 +2493,14 @@ export function SortButton({
             </div>
 
             {hasUnsortableComputedFields && (
-              <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+              <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-muted">
                 Lookup fields, and formulas that reference a lookup, aren't sortable yet.
               </p>
             )}
 
             {sorts.length === 0 ? (
               <div className="px-3 py-6 text-center">
-                <p className="mb-2 text-[12px] text-faint">No sort yet — records show in manual order.</p>
+                <p className="mb-2 text-[12px] text-muted">No sort yet — records show in manual order.</p>
                 <button
                   type="button"
                   onClick={addSort}
@@ -2520,7 +2541,7 @@ export function SortButton({
               <div className="border-t border-border-default p-2">
                 {showNulls && (
                   <div className="mb-1.5 flex items-center justify-between px-1">
-                    <span className="text-[11px] text-faint">Empty values</span>
+                    <span className="text-[11px] text-muted">Empty values</span>
                     <EmptyPlacementToggle
                       value={nulls ?? 'last'}
                       onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
@@ -2566,7 +2587,7 @@ function EmptyPlacementToggle({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {label}
         </button>
@@ -2628,7 +2649,7 @@ function SortRow({
 
         <div className="min-w-0 flex-1">
           <div className="mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
               {index === 0 ? 'Sort by' : 'Then by'}
             </span>
           </div>
@@ -2737,7 +2758,7 @@ function CardFieldsButton({
       <DropdownMenuContent className="max-h-72 w-56 overflow-y-auto">
         {size && (
           <div className="px-2 pb-1.5 pt-1">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Card size</div>
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Card size</div>
             <div className="flex gap-1">
               {(['small', 'medium', 'large'] as const).map((opt) => (
                 <button
@@ -2786,7 +2807,7 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
     <>
       {shownFields.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+          <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
             Shown · drag to reorder
           </div>
           <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
@@ -2811,7 +2832,7 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Add</div>
+          <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Add</div>
           {available.map((field) => (
             <button
               key={field.id}
@@ -2917,7 +2938,7 @@ function HiddenFieldsButton({
 function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
   return (
     <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-faint">Row gutter</p>
+      <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Row gutter</p>
       <button
         type="button"
         role="switch"
