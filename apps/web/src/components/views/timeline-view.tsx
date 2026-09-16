@@ -409,6 +409,9 @@ export function TimelineView({
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          {/* #706 — the only --text-faint left in this file, and deliberately.
+              An icon is a non-text graphic, judged at 3:1, which faint clears;
+              icon-only sites are explicitly out of scope for the sweep. */}
           <CalendarRange className="h-8 w-8 text-faint" />
           {dateFields.length === 0 ? (
             <>
@@ -456,7 +459,7 @@ export function TimelineView({
     <div className="flex h-full flex-col">
       {/* Controls: zoom, date-field selectors, today */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border-default px-3 py-1.5">
-        <span className="mr-1 text-[12px] text-faint">Zoom</span>
+        <span className="mr-1 text-[12px] text-muted">Zoom</span>
         {(['day', 'week', 'month', 'quarter'] as const).map((z) => (
           <button
             key={z}
@@ -480,7 +483,7 @@ export function TimelineView({
 
         {!readOnly && (
           <div className="ml-auto flex items-center gap-1.5">
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-[12px] text-muted">
               Start
               <select
                 className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
@@ -492,7 +495,7 @@ export function TimelineView({
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-[12px] text-muted">
               End
               <select
                 className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
@@ -511,7 +514,7 @@ export function TimelineView({
                 baseline start is what turns the feature on — the end is optional,
                 exactly like the primary pair, so a single planned date still
                 renders as a point rather than being rejected. */}
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-[12px] text-muted">
               Planned
               <select
                 className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
@@ -532,7 +535,7 @@ export function TimelineView({
               </select>
             </label>
             {baselineStartField && (
-              <label className="flex items-center gap-1 text-[12px] text-faint">
+              <label className="flex items-center gap-1 text-[12px] text-muted">
                 to
                 <select
                   className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
@@ -559,7 +562,7 @@ export function TimelineView({
               {leftFields.map((f, i) => (
                 <div
                   key={f.id}
-                  className="relative flex items-center border-r border-border-default px-3 text-[11px] font-semibold uppercase tracking-wide text-faint"
+                  className="relative flex items-center border-r border-border-default px-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
                   style={{ width: colW(f) }}
                 >
                   <span className="truncate">{f.displayName}</span>
@@ -692,7 +695,7 @@ export function TimelineView({
                 {secondary.map((s) => (
                   <div
                     key={s.key}
-                    className="absolute flex items-center justify-center border-r border-border-default text-[10px] tabular-nums text-faint"
+                    className="absolute flex items-center justify-center border-r border-border-default text-[10px] tabular-nums text-muted"
                     style={{ left: s.left, width: s.width, height: HEADER_H / 2 }}
                   >
                     {s.width > 18 ? s.label : ''}
@@ -747,7 +750,7 @@ export function TimelineView({
                       style={{ left: x + px / 2 + size, top: ROW_H / 2 - 8, maxWidth: 220 }}
                     >
                       {row.title || 'Untitled'}
-                      {fromBaseline && <span className="ml-1 text-faint">(actual)</span>}
+                      {fromBaseline && <span className="ml-1 text-muted">(actual)</span>}
                     </span>
                   </div>
                 );
@@ -828,7 +831,7 @@ export function TimelineView({
       </div>
 
       {undated > 0 && (
-        <div className="border-t border-border-default px-3 py-1.5 text-[12px] text-faint">
+        <div className="border-t border-border-default px-3 py-1.5 text-[12px] text-muted">
           {/* #227 — a baseline-only record now renders (see `bars`), so what's
               actually hidden is narrower than "no start date" once a baseline
               pair is mapped: neither a planned NOR an actual start exists. */}
