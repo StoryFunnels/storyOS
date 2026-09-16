@@ -458,6 +458,13 @@ export function PersonalSection({ ws }: { ws: string }) {
   return (
     <div className="mb-1">
       <div className="mb-0.5 flex items-center justify-between px-2">
+        {/* #706 — KEEPS faint, for CONSISTENCY rather than on its own merits.
+            sidebar.tsx renders the neighbouring section headers ("Workspace",
+            "Personal") with this exact treatment and #665 classified them as
+            deliberate keeps. Moving only this one would put two adjacent
+            headers at different weights, which is worse than either choice
+            applied uniformly. If the call is wrong it is wrong for ALL sidebar
+            section headers and belongs in #665's terms, not diverging here. */}
         <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Personal</span>
         {newMenu}
       </div>
@@ -470,7 +477,7 @@ export function PersonalSection({ ws }: { ws: string }) {
         content the section isn't a chrome-heavy card anymore, so the standing
         sentence stays here unchanged.
       */}
-      <p className="mb-1.5 flex items-start gap-1 px-2 text-[11px] leading-snug text-faint">
+      <p className="mb-1.5 flex items-start gap-1 px-2 text-[11px] leading-snug text-muted">
         <Lock className="mt-0.5 h-3 w-3 shrink-0" />
         <span>Only you can see this. If your account is removed, this content is deleted with it.</span>
       </p>
@@ -516,7 +523,7 @@ export function PersonalSection({ ws }: { ws: string }) {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
                 <span className="truncate">{v.name}</span>
-                {v.database_name && <span className="shrink-0 truncate text-[11px] text-faint">· {v.database_name}</span>}
+                {v.database_name && <span className="shrink-0 truncate text-[11px] text-muted">· {v.database_name}</span>}
               </Link>
               <SidebarRowMenu
                 label={v.name}
