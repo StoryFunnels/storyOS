@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { ActivityService } from './activity.service';
 
@@ -34,7 +33,6 @@ class HierarchyQueryDto extends createZodDto(hierarchyQuerySchema) {}
 export class ActivityController {
   constructor(
     private readonly activityService: ActivityService,
-    private readonly databases: DatabasesService,
     private readonly records: RecordsService,
   ) {}
 
@@ -46,8 +44,14 @@ export class ActivityController {
     @Param('rec') recordId: string,
     @Query() query: ActivityQueryDto,
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    await this.records.getRow(databaseId, recordId);
+    // #474 phase 6 — was `databases.assertAccess(db, 'viewer')` + `getRow`
+    // (existence only): database-level, so a guest whose only access to
+    // this database was a record-scoped grant on a DIFFERENT record could
+    // read THIS record's full change history, including linked-record
+    // titles in relation link/unlink events. assertRecordAccess folds
+    // existence + the per-record check into the one call every other
+    // single-record read route already uses.
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
     return this.activityService.listForRecord(databaseId, recordId, query.limit, query.cursor);
   }
 
