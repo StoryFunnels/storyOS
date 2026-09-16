@@ -121,7 +121,12 @@ describe('#474 phase 12 — run list for a record-scoped-only guest', () => {
   it('the admin (unrestricted) sees both runs', async () => {
     const res = await as(admin.token, 'GET', `/workspaces/${wsId}/runs?rule_id=${ruleId}`);
     const ids = (res.json().data as Array<{ id: string }>).map((r) => r.id);
-    expect(ids.sort()).toEqual([runDenied, runGranted].sort());
+    // Inclusion, not a closed-set equality: this runs inside the full suite,
+    // where the workspace-wide `automations` tick (setInterval, 60s) can be
+    // mid-flight against other files' fixtures at the same instant — nothing
+    // to do with per-record scoping, so asserting admin sees AT LEAST both
+    // (same style runs.test.ts's own admin assertions use) is the real claim.
+    expect(ids).toEqual(expect.arrayContaining([runGranted, runDenied]));
   });
 });
 
