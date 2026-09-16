@@ -231,6 +231,7 @@ function DatabasePageInner() {
         onPatch={patch}
         ws={ws}
         db={db}
+        databaseId={database.data?.id}
         viewId={activeView?.id}
         personalFilter={personalFilter}
         onReorderFields={schemaEditable ? onReorderFields : undefined}
@@ -293,6 +294,7 @@ function DatabasePageInner() {
           <TableView
             ws={ws}
             db={db}
+            viewId={activeView?.id}
             readOnly={readOnly}
             schemaEditable={schemaEditable}
             queryBody={queryBody}

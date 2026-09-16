@@ -5389,6 +5389,8 @@ export interface components {
                     field_api_name?: string;
                     group_by_field_api_name?: string;
                 }[];
+                /** Format: uuid */
+                hierarchy_field_id?: string;
                 form?: {
                     title?: string;
                     description?: string;
@@ -5585,6 +5587,8 @@ export interface components {
                     field_api_name?: string;
                     group_by_field_api_name?: string;
                 }[];
+                /** Format: uuid */
+                hierarchy_field_id?: string;
                 form?: {
                     title?: string;
                     description?: string;
@@ -5777,6 +5781,8 @@ export interface components {
                     field_api_name?: string;
                     group_by_field_api_name?: string;
                 }[];
+                /** Format: uuid */
+                hierarchy_field_id?: string;
                 form?: {
                     title?: string;
                     description?: string;
