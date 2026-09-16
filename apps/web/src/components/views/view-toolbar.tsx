@@ -362,49 +362,69 @@ export function ViewToolbar({
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
-      {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
-          shared by every view type via this same component. Personal scope (#259)
-          rides along here too — same popover, a Global/Personal toggle inside it. */}
-      <FiltersSection
-        fields={filterable}
-        members={members}
-        ws={ws}
-        db={db}
-        viewId={viewId}
-        filters={config.filters}
-        onChange={(filters) => onPatch({ filters })}
-        personalFilter={personalFilter}
-        /*
-         * #428 — supplied only when the view is actually GROUPED. On an
-         * ungrouped table these controls would be two switches and a dropdown
-         * that change nothing, which is worse than their absence.
-         */
-        grouping={
-          config.group_by_field_id
-            ? {
-                hideEmpty: Boolean(config.hide_empty_groups),
-                hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
-                noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
-                columnSort: config.column_sort ?? 'natural',
-                // #427 AC-3 — a date board's columns are chronological periods;
-                // any other order is meaningless, so the control is not offered.
-                canSortColumns:
-                  augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
-                onChange: onPatch,
-              }
-            : undefined
-        }
-      />
+      {/* #725 — NEITHER OF THESE APPLIES TO A FORM. A form view has no result
+          set: it CREATES records rather than displaying them, so Filter narrows
+          nothing and Sort orders nothing. Same `viewType === 'form'` test as the
+          field-visibility control immediately below, for the same reason — that
+          one was already gated when this was written and these two were missed.
 
-      {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
-          the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
-      <SortButton
-        fields={augmented}
-        sorts={config.sorts}
-        nulls={config.sorts_nulls}
-        onChange={(sorts) => onPatch({ sorts })}
-        onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
-      />
+          NOT COSMETIC. The filter is the only affordance in the UI that looks
+          like it scopes a form, and an engineer trying to pin a Job onto every
+          submission reached for it first, reasoning it would seed the created
+          records. It silently did nothing — one of the three dead ends behind
+          #716.
+
+          Per-field `relation_filter` (#501) is the REAL mechanism for narrowing
+          a relation picker's candidates on a form. It is field-level, lives in
+          the form builder, and is untouched by this: the two are easy to
+          conflate and only the view-level control is meaningless here. */}
+      {viewType !== 'form' && (
+        <>
+        {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
+            shared by every view type via this same component. Personal scope (#259)
+            rides along here too — same popover, a Global/Personal toggle inside it. */}
+        <FiltersSection
+          fields={filterable}
+          members={members}
+          ws={ws}
+          db={db}
+          viewId={viewId}
+          filters={config.filters}
+          onChange={(filters) => onPatch({ filters })}
+          personalFilter={personalFilter}
+          /*
+           * #428 — supplied only when the view is actually GROUPED. On an
+           * ungrouped table these controls would be two switches and a dropdown
+           * that change nothing, which is worse than their absence.
+           */
+          grouping={
+            config.group_by_field_id
+              ? {
+                  hideEmpty: Boolean(config.hide_empty_groups),
+                  hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
+                  noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
+                  columnSort: config.column_sort ?? 'natural',
+                  // #427 AC-3 — a date board's columns are chronological periods;
+                  // any other order is meaningless, so the control is not offered.
+                  canSortColumns:
+                    augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
+                  onChange: onPatch,
+                }
+              : undefined
+          }
+        />
+
+        {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
+            the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
+        <SortButton
+          fields={augmented}
+          sorts={config.sorts}
+          nulls={config.sorts_nulls}
+          onChange={(sorts) => onPatch({ sorts })}
+          onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
+        />
+        </>
+      )}
 
       {/* Field visibility: tables hide columns, boards pick card fields. Forms
           own their field membership/order via their own sidebar builder (#224)
