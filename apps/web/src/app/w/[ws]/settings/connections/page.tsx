@@ -227,7 +227,7 @@ export default function ConnectionsSettingsPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
                 {connectionName(c)}{' '}
-                <span className="text-[12px] font-normal text-faint">
+                <span className="text-[12px] font-normal text-muted">
                   · {providerLabel(c.provider)}
                 </span>
               </p>
@@ -267,7 +267,7 @@ export default function ConnectionsSettingsPage() {
                       </p>
                     )}
                     {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
-                      <p className="truncate text-[11px] text-faint">
+                      <p className="truncate text-[11px] text-muted">
                         Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
                       </p>
                     )}
@@ -353,7 +353,7 @@ export default function ConnectionsSettingsPage() {
                     <p className="mt-0.5 text-[12px] text-muted">
                       {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
                     </p>
-                    <p className="mt-2 text-[11px] leading-4 text-faint">
+                    <p className="mt-2 text-[11px] leading-4 text-muted">
                       <strong className="text-muted">After connecting:</strong>{' '}
                       {providerUseGuidance(p.id).description}
                     </p>
@@ -596,7 +596,7 @@ function ApiKeyConnectDialog({
                   value={smtpFrom}
                   onChange={(e) => setSmtpFrom(e.target.value)}
                 />
-                <p className="text-[11px] text-faint">
+                <p className="text-[11px] text-muted">
                   Fixed at connect time — an email action can never override it.
                 </p>
               </div>
@@ -607,7 +607,7 @@ function ApiKeyConnectDialog({
                 <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
                   Advanced / IT settings
                 </summary>
-                <p className="mt-2 text-[11px] text-faint">
+                <p className="mt-2 text-[11px] text-muted">
                   Your mail server&apos;s connection details — usually from your IT team or email
                   provider.
                 </p>
@@ -663,7 +663,7 @@ function ApiKeyConnectDialog({
                   value={shopDomain}
                   onChange={(e) => setShopDomain(e.target.value)}
                 />
-                <p className="text-[11px] text-faint">Your store&apos;s .myshopify.com host.</p>
+                <p className="text-[11px] text-muted">Your store&apos;s .myshopify.com host.</p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="shopify-token">Admin API access token</Label>
@@ -675,7 +675,7 @@ function ApiKeyConnectDialog({
                   value={accessToken}
                   onChange={(e) => setAccessToken(e.target.value)}
                 />
-                <p className="text-[11px] text-faint">
+                <p className="text-[11px] text-muted">
                   From a custom app in your Shopify admin, with read_products scope.
                 </p>
               </div>
@@ -704,14 +704,14 @@ function ApiKeyConnectDialog({
                       value={fromAddress}
                       onChange={(e) => setFromAddress(e.target.value)}
                     />
-                    <p className="text-[11px] text-faint">
+                    <p className="text-[11px] text-muted">
                       Must be on a domain already verified on this Resend key.
                     </p>
                     <details className="text-[11px]">
                       <summary className="cursor-pointer select-none text-muted">
                         Why do I need a verified domain?
                       </summary>
-                      <p className="mt-1 text-faint">
+                      <p className="mt-1 text-muted">
                         Email providers only deliver mail from domains you&apos;ve proven you own.
                         Verifying your domain in Resend is what keeps your messages out of spam —
                         or from being rejected outright.
@@ -734,7 +734,7 @@ function ApiKeyConnectDialog({
                         value={webhookSecret}
                         onChange={(e) => setWebhookSecret(e.target.value)}
                       />
-                      <p className="text-[11px] text-faint">
+                      <p className="text-[11px] text-muted">
                         From a Resend webhook pointed at this connection&apos;s own URL (shown after
                         saving) — enables bounce/complaint status degradation.
                       </p>
