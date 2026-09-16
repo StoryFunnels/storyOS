@@ -248,19 +248,26 @@ describe('automations (MN-047)', () => {
       // this test also confirms).
       actions: [{ type: 'set_values', values: { [stateApi]: 'New' } }],
     })).json();
-    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
-      values: { name: 'Should fail loudly' },
-    })).json();
-    await engine.settle(rec.id);
+    try {
+      const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'Should fail loudly' },
+      })).json();
+      await engine.settle(rec.id);
 
-    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
-    expect(runs.data).toHaveLength(1);
-    expect(runs.data[0].status).toBe('error');
-    // The generic top-level message survives...
-    expect(runs.data[0].error).toContain('Record values validation failed');
-    // ...AND so does the field-level detail that used to be dropped.
-    expect(runs.data[0].error).toContain(`values.${stateApi}`);
-    expect(runs.data[0].error).toMatch(/unknown option id/i);
+      const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+      expect(runs.data).toHaveLength(1);
+      expect(runs.data[0].status).toBe('error');
+      // The generic top-level message survives...
+      expect(runs.data[0].error).toContain('Record values validation failed');
+      // ...AND so does the field-level detail that used to be dropped.
+      expect(runs.data[0].error).toContain(`values.${stateApi}`);
+      expect(runs.data[0].error).toMatch(/unknown option id/i);
+    } finally {
+      // record_created triggers on every record this workspace creates for
+      // the rest of the file — leaving this enabled corrupted MN-168's
+      // entitlements-call counting downstream (double-fired per record).
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
   });
 });
 
