@@ -566,7 +566,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       ? 'skipped (monthly cap)'
                       : r.status}
                 </span>
-                <span className="text-[11px] text-faint">{fmt.dateTime(r.started_at)}</span>
+                <span className="text-[11px] text-muted">{fmt.dateTime(r.started_at)}</span>
               </div>
               <p className="mt-0.5 text-[12px] text-muted">
                 fetched {r.fetched} · created {r.created} · updated {r.updated}
@@ -613,9 +613,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-medium text-ink">
                       {label}
-                      {isKey && <span className="ml-1.5 text-[11px] font-normal text-faint">(external key)</span>}
+                      {isKey && <span className="ml-1.5 text-[11px] font-normal text-muted">(external key)</span>}
                     </p>
-                    <p className="truncate text-[11px] text-faint">→ {fieldName}</p>
+                    <p className="truncate text-[11px] text-muted">→ {fieldName}</p>
                   </div>
                   <span className="inline-flex shrink-0 overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
                     {(['in', 'out', 'both'] as const).map((d) => (
@@ -623,7 +623,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         key={d}
                         type="button"
                         onClick={() => setEditDirections((prev) => new Map(prev).set(key, d))}
-                        className={cn('px-1.5 py-1', direction === d ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+                        className={cn('px-1.5 py-1', direction === d ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
                       >
                         {d}
                       </button>
@@ -835,7 +835,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                           value={config['channel_id'] ?? ''}
                           onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
                         />
-                        <p className="text-[11px] text-faint">
+                        <p className="text-[11px] text-muted">
                           {channels.isError
                             ? "Couldn't list this account's channels — enter a channel id manually."
                             : 'This account has no channels — enter a channel id manually.'}
@@ -865,7 +865,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
                     />
                     {configFieldLabel(key)}
-                    {spec.description ? <span className="text-[11px] text-faint">— {spec.description}</span> : null}
+                    {spec.description ? <span className="text-[11px] text-muted">— {spec.description}</span> : null}
                   </label>
                 ) : (
                   <>
@@ -912,7 +912,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       if (err) return <p className="text-[11px] text-error">{err}</p>;
                       if (spec.kind === 'array' || (spec.description && spec.kind !== 'json'))
                         return spec.description ? (
-                          <p className="text-[11px] text-faint">{spec.description}</p>
+                          <p className="text-[11px] text-muted">{spec.description}</p>
                         ) : null;
                       return null;
                     })()}
@@ -932,7 +932,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               >
                 {discoverFields.isPending ? 'Discovering…' : 'Discover fields'}
               </Button>
-              <p className="text-[11px] text-faint">
+              <p className="text-[11px] text-muted">
                 Runs the actor once (or reads its last successful run) to read a sample item's keys, so mapping is
                 point-and-click instead of reading the actor's docs.
               </p>
@@ -1008,7 +1008,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   </label>
                 )}
               </div>
-              <p className="text-[11px] text-faint">
+              <p className="text-[11px] text-muted">
                 Runs once per slot at the chosen wall-clock time — daily keeps well under API quotas.
               </p>
             </div>
@@ -1035,7 +1035,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                     </label>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-ink">{item.label}</p>
-                      <p className="truncate text-[11px] text-faint">{item.key}</p>
+                      <p className="truncate text-[11px] text-muted">{item.key}</p>
                     </div>
                     <select
                       className="h-8 w-56 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
@@ -1111,7 +1111,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div key={s.id} className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-medium text-ink">{s.name}</p>
-                <p className="mt-0.5 truncate text-[11px] text-faint">
+                <p className="mt-0.5 truncate text-[11px] text-muted">
                   {s.provider_source} · {describeRecurrence(s.recurrence, s.schedule)} ·{' '}
                   <span className={s.status === 'error' ? 'text-error' : undefined}>{STATUS_LABEL[s.status]}</span>
                   {s.last_sync_at ? ` · last synced ${fmt.dateTime(s.last_sync_at)}` : ' · never synced'}
