@@ -377,6 +377,8 @@ export function RecordDetail({
               <span className="hidden max-w-[9rem] truncate sm:inline" title={spaceName}>
                 {spaceName}
               </span>
+              {/* #706 — the breadcrumb chevrons KEEP faint: aria-hidden separators
+                  with no text, judged as non-text graphics at 3:1, which faint clears. */}
               <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:inline" aria-hidden />
             </>
           )}
@@ -394,7 +396,7 @@ export function RecordDetail({
           {record.data.number !== null && (
             <>
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-              <span className="shrink-0 tabular-nums text-faint" title="Public id">
+              <span className="shrink-0 tabular-nums text-muted" title="Public id">
                 #{record.data.number}
               </span>
             </>
@@ -503,7 +505,7 @@ export function RecordDetail({
             />
             {titleComputed && (
               <span
-                className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] text-faint"
+                className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] text-muted"
                 title="This name is computed from a template — edit the template in the Name field’s settings."
               >
                 Computed
@@ -700,7 +702,7 @@ export function RecordDetail({
               <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-0.5 p-1.5">
                   {sidebarFields.length === 0 && (
-                    <p className="px-1.5 py-2 text-[12px] text-faint">No sidebar properties.</p>
+                    <p className="px-1.5 py-2 text-[12px] text-muted">No sidebar properties.</p>
                   )}
                   {/* #179: mark the first system/audit field that trails a user
                       field so SidebarField can draw a subtle group divider. */}
@@ -719,7 +721,7 @@ export function RecordDetail({
             {schemaEditable && (hiddenFields.length > 0 || descriptionHidden) && (
               <div className="border-t border-border-default px-3 py-1.5">
                 <button
-                  className="flex items-center gap-1 text-[12px] text-faint hover:text-ink"
+                  className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"
                   onClick={() => setShowHidden((s) => !s)}
                 >
                   {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -800,6 +802,8 @@ function BodyRow({
           aria-label="Drag to reorder"
           title="Drag to reorder"
           className={cn(
+            // #706 — KEEPS faint: the handle's only content is a drag glyph, a
+            // non-text graphic at 3:1. Its accessible name is the aria-label.
             'absolute -left-6 top-0.5 flex h-6 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover/bodyrow:opacity-100 sm:-left-7',
             sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
           )}
@@ -954,6 +958,8 @@ function DescriptionSection({
             type="button"
             onClick={onHide}
             title="Remove Description from this database's records"
+          /* #706 — KEEPS faint: this button's only content is an X icon, a
+             non-text graphic judged at 3:1, which faint clears. */
             className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/bodyrow:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
