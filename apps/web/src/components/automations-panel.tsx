@@ -331,7 +331,7 @@ function RuleRow({
       )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
-          {(runs.data ?? []).length === 0 && <p className="text-[12px] text-faint">No runs yet.</p>}
+          {(runs.data ?? []).length === 0 && <p className="text-[12px] text-muted">No runs yet.</p>}
           {(runs.data ?? []).slice(0, 10).map((run) => (
             <p key={run.id} className="text-[12px] text-muted">
               <span
@@ -611,11 +611,11 @@ function RuleEditor({
               onClick={() => applyRecipe(fill)}
             >
               <p className="text-[13px] text-ink">{recipe.title}</p>
-              <p className="text-[11px] text-faint">{recipe.description}</p>
+              <p className="text-[11px] text-muted">{recipe.description}</p>
             </button>
           ))}
           {recipes.length === 0 && (
-            <p className="text-[12px] text-faint">
+            <p className="text-[12px] text-muted">
               No recipes fit this database yet — build a rule from scratch below.
             </p>
           )}
@@ -721,7 +721,7 @@ function RuleEditor({
             </span>
           </div>
         ) : (
-          <p className="text-[12px] text-faint">
+          <p className="text-[12px] text-muted">
             Top-N selection (sort + a record cap) is only available on a schedule trigger — a
             single triggering record has no "top N" to pick from.
           </p>
@@ -792,7 +792,7 @@ function RuleEditor({
                   Advanced — signing, payload tokens &amp; last delivery
                 </summary>
                 <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
-                  <p className="text-[11px] text-faint">
+                  <p className="text-[11px] text-muted">
                     Sign requests with the secret above (X-StoryOS-Signature: sha256=…,
                     X-StoryOS-Timestamp) to have them verified; unsigned requests are accepted
                     if no signature is sent.{' '}
