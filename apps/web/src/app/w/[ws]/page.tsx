@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Blocks, CheckCircle2, Circle, X } from 'lucide-react';
+import { CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
@@ -12,15 +12,17 @@ import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
 import {
   buildActivationSteps,
   completedCount,
+  isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
   withWorkspaceDismissed,
   type OnboardingState,
 } from '@/lib/activation';
-import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
+import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { takePendingShare } from '@/lib/pending-share';
 import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
+import { WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -74,7 +76,6 @@ export default function WorkspaceHome() {
     if (takePendingShare(ws)) setShowShare(true);
   }, [ws]);
 
-  const registry = useTemplateRegistry();
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
@@ -96,6 +97,12 @@ export default function WorkspaceHome() {
   const gs = onboarding.data;
   const steps = gs ? buildActivationSteps(gs, { ws, firstDbId: firstDb?.id }) : [];
   const showChecklist = shouldShowChecklist(steps, dismissed);
+
+  // #723 — show live work instead of a template wall, but only once this
+  // workspace has clearly been used. The predicate and its floor live in
+  // activation.ts next to the checklist logic they depend on, and are unit
+  // tested there; see the comments on `isEstablishedWorkspace`.
+  const established = isEstablishedWorkspace(steps, sampleCount, databases.data?.length ?? 0);
 
   return (
     /* #663 — LEFT-ALIGNED, and no longer capped at 672px. `mx-auto max-w-2xl`
@@ -162,49 +169,24 @@ export default function WorkspaceHome() {
         </div>
       )}
 
+      {/* #723 — the eighteen-card template gallery is now ONE link, for new and
+          established workspaces alike. It was the page's largest element and
+          its least repeatable: a template is installed once, then the grid
+          keeps the same footprint forever, which is most of the empty-feeling
+          space in the screenshot that opened this ticket. The gallery dialog is
+          unchanged and one click away. */}
       {canInstall && (
-        <div className="mt-8">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
-              Start something new
-            </p>
-            <button
-              type="button"
-              className="text-[12px] text-muted underline-offset-2 hover:underline"
-              onClick={() => {
-                setGallerySlug(undefined);
-                setGalleryOpen(true);
-              }}
-            >
-              Browse all templates
-            </button>
-          </div>
-          {/* #663 — more than two columns. Twenty templates at two-up ran well
-              below the fold; at three and four they are scannable in one look.
-              Steps up with width rather than jumping straight to four, so the
-              cards keep a readable measure on a laptop. */}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {(registry.data?.intents ?? []).map((intent) => {
-              const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
-              return (
-                <button
-                  key={intent.id}
-                  type="button"
-                  className="flex items-start gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-3 text-left hover:bg-hover"
-                  onClick={() => {
-                    setGallerySlug(intent.template);
-                    setGalleryOpen(true);
-                  }}
-                >
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                  <span>
-                    <span className="block text-[13px] font-medium text-ink">{intent.label}</span>
-                    <span className="block text-[12px] text-muted">{intent.description}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="mt-6">
+          <button
+            type="button"
+            className="text-[13px] text-ink underline-offset-2 hover:underline"
+            onClick={() => {
+              setGallerySlug(undefined);
+              setGalleryOpen(true);
+            }}
+          >
+            Start something new →
+          </button>
           {galleryOpen && (
             <TemplateGalleryDialog
               key={gallerySlug ?? 'all'}
@@ -217,6 +199,8 @@ export default function WorkspaceHome() {
           )}
         </div>
       )}
+
+      {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} />}
 
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
         <p className="mt-6 text-[13px] text-muted">
