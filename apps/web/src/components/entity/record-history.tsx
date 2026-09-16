@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
-import { DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 
@@ -152,7 +152,14 @@ export function RecordHistoryDialog({
   });
 
   const invalidateRecord = () => {
-    void qc.invalidateQueries({ queryKey: ['record', ws, db, rec] });
+    // #39 — deliberately a 3-element key, not ['record', ws, db, rec]: the
+    // record-detail panel's own useRecordQuery caches under whatever the URL
+    // gave it (a legacy uuid OR a pretty slug-{number}, see parseRecordParam
+    // there), which is not necessarily the resolved `rec` id this dialog
+    // receives. A 3-element key prefix-matches either cache entry; the exact
+    // 4-element key silently matched neither and left the panel's header
+    // showing a stale title after a real, successful restore.
+    void qc.invalidateQueries({ queryKey: ['record', ws, db] });
     void qc.invalidateQueries({ queryKey: ['records', ws, db] });
     void qc.invalidateQueries({ queryKey: ['record-field-changes', ws, db, rec] });
   };
@@ -318,52 +325,57 @@ export function RecordHistoryDialog({
       </DialogContent>
 
       {/* #69 — restore shows a PREVIEW and asks for confirmation before
-          applying. Stacks over the panel above rather than replacing it,
-          since cancelling should return to exactly where the user was. */}
-      {confirmVersionId && (
-        <DialogContent title="Restore this version?" className="max-w-md">
-          <div className="flex flex-col gap-3">
-            {preview.isLoading && <p className="text-[13px] text-muted">Loading preview…</p>}
-            {!preview.isLoading && preview.data && preview.data.preview.length === 0 && (
-              <p className="text-[13px] text-muted">
-                This version is identical to the current record — nothing to restore.
+          applying. Its own <Dialog> Root, nested inside the panel's: this is
+          a second, independently open/closeable dialog stacking over the
+          panel above, not a second Content under the same Root — cancelling
+          should return to exactly where the user was in the panel, not
+          close both. */}
+      <Dialog open={confirmVersionId !== null} onOpenChange={(open) => !open && setConfirmVersionId(null)}>
+        {confirmVersionId && (
+          <DialogContent title="Restore this version?" className="max-w-md">
+            <div className="flex flex-col gap-3">
+              {preview.isLoading && <p className="text-[13px] text-muted">Loading preview…</p>}
+              {!preview.isLoading && preview.data && preview.data.preview.length === 0 && (
+                <p className="text-[13px] text-muted">
+                  This version is identical to the current record — nothing to restore.
+                </p>
+              )}
+              {!preview.isLoading && preview.data && preview.data.preview.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[13px] text-muted">This will change:</p>
+                  {preview.data.preview.map((p, i) => (
+                    <p key={i} className="text-[13px] text-ink">
+                      <span className="font-medium">{p.field_name}</span>:{' '}
+                      <span className="text-muted line-through">{p.current_display || '—'}</span>{' '}
+                      <span aria-hidden>→</span> <span>{p.restored_display || '—'}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="text-[12px] text-faint">
+                Restoring is itself reversible — it saves the current state as a new version first.
               </p>
-            )}
-            {!preview.isLoading && preview.data && preview.data.preview.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[13px] text-muted">This will change:</p>
-                {preview.data.preview.map((p, i) => (
-                  <p key={i} className="text-[13px] text-ink">
-                    <span className="font-medium">{p.field_name}</span>:{' '}
-                    <span className="text-muted line-through">{p.current_display || '—'}</span>{' '}
-                    <span aria-hidden>→</span> <span>{p.restored_display || '—'}</span>
-                  </p>
-                ))}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirmVersionId(null)}
+                  disabled={restore.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => restore.mutate(confirmVersionId)}
+                  disabled={restore.isPending || preview.isLoading}
+                >
+                  {restore.isPending ? 'Restoring…' : 'Restore'}
+                </Button>
               </div>
-            )}
-            <p className="text-[12px] text-faint">
-              Restoring is itself reversible — it saves the current state as a new version first.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setConfirmVersionId(null)}
-                disabled={restore.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => restore.mutate(confirmVersionId)}
-                disabled={restore.isPending || preview.isLoading}
-              >
-                {restore.isPending ? 'Restoring…' : 'Restore'}
-              </Button>
             </div>
-          </div>
-        </DialogContent>
-      )}
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }

@@ -240,16 +240,18 @@ export function RecordActions({
       </DropdownMenu>
       {isAdmin && <DelegateToAgentDialog ws={ws} db={db} rec={rec} open={delegateOpen} onOpenChange={setDelegateOpen} />}
       <CopyToDialog ws={ws} db={db} dbName={dbName} recordIds={[rec]} open={copyToOpen} onOpenChange={setCopyToOpen} />
-      {historyOpen && (
-        <RecordHistoryDialog
-          ws={ws}
-          db={db}
-          rec={rec}
-          fields={fields}
-          readOnly={readOnly}
-          onClose={() => setHistoryOpen(false)}
-        />
-      )}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        {historyOpen && (
+          <RecordHistoryDialog
+            ws={ws}
+            db={db}
+            rec={rec}
+            fields={fields}
+            readOnly={readOnly}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
+      </Dialog>
     </>
   );
 }
