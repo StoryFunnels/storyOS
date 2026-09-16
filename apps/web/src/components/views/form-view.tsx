@@ -15,6 +15,7 @@ import { FreeGuestTip } from '@/components/free-guest-tip';
 import { FormThemePanel } from './form-theme-panel';
 import { OptionChip } from '../table-view/cells';
 import { Avatar } from '@/components/ui/avatar';
+import { FileInput } from '@/components/ui/file-input';
 import { Input } from '@/components/ui/input';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field, SelectOption } from '../table-view/use-table-data';
@@ -174,7 +175,7 @@ export function FormView({
                 required={field.type === 'title' || (cfg?.required ?? false)}
               >
                 {field.type === 'attachment' ? (
-                  <InAppAttachmentInput file={file} onChange={setFile} />
+                  <FileInput file={file} onChange={setFile} />
                 ) : (
                   <FieldInput
                     ws={ws}
@@ -269,39 +270,6 @@ function OptionToggle({
     >
       <OptionChip option={option} />
     </button>
-  );
-}
-
-/**
- * #724 — the in-app Form view's file picker for its (at most one) attachment
- * field. Kept out of `FieldInput`: its answer lives in a `File` object, held
- * as its own top-level state, never in `values` (see `submit`'s comment).
- */
-function InAppAttachmentInput({
-  file,
-  onChange,
-}: {
-  file: File | null;
-  onChange: (f: File | null) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        key={file ? file.name + file.lastModified : 'empty'}
-        type="file"
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
-        className="h-9 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-sm text-ink outline-none file:mr-3 file:rounded file:border-0 file:bg-hover file:px-2 file:py-1 file:text-[12px] file:text-ink focus:border-border-strong"
-      />
-      {file && (
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="text-[12px] text-muted underline hover:text-ink"
-        >
-          Remove
-        </button>
-      )}
-    </div>
   );
 }
 

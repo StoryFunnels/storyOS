@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
 import { embedThemeStyle } from '@/lib/embed-theme';
+import { FileInput } from '@/components/ui/file-input';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
 // #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
@@ -202,7 +203,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           // gets its own control rather than going through the generic `Input`.
           const control =
             f.type === 'attachment' ? (
-              <AttachmentInput required={requiredNow} file={file} onChange={setFile} />
+              <FileInput required={requiredNow} file={file} onChange={setFile} />
             ) : (
               <Input
                 token={token}
@@ -297,46 +298,6 @@ function PublicOptionToggle({
     >
       <OptionChip option={option} />
     </button>
-  );
-}
-
-/**
- * #724 — the file picker for a form's (at most one) attachment field. Kept
- * outside `Input` since its answer lives in its own `file` state, not
- * `values` — see the page's `submit` and render-loop comments.
- */
-function AttachmentInput({
-  required,
-  file,
-  onChange,
-}: {
-  required: boolean;
-  file: File | null;
-  onChange: (f: File | null) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      {/* A native file input's displayed filename can't be reset via `value` —
-          keying on the file's presence forces a remount when "Remove" clears
-          it, so the input doesn't keep showing a filename for a file the
-          form no longer has. */}
-      <input
-        key={file ? file.name + file.lastModified : 'empty'}
-        type="file"
-        required={required}
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
-        className="flex-1 rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none file:mr-3 file:rounded file:border-0 file:bg-hover file:px-2 file:py-1 file:text-[12px] file:text-ink"
-      />
-      {file && (
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="text-[12px] text-muted underline hover:text-ink"
-        >
-          Remove
-        </button>
-      )}
-    </div>
   );
 }
 
