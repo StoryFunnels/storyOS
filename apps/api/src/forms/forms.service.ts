@@ -56,6 +56,9 @@ interface FormFieldCfg {
   /** #501 — narrows a relation field's picker; compiled against the relation's
    *  TARGET database (never this form's own) — see `searchRelationCandidates`. */
   relation_filter?: FilterNode;
+  /** #716 — never rendered; `value` is stamped server-side on every submission. */
+  hidden?: boolean;
+  value?: unknown;
 }
 
 /**
@@ -108,8 +111,15 @@ export class FormsService {
     return { view, form, database };
   }
 
-  /** The renderable form definition — no workspace internals leak beyond the fields. */
-  async getDefinition(token: string) {
+  /**
+   * The renderable form definition — no workspace internals leak beyond the
+   * fields. `includeHidden` defaults to false: a `hidden` field (#716) is
+   * never rendered to anyone, so the safe default excludes it entirely from
+   * the returned `fields` array, not merely from what's marked visible.
+   * `submit()` is the one caller that passes `true` — it needs a hidden
+   * field's stored `value` to stamp it onto the record being created.
+   */
+  async getDefinition(token: string, opts: { includeHidden?: boolean } = {}) {
     const { view, form, database } = await this.resolve(token);
     const fieldRows = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, database.id), isNull(fields.deletedAt)),
@@ -309,7 +319,12 @@ export class FormsService {
         // exactly: the record write path rejects an array for a non-multi user
         // field (and vice versa), see coerce() in record-values.ts.
         multi: f.type === 'user' ? (f.config as { multi?: boolean }).multi === true : undefined,
-      })),
+        // #716 — present on every entry so `visibleFormFields`/submit() can
+        // read it; filtered out of the array entirely below unless the
+        // caller explicitly asked for hidden fields (submit() only).
+        hidden: cfgById.get(f.id)?.hidden ?? false,
+        value: cfgById.get(f.id)?.hidden ? cfgById.get(f.id)?.value : undefined,
+      })).filter((f) => opts.includeHidden || !f.hidden),
     };
   }
 
@@ -454,7 +469,11 @@ export class FormsService {
     // Bots fill hidden fields — accept and silently drop so they don't retry.
     if (honeypot && honeypot.trim() !== '') return { ok: true };
 
-    const def = await this.getDefinition(token);
+    // #716 — includeHidden: true, since this is the ONE caller that needs a
+    // hidden field's stored `value` to stamp it below. Every other caller of
+    // getDefinition() (the public GET, resolveRelationField) uses the safe
+    // default (false) — a hidden field is never rendered or searchable.
+    const def = await this.getDefinition(token, { includeHidden: true });
     const { view, database } = await this.resolve(token);
 
     const portal = await this.resolvePortalScope(view, database, recipientToken);
@@ -514,13 +533,38 @@ export class FormsService {
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) if (allowed.has(k)) clean[k] = v;
 
+    // #716 AC1 — THE VALUE IS APPLIED SERVER-SIDE FROM STORED CONFIG AND IS
+    // NEVER ACCEPTED FROM THE SUBMISSION BODY. A hidden field's api_name is
+    // never in `allowed` above (it's excluded from `visible`/`visibleNames`
+    // by visibleFormFields, #716), so nothing the client submitted under
+    // that key ever reached `clean` — this unconditionally stamps the real,
+    // stored value in, the same "server always wins" pattern the portal
+    // scope-stamp below already uses. Runs before enforceRelationFilters so
+    // a stamped relation value gets the same relation_filter check as any
+    // other relation value in `clean`; existence/cross-database validation
+    // for it happens both here (RecordsService.create's ordinary relation-
+    // write path, same as any visible relation field) and, per AC4, at
+    // config-save time (views.service.ts's validateConfig).
+    for (const f of def.fields) {
+      if (!f.hidden || f.value === undefined) continue;
+      // A relation field's write path (RecordsService.planLinks) always
+      // expects an array, even for a single-valued (cardinality one_to_many,
+      // side a) field — the single-vs-multi distinction is enforced by
+      // cardinality, not by the wire shape.
+      clean[f.api_name] = f.type === 'relation' && !Array.isArray(f.value) ? [f.value] : f.value;
+    }
+
     // #501 (Vera's AC5 finding) — a relation_filter narrows the SEARCH endpoint
     // only; nothing stopped a crafted POST naming a filtered-out id directly,
     // skipping the search step entirely. Re-derive the same filter here and
     // reject any submitted id that doesn't satisfy it, server-side, before the
     // record (and its link) is ever created.
+    // #716 — visible fields PLUS hidden ones, so a stamped fixed relation
+    // value gets the same relation_filter check as any visible relation
+    // value in `clean` (config-save time separately validates the value
+    // exists at all — this covers a filter narrower than "exists").
     await this.enforceRelationFilters(
-      def.fields.filter((f) => visibleNames.has(f.api_name)),
+      def.fields.filter((f) => visibleNames.has(f.api_name) || f.hidden),
       clean,
     );
 

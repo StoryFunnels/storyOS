@@ -5415,6 +5415,8 @@ export interface components {
                             value?: unknown;
                         };
                         relation_filter?: components["schemas"]["CreateViewDto__schema0"];
+                        hidden?: boolean;
+                        value?: unknown;
                     }[];
                     public_token?: string;
                     /**
@@ -5609,6 +5611,8 @@ export interface components {
                             value?: unknown;
                         };
                         relation_filter?: components["schemas"]["CreatePersonalViewDto__schema0"];
+                        hidden?: boolean;
+                        value?: unknown;
                     }[];
                     public_token?: string;
                     /**
@@ -5799,6 +5803,8 @@ export interface components {
                             value?: unknown;
                         };
                         relation_filter?: components["schemas"]["UpdateViewDto__schema0"];
+                        hidden?: boolean;
+                        value?: unknown;
                     }[];
                     public_token?: string;
                     /**

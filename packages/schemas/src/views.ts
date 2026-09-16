@@ -361,27 +361,57 @@ export const viewConfigSchema = z.object({
       submit_text: z.string().max(50).optional(),
       fields: z
         .array(
-          z.object({
-            field_id: z.uuid(),
-            required: z.boolean().optional(),
-            label: z.string().max(100).optional(),
-            help: z.string().max(500).optional(),
-            /** #263 — show this field only when an EARLIER answer matches. */
-            visible_when: formVisibilityRuleSchema.optional(),
-            /** #500 — `required` above only bites when this also holds (or is
-             *  unset). Same rule shape and evaluator as `visible_when` — see
-             *  form-visibility.ts's header comment for why that's one shape, not two. */
-            required_when: formVisibilityRuleSchema.optional(),
-            /**
-             * #501 — a relation field's picker offered every record in its
-             * target database with no way to narrow it. Only meaningful for
-             * `type: 'relation'` fields (server ignores it otherwise); the
-             * SAME filter AST every view's `filters` already uses, compiled
-             * against the relation's TARGET database (not this form's own
-             * database) at query time — see forms.service.ts.
-             */
-            relation_filter: filterSchema.optional(),
-          }),
+          z
+            .object({
+              field_id: z.uuid(),
+              required: z.boolean().optional(),
+              label: z.string().max(100).optional(),
+              help: z.string().max(500).optional(),
+              /** #263 — show this field only when an EARLIER answer matches. */
+              visible_when: formVisibilityRuleSchema.optional(),
+              /** #500 — `required` above only bites when this also holds (or is
+               *  unset). Same rule shape and evaluator as `visible_when` — see
+               *  form-visibility.ts's header comment for why that's one shape, not two. */
+              required_when: formVisibilityRuleSchema.optional(),
+              /**
+               * #501 — a relation field's picker offered every record in its
+               * target database with no way to narrow it. Only meaningful for
+               * `type: 'relation'` fields (server ignores it otherwise); the
+               * SAME filter AST every view's `filters` already uses, compiled
+               * against the relation's TARGET database (not this form's own
+               * database) at query time — see forms.service.ts.
+               */
+              relation_filter: filterSchema.optional(),
+              /**
+               * #716 — never rendered to the visitor; `value` is stamped onto
+               * every record this form creates, server-side, from stored
+               * config only (never accepted from the submission body — see
+               * forms.service.ts's `submit()`). Kept in this SAME fields
+               * array rather than a separate "stamps" map deliberately: a
+               * second map would split "what does this form write" into two
+               * places that have to agree, exactly the class of drift #713
+               * (config.share vs config.form) and #718 (MCP rebuilding
+               * config.form from create-time defaults) both were.
+               *
+               * Field-type-aware validation (relation target exists in the
+               * right database; select/workflow value is a real option id;
+               * text is a string) happens server-side at SAVE time — see
+               * views.service.ts's `validateConfig` — not here, since this
+               * schema has no live field-type context to validate against.
+               */
+              hidden: z.boolean().optional(),
+              /** The fixed value — shape depends on the live field's type,
+               *  validated at save time. Absent/undefined on a hidden field
+               *  is legal (mid-configuration; stamps nothing). */
+              value: z.unknown().optional(),
+            })
+            /** #716 AC2 — `hidden` (never shown to anyone) and `visible_when`
+             * (conditionally shown) are different concepts; a field carrying
+             * both is a configuration error, rejected here rather than left
+             * to an undefined precedence at render/submit time. */
+            .refine((f) => !(f.hidden && f.visible_when), {
+              message: 'a field cannot be both hidden and conditionally visible (visible_when) — pick one',
+            }),
         )
         .default([]),
       public_token: z.string().max(64).optional(),

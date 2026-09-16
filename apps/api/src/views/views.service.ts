@@ -12,7 +12,7 @@ import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, relations, spaceFolders, views } from '../db/schema';
+import { databases, fields, records, relations, selectOptions, spaceFolders, views } from '../db/schema';
 
 type FieldRow = typeof fields.$inferSelect;
 
@@ -428,6 +428,93 @@ export class ViewsService {
       }
       const error = boardGroupError(groupField, relation);
       if (error) throw new UnprocessableEntityException(error);
+    }
+
+    if (config.form?.fields?.length) await this.validateHiddenFormFieldValues(byId, config.form.fields);
+  }
+
+  /**
+   * #716 AC4 — a fixed value's TYPE-APPROPRIATE validity is checked HERE, at
+   * config-save time, not deferred to the next submission: "a stale or
+   * cross-database target must fail at config time, not silently write a
+   * dangling link." Scope matches the ticket's own field-type list exactly
+   * (relation, text, select, workflow) — any other type carrying `hidden` +
+   * `value` is rejected outright, per AC4's "state explicitly ... if any
+   * other type is excluded and why."
+   *
+   * A field_id that doesn't resolve to a live field, or a field with no
+   * `value` set, is skipped rather than rejected — matching this codebase's
+   * existing lenient treatment of dangling/unconfigured form-field
+   * references elsewhere (forms.service.ts silently drops rather than 500s).
+   */
+  private async validateHiddenFormFieldValues(
+    byId: Map<string, FieldRow>,
+    formFields: NonNullable<NonNullable<ViewConfig['form']>['fields']>,
+  ): Promise<void> {
+    const HIDDEN_VALUE_TYPES = new Set(['relation', 'text', 'select', 'workflow']);
+    for (const f of formFields) {
+      if (!f.hidden || f.value === undefined) continue;
+      const field = byId.get(f.field_id);
+      if (!field) continue;
+      const label = field.displayName || field.apiName;
+
+      if (!HIDDEN_VALUE_TYPES.has(field.type)) {
+        throw new UnprocessableEntityException(
+          `"${label}" is a ${field.type} field — a hidden field's fixed value is only supported for relation, text, select and workflow fields`,
+        );
+      }
+
+      if (field.type === 'text') {
+        if (typeof f.value !== 'string') {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value must be a string`);
+        }
+        continue;
+      }
+
+      if (field.type === 'select' || field.type === 'workflow') {
+        // A raw label ("Open") is a common mistake (#719's own finding for
+        // the automation-action path) — checked as a shape first so it 422s
+        // cleanly rather than reaching a uuid-typed column comparison and
+        // raising a raw Postgres cast error (a 500).
+        if (typeof f.value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f.value)) {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value must be a real option id, not a label`);
+        }
+        const option = await this.db.query.selectOptions.findFirst({
+          where: and(eq(selectOptions.fieldId, field.id), eq(selectOptions.id, f.value)),
+        });
+        if (!option) {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value is not a real option id for this field`);
+        }
+        continue;
+      }
+
+      // relation
+      const config = field.config as { relation_id?: string; side?: 'a' | 'b' };
+      const relation = config.relation_id
+        ? await this.db.query.relations.findFirst({ where: eq(relations.id, config.relation_id) })
+        : undefined;
+      if (!relation || !config.side) {
+        throw new UnprocessableEntityException(`"${label}" — relation no longer exists`);
+      }
+      const targetDatabaseId = config.side === 'a' ? relation.databaseBId : relation.databaseAId;
+      const isNumericString = typeof f.value === 'string' && /^\d+$/.test(f.value.trim());
+      const isValidRef =
+        typeof f.value === 'number' || (typeof f.value === 'string' && (isNumericString || /^[0-9a-f-]{36}$/i.test(f.value)));
+      if (!isValidRef) {
+        throw new UnprocessableEntityException(`"${label}"'s fixed value must be a record id or number`);
+      }
+      const match = await this.db.query.records.findFirst({
+        where: and(
+          eq(records.databaseId, targetDatabaseId),
+          isNull(records.deletedAt),
+          typeof f.value === 'number' || isNumericString
+            ? eq(records.number, typeof f.value === 'number' ? f.value : Number.parseInt(f.value as string, 10))
+            : eq(records.id, f.value as string),
+        ),
+      });
+      if (!match) {
+        throw new UnprocessableEntityException(`"${label}"'s fixed value does not name a record in the target database`);
+      }
     }
   }
 
