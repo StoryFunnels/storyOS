@@ -42,11 +42,24 @@ function SignupForm() {
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Name</Label>
-          <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            id="name"
+            required
+            className="h-11"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input
+            id="email"
+            type="email"
+            required
+            className="h-11"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">Password</Label>
@@ -55,18 +68,23 @@ function SignupForm() {
             type="password"
             required
             minLength={8}
+            className="h-11"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
         {error && <p className="text-[13px] text-error">{error}</p>}
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy} className="h-11">
           {busy ? 'Creating…' : 'Create account'}
         </Button>
       </form>
       <p className="mt-4 text-[13px] text-muted">
         Already have an account?{' '}
-        <Link className="text-ink underline" href="/login">
+        {/* #707 — a plain inline link's tap target is just its text's line box
+            (measured at 16px tall). py-3 pads it toward the 44px guideline;
+            the paragraph grows to fit rather than needing a negative-margin
+            trick, since a slightly taller line here isn't a redesign. */}
+        <Link className="inline-block px-1 py-3 text-ink underline" href="/login">
           Sign in
         </Link>
       </p>

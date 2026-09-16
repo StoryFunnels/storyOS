@@ -50,20 +50,35 @@ function LoginForm() {
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input
+            id="email"
+            type="email"
+            required
+            className="h-11"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input
+            id="password"
+            type="password"
+            required
+            className="h-11"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
         {error && <p className="text-[13px] text-error">{error}</p>}
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy} className="h-11">
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
         {providers.data?.providers.includes('google') && (
           <Button
             type="button"
             variant="secondary"
+            className="h-11"
             onClick={() => {
               posthog.capture('user_logged_in', { method: 'google' });
               authClient.signIn.social({ provider: 'google', callbackURL: '/' });
@@ -74,13 +89,15 @@ function LoginForm() {
           </Button>
         )}
       </form>
+      {/* #707 — same tap-target fix as signup's "Sign in" link; py-3 pads each
+          toward the 44px guideline without redesigning this line. */}
       <p className="mt-4 text-[13px] text-muted">
         No account?{' '}
-        <Link className="text-ink underline" href="/signup">
+        <Link className="inline-block px-1 py-3 text-ink underline" href="/signup">
           Sign up
         </Link>
         {' · '}
-        <Link className="text-ink underline" href="/reset">
+        <Link className="inline-block px-1 py-3 text-ink underline" href="/reset">
           Forgot password
         </Link>
       </p>
