@@ -121,7 +121,7 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
     },
   });
 
-  if (detailQuery.isLoading) return <p className="text-[12px] text-faint">Loading auto-link…</p>;
+  if (detailQuery.isLoading) return <p className="text-[12px] text-muted">Loading auto-link…</p>;
   if (!detail) return null;
 
   const selectCls =
@@ -133,7 +133,7 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
         <Link2 className="h-3.5 w-3.5 text-faint" />
         <span className="text-[13px] font-medium text-ink">Auto-link by matching fields</span>
       </div>
-      <p className="text-[12px] text-faint">
+      <p className="text-[12px] text-muted">
         Link records automatically when every condition matches. Only text, email, url, number and date
         fields can be matched. {detail.cardinality === 'one_to_many' && 'Ambiguous matches (several targets) are skipped, never guessed.'}
       </p>
@@ -161,6 +161,10 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
               <option key={f.id} value={f.id}>{f.display_name}</option>
             ))}
           </select>
+          {/* #706 — KEEPS faint, as do the Link2 icon and the "=" connector
+              above: all three are non-text graphics judged at 3:1, which faint
+              clears. This button contains only a Trash2 icon and its accessible
+              name is the aria-label. Do not sweep them. */}
           <button
             type="button"
             className="p-1 text-faint hover:text-error"
