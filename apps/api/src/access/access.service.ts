@@ -361,6 +361,48 @@ export class AccessService {
     );
   }
 
+  /**
+   * #474 phase 4 — every record id this guest holds a DIRECT record-scoped
+   * grant (#472) on, workspace-wide. For a query that spans multiple
+   * databases and can't call `visibleRecordIds` once per database ahead of
+   * time (global search, /recent) — the caller ORs this in alongside its
+   * existing `visibleDatabaseIds`-based database filter, so a record-scoped-
+   * only grant surfaces exactly that record without widening to its whole
+   * database. null for admin/member (unrestricted, same as every other
+   * guest-only primitive here).
+   */
+  async guestRecordGrantIds(membership: Membership): Promise<Set<string> | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    return new Set(grants.map((g) => g.recordId).filter((v): v is string => Boolean(v)));
+  }
+
+  /**
+   * #474 phase 4 — every database a guest can reach AT ALL: `visibleDatabaseIds`
+   * (full access) UNION any database containing a record they hold a direct
+   * record-scoped grant on. Deliberately NOT the same thing as "every record
+   * in this database is visible" — a database appearing here purely via a
+   * record-scoped grant still needs `visibleRecordIds` to narrow which rows
+   * within it are actually visible. This exists so a per-database loop (e.g.
+   * My Work) knows which databases to consider at all before doing that
+   * per-record narrowing — `visibleDatabaseIds` alone would skip a database
+   * where the guest's only access is a record grant, same class of gap #474
+   * phase 3 fixed for relation chips. null for admin/member.
+   */
+  async reachableDatabaseIds(membership: Membership): Promise<Set<string> | null> {
+    const broad = await this.visibleDatabaseIds(membership);
+    if (broad === null) return null;
+    const recordGrantIds = await this.guestRecordGrantIds(membership);
+    if (!recordGrantIds || recordGrantIds.size === 0) return broad;
+    const rows = await this.db.query.records.findMany({
+      where: and(inArray(records.id, [...recordGrantIds]), notDeleted(records.deletedAt)),
+      columns: { databaseId: true },
+    });
+    const merged = new Set(broad);
+    for (const r of rows) merged.add(r.databaseId);
+    return merged;
+  }
+
   assertRank(effective: EffectiveRole | null, min: EffectiveRole, what = 'resource') {
     if (effective === null) throw new NotFoundException(`${what} not found`);
     if (ACCESS_RANK[effective] < ACCESS_RANK[min]) {
