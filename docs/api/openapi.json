@@ -13796,6 +13796,53 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "calendar_increment_minutes": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      10
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      15
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      30
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      60
+                    ]
+                  }
+                ]
+              },
+              "calendar_collapsed_hours": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              },
               "start_date_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -14477,6 +14524,53 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "calendar_increment_minutes": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      10
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      15
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      30
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      60
+                    ]
+                  }
+                ]
+              },
+              "calendar_collapsed_hours": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              },
               "start_date_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -15137,6 +15231,53 @@
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "calendar_increment_minutes": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      10
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      15
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      30
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      60
+                    ]
+                  }
+                ]
+              },
+              "calendar_collapsed_hours": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
               },
               "start_date_field_id": {
                 "type": "string",
