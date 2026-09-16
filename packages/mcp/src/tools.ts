@@ -3290,7 +3290,43 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   const VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form'] as const;
-  type FormFieldOpt = string | { field: string; required?: boolean; label?: string; help?: string };
+  const FORM_VISIBILITY_OPS = ['eq', 'neq', 'is_empty', 'not_empty', 'in'] as const;
+  type FormVisibilityRuleOpt = { field: string; op: (typeof FORM_VISIBILITY_OPS)[number]; value?: unknown };
+  type FormFieldOpt =
+    | string
+    | {
+        field: string;
+        required?: boolean;
+        label?: string;
+        help?: string;
+        visible_when?: FormVisibilityRuleOpt;
+        required_when?: FormVisibilityRuleOpt;
+      };
+  /** Stored shape of one form field (packages/schemas/src/views.ts) — what a
+   *  form actually persists, and therefore everything #715's fix must not
+   *  drop on a write that didn't mean to touch it. `relation_filter` is
+   *  intentionally not yet MCP-settable (it resolves against the relation's
+   *  TARGET database, not this one — a real coverage gap, left for a
+   *  follow-up rather than half-done here) but IS preserved on every write. */
+  type StoredFormField = {
+    field_id: string;
+    required?: boolean;
+    label?: string;
+    help?: string;
+    visible_when?: { field_id: string; op: string; value?: unknown };
+    required_when?: { field_id: string; op: string; value?: unknown };
+    relation_filter?: unknown;
+  };
+  type StoredForm = {
+    title?: string;
+    description?: string;
+    submit_text?: string;
+    fields?: StoredFormField[];
+    public_token?: string;
+    access?: 'members' | 'link' | 'public';
+    success_message?: string;
+    redirect_url?: string;
+  };
   type ViewOpts = {
     group_by?: string;
     card_fields?: string[];
@@ -3307,7 +3343,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     form_success_message?: string;
     form_redirect_url?: string;
   };
-  function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
+  /**
+   * #715 — building `config.form` USED to mean rebuilding it wholesale from
+   * only the `form_*` params this call happened to pass, every time. Since
+   * `patch.config = {...existingConfig, ...buildViewConfig(...)}` is a
+   * SHALLOW merge, any call that touched `sorts` alone (nothing form-related)
+   * still ran this whole branch — `v.type` is the view's STORED type, not
+   * something the caller chose this call — and the freshly rebuilt `form`
+   * object replaced the real one outright: every field's `visible_when` /
+   * `required_when` / `relation_filter` gone (never in `formFieldShape` to
+   * begin with, so there was never a way to carry them forward), the whole
+   * `fields` array emptied if `form_fields` wasn't passed, and `access`
+   * silently reset to 'members' (silently unpublishing a live public/link
+   * form) if `form_access` wasn't passed either. Confirmed live against a
+   * real form (not just read from source) before this fix: an update_view
+   * call touching only `sorts` took a 2-field form with a `visible_when`
+   * down to 0 fields and 'link' down to 'members'.
+   *
+   * Fix: `existingForm` is the view's CURRENTLY stored form (undefined for
+   * create_view, where there is none yet). Every property falls back to what
+   * was already there instead of to "unset", and a field's `relation_filter`
+   * — not yet MCP-settable at all (it resolves against the relation's
+   * TARGET database, a real but separate coverage gap) — is preserved
+   * unconditionally rather than silently dropped.
+   */
+  function buildViewConfig(
+    detail: DatabaseDetail,
+    type: string,
+    o: ViewOpts,
+    existingForm?: StoredForm,
+  ): Record<string, unknown> {
     // #191: only emit keys the caller actually passed. viewConfigSchema fills the
     // per-field defaults (sorts:[], hidden_field_ids:[], …) on parse, so create
     // still gets a complete config — and update can MERGE this partial onto the
@@ -3324,34 +3389,64 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       if (o.end_date_field) config.end_date_field_id = anyField(detail, o.end_date_field);
     }
     if (type === 'form') {
-      const access = o.form_access ?? 'members';
-      const fields = (o.form_fields ?? []).map((f) => {
-        const ref = typeof f === 'string' ? f : f.field;
-        const field_id = anyField(detail, ref);
-        if (typeof f === 'string') return { field_id };
-        return {
-          field_id,
-          ...(f.required !== undefined ? { required: f.required } : {}),
-          ...(f.label ? { label: f.label } : {}),
-          ...(f.help ? { help: f.help } : {}),
-        };
-      });
+      const existingByFieldId = new Map((existingForm?.fields ?? []).map((f) => [f.field_id, f]));
+      const resolveRule = (r: FormVisibilityRuleOpt) => ({ field_id: anyField(detail, r.field), op: r.op, value: r.value });
+
+      const fields =
+        o.form_fields !== undefined
+          ? o.form_fields.map((f): StoredFormField => {
+              const ref = typeof f === 'string' ? f : f.field;
+              const field_id = anyField(detail, ref);
+              const existing = existingByFieldId.get(field_id);
+              if (typeof f === 'string') {
+                // A bare ref names only WHICH field shows — carry its other
+                // settings forward rather than resetting them to unset.
+                return existing ? { ...existing, field_id } : { field_id };
+              }
+              return {
+                field_id,
+                required: f.required !== undefined ? f.required : existing?.required,
+                label: f.label ?? existing?.label,
+                help: f.help ?? existing?.help,
+                visible_when: f.visible_when ? resolveRule(f.visible_when) : existing?.visible_when,
+                required_when: f.required_when ? resolveRule(f.required_when) : existing?.required_when,
+                relation_filter: existing?.relation_filter, // not yet MCP-settable — never dropped
+              };
+            })
+          : (existingForm?.fields ?? []);
+
+      const access = o.form_access ?? existingForm?.access ?? 'members';
+      // #718 (AC2, corrected by Dara after this was first written — the
+      // ORIGINAL version here minted a fresh token whenever form_access was
+      // explicitly re-passed, which is the OTHER half of the same bug: the
+      // careful caller who passes form_access: 'link' specifically to avoid
+      // the members-only default still got a dead embed, because a brand
+      // new token silently invalidated every URL already pasted somewhere.
+      // Mint ONLY when moving to link/public AND there isn't one already —
+      // an existing token is reused unconditionally, never rotated by an
+      // ordinary update_view call. Rotating one on purpose isn't something
+      // this tool does at all yet (no dedicated regenerate action, unlike
+      // automations' regenerate-hook) — a real, separate capability gap.
+      const public_token = access !== 'members' ? (existingForm?.public_token ?? randomUUID().replace(/-/g, '')) : undefined;
+
       config.form = {
-        ...(o.form_title ? { title: o.form_title } : {}),
-        ...(o.form_description ? { description: o.form_description } : {}),
-        ...(o.form_submit_text ? { submit_text: o.form_submit_text } : {}),
+        title: o.form_title !== undefined ? o.form_title : existingForm?.title,
+        description: o.form_description !== undefined ? o.form_description : existingForm?.description,
+        submit_text: o.form_submit_text !== undefined ? o.form_submit_text : existingForm?.submit_text,
         fields,
-        // link/public is unreachable without a token — generate one (same shape
-        // as the web app's "Enable link" action) so the access level is usable
-        // right away instead of a silently dead public view.
-        ...(access !== 'members' ? { public_token: randomUUID().replace(/-/g, '') } : {}),
+        ...(public_token ? { public_token } : {}),
         access,
-        ...(o.form_success_message ? { success_message: o.form_success_message } : {}),
-        ...(o.form_redirect_url ? { redirect_url: o.form_redirect_url } : {}),
+        success_message: o.form_success_message !== undefined ? o.form_success_message : existingForm?.success_message,
+        redirect_url: o.form_redirect_url !== undefined ? o.form_redirect_url : existingForm?.redirect_url,
       };
     }
     return config;
   }
+  const formVisibilityRuleShape = z.object({
+    field: z.string().describe('An EARLIER field in this same form (by name or id) whose answer controls this one.'),
+    op: z.enum(FORM_VISIBILITY_OPS),
+    value: z.unknown().optional().describe('Ignored by is_empty/not_empty. `in` takes an array.'),
+  });
   const formFieldShape = z.union([
     z.string(),
     z.object({
@@ -3359,6 +3454,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       required: z.boolean().optional(),
       label: z.string().optional(),
       help: z.string().optional(),
+      visible_when: formVisibilityRuleShape.optional().describe('#715 — show this field only when an earlier answer matches.'),
+      required_when: formVisibilityRuleShape
+        .optional()
+        .describe('#715 — `required` above only bites when this also holds (or is unset).'),
     }),
   ]);
 
@@ -3383,7 +3482,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
         form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
         form_submit_text: z.string().max(50).optional().describe('form: submit button label (default "Submit").'),
-        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help} for per-field overrides. Omit to fall back to card_fields.'),
+        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when} for per-field overrides. Omit to fall back to card_fields.'),
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
         form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
@@ -3448,7 +3547,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update view',
       description:
-        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change, but a form_* change rebuilds the whole form config from what you pass this call (it does not merge with the previous form config) — re-passing form_access on a form that already has a public/link token issues a NEW token, invalidating the old link.',
+        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when` on a field `form_fields` did not mention, which stay exactly as stored (#715), and a form\'s live public_token, which is never rotated by this call (#718) — a link/public form keeps its existing token whether or not you re-pass form_access, and a token is only EVER minted the first time access moves off \'members\'. One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when unless you override them.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -3501,9 +3600,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           'form_success_message', 'form_redirect_url',
         ] as const;
         if (CONFIG_KEYS.some((k) => rest[k] !== undefined)) {
+          const existingForm = (v.config as { form?: StoredForm } | undefined)?.form;
           patch.config = {
             ...((v.config ?? {}) as Record<string, unknown>),
-            ...buildViewConfig(detail, v.type, rest),
+            ...buildViewConfig(detail, v.type, rest, existingForm),
           };
         }
         const updated = await unwrap<unknown>(
