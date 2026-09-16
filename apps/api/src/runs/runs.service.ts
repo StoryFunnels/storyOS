@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { approvals, automationJobs, automationRuns, automations, databases, records } from '../db/schema';
@@ -64,30 +64,6 @@ export class RunsService {
     private readonly jobs: JobRunnerService,
   ) {}
 
-  /**
-   * Database ids this membership may see runs for. `null` = no filter (admin/
-   * member see the whole workspace, same as ApprovalsController's read side).
-   * A guest is narrowed to what AccessService already says they can see —
-   * this is the one place in this service that differs from that precedent,
-   * because unlike approvals (already point-scoped to one record a guest was
-   * invited into), a workspace-wide run feed would otherwise leak rule names/
-   * trigger activity from databases a guest has no grant on.
-   */
-  private async visibleDatabaseIds(membership: Membership): Promise<Set<string> | null> {
-    if (membership.role !== 'guest') return null;
-    const visibility = await this.access.guestVisibility(membership);
-    if (!visibility) return null;
-    const ids = new Set(visibility.databaseIds);
-    if (visibility.spaceIds.size > 0) {
-      const rows = await this.db.query.databases.findMany({
-        where: inArray(databases.spaceId, [...visibility.spaceIds]),
-        columns: { id: true },
-      });
-      rows.forEach((r) => ids.add(r.id));
-    }
-    return ids;
-  }
-
   async list(workspaceId: string, membership: Membership, filters: RunsListFilters) {
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
 
@@ -96,8 +72,20 @@ export class RunsService {
       return { data: [], next_cursor: null, has_more: false, note: SOURCE_KIND_NOTE };
     }
 
-    const visibleDbIds = await this.visibleDatabaseIds(membership);
-    if (visibleDbIds && visibleDbIds.size === 0) {
+    // #474 phase 12 — this service used to carry its OWN, independent copy
+    // of guest-visibility (a hand-rolled space→database walk, database
+    // granularity only), duplicating rather than reusing AccessService. That
+    // meant a guest whose only access to a database was a record-scoped
+    // grant (#472) saw NO runs at all — not even for their own granted
+    // record's automation — the same under-widening gap phase 4 fixed for
+    // search/my-work/recent. `visibleDatabaseIds` (broad grants) OR'd with
+    // `guestRecordGrantIds` (record-scoped grants) is that same established
+    // pattern: a record grant surfaces exactly that record's runs without
+    // widening the whole database into view.
+    const visibleDbIds = await this.access.visibleDatabaseIds(membership);
+    const recordGrantIds = await this.access.guestRecordGrantIds(membership);
+    const hasRecordGrants = Boolean(recordGrantIds?.size);
+    if (visibleDbIds !== null && visibleDbIds.size === 0 && !hasRecordGrants) {
       return { data: [], next_cursor: null, has_more: false };
     }
 
@@ -107,13 +95,14 @@ export class RunsService {
       conditions.push(eq(automationRuns.status, filters.status));
     }
     if (filters.rule_id) conditions.push(eq(automationRuns.automationId, filters.rule_id));
-    if (filters.database_id) {
-      if (visibleDbIds && !visibleDbIds.has(filters.database_id)) {
-        return { data: [], next_cursor: null, has_more: false };
-      }
-      conditions.push(eq(automations.databaseId, filters.database_id));
-    } else if (visibleDbIds) {
-      conditions.push(inArray(automations.databaseId, [...visibleDbIds]));
+    if (filters.database_id) conditions.push(eq(automations.databaseId, filters.database_id));
+    if (visibleDbIds !== null) {
+      conditions.push(
+        or(
+          visibleDbIds.size ? inArray(automations.databaseId, [...visibleDbIds]) : sql`false`,
+          hasRecordGrants ? inArray(automationRuns.triggerRecordId, [...recordGrantIds!]) : sql`false`,
+        )!,
+      );
     }
     if (filters.from) conditions.push(gte(automationRuns.createdAt, new Date(filters.from)));
     if (filters.to) conditions.push(lte(automationRuns.createdAt, new Date(filters.to)));
@@ -225,9 +214,18 @@ export class RunsService {
   async detail(workspaceId: string, membership: Membership, runId: string) {
     const { row, rule } = await this.loadRun(workspaceId, runId);
     if (rule) {
-      const visibleDbIds = await this.visibleDatabaseIds(membership);
-      if (visibleDbIds && !visibleDbIds.has(rule.databaseId)) {
-        throw new NotFoundException('Run not found');
+      const visibleDbIds = await this.access.visibleDatabaseIds(membership);
+      if (visibleDbIds !== null && !visibleDbIds.has(rule.databaseId)) {
+        // #474 phase 12 — database-level access doesn't cover this rule's
+        // database; fall through to a direct record-scoped grant (#472) on
+        // the run's OWN trigger record, the same per-record fallback every
+        // other single-record surface in this ticket uses. Without this, the
+        // enumeration's finding held: `recordRef` (below) was returned with
+        // only a database-level check, never verifying it was actually the
+        // record this guest was granted.
+        const recordGrantIds = await this.access.guestRecordGrantIds(membership);
+        const grantedHere = row.triggerRecordId ? recordGrantIds?.has(row.triggerRecordId) : false;
+        if (!grantedHere) throw new NotFoundException('Run not found');
       }
     }
 
@@ -327,7 +325,31 @@ export class RunsService {
   async rerun(workspaceId: string, membership: Membership, runId: string, actionIndex: number) {
     const { row, rule } = await this.loadRun(workspaceId, runId);
     if (!rule) throw new NotFoundException('The rule this run belonged to no longer exists');
-    await this.databasesService.assertAccess(membership, rule.databaseId, 'editor');
+
+    // #474 phase 12 — `DatabasesService.assertAccess`'s record-scoped
+    // fallback only checks "does this guest hold ANY record grant in this
+    // database", not that it covers THIS run's own trigger record — the
+    // same over-widening class backlinks' target-record gate had (phase 5):
+    // a guest granted record A could otherwise re-run an action that fired
+    // on sibling record B in the same database. Verify the trigger record
+    // directly with `effectiveForRecord` when there is one; fall back to
+    // the database-level check for a no-record-trigger run (e.g.
+    // scheduled), where there's nothing more specific to check.
+    if (row.triggerRecordId) {
+      const database = await this.db.query.databases.findFirst({
+        where: eq(databases.id, rule.databaseId),
+        columns: { id: true, spaceId: true },
+      });
+      if (!database) throw new NotFoundException('Database not found');
+      const effective = await this.access.effectiveForRecord(membership, {
+        id: row.triggerRecordId,
+        databaseId: database.id,
+        spaceId: database.spaceId,
+      });
+      this.access.assertRank(effective, 'editor', 'Run');
+    } else {
+      await this.databasesService.assertAccess(membership, rule.databaseId, 'editor');
+    }
 
     // Reruns share (runId, actionIndex) with the original job — order by
     // newest so a second rerun operates on the LATEST attempt, not always the
