@@ -11,6 +11,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -874,22 +875,24 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {spec.required ? '' : ' (optional)'}
                     </Label>
                     {spec.kind === 'json' ? (
-                      <textarea
+                      <Textarea
                         id={`src-config-${key}`}
                         rows={4}
+                        size="sm"
                         placeholder={spec.description ? `${spec.description} (JSON)` : '{}'}
-                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        className="min-h-0 py-1.5 font-mono"
                         value={config[key] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
                     ) : spec.kind === 'array' ? (
                       // #113 — list-shaped fields (e.g. LinkedIn post_urns) get a
                       // per-line box instead of a brittle comma free-text input.
-                      <textarea
+                      <Textarea
                         id={`src-config-${key}`}
                         rows={4}
+                        size="sm"
                         placeholder={'One per line' + (spec.description ? ` — ${spec.description}` : '')}
-                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        className="min-h-0 py-1.5 font-mono"
                         value={config[key] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
@@ -974,10 +977,10 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 {(recurrenceForm.kind === 'daily' || recurrenceForm.kind === 'weekly') && (
                   <label className="flex items-center gap-1.5 text-[12px] text-muted">
                     at
-                    <input
+                    <Input
                       type="time"
+                      size="sm"
                       aria-label="Time of day"
-                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                       value={recurrenceForm.timeOfDay}
                       onChange={(e) =>
                         setRecurrenceForm((prev) => ({ ...prev, timeOfDay: e.target.value }))
@@ -990,12 +993,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 {recurrenceForm.kind === 'hourly' && (
                   <label className="flex items-center gap-1.5 text-[12px] text-muted">
                     at minute
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       max={59}
+                      size="sm"
                       aria-label="Minute past the hour"
-                      className="h-8 w-20 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      className="w-20"
                       value={recurrenceForm.minute}
                       onChange={(e) =>
                         setRecurrenceForm((prev) => ({ ...prev, minute: Number(e.target.value) }))

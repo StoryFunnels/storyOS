@@ -8,6 +8,7 @@ import { useDatabases, useHttpConnections } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
@@ -323,8 +324,8 @@ export function ButtonActionsEditor({
                 value={action.channel ?? ''}
                 onChange={(e) => patch(i, { ...action, channel: e.target.value || undefined })}
               />
-              <textarea
-                className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+              <Textarea
+                size="sm"
                 placeholder={`Message${payloadHint ? ' — {payload.path} interpolates values' : ' — {Field Name} interpolates values'}`}
                 value={action.text}
                 onChange={(e) => patch(i, { ...action, text: e.target.value })}
@@ -365,8 +366,9 @@ export function ButtonActionsEditor({
               {/* #152 — a hand-written JSON body is developer tooling: the default
                   (send the whole record) is what most people want. */}
               <AdvancedDetails label="Custom JSON body">
-                <textarea
-                  className="min-h-[56px] w-full rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+                <Textarea
+                  size="sm"
+                  className="w-full font-mono"
                   placeholder={`JSON is sent as-is, {Field Name} interpolates${payloadHint}.\nLeave empty to send the whole record.`}
                   value={action.body_template ?? ''}
                   onChange={(e) =>
@@ -794,8 +796,11 @@ function SendEmailEditor({
         value={action.subject}
         onChange={(e) => onChange({ ...action, subject: e.target.value })}
       />
-      <textarea
-        className="min-h-[80px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+      {/* #689 — `sm`'s padding/text fit this site; only its height (80px, a
+          markdown body wants more room than sm's 56px default) is bespoke. */}
+      <Textarea
+        size="sm"
+        className="min-h-20"
         placeholder="Body (markdown) — {Field Name} interpolates values"
         value={action.body_markdown}
         onChange={(e) => onChange({ ...action, body_markdown: e.target.value })}
@@ -935,8 +940,9 @@ function HttpRequestEditor({
       </AdvancedDetails>
 
       {action.method !== 'GET' && (
-        <textarea
-          className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+        <Textarea
+          size="sm"
+          className="font-mono"
           placeholder={`Body (optional) — JSON is sent as-is, {Field Name} interpolates${payloadHint}`}
           value={action.body_template ?? ''}
           onChange={(e) => onChange({ ...action, body_template: e.target.value || undefined })}

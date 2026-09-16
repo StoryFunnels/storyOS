@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { DiffView } from '@/components/reviews/diff-view';
 import type { DiffMode } from '@/components/reviews/diff-view';
@@ -278,13 +279,14 @@ export default function PullRequestReviewPage() {
               <p className="mb-1.5 text-[11px] text-muted">
                 Commenting on <code className="text-ink">{composing.path}</code>:{composing.line} ({composing.side})
               </p>
-              <textarea
+              <Textarea
                 autoFocus
                 rows={2}
+                size="default"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Leave a comment…"
-                className="w-full rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1.5 text-[13px] text-ink outline-none focus:border-border-strong"
+                className="min-h-0 w-full bg-surface outline-none focus:border-border-strong"
               />
               <div className="mt-2 flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setComposing(null)}>
@@ -331,12 +333,15 @@ export default function PullRequestReviewPage() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-t border-border-default p-3">
-        <textarea
+        <Textarea
           rows={1}
+          size="default"
           value={reviewBody}
           onChange={(e) => setReviewBody(e.target.value)}
           placeholder="Overall review comment (optional)…"
-          className="min-h-9 flex-1 resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 text-[13px] text-ink outline-none focus:border-border-strong"
+          // #689 — bespoke min-h-9 (36px): this is a single-line review-summary
+          // box beside the Approve/Request-changes buttons, not a prose field.
+          className="min-h-9 flex-1 resize-none outline-none focus:border-border-strong"
         />
         <Button variant="secondary" size="sm" disabled={submitReview.isPending} onClick={() => submitReview.mutate('COMMENT')}>
           <MessageSquare className="h-3.5 w-3.5" /> Comment

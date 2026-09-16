@@ -7,6 +7,7 @@ import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as Inbox
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
@@ -305,12 +306,13 @@ export default function InboxPage() {
                     <p className="text-[12px] text-muted">Loading the proposed action…</p>
                   )}
                   {staged.data && <StagedActionView staged={staged.data} />}
-                  <textarea
+                  <Textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted"
+                    size="default"
+                    className="min-h-0 w-full bg-app px-2.5"
                   />
                   <div className="flex gap-3">
                     <button
@@ -347,12 +349,13 @@ export default function InboxPage() {
                   triggered gated action has none). */}
               {selected.type === 'action_approval_requested' && selected.ref_id && (
                 <div className="mt-4 flex flex-col gap-2">
-                  <textarea
+                  <Textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted"
+                    size="default"
+                    className="min-h-0 w-full bg-app px-2.5"
                   />
                   <div className="flex gap-3">
                     <button

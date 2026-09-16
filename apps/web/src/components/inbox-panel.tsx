@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Check, Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 export type NotificationType =
@@ -453,13 +454,14 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       <span onClick={(e) => e.stopPropagation()}>
                         {rejecting?.notificationId === n.id ? (
                           <span className="mt-2 flex flex-col gap-1.5">
-                            <textarea
+                            <Textarea
                               autoFocus
+                              size="sm"
                               value={rejecting.reason}
                               onChange={(e) => setRejecting({ notificationId: n.id, reason: e.target.value })}
                               placeholder="Reason (optional)"
                               rows={2}
-                              className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2 py-1.5 text-[12px] text-ink placeholder:text-muted"
+                              className="min-h-0 w-full bg-app py-1.5"
                             />
                             <span className="flex gap-2">
                               <button

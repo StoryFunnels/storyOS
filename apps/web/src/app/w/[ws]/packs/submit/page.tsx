@@ -11,6 +11,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
  * The author flow's second step (MN-220): export an existing pack (#160's
@@ -175,8 +176,9 @@ export default function SubmitPackPage() {
             <Input value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} />
           </Field>
           <Field label="Summary">
-            <textarea
-              className="min-h-16 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-sm text-ink"
+            <Textarea
+              size="default"
+              className="min-h-16 w-full px-3 py-2 text-sm"
               value={form.summary}
               onChange={(e) => setForm({ ...form, summary: e.target.value })}
               placeholder="Leads and tasks with a pipeline board"
@@ -237,8 +239,9 @@ export default function SubmitPackPage() {
             </select>
           </Field>
           <Field label="Screenshots" hint="One URL per line">
-            <textarea
-              className="min-h-20 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-sm text-ink"
+            <Textarea
+              size="default"
+              className="w-full px-3 py-2 text-sm"
               value={screenshots}
               onChange={(e) => setScreenshots(e.target.value)}
               placeholder={'https://example.com/screenshot-1.png'}

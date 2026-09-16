@@ -14,6 +14,7 @@ import { AuthCard } from '../(auth)/auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { guestInviteHref } from '@/lib/guest-invite';
 import { setPendingBuild } from '@/lib/pending-build';
 import { setPendingShare } from '@/lib/pending-share';
@@ -340,10 +341,11 @@ export default function NewWorkspacePage() {
               One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add
               the views worth having — you can reshape anything afterwards.
             </p>
-            <textarea
+            <Textarea
               id="description"
               ref={descriptionRef}
               rows={3}
+              size="default"
               aria-invalid={descriptionError ? true : undefined}
               aria-describedby={descriptionError ? 'description-error' : undefined}
               placeholder="We run a small design studio — client projects, invoices, and a content calendar."
@@ -352,7 +354,7 @@ export default function NewWorkspacePage() {
                 setDescription(e.target.value);
                 if (descriptionError) setDescriptionError(null);
               }}
-              className="w-full resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+              className="min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
             />
             {descriptionError && (
               <p id="description-error" className="text-[12px] text-error">

@@ -7,6 +7,7 @@ import { describeDraft } from '@/lib/description-draft';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useSidebarMutations, useWorkspace } from '@/lib/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -111,18 +112,16 @@ export default function GeneralSettingsPage() {
           what lives here.
         </p>
         <div className="flex max-w-xl flex-col gap-2">
-          <textarea
+          <Textarea
             rows={3}
+            size="default"
             value={value}
             disabled={!isAdmin || workspace.isLoading}
             onChange={(e) => setValue(e.target.value)}
             // No hard `maxLength`: silently truncating a pasted sentence teaches
             // the person nothing. Over-length is shown and Save is blocked.
             placeholder="What is this workspace for?"
-            className={cn(
-              'w-full resize-none rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink disabled:opacity-60',
-              draft.over ? 'border-error' : 'border-border-default',
-            )}
+            className={cn('min-h-0 w-full resize-none disabled:opacity-60', draft.over && 'border-error')}
           />
           <div className="flex items-center gap-3">
             <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>

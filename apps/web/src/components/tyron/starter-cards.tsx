@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Blocks, CalendarCheck, Link2, Table2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceBuild } from './workspace-build';
 
 /**
@@ -132,14 +133,15 @@ export function StarterCards({
         <p className="mt-1 text-[12px] text-muted">
           Rows from a spreadsheet, a block of names and emails, notes — it does not need to be tidy.
         </p>
-        <textarea
+        <Textarea
           rows={5}
           autoFocus
+          size="default"
           value={pasted}
           onChange={(e) => setPasted(e.target.value)}
           aria-label="Paste a list"
           placeholder={'Ada Lovelace, ada@example.com, London\nAlan Turing, alan@example.com, Manchester'}
-          className="mt-3 w-full resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+          className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
         />
         <div className="mt-2 flex items-center gap-2">
           <button

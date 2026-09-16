@@ -13,6 +13,7 @@ import { GRANT_ROLES } from '@/lib/access';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { ShareDialog } from '@/components/share-dialog';
 import { SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
@@ -198,16 +199,14 @@ export default function SpacePage() {
 
       {editingDesc ? (
         <div className="mb-6 flex max-w-xl flex-col gap-2">
-          <textarea
+          <Textarea
             autoFocus
             rows={2}
+            size="default"
             value={descValue ?? space.description ?? ''}
             onChange={(e) => setDescValue(e.target.value)}
             placeholder="What is this space for?"
-            className={cn(
-              'w-full resize-none rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink',
-              draft.over ? 'border-error' : 'border-border-default',
-            )}
+            className={cn('min-h-0 w-full resize-none', draft.over && 'border-error')}
           />
           <div className="flex items-center gap-2">
             <span

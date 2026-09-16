@@ -9,6 +9,7 @@ import { ArrowLeft, GitBranch, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -250,10 +251,13 @@ export default function GitHubIntegrationPage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
-          <textarea
+          <Textarea
             id="gh-repos"
             rows={3}
-            className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-border-strong"
+            size="default"
+            // `rows` alone governs height here (as it did before) — `min-h-0`
+            // removes the primitive's own floor so it doesn't quietly grow.
+            className="min-h-0 w-full font-mono outline-none focus:border-border-strong"
             placeholder={'acme/website\nacme/api'}
             value={repos}
             onChange={(e) => setRepos(e.target.value)}

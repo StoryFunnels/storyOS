@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Input } from '@/components/ui/input';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -238,7 +239,10 @@ export default function AdminPage() {
   const cancelRun = useMutation({
     mutationFn: async (row: AdminRunRow) => {
       setCancelingId(row.id);
-      await api.POST(`/api/v1/admin/runs/${row.workspaceId}/${row.id}/cancel` as never, {} as never);
+      await api.POST(
+        `/api/v1/admin/runs/${row.workspaceId}/${row.id}/cancel` as never,
+        {} as never,
+      );
     },
     onSettled: () => {
       setCancelingId(null);
@@ -258,9 +262,12 @@ export default function AdminPage() {
 
   const reviewSubmission = useMutation({
     mutationFn: async (input: { id: string; action: 'approve' | 'reject'; notes?: string }) => {
-      const { error } = await api.POST(`/api/v1/admin/packs/submissions/${input.id}/review` as never, {
-        body: { action: input.action, notes: input.notes },
-      } as never);
+      const { error } = await api.POST(
+        `/api/v1/admin/packs/submissions/${input.id}/review` as never,
+        {
+          body: { action: input.action, notes: input.notes },
+        } as never,
+      );
       if (error) throw error;
     },
     onSuccess: (_data, input) => {
@@ -294,7 +301,9 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-5xl p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Admin</h1>
-      <p className="mb-6 text-[13px] text-muted">Instance overview, plus MN-194 cost &amp; margin.</p>
+      <p className="mb-6 text-[13px] text-muted">
+        Instance overview, plus MN-194 cost &amp; margin.
+      </p>
 
       <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Workspaces" value={String(o.totalWorkspaces)} />
@@ -306,25 +315,30 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Cost &amp; Margin</h2>
-          <span className="text-[12px] text-muted">
-            Margin floor: {c.marginFloorPercent}% · Fixed infra: {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo
-            (allocated below)
+          <span className="text-[12px] text-faint">
+            Margin floor: {c.marginFloorPercent}% · Fixed infra:{' '}
+            {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo (allocated below)
           </span>
         </div>
         <p className="mb-3 text-[13px] text-muted">
           Hosted calls, storage, and email are measured from real usage counters. AI cost is
-          <strong className="text-ink"> estimated — pending MN-214r&apos;s real managed-AI runtime</strong>;
-          today it is $0 for every workspace because no managed run has executed yet.
+          <strong className="text-ink">
+            {' '}
+            estimated — pending MN-214r&apos;s real managed-AI runtime
+          </strong>
+          ; today it is $0 for every workspace because no managed run has executed yet.
         </p>
 
         {flagged.length > 0 && (
           <div className="mb-3 rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 p-3 text-[13px] text-ink">
-            {flagged.length} paying workspace{flagged.length === 1 ? '' : 's'} below the {c.marginFloorPercent}%
-            margin floor — see flagged rows below.
+            {flagged.length} paying workspace{flagged.length === 1 ? '' : 's'} below the{' '}
+            {c.marginFloorPercent}% margin floor — see flagged rows below.
           </div>
         )}
 
-        <h3 className="mb-1 mt-4 text-[13px] font-medium text-ink-secondary">Blended margin by plan</h3>
+        <h3 className="mb-1 mt-4 text-[13px] font-medium text-ink-secondary">
+          Blended margin by plan
+        </h3>
         <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
           <table className="w-full text-left text-[13px]">
             <thead className="bg-hover text-ink-secondary">
@@ -348,7 +362,9 @@ export default function AdminPage() {
                   <Td>{usd(p.variableCostCents)}</Td>
                   <Td>{usd(p.allocatedFixedCostCents)}</Td>
                   <Td>{usd(p.totalCostCents)}</Td>
-                  <Td className={p.marginCents < 0 ? 'text-error' : undefined}>{usd(p.marginCents)}</Td>
+                  <Td className={p.marginCents < 0 ? 'text-error' : undefined}>
+                    {usd(p.marginCents)}
+                  </Td>
                   <Td>{pct(p.marginPercent)}</Td>
                 </tr>
               ))}
@@ -392,7 +408,9 @@ export default function AdminPage() {
                   <Td>{usd(w.storageCostCents)}</Td>
                   <Td>{usd(w.emailCostCents)}</Td>
                   <Td>{usd(w.aiCostCents)}</Td>
-                  <Td className={w.marginCents < 0 ? 'text-error' : undefined}>{usd(w.marginCents)}</Td>
+                  <Td className={w.marginCents < 0 ? 'text-error' : undefined}>
+                    {usd(w.marginCents)}
+                  </Td>
                   <Td>{pct(w.marginPercent)}</Td>
                   <Td>
                     {w.belowMarginFloor && (
@@ -411,11 +429,13 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Runs</h2>
-          <span className="text-[12px] text-muted">#300/MN-216c — every workspace, read-only + kill-switch</span>
+          <span className="text-[12px] text-faint">
+            #300/MN-216c — every workspace, read-only + kill-switch
+          </span>
         </div>
         <p className="mb-3 text-[13px] text-muted">
-          Agent runs across every workspace. Cancel is a status flip only — it never touches what the
-          run has already applied.
+          Agent runs across every workspace. Cancel is a status flip only — it never touches what
+          the run has already applied.
         </p>
 
         {runs.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
@@ -492,21 +512,28 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
-          <span className="text-[12px] text-muted">MN-220 — submissions awaiting (or having had) review</span>
+          <span className="text-[12px] text-faint">
+            MN-220 — submissions awaiting (or having had) review
+          </span>
         </div>
         <p className="mb-3 text-[13px] text-muted">
           v1 is curated: nothing here is listed on the marketplace until approved.
         </p>
 
         {packSubmissions.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
-        {packSubmissions.isError && <p className="text-[13px] text-muted">Could not load submissions.</p>}
+        {packSubmissions.isError && (
+          <p className="text-[13px] text-muted">Could not load submissions.</p>
+        )}
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
               <p className="text-[13px] text-muted">No submissions yet.</p>
             )}
             {packSubmissions.data.map((s) => (
-              <div key={s.id} className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
+              <div
+                key={s.id}
+                className="rounded-[var(--radius-control)] border border-border-default bg-card p-3"
+              >
                 <div className="flex items-center justify-between">
                   <p className="text-[13px] font-medium text-ink">
                     {s.name} v{s.version} <span className="text-muted">({s.slug})</span>
@@ -520,7 +547,9 @@ export default function AdminPage() {
                   {new Date(s.submitted_at).toLocaleDateString()}
                 </p>
                 {s.review_notes && (
-                  <p className="mt-1 text-[12px] text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>
+                  <p className="mt-1 text-[12px] text-ink-secondary">
+                    &ldquo;{s.review_notes}&rdquo;
+                  </p>
                 )}
                 {s.status === 'pending' && (
                   <div className="mt-2 flex gap-2">
@@ -536,7 +565,8 @@ export default function AdminPage() {
                       type="button"
                       disabled={reviewSubmission.isPending}
                       onClick={() => {
-                        const notes = window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
+                        const notes =
+                          window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
                         reviewSubmission.mutate({ id: s.id, action: 'reject', notes });
                       }}
                       className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
@@ -608,13 +638,16 @@ function BillingSection() {
 
   const setPlanMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await api.POST(`/api/v1/admin/workspaces/${activeWorkspaceId}/plan` as never, {
-        body: {
-          plan,
-          reason: planReason,
-          expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : undefined,
-        },
-      } as never);
+      const { error } = await api.POST(
+        `/api/v1/admin/workspaces/${activeWorkspaceId}/plan` as never,
+        {
+          body: {
+            plan,
+            reason: planReason,
+            expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : undefined,
+          },
+        } as never,
+      );
       if (error) throw error;
     },
     onSuccess: () => {
@@ -633,7 +666,9 @@ function BillingSection() {
         {
           body: {
             includedSeats: includedSeats ? Number(includedSeats) : undefined,
-            automationRunsPerMonth: automationRunsPerMonth ? Number(automationRunsPerMonth) : undefined,
+            automationRunsPerMonth: automationRunsPerMonth
+              ? Number(automationRunsPerMonth)
+              : undefined,
             maxWorkspaces: maxWorkspaces ? Number(maxWorkspaces) : undefined,
             reason: overrideReason,
             expires_at: overrideExpiresAt ? new Date(overrideExpiresAt).toISOString() : undefined,
@@ -680,9 +715,9 @@ function BillingSection() {
         </span>
       </div>
       <p className="mb-3 text-[13px] text-muted">
-        Sets this workspace&apos;s plan and entitlement overrides directly in StoryOS&apos;s own tables —
-        no Stripe subscription is ever created, changed, or canceled here. Every change requires a reason
-        and is recorded below.
+        Sets this workspace&apos;s plan and entitlement overrides directly in StoryOS&apos;s own
+        tables — no Stripe subscription is ever created, changed, or canceled here. Every change
+        requires a reason and is recorded below.
       </p>
 
       <div className="mb-4">
@@ -707,8 +742,12 @@ function BillingSection() {
         )}
       </div>
 
-      {billing.isLoading && activeWorkspaceId && <p className="text-[13px] text-muted">Loading billing…</p>}
-      {billing.isError && <p className="text-[13px] text-muted">Could not load billing for this workspace.</p>}
+      {billing.isLoading && activeWorkspaceId && (
+        <p className="text-[13px] text-muted">Loading billing…</p>
+      )}
+      {billing.isError && (
+        <p className="text-[13px] text-muted">Could not load billing for this workspace.</p>
+      )}
 
       {b && (
         <>
@@ -717,11 +756,14 @@ function BillingSection() {
               <span>
                 Plan: <strong className="text-ink">{PLAN_LABEL[b.plan] ?? b.plan}</strong>
               </span>
-              <span className="text-muted">
-                Stripe: {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
+              <span className="text-faint">
+                Stripe:{' '}
+                {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
               </span>
               {b.currentPeriodEnd && (
-                <span className="text-muted">Until {new Date(b.currentPeriodEnd).toLocaleDateString()}</span>
+                <span className="text-faint">
+                  Until {new Date(b.currentPeriodEnd).toLocaleDateString()}
+                </span>
               )}
             </div>
             {b.override ? (
@@ -732,7 +774,9 @@ function BillingSection() {
                   {b.override.automationRunsPerMonth !== null && (
                     <>Automation runs/mo: {b.override.automationRunsPerMonth} · </>
                   )}
-                  {b.override.maxWorkspaces !== null && <>Max workspaces: {b.override.maxWorkspaces} · </>}
+                  {b.override.maxWorkspaces !== null && (
+                    <>Max workspaces: {b.override.maxWorkspaces} · </>
+                  )}
                   {b.override.expiresAt
                     ? `expires ${new Date(b.override.expiresAt).toLocaleDateString()}`
                     : 'never expires'}
@@ -749,7 +793,7 @@ function BillingSection() {
                     if (
                       !(await confirm({
                         title: 'Clear entitlement override?',
-                        message: `${b.override ? PLAN_LABEL[b.plan] ?? b.plan : ''} plan defaults apply immediately once cleared.`,
+                        message: `${b.override ? (PLAN_LABEL[b.plan] ?? b.plan) : ''} plan defaults apply immediately once cleared.`,
                         confirmLabel: 'Clear override',
                         danger: true,
                       }))
@@ -798,20 +842,22 @@ function BillingSection() {
                   </option>
                 ))}
               </select>
-              <input
+              <Input
                 type="text"
                 required
                 placeholder="Reason (required, audited)"
                 value={planReason}
                 onChange={(e) => setPlanReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="date"
                 value={planExpiresAt}
                 onChange={(e) => setPlanExpiresAt(e.target.value)}
                 title="Expires (optional — record-keeping only, not auto-enforced)"
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                size="sm"
+                className="mb-2 w-full"
               />
               <button
                 type="submit"
@@ -830,7 +876,8 @@ function BillingSection() {
                 if (
                   !(await confirm({
                     title: 'Set entitlement override?',
-                    message: 'Only the fields you fill in are changed; the rest keep whatever is already set.',
+                    message:
+                      'Only the fields you fill in are changed; the rest keep whatever is already set.',
                     confirmLabel: 'Save override',
                   }))
                 )
@@ -839,44 +886,49 @@ function BillingSection() {
               }}
             >
               <p className="mb-2 text-[13px] font-medium text-ink">Entitlement override</p>
-              <input
+              <Input
                 type="number"
                 min={1}
                 placeholder="Included seats"
                 value={includedSeats}
                 onChange={(e) => setIncludedSeats(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="number"
                 min={1}
                 placeholder="Automation runs / month"
                 value={automationRunsPerMonth}
                 onChange={(e) => setAutomationRunsPerMonth(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="number"
                 min={1}
                 placeholder="Max workspaces"
                 value={maxWorkspaces}
                 onChange={(e) => setMaxWorkspaces(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="text"
                 required
                 placeholder="Reason (required, audited)"
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="date"
                 value={overrideExpiresAt}
                 onChange={(e) => setOverrideExpiresAt(e.target.value)}
                 title="Expires (optional — lazily enforced on read, never auto-swept)"
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                size="sm"
+                className="mb-2 w-full"
               />
               <button
                 type="submit"
@@ -929,7 +981,9 @@ function SubmissionStatusBadge({ status }: { status: PackSubmissionRow['status']
       : status === 'rejected'
         ? 'bg-error/10 text-error'
         : 'bg-warning/10 text-warning';
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>
+  );
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -947,7 +1001,9 @@ function StatusBadge({ status }: { status: string | null }) {
         : status === 'Canceled'
           ? 'bg-hover text-ink-secondary'
           : 'bg-warning/10 text-warning';
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

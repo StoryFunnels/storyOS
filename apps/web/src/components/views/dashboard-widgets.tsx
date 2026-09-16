@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Filter as FilterIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -319,12 +320,12 @@ export function DashboardWidgetCard({
 
       {showConfig && (
         <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
-          <input
+          <Input
             aria-label="Widget title"
             placeholder={heading}
             value={widget.title}
             onChange={(e) => onPatch({ title: e.target.value })}
-            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
+            size="sm"
           />
           {/* #367 — what this widget measures. Scoped to the dashboard's own SPACE,
               for the same reason #304 scoped the tile picker: a picker wider than

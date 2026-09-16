@@ -10,6 +10,7 @@ import { API_URL } from '@/lib/api';
 import { matchExistingField } from '@storyos/schemas';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 
@@ -489,9 +490,10 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         failed run had no way to import the same column under a
                         different name. */}
                     {to.kind === 'new' && (
-                      <input
+                      <Input
                         aria-label={`Name for the new field from "${c.column}"`}
-                        className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        size="sm"
+                        className="w-40 shrink-0"
                         value={to.display_name}
                         onChange={(e) => {
                           const next = new Map(mapping);

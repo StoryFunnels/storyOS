@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useTyronPanel } from '@/lib/tyron-panel';
+import { Textarea } from '@/components/ui/textarea';
 
 interface DatabaseSummary {
   id: string;
@@ -226,8 +227,9 @@ export function WorkspaceBuild({
       <p className="mt-1 text-[12px] text-muted">
         One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add the views worth having.
       </p>
-      <textarea
+      <Textarea
         rows={2}
+        size="default"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onKeyDown={(e) => {
@@ -238,7 +240,7 @@ export function WorkspaceBuild({
         }}
         placeholder="We run a small design studio — client projects, invoices, and a content calendar."
         aria-label="Describe your business"
-        className="mt-3 w-full resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+        className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
       />
       <button
         type="button"
