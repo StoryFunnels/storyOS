@@ -221,6 +221,54 @@ describe('automations (MN-047)', () => {
     expect(updated.enabled).toBe(false);
     expect(updated.failureStreak).toBeGreaterThanOrEqual(10);
   });
+
+  /**
+   * #714 — records.service.ts's field-validation throw sites carry a real
+   * `details: [{ path, message }]` array, but the run's stored `error` used
+   * to show only the generic top-level "Record values validation failed",
+   * because `(error as Error).message` on a Nest exception built from an
+   * OBJECT body resolves to just that object's own `message`, never
+   * `details` — reachable only through `getResponse()`. A customer
+   * diagnosing this had nothing to go on but the generic line.
+   *
+   * Also exercises the ticket's own investigated hypothesis: a `set_values`
+   * action configured with a select/workflow field's human-readable LABEL
+   * (`"New"`) rather than the stored option id fails this exact way —
+   * confirmed via record-values.ts's validator, which requires a real
+   * option id and has no label-resolution step (unlike the MCP layer's
+   * `mapWriteValues`, which actions.service.ts has no equivalent of).
+   */
+  it('a record-write action failure surfaces the FIELD and the real reason, not just a generic message', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Set state to a label, not an option id',
+      trigger: { type: 'record_created' },
+      // "New" reads like a real State option to a human configuring this,
+      // but the field only has Urgent/Done — and even if it existed, a
+      // LABEL is never what this field type accepts (see the hypothesis
+      // this test also confirms).
+      actions: [{ type: 'set_values', values: { [stateApi]: 'New' } }],
+    })).json();
+    try {
+      const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'Should fail loudly' },
+      })).json();
+      await engine.settle(rec.id);
+
+      const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+      expect(runs.data).toHaveLength(1);
+      expect(runs.data[0].status).toBe('error');
+      // The generic top-level message survives...
+      expect(runs.data[0].error).toContain('Record values validation failed');
+      // ...AND so does the field-level detail that used to be dropped.
+      expect(runs.data[0].error).toContain(`values.${stateApi}`);
+      expect(runs.data[0].error).toMatch(/unknown option id/i);
+    } finally {
+      // record_created triggers on every record this workspace creates for
+      // the rest of the file — leaving this enabled corrupted MN-168's
+      // entitlements-call counting downstream (double-fired per record).
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
+  });
 });
 
 describe('#392 — scheduled rules can carry a sort + limit (top-N leaderboard)', () => {
