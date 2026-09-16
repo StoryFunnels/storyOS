@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { embedThemeStyle } from './embed-theme';
+import {
+  COMFORTABLE_CONTRAST,
+  contrastRatio,
+  embedThemeStyle,
+  readableTextFor,
+} from './embed-theme';
 
 function luminance(hex: string): number {
   const h = hex.length === 4 ? hex.slice(1).split('').map((c) => c + c).join('') : hex.slice(1);
@@ -225,6 +230,53 @@ describe('embedThemeStyle', () => {
       const s = embedThemeStyle({ text: '#1c1917', surface: '#ffffff' }) as Record<string, string>;
       expect(s['--text-muted']).not.toBe('#1c1917');
       expect(ratio(s['--text-muted'], '#ffffff')).toBeLessThan(ratio('#1c1917', '#ffffff'));
+    });
+  });
+
+  /**
+   * #711 phase 2 — the builder's contrast warning and its one-click fix.
+   * The warning threshold is deliberately ABOVE the 4.5:1 the renderer
+   * enforces: the renderer's floor is the legal minimum applied silently, this
+   * is the number at which we tell a human their colours are uncomfortable.
+   */
+  describe('readableTextFor — the builder\'s "Fix for me"', () => {
+    it('leaves a colour that already clears the threshold completely alone', () => {
+      const text = '#1c1917';
+      expect(contrastRatio(text, '#ffffff')).toBeGreaterThanOrEqual(COMFORTABLE_CONTRAST);
+      expect(readableTextFor(text, '#ffffff')).toBe(text);
+    });
+
+    it.each([
+      ['#8a7a5c', '#fbf7ef'], // warm brown on cream — the reported-brand shape
+      ['#7c9ac0', '#ffffff'], // pale blue on white
+      ['#6b8f71', '#f0fdf4'], // sage on mint
+      ['#9a9488', '#faf7f1'], // grey on warm white
+    ])('lifts %s on %s to clear the threshold', (text, surface) => {
+      const fixed = readableTextFor(text, surface);
+      expect(contrastRatio(fixed, surface)).toBeGreaterThanOrEqual(COMFORTABLE_CONTRAST);
+    });
+
+    it('KEEPS THE HUE rather than jumping to black — the whole point of the fix', () => {
+      // A warm brown must come back a darker warm brown. If it returned #1c1917
+      // the embedder would simply undo it, and we would have taught them the
+      // control is not worth using.
+      const fixed = readableTextFor('#8a7a5c', '#fbf7ef');
+      const channel = (i: number) => parseInt(fixed.slice(i, i + 2), 16);
+      expect(channel(1)).toBeGreaterThan(channel(5)); // red still exceeds blue: still warm
+      expect(fixed).not.toBe('#1c1917');
+    });
+
+    it('goes light on a dark surface, not dark', () => {
+      const fixed = readableTextFor('#4a5568', '#0f1729');
+      expect(contrastRatio(fixed, '#0f1729')).toBeGreaterThanOrEqual(COMFORTABLE_CONTRAST);
+      // lighter than what it started from
+      const lum = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).reduce((a, c) => a + c, 0);
+      expect(lum(fixed)).toBeGreaterThan(lum('#4a5568'));
+    });
+
+    it('returns the input untouched when either colour is not valid hex', () => {
+      expect(readableTextFor('rgb(0,0,0)', '#ffffff')).toBe('rgb(0,0,0)');
+      expect(readableTextFor('#111111', 'not-a-colour')).toBe('#111111');
     });
   });
 });

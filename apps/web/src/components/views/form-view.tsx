@@ -12,6 +12,7 @@ import type { FormVisibilityRule } from '@storyos/schemas';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { FreeGuestTip } from '@/components/free-guest-tip';
+import { FormThemePanel } from './form-theme-panel';
 import { OptionChip } from '../table-view/cells';
 import { Avatar } from '@/components/ui/avatar';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
@@ -550,6 +551,13 @@ function FormBuilder({
             <MetaInput label="Submit button" value={form.submit_text ?? ''} placeholder="Submit" onChange={(v) => patchForm({ submit_text: v || undefined })} />
             <MetaInput label="Success message" value={form.success_message ?? ''} onChange={(v) => patchForm({ success_message: v || undefined })} />
           </section>
+
+          {/* #711 phase 2 — shown only once the form is actually shareable.
+              A theme applies to the EMBED, so offering it before there is a
+              token to embed is offering a setting with no surface to affect. */}
+          {token && (
+            <FormThemePanel theme={form.theme} onChange={(theme) => patchForm({ theme })} />
+          )}
         </div>
       )}
     </div>

@@ -4,7 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
-import { embedThemeStyle } from './embed-theme';
+import { embedThemeStyle } from '@/lib/embed-theme';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
 // #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
