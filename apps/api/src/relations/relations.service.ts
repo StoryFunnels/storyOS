@@ -477,13 +477,22 @@ export class RelationsService {
    */
   async listLinks(databaseId: string, recordId: string, fieldId: string, membership?: Membership) {
     const { relation, side, targetDatabaseId } = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    // #474 phase 3 — non-null only for a guest with no broader (space/db)
+    // grant on the target database; same primitive attachLinks (records.
+    // service.ts) uses, so this endpoint and the chip it feeds agree.
+    let recordScope: { ids: Set<string> } | null = null;
     if (membership) {
       const targetDb = await this.db.query.databases.findFirst({
         where: eq(databases.id, targetDatabaseId),
         columns: { id: true, spaceId: true },
       });
       if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
-        return { data: [] };
+        // #474 phase 3 — fall through to record-scoped grants (#472) before
+        // concluding "no access", the same fallback DatabasesService.
+        // assertAccess already uses — effectiveForDatabase alone doesn't
+        // know about them.
+        recordScope = await this.access.visibleRecordIds(membership, targetDb);
+        if (!recordScope || recordScope.ids.size === 0) return { data: [] };
       }
     }
     const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
@@ -494,7 +503,12 @@ export class RelationsService {
       .from(recordLinks)
       .innerJoin(records, eq(records.id, otherCol))
       .where(
-        and(eq(recordLinks.relationId, relation.id), eq(myCol, recordId), isNull(records.deletedAt)),
+        and(
+          eq(recordLinks.relationId, relation.id),
+          eq(myCol, recordId),
+          isNull(records.deletedAt),
+          recordScope ? inArray(records.id, [...recordScope.ids]) : undefined,
+        ),
       )
       .orderBy(asc(records.title))
       .limit(200);

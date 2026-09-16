@@ -302,6 +302,12 @@ export class RecordsService {
       const relationId = def.config['relation_id'] as string;
       const side = def.config['side'] as 'a' | 'b';
 
+      // #474 phase 3 — non-null only for a guest with no broader (space/db)
+      // grant on the target database; narrows the chip candidates below to
+      // exactly the records a record-scoped grant names. null means either
+      // an unrestricted caller (admin/member) or a guest with a broader
+      // grant on the target — same "see everything here" as before #474.
+      let recordScope: { ids: Set<string>; bestRole: unknown } | null = null;
       if (membership) {
         const relation = await this.db.query.relations.findFirst({
           where: eq(relations.id, relationId),
@@ -312,11 +318,20 @@ export class RecordsService {
           where: eq(databases.id, targetDatabaseId),
           columns: { id: true, spaceId: true },
         });
-        // A caller who cannot read the target database gets no chips for this
-        // field at all — never a partial/redacted chip, an ABSENT one, exactly
-        // like the direct route already 404s rather than reveal a shape.
-        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null)
-          continue;
+        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+          // #474 phase 3 — effectiveForDatabase alone doesn't know about
+          // record-scoped grants (#472); before #474 this unconditionally
+          // meant "no chips", which also silently denied a guest whose
+          // access to the target is one or more record-scoped grants. Fall
+          // through to visibleRecordIds — the SAME fallback DatabasesService.
+          // assertAccess already uses so a record-scoped-only guest can
+          // reach the target database's records at all.
+          recordScope = await this.access.visibleRecordIds(membership, targetDb);
+          // No record grant at all on this database either — genuinely no
+          // access, never a partial/redacted chip, an ABSENT one, exactly
+          // like the direct route already 404s rather than reveal a shape.
+          if (!recordScope || recordScope.ids.size === 0) continue;
+        }
       }
 
       const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
@@ -331,6 +346,10 @@ export class RecordsService {
             eq(recordLinks.relationId, relationId),
             inArray(myCol, ids),
             isNull(records.deletedAt),
+            // #474 phase 3 — a guest whose only access to the target
+            // database is one or more record-scoped grants sees a chip
+            // only for a linked record one of those grants actually names.
+            recordScope ? inArray(records.id, [...recordScope.ids]) : undefined,
           ),
         );
 
