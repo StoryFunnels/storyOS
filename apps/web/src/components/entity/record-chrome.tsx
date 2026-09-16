@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Copy, CopyPlus, FolderInput, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { Bot, Copy, CopyPlus, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { FieldsMenu } from '@/components/views/fields-menu';
 import type { Field } from '@/components/table-view/use-table-data';
 import { useFavorites } from '@/components/sidebar';
 import { CopyToDialog } from './copy-to-dialog';
+import { RecordHistoryDialog } from './record-history';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
 
@@ -137,6 +138,7 @@ export function RecordActions({
   db,
   dbName,
   rec,
+  fields,
   readOnly,
   canCreate,
   isAdmin,
@@ -145,6 +147,7 @@ export function RecordActions({
   db: string;
   dbName: string;
   rec: string;
+  fields: Field[];
   readOnly: boolean;
   canCreate: boolean;
   /** #44: delegate-to-agent rides AgentsController's existing admin-only gate. */
@@ -189,6 +192,7 @@ export function RecordActions({
 
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <>
@@ -212,6 +216,9 @@ export function RecordActions({
           <DropdownMenuItem onSelect={() => setCopyToOpen(true)}>
             <FolderInput className="mr-2 h-3.5 w-3.5" /> Copy to…
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+            <History className="mr-2 h-3.5 w-3.5" /> History
+          </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem onSelect={() => setDelegateOpen(true)}>
               <Bot className="mr-2 h-3.5 w-3.5" /> Delegate to agent
@@ -233,6 +240,16 @@ export function RecordActions({
       </DropdownMenu>
       {isAdmin && <DelegateToAgentDialog ws={ws} db={db} rec={rec} open={delegateOpen} onOpenChange={setDelegateOpen} />}
       <CopyToDialog ws={ws} db={db} dbName={dbName} recordIds={[rec]} open={copyToOpen} onOpenChange={setCopyToOpen} />
+      {historyOpen && (
+        <RecordHistoryDialog
+          ws={ws}
+          db={db}
+          rec={rec}
+          fields={fields}
+          readOnly={readOnly}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </>
   );
 }

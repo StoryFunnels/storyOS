@@ -62,6 +62,26 @@ export class RecordVersionsController {
     return this.records.listFieldChanges(databaseId, recordId, query.limit, query.cursor);
   }
 
+  /**
+   * #39 — a single version's diff preview against the record's CURRENT
+   * values, for the web UI's confirm-before-restoring dialog. Declared
+   * AFTER the 'changes' route above: both are `@Get(<static-or-param>)` on
+   * the same base path, and Nest matches in declaration order — a `:version`
+   * route declared first would swallow `GET .../versions/changes` as if
+   * "changes" were a version id.
+   */
+  @Get(':version')
+  @ApiOperation({ summary: "A single version, as a diff preview against the record's current values" })
+  async get(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Param('version') versionId: string,
+  ) {
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
+    return this.records.getVersion(databaseId, recordId, versionId);
+  }
+
   @Post(':version/restore')
   @ApiOperation({ summary: 'Restore the record to a previously captured version' })
   async restore(

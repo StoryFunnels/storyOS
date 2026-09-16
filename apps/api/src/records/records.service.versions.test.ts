@@ -161,6 +161,51 @@ describe('RecordsService.restoreVersion', () => {
   });
 });
 
+describe('RecordsService.getVersion (#39 — restore preview)', () => {
+  it('throws NotFoundException when the version does not exist (or belongs to another record)', async () => {
+    const { db } = makeDb({ version: null });
+    const service = makeService(db);
+    await expect(service.getVersion(DATABASE_ID, RECORD_ID, 'missing-version')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('previews an empty diff when the version snapshot matches the current row', async () => {
+    const { db } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: baseRow.title, values: baseRow.values },
+    });
+    const service = makeService(db);
+    const result = await service.getVersion(DATABASE_ID, RECORD_ID, 'v1');
+    expect(result.preview).toEqual([]);
+    expect(result.id).toBe('v1');
+  });
+
+  it('previews each differing field named from the CURRENT record\'s perspective (restoring goes current → old)', async () => {
+    const { db, inserted, updated } = makeDb({
+      version: {
+        id: 'v1',
+        recordId: RECORD_ID,
+        title: 'Old title',
+        values: { field_a: 'old value' },
+      },
+    });
+    const service = makeService(db);
+    const result = await service.getVersion(DATABASE_ID, RECORD_ID, 'v1');
+
+    // Same direction restoreVersion's own diff logs: current -> old, since
+    // that is what applying this restore will actually change.
+    const titleEntry = result.preview.find((p) => p.field_id === null);
+    expect(titleEntry).toMatchObject({ current_display: baseRow.title, restored_display: 'Old title' });
+
+    const fieldEntry = result.preview.find((p) => p.field_name === '(deleted field)');
+    expect(fieldEntry).toMatchObject({ current_display: 'current value', restored_display: 'old value' });
+
+    // Read-only: previewing must never write anything, unlike restoreVersion.
+    expect(inserted).toHaveLength(0);
+    expect(updated).toHaveLength(0);
+  });
+});
+
 describe('RecordsService.listVersions', () => {
   it('maps rows to the public shape and reports no next cursor on the last page', async () => {
     const rows = [
