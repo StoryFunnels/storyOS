@@ -230,7 +230,7 @@ function PreviewSection({ title, items }: { title: string; items: PreviewItem[] 
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">{title}</p>
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted">{title}</p>
       <div className="flex flex-col gap-1">
         {items.map((item) => (
           <div key={item.name} className="flex items-center justify-between gap-2 text-[13px]">
@@ -629,7 +629,7 @@ export default function PacksPage() {
 
       {(installed.data?.length ?? 0) > 0 && (
         <div className="mb-8">
-          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Installed</p>
+          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">Installed</p>
           <div className="flex flex-col gap-2">
             {installed.data!.map((pack) => (
               <InstalledRow
@@ -646,6 +646,9 @@ export default function PacksPage() {
 
       <div className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card p-3">
         <div className="relative">
+          {/* #706 — KEEPS faint: the magnifier is a non-text graphic inside the
+              search field, judged at 3:1, which faint clears. The field's own
+              placeholder carries the instruction and is not faint. */}
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-faint" />
           <Input
             aria-label="Search Business Packs"
@@ -673,7 +676,7 @@ export default function PacksPage() {
         </div>
       </div>
 
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Gallery</p>
+      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">Gallery</p>
       <div className="mb-8 grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3">
         {visibleRegistry.map((pack) => {
           const installState = installedBySlug.get(pack.slug);
@@ -717,7 +720,7 @@ export default function PacksPage() {
 
       <p
         id="community-marketplace"
-        className="mb-1 scroll-mt-6 text-[12px] font-semibold uppercase tracking-wider text-faint"
+        className="mb-1 scroll-mt-6 text-[12px] font-semibold uppercase tracking-wider text-muted"
       >
         Community Marketplace
       </p>
@@ -757,7 +760,7 @@ export default function PacksPage() {
                 </div>
               </div>
               <p className="line-clamp-3 text-[13px] text-muted">{pack.summary}</p>
-              <p className="text-[11px] text-faint">
+              <p className="text-[11px] text-muted">
                 v{pack.latest_version} · {pack.license}
                 {pack.attribution ? ` · by ${pack.attribution}` : ''}
               </p>
