@@ -173,7 +173,7 @@ export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
   return (
     <div className="mt-3 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-app p-3">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">Proposed action</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Proposed action</p>
         <p className="mt-1 text-[13px] text-ink">
           <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] font-medium text-ink-secondary">
             {staged.action.kind}
@@ -188,16 +188,16 @@ export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
       </div>
       {staged.steps.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
             Steps ({staged.steps.length})
           </p>
           <ol className="mt-1 flex flex-col gap-1">
             {staged.steps.map((s, i) => (
               <li key={i} className="text-[12px] text-ink-secondary">
-                <span className="mr-1.5 text-faint">{i + 1}.</span>
+                <span className="mr-1.5 text-muted">{i + 1}.</span>
                 <span className="rounded bg-hover px-1 py-0.5 text-[11px] font-medium text-muted">{s.tool}</span>{' '}
                 {s.summary}
-                {s.detail && <span className="mt-0.5 block pl-5 text-[11px] text-faint">{s.detail}</span>}
+                {s.detail && <span className="mt-0.5 block pl-5 text-[11px] text-muted">{s.detail}</span>}
               </li>
             ))}
           </ol>
@@ -368,7 +368,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             return (
               <div key={n.id}>
                 {header && (
-                  <div className="bg-app px-4 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  <div className="bg-app px-4 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
                     {header}
                   </div>
                 )}
@@ -416,13 +416,20 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       <span
                         className={cn(
                           'block truncate text-[12px]',
-                          n.record.deleted ? 'text-faint line-through' : 'text-muted',
+                          // #706 — a deleted record's title moves to muted while KEEPING
+                          // line-through. The de-emphasis carried meaning, but the
+                          // strikethrough carries it unambiguously and without relying on
+                          // colour, so nothing is lost by making the title legible — you
+                          // still have to read WHICH record was deleted. Contrast the
+                          // calendar's out-of-month days (#811), where the only co-signal
+                          // was a 1.07:1 background and the move genuinely cost something.
+                          n.record.deleted ? 'text-muted line-through' : 'text-muted',
                         )}
                       >
                         {n.record.title || 'Untitled'} · {n.record.database_name}
                       </span>
                     )}
-                    {n.snippet && <span className="block truncate text-[12px] text-faint">{n.snippet}</span>}
+                    {n.snippet && <span className="block truncate text-[12px] text-muted">{n.snippet}</span>}
                     {/* The killer mobile flow (mobile-responsive-plan.md): approve or
                         reject a gated agent action in one tap, right from the Inbox.
                         min-h-11 (44px) keeps both a comfortable thumb target. */}
@@ -512,7 +519,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[11px] text-faint">{relativeTime(n.created_at)}</span>
+                    <span className="text-[11px] text-muted">{relativeTime(n.created_at)}</span>
                     {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
                   </span>
                 </div>
