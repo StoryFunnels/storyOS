@@ -9,7 +9,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { FormVisibilityRule } from '@storyos/schemas';
-import { api } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { FreeGuestTip } from '@/components/free-guest-tip';
 import { FormThemePanel } from './form-theme-panel';
@@ -24,6 +24,7 @@ import { buildFilterGroup, filterConditions, filterConnector } from './filter-co
 import type { FilterGroup, FilterNode } from './filter-config';
 import {
   FORM_FIELD_TYPES,
+  canAddFormField,
   patchFieldConfig,
   reorderFieldSelection,
   resolveFormFieldIds,
@@ -56,6 +57,12 @@ export function FormView({
   const [name, setName] = useState('');
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [fieldsSidebarOpen, setFieldsSidebarOpen] = useState(false);
+  // #724 — kept out of `values`: an attachment field has no jsonb value (see
+  // AttachmentEditor's own doc comment — a file has to reach object storage
+  // first), so it never rides the record-create PATCH body at all. Uploaded
+  // separately, after the record exists, via the same endpoint the table's
+  // own attachment-cell editor uses.
+  const [file, setFile] = useState<File | null>(null);
 
   const allFields = database.data?.fields ?? [];
   const formCfgs = config.form?.fields ?? [];
@@ -83,13 +90,34 @@ export function FormView({
   const submit = () => {
     const clean: Record<string, unknown> = { name: name.trim() || 'Untitled' };
     for (const f of fields) {
+      // #724 — never in the create body (no jsonb representation); handled
+      // as a separate upload below once the record exists.
+      if (f.type === 'attachment') continue;
       const v = values[f.apiName];
       if (v !== undefined && v !== '' && v !== null) clean[f.apiName] = v;
     }
+    const attachmentField = fields.find((f) => f.type === 'attachment');
     createRecord.mutate(clean, {
-      onSuccess: () => {
+      onSuccess: async (created) => {
+        // #724 — same endpoint/shape as AttachmentEditor.upload() (the
+        // table's own attachment-cell editor): the record must already
+        // exist, so this always runs AFTER create succeeds, never inside it.
+        if (file && attachmentField) {
+          try {
+            const form = new FormData();
+            form.append('file', file);
+            const res = await fetch(
+              `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/records/${created.id}/attachments?field=${attachmentField.id}`,
+              { method: 'POST', credentials: 'include', body: form },
+            );
+            if (!res.ok) throw new Error(await res.text());
+          } catch {
+            toast.error('Submitted, but the file upload failed.');
+          }
+        }
         setValues({});
         setName('');
+        setFile(null);
         setJustSubmitted(true);
         toast.success('Submitted');
         setTimeout(() => setJustSubmitted(false), 2500);
@@ -145,16 +173,20 @@ export function FormView({
                 label={cfg?.label || field.displayName}
                 required={field.type === 'title' || (cfg?.required ?? false)}
               >
-                <FieldInput
-                  ws={ws}
-                  field={field}
-                  value={values[field.apiName]}
-                  members={memberList}
-                  onChange={(v) => {
-                    if (field.type === 'title' && typeof v === 'string') setName(v);
-                    setValues((p) => ({ ...p, [field.apiName]: v }));
-                  }}
-                />
+                {field.type === 'attachment' ? (
+                  <InAppAttachmentInput file={file} onChange={setFile} />
+                ) : (
+                  <FieldInput
+                    ws={ws}
+                    field={field}
+                    value={values[field.apiName]}
+                    members={memberList}
+                    onChange={(v) => {
+                      if (field.type === 'title' && typeof v === 'string') setName(v);
+                      setValues((p) => ({ ...p, [field.apiName]: v }));
+                    }}
+                  />
+                )}
                 {/* #669 — help text carries an affordance (it tells the person
                     filling the form what to do), not decoration. */}
                 {cfg?.help && <span className="mt-0.5 text-[11px] text-muted">{cfg.help}</span>}
@@ -237,6 +269,39 @@ function OptionToggle({
     >
       <OptionChip option={option} />
     </button>
+  );
+}
+
+/**
+ * #724 — the in-app Form view's file picker for its (at most one) attachment
+ * field. Kept out of `FieldInput`: its answer lives in a `File` object, held
+ * as its own top-level state, never in `values` (see `submit`'s comment).
+ */
+function InAppAttachmentInput({
+  file,
+  onChange,
+}: {
+  file: File | null;
+  onChange: (f: File | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        key={file ? file.name + file.lastModified : 'empty'}
+        type="file"
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        className="h-9 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-sm text-ink outline-none file:mr-3 file:rounded file:border-0 file:bg-hover file:px-2 file:py-1 file:text-[12px] file:text-ink focus:border-border-strong"
+      />
+      {file && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-[12px] text-muted underline hover:text-ink"
+        >
+          Remove
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -658,16 +723,30 @@ function FormFieldsSidebar({
         {available.length > 0 && (
           <section className="flex flex-col gap-1.5">
             <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Add a field</p>
-            {available.map((field) => (
-              <button
-                key={field.id}
-                type="button"
-                onClick={() => toggle(field.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover hover:text-ink"
-              >
-                <Plus className="h-3.5 w-3.5" /> {field.displayName}
-              </button>
-            ))}
+            {available.map((field) => {
+              // #724 — a second attachment field is refused here, at
+              // configure time, rather than silently dropped by the server
+              // when someone submits the form.
+              const blocked = !canAddFormField(selected.map((f) => f.type), field.type);
+              return (
+                <button
+                  key={field.id}
+                  type="button"
+                  disabled={blocked}
+                  title={blocked ? 'A form can only have one attachment field.' : undefined}
+                  onClick={() => toggle(field.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px]',
+                    blocked
+                      ? 'cursor-not-allowed text-faint'
+                      : 'text-muted hover:bg-hover hover:text-ink',
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" /> {field.displayName}
+                  {blocked && <span className="ml-auto text-[11px]">only one allowed</span>}
+                </button>
+              );
+            })}
           </section>
         )}
       </div>

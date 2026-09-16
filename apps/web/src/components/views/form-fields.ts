@@ -44,7 +44,20 @@ export const FORM_FIELD_TYPES = new Set([
   'multi_select',
   'user',
   'relation',
+  // #724 — added by #710 server-side; missing here for one release, so a form
+  // could accept an attachment via the API but never actually offer the field.
+  'attachment',
 ]);
+
+/**
+ * #724 — the server (forms.service.ts) accepts at most one configured
+ * attachment field per form, silently dropping a second at render time. The
+ * builder shouldn't let a second one be created in the first place — this is
+ * the pure check; the caller decides how to surface the refusal.
+ */
+export function canAddFormField(selectedTypes: string[], fieldType: string): boolean {
+  return !(fieldType === 'attachment' && selectedTypes.includes('attachment'));
+}
 
 /**
  * Which field ids make up the form, in order (#224). `config.form.fields` is the
