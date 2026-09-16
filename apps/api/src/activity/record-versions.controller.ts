@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 
 const versionsQuerySchema = z.object({
@@ -24,10 +23,7 @@ class VersionsQueryDto extends createZodDto(versionsQuerySchema) {}
 @Controller('workspaces/:ws/databases/:db/records/:rec/versions')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class RecordVersionsController {
-  constructor(
-    private readonly records: RecordsService,
-    private readonly databases: DatabasesService,
-  ) {}
+  constructor(private readonly records: RecordsService) {}
 
   @Get()
   @ApiOperation({ summary: 'Record version history, newest first (cursor)' })
@@ -37,8 +33,13 @@ export class RecordVersionsController {
     @Param('rec') recordId: string,
     @Query() query: VersionsQueryDto,
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    await this.records.getRow(databaseId, recordId);
+    // #474 phase 6 — was `assertAccess(db, 'viewer')` + `getRow` (existence
+    // only): database-level, so a record-scoped-only guest's grant on a
+    // DIFFERENT record in this database was enough to read this record's
+    // full version history. assertRecordAccess folds existence + the
+    // per-record check into the one call every other single-record read
+    // route already uses.
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
     return this.records.listVersions(recordId, query.limit, query.cursor);
   }
 
@@ -56,10 +57,8 @@ export class RecordVersionsController {
     @Param('rec') recordId: string,
     @Query() query: VersionsQueryDto,
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    // Same existence check the version list does — a 404 for an unreadable
-    // record must not depend on whether it happens to have history.
-    await this.records.getRow(databaseId, recordId);
+    // #474 phase 6 — same per-record fix as list() above.
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
     return this.records.listFieldChanges(databaseId, recordId, query.limit, query.cursor);
   }
 
@@ -71,7 +70,9 @@ export class RecordVersionsController {
     @Param('rec') recordId: string,
     @Param('version') versionId: string,
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, 'editor');
+    // #474 phase 6 — was database-level only; a WRITE, so the per-record
+    // gap mattered even more here than on the read routes above.
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'editor');
     return this.records.restoreVersion(
       req.membership.workspaceId,
       databaseId,

@@ -15,7 +15,6 @@ import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { CommentsService } from './comments.service';
 import type { CommentBody } from './comments.service';
@@ -52,18 +51,22 @@ class CommentBodyDto extends createZodDto(commentBodySchema) {}
 export class CommentsController {
   constructor(
     private readonly commentsService: CommentsService,
-    private readonly databases: DatabasesService,
     private readonly records: RecordsService,
   ) {}
 
+  // #474 phase 6 — was `databases.assertAccess(db, min)` + `getRow`
+  // (existence only): database-level, so a comment thread (including its
+  // #record mention segments and BlockNote content) was readable under
+  // DB-level access alone. assertRecordAccess folds existence + the
+  // per-record check into the one call every other single-record read
+  // route already uses.
   private async assertRecord(
     req: WorkspaceRequest,
     databaseId: string,
     recordId: string,
     min: 'viewer' | 'commenter' = 'viewer',
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, min);
-    await this.records.getRow(databaseId, recordId);
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, min);
   }
 
   @Get()
