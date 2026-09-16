@@ -272,7 +272,7 @@ export function CalendarView({
         )}
         <Link
           href={`/w/${ws}/d/${db}`}
-          className="ml-auto text-[12px] text-faint underline-offset-2 hover:text-ink hover:underline"
+          className="ml-auto text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
         >
           Undated records → table
         </Link>
@@ -287,7 +287,7 @@ export function CalendarView({
                 familiar month grid at `md` and up. */}
             <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
               {WEEKDAYS.map((d) => (
-                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-faint">
+                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-muted">
                   {d}
                 </div>
               ))}
@@ -453,7 +453,7 @@ function AgendaList({
         return (
           <div key={iso} className="flex gap-3 px-4 py-2.5">
             <div className="w-10 shrink-0 text-center">
-              <div className="text-[10px] uppercase text-faint">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
+              <div className="text-[10px] uppercase text-muted">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
               <div className={cn('text-[14px]', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
                 {day.getDate()}
               </div>
@@ -461,7 +461,7 @@ function AgendaList({
             <div className="min-w-0 flex-1 space-y-1 pt-0.5">
               {chips.length === 0 ? (
                 !readOnly && (
-                  <button type="button" className="text-[12px] text-faint hover:text-ink" onClick={() => onCreate(iso)}>
+                  <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => onCreate(iso)}>
                     + Add
                   </button>
                 )
@@ -546,7 +546,24 @@ function DayCell({
       <span
         className={cn(
           'mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]',
-          inMonth ? 'text-ink-secondary' : 'text-faint',
+          // #706 — an out-of-month day is DE-EMPHASISED, not decorative: the cell
+          // is clickable (onCreate) and a drop target, so this number is how you
+          // know which date you are about to act on. At 11px, AA's 4.5:1 applies
+          // in full, and faint measured 3.22:1 on --bg-app.
+          //
+          // THE COST IS REAL AND MEASURED, not waved away. The in/out-of-month
+          // contrast step narrows from 2.69:1 (secondary vs faint) to 1.85:1
+          // (secondary vs muted) in dark, 1.99:1 in light. Still a visible step,
+          // but a smaller one.
+          //
+          // And do NOT reach for the cell's own `bg-app` as the compensating
+          // signal — I did, and measured it: --bg-app against --bg-card is
+          // 1.07:1 light and 1.09:1 dark, which is invisible. The month boundary
+          // is carried almost entirely by this text colour, not by the
+          // background, which is the opposite of what the markup suggests.
+          // Strengthening that boundary is a real design question and belongs in
+          // its own ticket, not smuggled into a contrast sweep.
+          inMonth ? 'text-ink-secondary' : 'text-muted',
           isToday && 'bg-primary font-semibold text-[var(--text-on-dark)]',
         )}
       >
