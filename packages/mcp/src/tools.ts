@@ -3435,7 +3435,32 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // automations' regenerate-hook) — a real, separate capability gap.
       const public_token = access !== 'members' ? (existingForm?.public_token ?? randomUUID().replace(/-/g, '')) : undefined;
 
+      // #718 — SPREAD THE EXISTING FORM FIRST, then overlay. #797 fixed the
+      // three defaults this tool actually models (fields, access, token) by
+      // naming each one, which is correct for those and silently wrong for
+      // everything else: the object below is still a REBUILD from a known-key
+      // list, so any property of config.form that MCP does not model is
+      // dropped by omission rather than by decision.
+      //
+      // `theme` (#711, the embed's brand config) is exactly that. There is no
+      // form_theme argument and there should not be one — a theme comes from
+      // the builder's colour pickers, not from an agent — so it cannot be
+      // preserved by checking whether it was passed. Verified against main
+      // before this change: update_view({ view, form_title }) on a themed form
+      // returned the form with fields, token and access intact and `theme`
+      // gone, destroying a customer's brand configuration.
+      //
+      // Spreading first makes the NEXT property added to config.form safe by
+      // construction, which naming keys one at a time never will.
+      // The old token is excluded from the spread rather than overridden: an
+      // explicit `public_token: undefined` key is dropped on the wire but is
+      // still PRESENT on the object, and create_view's own test asserts the
+      // members-only form has no such property. Excluding it here keeps the
+      // emitted shape byte-for-byte what #797 produced.
+      const existingFormRest: Record<string, unknown> = { ...(existingForm ?? {}) };
+      delete existingFormRest.public_token;
       config.form = {
+        ...existingFormRest,
         title: o.form_title !== undefined ? o.form_title : existingForm?.title,
         description: o.form_description !== undefined ? o.form_description : existingForm?.description,
         submit_text: o.form_submit_text !== undefined ? o.form_submit_text : existingForm?.submit_text,

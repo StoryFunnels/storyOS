@@ -644,6 +644,20 @@ describe('create_view / update_view (#270)', () => {
         config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
       },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
+      // #718 — a form that is LIVE: fields, a real token, link access, and a
+      // theme (#711) that update_view does not model. The pre-existing
+      // 'Signup Form' above has NO config, which is why 260 passing tests never
+      // caught a bug about preserving config.
+      {
+        id: 'view-themed', name: 'Careers Form', type: 'form',
+        config: { form: {
+          title: 'Apply',
+          fields: [{ field_id: 'f-name', required: true }],
+          public_token: 'livetoken0000000000000000000001',
+          access: 'link',
+          theme: { accent: '#c8102e', surface: '#fbf7ef', text: '#2c2419', radius: 2 },
+        } },
+      },
       {
         id: 'view-form-configured',
         name: 'Intake Form',
@@ -927,6 +941,49 @@ describe('create_view / update_view (#270)', () => {
       expect(form.fields[1]!.visible_when).toEqual({ field_id: 'f-name', op: 'not_empty' });
       expect(form.fields[1]!.required_when).toEqual({ field_id: 'f-name', op: 'eq', value: 'Given' });
     });
+  });
+
+  /**
+   * #718 — #797 fixed the three defaults this tool MODELS (fields, access,
+   * token) by naming each one. That is correct for those and silently wrong
+   * for everything else: the emitted object was still a rebuild from a
+   * known-key list, so a property MCP does not model was dropped by omission.
+   * `theme` (#711) is exactly that, and there is deliberately no form_theme
+   * argument — a theme comes from the builder's colour pickers, not an agent.
+   */
+  it('preserves config.form.theme through a form_title-only update (#718)', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_title: 'Apply now',
+    });
+    const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form;
+    expect(form.theme).toEqual({ accent: '#c8102e', surface: '#fbf7ef', text: '#2c2419', radius: 2 });
+    expect(form.title).toBe('Apply now');
+  });
+
+  it('still preserves the three modelled defaults alongside it (#718 regression net)', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_title: 'Apply now',
+    });
+    const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form;
+    expect(form.fields).toEqual([{ field_id: 'f-name', required: true }]);
+    expect(form.access).toBe('link');
+    expect(form.public_token).toBe('livetoken0000000000000000000001');
+  });
+
+  it('does NOT leak a stale token back when access drops to members-only (#718)', async () => {
+    // The `...existingForm` spread that fixes theme would otherwise carry the
+    // old token through. The wire body must stay identical to what #797 sent.
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_access: 'members',
+    });
+    const body = patched[0]!.body as { config: { form: Record<string, unknown> } };
+    expect(body.config.form.access).toBe('members');
+    expect(body.config.form).not.toHaveProperty('public_token');
+    // theme still survives an access change
+    expect(body.config.form.theme).toBeDefined();
   });
 
   it('update_view leaves config untouched when only renaming', async () => {
