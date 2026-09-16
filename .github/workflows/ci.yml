@@ -81,6 +81,19 @@ jobs:
       - name: Dependency license scan + SBOM
         run: pnpm license:check
 
+      # #722 — ADVISORY ONLY. Reports token-pair contrast and any new
+      # --text-faint site in the diff; never fails the build. A check that turns
+      # CI red across pre-existing sites gets disabled by the first person it
+      # blocks, so this reports and a human decides. `|| true` is belt-and-braces:
+      # the script already exits 0 by design.
+      #
+      # It does NOT cover composited/alpha contrast — that needs a real browser,
+      # which is why docs/design/contrast-probe.js stays a console snippet.
+      - name: Contrast advisory (report only)
+        if: always()
+        run: |
+          pnpm design:contrast | tee -a "$GITHUB_STEP_SUMMARY" || true
+
       - name: Upload SBOM
         if: always()
         uses: actions/upload-artifact@v4
