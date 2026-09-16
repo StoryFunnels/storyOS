@@ -545,8 +545,9 @@ export function ViewToolbar({
         <AddSummaryWidgetButton config={config} onPatch={onPatch} />
       )}
 
-      {/* MN-075: the way out — this view's rows, exactly as shown. */}
-      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} />}
+      {/* MN-075: the way out — this view's rows, exactly as shown. On a FORM
+          that phrasing does not hold: see ExportCsvButton's own comment. */}
+      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} viewType={viewType} />}
     </div>
   );
 }
@@ -556,13 +557,36 @@ export function ViewToolbar({
  * a large CSV into memory just to re-emit it as a blob. Credentials ride the
  * cookie the app already uses.
  */
-export function ExportCsvButton({ ws, db, viewId }: { ws: string; db: string; viewId?: string }) {
+export function ExportCsvButton({
+  ws,
+  db,
+  viewId,
+  viewType,
+}: {
+  ws: string;
+  db: string;
+  viewId?: string;
+  /**
+   * #725 — only the TOOLTIP depends on this; the URL is unchanged. A form view
+   * has no rows of its own, so "this view's rows" is the same category error
+   * #725 removed from the Filter and Sort controls, left behind in the copy.
+   *
+   * The export itself is correct on a form and deliberately untouched: it
+   * queries the DATABASE's records (export.service.ts) rather than a result
+   * set, and because a form view does not use `hidden_field_ids` — forms own
+   * field membership through config.form.fields (#224) — the CSV carries every
+   * field rather than only the ones the form asked for. That is the right
+   * answer for submissions, which is why this is a copy fix and not a gate.
+   */
+  viewType?: string;
+}) {
   const href = `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/export/csv${viewId ? `?view=${viewId}` : ''}`;
+  const scopedToView = Boolean(viewId) && viewType !== 'form';
   return (
     <a
       href={href}
       className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
-      title={viewId ? "Download this view's rows as CSV" : 'Download every record as CSV'}
+      title={scopedToView ? "Download this view's rows as CSV" : 'Download every record as CSV'}
     >
       <Download className="h-3.5 w-3.5" /> CSV
     </a>
