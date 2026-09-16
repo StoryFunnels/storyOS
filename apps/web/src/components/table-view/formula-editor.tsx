@@ -360,7 +360,7 @@ export function FormulaEditor({
       </div>
       {panel === 'fields' && (
         <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1.5">
-          {infos.length === 0 && <span className="px-1 text-[12px] text-faint">No referenceable fields yet.</span>}
+          {infos.length === 0 && <span className="px-1 text-[12px] text-muted">No referenceable fields yet.</span>}
           {infos.map((f) => (
             <button
               key={f.api_name}
@@ -415,7 +415,7 @@ export function FormulaEditor({
               if (matches.length === 0) return null;
               return (
                 <>
-                  <p className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
+                  <p className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
                     Across a link (your fields)
                   </p>
                   {matches.map((a) => (
@@ -433,7 +433,7 @@ export function FormulaEditor({
                       <span className="text-[11px] text-muted">{a.doc}</span>
                     </button>
                   ))}
-                  <p className="px-2 pb-1 pt-0.5 text-[10px] uppercase tracking-wide text-faint">All functions</p>
+                  <p className="px-2 pb-1 pt-0.5 text-[10px] uppercase tracking-wide text-muted">All functions</p>
                 </>
               );
             })()}
@@ -466,7 +466,7 @@ export function FormulaEditor({
               );
               if (matches.length === 0) {
                 return opMatch || aggMatch ? null : (
-                  <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>
+                  <p className="px-2 py-1 text-[12px] text-muted">No functions match “{funcQuery}”.</p>
                 );
               }
               return matches.map(([name, spec]) => (
@@ -483,7 +483,7 @@ export function FormulaEditor({
                 >
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="font-mono text-[12px] text-ink">{spec.example}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-faint">{fnArgHint(spec)}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted">{fnArgHint(spec)}</span>
                   </span>
                   <span className="text-[11px] text-muted">{spec.doc}</span>
                 </button>
@@ -501,7 +501,7 @@ export function FormulaEditor({
               if (ops.length === 0) return null;
               return (
                 <>
-                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-faint">
+                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted">
                     Operators (written between values, not called)
                   </p>
                   {ops.map((o) => (
@@ -517,7 +517,7 @@ export function FormulaEditor({
                     >
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="font-mono text-[12px] text-ink">{o.example}</span>
-                        <span className="shrink-0 font-mono text-[10px] text-faint">{o.op}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-muted">{o.op}</span>
                       </span>
                       <span className="text-[11px] text-muted">{o.doc}</span>
                     </button>
