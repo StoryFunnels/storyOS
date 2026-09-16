@@ -1,9 +1,11 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, documents, fields, records, recordMentions } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
+import { looksLikeUuid } from '../common/uuid';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -181,6 +183,41 @@ export class MentionsService {
   }
 
   /**
+   * #474 phase 5 — the controller used to gate on `DatabasesService.
+   * assertAccess(db, 'viewer')` alone: database-level, and its record-scoped-
+   * grant fallback only checks "does the guest have ANY record grant
+   * somewhere in this database" (DatabasesService.assertAccess's own
+   * fallback, built in #474 phase 1), never that a grant covers THIS
+   * specific target record. A guest granted record X could read record Y's
+   * backlinks in the same database. Equivalent to RecordsService.
+   * assertRecordAccess, replicated here (not depended on) since RecordsModule
+   * already imports MentionsModule — the reverse edge would be a cycle.
+   */
+  async assertBacklinksAccess(membership: Membership, databaseId: string, recordId: string): Promise<void> {
+    if (!looksLikeUuid(recordId)) throw new NotFoundException('Record not found');
+    const database = await this.db.query.databases.findFirst({
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    const record = await this.db.query.records.findFirst({
+      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      columns: { id: true },
+    });
+    if (!record) throw new NotFoundException('Record not found');
+    const effective = await this.access.effectiveForRecord(membership, {
+      id: recordId,
+      databaseId: database.id,
+      spaceId: database.spaceId,
+    });
+    this.access.assertRank(effective, 'viewer', 'Record');
+  }
+
+  /**
    * "Mentioned in": the records whose document mentions this one, scoped to what the
    * caller can actually see (a guest must not learn a title through a backlink — the
    * same leak class as MN-202). Reuses the guest-visibility grant sets.
@@ -203,13 +240,29 @@ export class MentionsService {
     // attachLinks, relations.service.ts listLinks) via AccessService, rather than
     // computed inline here a second time.
     const visibleDbIds = await this.access.visibleDatabaseIds(membership);
-    if (visibleDbIds && visibleDbIds.size === 0) return { data: [], total: 0, has_more: false, next_cursor: null };
+    // #474 phase 5 — a record-scoped grant (#472) names one SOURCE record,
+    // not its whole database: OR'd in below alongside `visibleDbIds`, the
+    // same treatment search/recent got in phase 4, so a mentioning record
+    // the guest holds a direct grant on is findable without widening its
+    // whole database into scope.
+    const recordGrantIds = await this.access.guestRecordGrantIds(membership);
+    const hasRecordGrants = Boolean(recordGrantIds?.size);
+    if (visibleDbIds && visibleDbIds.size === 0 && !hasRecordGrants) {
+      return { data: [], total: 0, has_more: false, next_cursor: null };
+    }
 
     const scopeConditions = [
       eq(recordMentions.targetRecordId, targetRecordId),
       eq(recordMentions.workspaceId, membership.workspaceId),
       isNull(records.deletedAt),
-      ...(visibleDbIds !== null ? [inArray(records.databaseId, [...visibleDbIds])] : []),
+      ...(visibleDbIds !== null
+        ? [
+            or(
+              visibleDbIds.size ? inArray(records.databaseId, [...visibleDbIds]) : sql`false`,
+              hasRecordGrants ? inArray(records.id, [...recordGrantIds!]) : sql`false`,
+            ),
+          ]
+        : []),
     ];
 
     const [totalRow] = await this.db
