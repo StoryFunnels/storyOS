@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutDayEvents, parseDateValue, shiftDateValue } from './calendar-time-grid-layout';
+import { layoutDayEvents, parseDateValue, shiftDateValue, splitTimedEventAcrossDays } from './calendar-time-grid-layout';
 import type { TimedEvent } from './calendar-time-grid-layout';
 
 describe('parseDateValue — all-day vs timed (#470 AC5)', () => {
@@ -66,6 +66,51 @@ describe('layoutDayEvents — overlap columns (#470 AC4)', () => {
 
   it('is empty for no events', () => {
     expect(layoutDayEvents([]).size).toBe(0);
+  });
+});
+
+describe('splitTimedEventAcrossDays — multi-day span rendering (#471 AC2)', () => {
+  it('a same-day event produces exactly one segment, unchanged from start to end', () => {
+    const spans = splitTimedEventAcrossDays('2026-03-15', 540, '2026-03-15', 600, [
+      '2026-03-14',
+      '2026-03-15',
+      '2026-03-16',
+    ]);
+    expect(spans).toEqual([
+      { dayKey: '2026-03-15', startMinutes: 540, endMinutes: 600, continuesFromPrevDay: false, continuesToNextDay: false },
+    ]);
+  });
+
+  it('a two-day span gets a segment on each day: real start to midnight, then midnight to real end', () => {
+    const spans = splitTimedEventAcrossDays('2026-03-15', 540, '2026-03-16', 120, [
+      '2026-03-15',
+      '2026-03-16',
+    ]);
+    expect(spans).toEqual([
+      { dayKey: '2026-03-15', startMinutes: 540, endMinutes: 1440, continuesFromPrevDay: false, continuesToNextDay: true },
+      { dayKey: '2026-03-16', startMinutes: 0, endMinutes: 120, continuesFromPrevDay: true, continuesToNextDay: false },
+    ]);
+  });
+
+  it('a three-day span gives the middle day a full 0-1440 segment', () => {
+    const spans = splitTimedEventAcrossDays('2026-03-15', 540, '2026-03-17', 120, [
+      '2026-03-15',
+      '2026-03-16',
+      '2026-03-17',
+    ]);
+    expect(spans.map((s) => s.dayKey)).toEqual(['2026-03-15', '2026-03-16', '2026-03-17']);
+    expect(spans[1]).toEqual({ dayKey: '2026-03-16', startMinutes: 0, endMinutes: 1440, continuesFromPrevDay: true, continuesToNextDay: true });
+  });
+
+  it('clips to the visible window: a span extending past the displayed days only yields visible segments', () => {
+    const spans = splitTimedEventAcrossDays('2026-03-10', 0, '2026-03-20', 0, ['2026-03-15', '2026-03-16']);
+    expect(spans.map((s) => s.dayKey)).toEqual(['2026-03-15', '2026-03-16']);
+    expect(spans[0]!.continuesFromPrevDay).toBe(true);
+    expect(spans[1]!.continuesToNextDay).toBe(true);
+  });
+
+  it('is empty when the span never touches any visible day', () => {
+    expect(splitTimedEventAcrossDays('2026-01-01', 0, '2026-01-02', 0, ['2026-03-15'])).toEqual([]);
   });
 });
 

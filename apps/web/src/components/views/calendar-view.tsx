@@ -22,7 +22,7 @@ import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode, andFilterNodes } from './filter-config';
 import { ViewQueryError } from './query-error';
-import { CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
+import { CALENDAR_INCREMENT_OPTIONS, CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
 import { shiftDateValue } from './calendar-time-grid-layout';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -248,6 +248,28 @@ export function CalendarView({
             </button>
           ))}
         </div>
+        {/* #471 AC3/AC4 — day/week-only settings; the month grid has no
+            concept of a time increment or an hour window. */}
+        {mode !== 'month' && (
+          <>
+            <select
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px] text-ink-secondary"
+              value={config.calendar_increment_minutes ?? 15}
+              onChange={(e) => onPatch?.({ calendar_increment_minutes: Number(e.target.value) as 10 | 15 | 30 | 60 })}
+              title="Drag and create snap to this increment"
+            >
+              {CALENDAR_INCREMENT_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m} min
+                </option>
+              ))}
+            </select>
+            <CollapsedHoursControl
+              value={config.calendar_collapsed_hours}
+              onChange={(value) => onPatch?.({ calendar_collapsed_hours: value })}
+            />
+          </>
+        )}
         <Link
           href={`/w/${ws}/d/${db}`}
           className="ml-auto text-[12px] text-faint underline-offset-2 hover:text-ink hover:underline"
@@ -319,12 +341,75 @@ export function CalendarView({
           colorField={colorField}
           memberNames={memberNames}
           readOnly={readOnly}
+          incrementMinutes={config.calendar_increment_minutes}
+          collapsedHours={config.calendar_collapsed_hours}
           onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
           onCreate={handleCreate}
           onReschedule={(rec, values) => updateRecord.mutate({ rec, values })}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * #471 AC4/AC7 — collapse the day/week grid's rendered hour axis to a chosen
+ * window. A checkbox plus two hour <select>s rather than a time picker: the
+ * schema only stores whole hours (calendar_collapsed_hours), and the grid
+ * itself only ever draws whole-hour rows, so offering finer input would
+ * promise a precision nothing downstream honours.
+ */
+function CollapsedHoursControl({
+  value,
+  onChange,
+}: {
+  value: { start: number; end: number } | undefined;
+  onChange: (value: { start: number; end: number } | undefined) => void;
+}) {
+  const enabled = value !== undefined;
+  const start = value?.start ?? 8;
+  const end = value?.end ?? 22;
+  const hourLabel = (h: number) => (h === 0 || h === 24 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`);
+  return (
+    <label className="flex items-center gap-1 text-[12px] text-ink-secondary">
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => onChange(e.target.checked ? { start, end } : undefined)}
+      />
+      Collapse hours
+      {enabled && (
+        <>
+          <select
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-[12px]"
+            value={start}
+            onChange={(e) => onChange({ start: Number(e.target.value), end })}
+          >
+            {Array.from({ length: 24 }, (_, h) => h)
+              .filter((h) => h < end)
+              .map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+          </select>
+          <span>–</span>
+          <select
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-[12px]"
+            value={end}
+            onChange={(e) => onChange({ start, end: Number(e.target.value) })}
+          >
+            {Array.from({ length: 24 }, (_, h) => h + 1)
+              .filter((h) => h > start)
+              .map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
+    </label>
   );
 }
 

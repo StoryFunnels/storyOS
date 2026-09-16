@@ -178,6 +178,9 @@ export function cleanViewConfig(
       config.calendar_end_date_field_id && liveFieldIds.has(config.calendar_end_date_field_id)
         ? config.calendar_end_date_field_id
         : undefined,
+    // #471 — plain preferences naming no field id, same as calendar_mode above.
+    calendar_increment_minutes: config.calendar_increment_minutes,
+    calendar_collapsed_hours: config.calendar_collapsed_hours,
     start_date_field_id:
       config.start_date_field_id && liveFieldIds.has(config.start_date_field_id)
         ? config.start_date_field_id

@@ -5309,6 +5309,11 @@ export interface components {
                 calendar_mode?: "month" | "week" | "day";
                 /** Format: uuid */
                 calendar_end_date_field_id?: string;
+                calendar_increment_minutes?: 10 | 15 | 30 | 60;
+                calendar_collapsed_hours?: {
+                    start: number;
+                    end: number;
+                };
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
@@ -5498,6 +5503,11 @@ export interface components {
                 calendar_mode?: "month" | "week" | "day";
                 /** Format: uuid */
                 calendar_end_date_field_id?: string;
+                calendar_increment_minutes?: 10 | 15 | 30 | 60;
+                calendar_collapsed_hours?: {
+                    start: number;
+                    end: number;
+                };
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
@@ -5683,6 +5693,11 @@ export interface components {
                 calendar_mode?: "month" | "week" | "day";
                 /** Format: uuid */
                 calendar_end_date_field_id?: string;
+                calendar_increment_minutes?: 10 | 15 | 30 | 60;
+                calendar_collapsed_hours?: {
+                    start: number;
+                    end: number;
+                };
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
