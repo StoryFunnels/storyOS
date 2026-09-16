@@ -73,6 +73,37 @@ function hookUrl(ws: string, hookToken: string): string {
   return `${API_URL.replace(/\/$/, '')}/api/v1/hooks/${ws}/${hookToken}`;
 }
 
+/**
+ * #703 — save()'s trigger-building ternary, extracted so it's unit-testable
+ * without rendering the form: it previously had no `record_linked` branch at
+ * all, silently falling through to `{ type: triggerType }` and dropping the
+ * schema-required `relation_field_id` (plus the optional `direction`) on
+ * every save, a 422 the server correctly rejected but the editor never
+ * recovered from — a record_linked rule couldn't be re-saved at all.
+ */
+export function buildAutomationTrigger(params: {
+  triggerType: string;
+  triggerFieldId: string;
+  relationFieldId: string;
+  linkDirection: '' | 'link' | 'unlink';
+  every: string;
+  at: string;
+}): Record<string, unknown> {
+  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at } = params;
+  if (triggerType === 'schedule') return { type: 'schedule', every, at };
+  if (triggerType === 'record_updated') {
+    return { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) };
+  }
+  if (triggerType === 'record_linked') {
+    return {
+      type: 'record_linked',
+      relation_field_id: relationFieldId,
+      ...(linkDirection ? { direction: linkDirection } : {}),
+    };
+  }
+  return { type: triggerType };
+}
+
 /** Buttons & automations panel (MN-046/047) — per-database sections. */
 export function AutomationsPanel({
   ws,
@@ -389,6 +420,15 @@ function RuleEditor({
   const [triggerFieldId, setTriggerFieldId] = useState(
     rule ? (rule.trigger.field_id ?? '') : (fields.find((f) => f.type === 'workflow')?.id ?? ''),
   );
+  // #703 — record_linked's own scoping field: WHICH relation, and optionally
+  // link-only/unlink-only. Defaults to the database's first relation field so
+  // a brand-new rule already names something real rather than an empty picker.
+  const [relationFieldId, setRelationFieldId] = useState(
+    rule?.trigger.relation_field_id ?? fields.find((f) => f.type === 'relation')?.id ?? '',
+  );
+  const [linkDirection, setLinkDirection] = useState<'' | 'link' | 'unlink'>(
+    rule?.trigger.direction ?? '',
+  );
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
   // #392/#583 — top-N selection, schedule-only. `limit` is a free-text string
@@ -520,12 +560,14 @@ function RuleEditor({
 
   async function save() {
     setBusy(true);
-    const trigger =
-      triggerType === 'schedule'
-        ? { type: 'schedule', every, at }
-        : triggerType === 'record_updated'
-          ? { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) }
-          : { type: triggerType };
+    const trigger = buildAutomationTrigger({
+      triggerType,
+      triggerFieldId,
+      relationFieldId,
+      linkDirection,
+      every,
+      at,
+    });
     // Webhook rules have no triggering record for a condition to evaluate
     // against — v1 rejects one server-side, so don't even build it here.
     // #392/#583 — sort/limit (top-N) only apply to a schedule trigger. On an
@@ -655,9 +697,39 @@ function RuleEditor({
           >
             <option value="record_created">A record is created</option>
             <option value="record_updated">A record changes</option>
+            <option value="record_linked">A record is linked/unlinked</option>
             <option value="schedule">On a schedule</option>
             <option value="webhook_received">A webhook is received</option>
           </select>
+          {triggerType === 'record_linked' &&
+            (relationFields.length === 0 ? (
+              <p className="text-[12px] text-faint">
+                This database has no relation fields yet — add one first.
+              </p>
+            ) : (
+              <>
+                <select
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={relationFieldId}
+                  onChange={(e) => setRelationFieldId(e.target.value)}
+                >
+                  {relationFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      via "{f.displayName}"
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={linkDirection}
+                  onChange={(e) => setLinkDirection(e.target.value as '' | 'link' | 'unlink')}
+                >
+                  <option value="">linked or unlinked</option>
+                  <option value="link">linked</option>
+                  <option value="unlink">unlinked</option>
+                </select>
+              </>
+            ))}
           {triggerType === 'record_updated' && (
             <select
               className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
@@ -981,7 +1053,16 @@ function RuleEditor({
         <Button variant="secondary" size="sm" onClick={() => onDone()}>
           Cancel
         </Button>
-        <Button size="sm" disabled={busy || !name.trim() || actions.length === 0} onClick={save}>
+        <Button
+          size="sm"
+          disabled={
+            busy ||
+            !name.trim() ||
+            actions.length === 0 ||
+            (triggerType === 'record_linked' && !relationFieldId)
+          }
+          onClick={save}
+        >
           <Play className="mr-1 h-3.5 w-3.5" /> Save rule
         </Button>
       </div>
