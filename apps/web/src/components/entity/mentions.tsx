@@ -204,7 +204,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
         {title || 'Untitled'}
       </Link>
       {rec?.number != null && (
-        <span className="shrink-0 tabular-nums text-[0.85em] text-faint">#{rec.number}</span>
+        <span className="shrink-0 tabular-nums text-[0.85em] text-muted">#{rec.number}</span>
       )}
       {assigneeField && (assigneeId || canEdit) && (
         <InlineFieldEdit
@@ -225,6 +225,8 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
               size={16}
             />
           ) : (
+            /* #706 — KEEPS faint: icon only, and its accessible name is the
+               aria-label. Non-text graphic at 3:1, which faint clears. */
             <CircleDashed className="h-3.5 w-3.5 text-faint" aria-label="Unassigned" />
           )}
         </InlineFieldEdit>
@@ -243,7 +245,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
           {workflowOption ? (
             <OptionChip option={workflowOption} />
           ) : (
-            <span className="rounded-[var(--radius-chip)] border border-dashed border-border-default px-1 text-[0.8em] uppercase tracking-[0.03em] text-faint">
+            <span className="rounded-[var(--radius-chip)] border border-dashed border-border-default px-1 text-[0.8em] uppercase tracking-[0.03em] text-muted">
               Status
             </span>
           )}
@@ -506,7 +508,7 @@ function makePickerMenu(opts: {
       <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-overlay)]">
         {(showFilter || (isEmptyQuery && hasItems)) && (
           <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">
               {isEmptyQuery && hasItems ? opts.emptyHeader : ''}
             </p>
             {showFilter && filter && <DbFilterControl filter={filter} />}
@@ -609,6 +611,9 @@ export function MentionSuggestionMenus({
     color ? (
       <DbColorMarker color={color} />
     ) : (
+    // #706 — KEEPS faint: this "#" is the FALLBACK GLYPH standing in for a
+    // missing entity icon, not text. It reads as an icon and is judged as
+    // one at 3:1, which faint clears.
       <EntityIcon icon={icon} color={null} fallback={<span className="text-faint">#</span>} />
     );
 
