@@ -65,7 +65,6 @@ function runInitScript(opts: {
   };
   const locationStub = { pathname: opts.pathname, search: opts.search };
 
-  // eslint-disable-next-line no-new-func
   new Function(
     'document',
     'localStorage',

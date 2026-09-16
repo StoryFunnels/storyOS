@@ -92,6 +92,18 @@ export interface ViewConfig {
     access?: 'members' | 'link' | 'public';
     success_message?: string;
     redirect_url?: string;
+    /**
+     * #711 — how the EMBEDDED form should look on the host's page. Four
+     * controls; everything else derives (lib/embed-theme.ts). Hex only, no
+     * alpha — see packages/schemas' own comment for why. Absent means emit
+     * nothing at all, which is what makes "reset to default" exact.
+     */
+    theme?: {
+      accent?: string;
+      surface?: string;
+      text?: string;
+      radius?: number;
+    };
   };
   /**
    * Dashboard (MN-225 / #168) — metric tiles.

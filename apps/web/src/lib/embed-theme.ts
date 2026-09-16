@@ -220,3 +220,49 @@ export function embedThemeStyle(config: unknown): CSSProperties | undefined {
 
   return Object.keys(style).length > 0 ? (style as CSSProperties) : undefined;
 }
+
+/**
+ * #711 phase 2 — the builder's contrast warning.
+ *
+ * Exported because the BUILDER must compute the same number the renderer
+ * enforces; two implementations of a contrast ratio would drift. `a` and `b`
+ * must already be validated hex.
+ */
+export function contrastRatio(a: string, b: string): number {
+  return contrast(a, b);
+}
+
+/**
+ * The warning threshold, deliberately ABOVE the 4.5:1 the renderer enforces.
+ *
+ * The renderer's floor is the legal minimum, applied silently to the derived
+ * muted steps. This is the number at which we tell a human their two chosen
+ * colours are uncomfortable — a form that merely scrapes AA is still a form
+ * nobody enjoys filling in, and the builder is the one place someone can still
+ * change their mind cheaply.
+ */
+export const COMFORTABLE_CONTRAST = 7;
+
+/**
+ * "Fix for me" — the nearest text colour to the one the embedder chose that
+ * clears COMFORTABLE_CONTRAST against their surface.
+ *
+ * Walks their colour toward the opposite pole of the surface rather than
+ * jumping to black or white, so a host who picked a warm brown on cream gets a
+ * DARKER WARM BROWN, not #000. Keeping their hue is the difference between a
+ * correction they accept and one they immediately undo.
+ *
+ * Returns the input unchanged when it already clears.
+ */
+export function readableTextFor(text: string, surface: string): string {
+  const t = colour(text);
+  const s = colour(surface);
+  if (!t || !s) return text;
+  if (contrast(t, s) >= COMFORTABLE_CONTRAST) return t;
+  const pole = luminance(s) > 0.5 ? ON_DARK_DARK : ON_DARK_LIGHT;
+  for (let pct = 95; pct >= 0; pct -= 1) {
+    const candidate = blend(t, pct, pole);
+    if (contrast(candidate, s) >= COMFORTABLE_CONTRAST) return candidate;
+  }
+  return pole;
+}
