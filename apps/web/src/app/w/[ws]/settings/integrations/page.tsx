@@ -200,7 +200,7 @@ export default function IntegrationsPage() {
             <code className="mt-1 block overflow-x-auto whitespace-nowrap text-[12px] text-muted">
               {MCP_ENDPOINT}
             </code>
-            <p className="mt-2 text-[11px] text-faint">
+            <p className="mt-2 text-[11px] text-muted">
               No API token to copy for app.storyos.dev. Self-managed deployments and advanced
               clients can still use PAT authentication from the setup page.
             </p>
@@ -228,7 +228,7 @@ export default function IntegrationsPage() {
           <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
             Connected
           </h2>
-          <p className="mb-3 text-[12px] text-faint">
+          <p className="mb-3 text-[12px] text-muted">
             Already set up — open one to preview/import, adjust its config, or disconnect.
           </p>
           <div className="flex flex-col gap-2">
@@ -250,7 +250,7 @@ export default function IntegrationsPage() {
                         Connected
                       </span>
                     </div>
-                    <p className="truncate text-[12px] text-faint">{entry.description}</p>
+                    <p className="truncate text-[12px] text-muted">{entry.description}</p>
                     <p className="mt-1 text-[11px] text-ink-secondary">
                       <strong>Next:</strong> {nextAction(entry)}
                     </p>
@@ -291,7 +291,7 @@ export default function IntegrationsPage() {
         <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
           Add an integration
         </h2>
-        <p className="mb-3 text-[12px] text-faint">Platforms you haven't connected yet.</p>
+        <p className="mb-3 text-[12px] text-muted">Platforms you haven't connected yet.</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {catalogEntries.map((entry) => {
             const Icon = ICONS[entry.id] ?? Bot;
@@ -310,13 +310,13 @@ export default function IntegrationsPage() {
                     <span className="block truncate text-sm font-semibold text-ink">
                       {entry.label}
                     </span>
-                    <span className="block truncate text-[11px] text-faint">
+                    <span className="block truncate text-[11px] text-muted">
                       Built by {entry.built_by}
                     </span>
                   </span>
                   <span className="ml-auto shrink-0">
                     {entry.status === 'soon' ? (
-                      <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-faint">
+                      <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-muted">
                         Coming soon
                       </span>
                     ) : entry.auth_kind === 'delegate' ? (
