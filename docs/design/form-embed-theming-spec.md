@@ -193,6 +193,29 @@ exposure for our customer is not a good trade for a font.
 request, guaranteed to load, no fallback surprise, no privacy question. The
 cost is that an embedder cannot use a font we do not carry.
 
+> **CORRECTED (ticket #720). (a) and (b) are a FALSE DICHOTOMY, and the error
+> is mine.** This section is written as though using Google's *families* means
+> making a request to Google. It does not, and this repo already proves it.
+>
+> `apps/web/src/app/layout.tsx` loads Figtree through `next/font/google`, which
+> downloads the font **at build time** and serves it from our own origin.
+> Verified by building and grepping the output rather than from memory:
+> `apps/web/.next/static/media` holds 11 self-hosted `.woff2` files, and the
+> production output (`.next/static`, `.next/server`, excluding sourcemaps) and
+> the prerendered HTML contain **zero** references to `fonts.googleapis.com` or
+> `fonts.gstatic.com`. The only matches anywhere are dev sourcemaps, which no
+> visitor fetches.
+>
+> So the thing to avoid is the **runtime `<link>` stylesheet** — mechanism (a)
+> as literally described — not Google's type library. The privacy conclusion
+> and the LG München reasoning are unchanged and still correct; what changes is
+> the cost. Option (b) does **not** require a font pipeline, vendored licence
+> files, or a subsetting step. It is `next/font/google` with a short list.
+>
+> Left uncorrected, this section would have told the next reader that the font
+> control is procurement work. It is an afternoon's UI work plus a deliberate
+> choice of families. See #720.
+
 Proposed set — chosen to span the shapes a brand actually needs, not to be
 comprehensive:
 
