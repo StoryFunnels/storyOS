@@ -191,7 +191,12 @@ export default function SpacePage() {
             icon={space.icon}
             color={space.color}
             size={20}
-            fallback={<Layers className="h-4 w-4 text-faint" />}
+            fallback={
+              // #706 — KEEPS faint: this is the icon-only fallback shown when a
+              // space has no icon of its own. A non-text graphic, judged at 3:1,
+              // which faint clears. The space NAME beside it carries the meaning.
+              <Layers className="h-4 w-4 text-faint" />
+            }
           />
         </button>
         <h1 className="text-xl font-semibold text-ink">{space.name}</h1>
@@ -210,7 +215,7 @@ export default function SpacePage() {
           />
           <div className="flex items-center gap-2">
             <span
-              className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}
+              className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-muted')}
             >
               {draft.hint}
             </span>
@@ -286,7 +291,7 @@ export default function SpacePage() {
             />
           </div>
         ) : (
-          <p className="text-[13px] text-faint">
+          <p className="text-[13px] text-muted">
             Only workspace admins and members can see who else has access.
           </p>
         )}
@@ -375,7 +380,7 @@ function AccessGroup({
   if (rows.length === 0) return null;
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint" title={hint}>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted" title={hint}>
         {label}
       </p>
       <ul className="flex flex-col gap-0.5">
@@ -385,7 +390,7 @@ function AccessGroup({
             className="flex items-center justify-between rounded px-2 py-1 hover:bg-hover"
           >
             <span className="text-ink">{r.name}</span>
-            <span className="text-faint">{r.role}</span>
+            <span className="text-muted">{r.role}</span>
           </li>
         ))}
       </ul>
