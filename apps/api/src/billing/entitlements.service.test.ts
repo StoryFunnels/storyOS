@@ -305,6 +305,40 @@ describe('EntitlementsService.can — add_seat (MN-190)', () => {
   });
 });
 
+describe('EntitlementsService.can — create_portal_recipient (#708 / MN-107)', () => {
+  it('Free: blocked — portals are a paid-plan capability, gated by plan tier, not recipient count', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    expect(await svc.can('ws1', 'create_portal_recipient')).toBe(false);
+  });
+
+  it('Pro: allowed', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
+  });
+
+  it('Business: allowed', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('business'), accessStub([]));
+    expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
+  });
+
+  it('Enterprise: allowed', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
+  });
+
+  it('self-host: always true, never reads billing status — the never-paywalled-capability principle', async () => {
+    const { db } = makeDb({});
+    const billing = billingStub('free');
+    const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub([]));
+    expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
+    expect(billing.getStatus).not.toHaveBeenCalled();
+  });
+});
+
 describe('EntitlementsService.canCreateWorkspace (MN-191)', () => {
   it('allows the first workspace — a brand new admin owns none yet', async () => {
     const { db } = makeDb({ ownedWorkspaces: [] });

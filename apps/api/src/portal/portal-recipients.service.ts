@@ -1,9 +1,10 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { portalRecipients } from '../db/schema';
 import type { CreatePortalRecipientInput } from '@storyos/schemas';
+import { EntitlementsService } from '../billing/entitlements.service';
 import { mintPortalRecipientToken, parsePortalRecipientToken, verifyPortalRecipientSignature } from './portal-recipient-token';
 
 type PortalRecipientRow = typeof portalRecipients.$inferSelect;
@@ -20,9 +21,22 @@ function withToken<T extends PortalRecipientRow>(row: T): T & { token: string } 
  */
 @Injectable()
 export class PortalRecipientsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly entitlements: EntitlementsService,
+  ) {}
 
   async create(workspaceId: string, input: CreatePortalRecipientInput) {
+    // #708 — MN-107 (#700): client portals are a paid-plan capability, self-
+    // host excepted (EntitlementsService.can() short-circuits true when
+    // Stripe is disabled — the never-paywalled-capability principle, not a
+    // second check invented here).
+    if (!(await this.entitlements.can(workspaceId, 'create_portal_recipient'))) {
+      throw new HttpException(
+        'Free plan does not include client portals — upgrade to Pro to invite a portal recipient.',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const [row] = await this.db
       .insert(portalRecipients)
       .values({
