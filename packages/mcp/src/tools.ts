@@ -7586,7 +7586,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'create_records{database, count, values, link_via_relation_field?} — batch-create `count` records, where count is a number ' +
         'or a {token} resolved at run time (max 200); use {index} in templates for the 1-based position · ' +
         'add_comment{body_template} · ' +
-        'notify_user{user:"@me"|"<person field>", message} · update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
+        'notify_user{user:"@me"|"@member:<id>"|"<person field>", message} — @member:<id> targets one specific workspace member (get the id from list_members), validated against active membership · ' +
+        'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
         'run_agent{agent, prompt?, ...}. ' +

@@ -26,6 +26,15 @@ import { ApprovalsService } from './approvals.service';
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
 
+/**
+ * #730 — `notify_user`'s `user` target naming a specific workspace member, as
+ * opposed to `'@me'` or the api_name of a person field on the record. A field
+ * api_name is always slugify()'d (lowercase, digits, underscore only — see
+ * databases.service.ts), so an `@`-prefixed token can never collide with one,
+ * the same convention `'@me'` already uses.
+ */
+const MEMBER_TARGET_RE = /^@member:(.+)$/;
+
 /** #244: full-value match — `{linked.Due Date}`, nothing else. Like the payload
  * form, a value that is entirely one linked token resolves to the underlying
  * TYPED field value (a date, number, relation array), not a stringified one. */
@@ -313,11 +322,32 @@ export class AutomationActionsService {
       }
       if (action.type === 'notify_user') {
         if (action.user !== '@me') {
-          const uf = live.find((f) => f.apiName === action.user);
-          if (!uf || uf.type !== 'user') {
-            throw new UnprocessableEntityException(
-              'notify_user "user" must be @me or a person field',
-            );
+          const memberMatch = MEMBER_TARGET_RE.exec(action.user);
+          if (memberMatch) {
+            // #730 — validated against ACTUAL, ACTIVE workspace membership so
+            // a stale or foreign id can't be set: a removed member's row is
+            // gone (MembersService.remove() hard-deletes), and an id that was
+            // never a member of this workspace never had one.
+            const targetUserId = memberMatch[1]!;
+            const membership = await this.db.query.memberships.findFirst({
+              where: and(
+                eq(memberships.workspaceId, workspaceId),
+                eq(memberships.userId, targetUserId),
+                eq(memberships.status, 'active'),
+              ),
+            });
+            if (!membership) {
+              throw new UnprocessableEntityException(
+                'notify_user targets a member who is not an active member of this workspace',
+              );
+            }
+          } else {
+            const uf = live.find((f) => f.apiName === action.user);
+            if (!uf || uf.type !== 'user') {
+              throw new UnprocessableEntityException(
+                'notify_user "user" must be @me, @member:<id>, or a person field',
+              );
+            }
           }
         }
       }
@@ -1104,12 +1134,15 @@ export class AutomationActionsService {
       } else if (action.type === 'notify_user') {
         const message = this.interpolate(action.message, ctx, displayToApi);
         let recipients: string[];
+        const memberMatch = action.user === '@me' ? null : MEMBER_TARGET_RE.exec(action.user);
         if (action.user === '@me') recipients = [ctx.actorId];
+        else if (memberMatch) recipients = [memberMatch[1]!];
         else if (ctx.record) {
           const raw = ctx.record.values[action.user];
           recipients = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
         } else {
-          // validate() only allows a non-'@me' user field when a record exists.
+          // validate() only allows a non-'@me'/non-member-target user field
+          // when a record exists.
           recipients = [];
         }
         await this.notificationsService.notify({
