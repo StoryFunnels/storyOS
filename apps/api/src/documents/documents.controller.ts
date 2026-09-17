@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -14,6 +14,12 @@ const putDocumentSchema = z.object({
   expected_version: z.number().int().min(0),
 });
 class PutDocumentDto extends createZodDto(putDocumentSchema) {}
+
+const documentVersionsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+class DocumentVersionsQueryDto extends createZodDto(documentVersionsQuerySchema) {}
 
 @ApiTags('documents')
 @ApiBearerAuth()
@@ -69,6 +75,55 @@ export class DocumentsController {
       body.expected_version,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
+    );
+  }
+
+  // #677 (Gap 2) — the document's own version history, sibling to
+  // RecordVersionsController's routes over record_versions.
+
+  @Get('versions')
+  @ApiOperation({ summary: 'Document version history, newest first (cursor)' })
+  async listVersions(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Query() query: DocumentVersionsQueryDto,
+  ) {
+    await this.assertRecord(req, databaseId, recordId);
+    return this.documentsService.listVersions(recordId, query.limit, query.cursor);
+  }
+
+  @Get('versions/:version')
+  @ApiOperation({ summary: 'A single document version, as a block-level diff preview against the current content' })
+  async getVersion(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Param('version') versionId: string,
+  ) {
+    await this.assertRecord(req, databaseId, recordId);
+    return this.documentsService.getVersion(recordId, versionId);
+  }
+
+  @Post('versions/:version/restore')
+  @ApiOperation({ summary: 'Restore the document to a previously captured version' })
+  async restoreVersion(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Param('version') versionId: string,
+  ) {
+    await this.assertRecord(req, databaseId, recordId, 'editor');
+    return this.documentsService.restoreVersion(
+      req.membership.workspaceId,
+      recordId,
+      versionId,
+      req.user.id,
+      req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 }

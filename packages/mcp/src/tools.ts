@@ -784,6 +784,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   update_comment: 'write',
   delete_comment: 'write',
   restore_version: 'write',
+  restore_document_version: 'write',
   watch_record: 'write',
   attach_file: 'write',
   delete_attachment: 'write',
@@ -2317,17 +2318,24 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get record history',
       description:
-        'What happened to this record, newest first, through one of three lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. Three lenses on one question, so pick by what you are answering rather than calling all three.',
+        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         record: z.string().describe('Record uuid or public number.'),
-        kind: z.enum(['fields', 'versions', 'activity']).optional().describe('Default "fields".'),
+        kind: z.enum(['fields', 'versions', 'activity', 'document_versions']).optional().describe('Default "fields".'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 20.'),
         cursor: z.string().optional().describe('next_cursor from a previous call.'),
       },
     },
-    handle<{ workspace: string; database: string; record: string; kind?: 'fields' | 'versions' | 'activity'; limit?: number; cursor?: string }>(
+    handle<{
+      workspace: string;
+      database: string;
+      record: string;
+      kind?: 'fields' | 'versions' | 'activity' | 'document_versions';
+      limit?: number;
+      cursor?: string;
+    }>(
       async ({ workspace, database, record, kind, limit, cursor }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
@@ -2344,11 +2352,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
               ? await unwrap<unknown>(
                   client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity', { params: { path, query } as never }),
                 )
-              : await unwrap<unknown>(
-                  client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes', {
-                    params: { path, query } as never,
-                  }),
-                );
+              : which === 'document_versions'
+                ? await unwrap<unknown>(
+                    client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions', {
+                      params: { path, query } as never,
+                    }),
+                  )
+                : await unwrap<unknown>(
+                    client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes', {
+                      params: { path, query } as never,
+                    }),
+                  );
         const body = res as { data?: unknown; next_cursor?: string | null };
         return text({ record: rec, kind: which, entries: body.data ?? [], next_cursor: body.next_cursor ?? null });
       },
@@ -2380,6 +2394,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         );
         const detail = await getDetail(ws.id, db.id);
         return text({ restored_version: version, record: await readRecord(detail, ws.id, db.id, rec) });
+      },
+    ),
+  );
+
+  reg(
+    'restore_document_version',
+    {
+      title: 'Restore document version',
+      description:
+        '#677 — roll a record\'s DESCRIPTION document back to a previously captured version. Get the version id from get_history with kind:"document_versions". Separate from restore_version, which only ever touches field values, never the description. This OVERWRITES the current document content with the old content and is itself recorded as a new version, so it is undoable too.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        version: z.string().describe('Version id from get_history kind:"document_versions".'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; version: string }>(
+      async ({ workspace, database, record, version }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<{ content?: unknown; version?: number }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}/restore', {
+            params: { path: { ws: ws.id, db: db.id, rec, version } } as never,
+          }),
+        );
+        return text({ restored_version: version, document_version: res.version ?? null });
       },
     ),
   );

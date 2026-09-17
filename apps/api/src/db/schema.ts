@@ -576,6 +576,40 @@ export const documents = pgTable('documents', {
   ...timestamps,
 });
 
+/**
+ * #677 (Gap 2) — real version history for a record's document, the same
+ * "snapshot the full prior state before the write lands" shape
+ * `record_versions` already uses (MN-231), not a second design. One row per
+ * saved edit: the FULL prior content + the document's own `version` counter
+ * at that point (so a restore knows what optimistic-concurrency value it is
+ * superseding). `documents` itself has no `workspace_id` column (it's keyed
+ * off `record_id` alone) — carried here explicitly, same as `record_versions`,
+ * for tenant-scoped retention pruning later.
+ */
+export const documentVersions = pgTable(
+  'document_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id'),
+    // #677 — same badge as record_versions/record_field_changes; one shape
+    // for "who made this write", not a third variant.
+    source: changeSource('source').notNull().default('human'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
+    content: jsonb('content'),
+    /** The document's own `documents.version` counter AT THIS SNAPSHOT. */
+    version: integer('version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('document_versions_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
 /** Standalone rich docs living in a space, independent of any record (MN-095). */
 export const spaceDocuments = pgTable(
   'space_documents',
