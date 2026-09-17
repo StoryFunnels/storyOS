@@ -687,6 +687,13 @@
       "when": 1789619564028,
       "tag": "0097_spotty_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1789623005013,
+      "tag": "0098_foamy_nextwave",
+      "breakpoints": true
     }
   ]
 }

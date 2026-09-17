@@ -281,6 +281,14 @@ export const DEFERRED: CoverageRule[] = [
     match: /^POST \/api\/v1\/workspaces$/,
     reason: "#406 — creating a workspace is plan-gated and worth deciding deliberately, not a default agent capability.",
   },
+  {
+    // #677 (Gap 2) — the list and restore halves of document version history
+    // ARE reached (get_history kind:"document_versions", restore_document_
+    // version). Only the diff-PREVIEW endpoint is deferred, narrowly.
+    match: /\/document\/versions\/\{version\}$/,
+    reason:
+      '#677 — a block-level diff preview against the current document, built for a UI\'s "confirm before restoring" dialog. An agent has a cheaper path to the same decision: list versions (get_history kind:"document_versions" — cheap metadata, no full content), then restore, which is itself recorded as a new version and so is undoable — the same reasoning restore_version already applies to record snapshots, which also has no separate diff-preview tool. Revisit if an agent workflow ever needs "show me what changed" without committing to a restore.',
+  },
 ];
 
 /** `METHOD /path` for one operation. */

@@ -2727,6 +2727,18 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       const a = harness();
       await a.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'activity' });
       expect(paths(a.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity');
+
+      const d = harness();
+      await d.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'document_versions' });
+      expect(paths(d.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions');
+    });
+
+    it('#677 — restore_document_version hits the document-version restore endpoint, not the record one', async () => {
+      const { call, sent } = harness();
+      await call('restore_document_version', { workspace: 'Eng', database: 'Issues', record: '7', version: 'dv-1' });
+      expect(paths(sent, 'POST')).toContain(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}/restore',
+      );
     });
 
     it('watch_record unsubscribes with DELETE when watch:false — not a second POST', async () => {
