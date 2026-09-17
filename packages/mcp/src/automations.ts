@@ -208,8 +208,10 @@ export function resolveActionFieldRefs(
   }
   if (type === 'notify_user') {
     const ref = action.user as string | undefined;
-    if (ref && ref !== '@me' && ref !== 'me') {
-      // A person field, addressed by name or api_name; @me stays verbatim.
+    // #730 — '@member:<id>' targets a specific workspace member (find the id
+    // via list_members) and, like '@me', is not a field reference to resolve.
+    if (ref && ref !== '@me' && ref !== 'me' && !/^@member:/.test(ref)) {
+      // A person field, addressed by name or api_name.
       action = { ...action, user: findField(detail.fields, ref, { types: ['user'], kind: 'person' }).apiName };
     }
     return { ...action };

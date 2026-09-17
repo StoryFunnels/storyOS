@@ -154,6 +154,12 @@ describe('resolveActionFieldRefs (#334)', () => {
     });
   });
 
+  it('#730 — leaves an @member:<id> notify_user target verbatim, not treated as a field reference', () => {
+    expect(
+      resolveActionFieldRefs({ type: 'notify_user', user: '@member:usr_123', message: 'hi' }, detail),
+    ).toMatchObject({ user: '@member:usr_123' });
+  });
+
   it('maps set_values through resolveValueMap', () => {
     expect(resolveActionFieldRefs({ type: 'set_values', values: { State: 'To Do' } }, detail)).toEqual({
       type: 'set_values',

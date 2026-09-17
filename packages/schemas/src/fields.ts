@@ -305,7 +305,9 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({
     ...gated,
     type: z.literal('notify_user'),
-    // '@me' or the api_name of a user field on this record
+    // '@me', '@member:<userId>' (#730 — a specific workspace member, validated
+    // server-side against active membership), or the api_name of a user field
+    // on this record
     user: z.string().min(1).max(100),
     message: z.string().min(1).max(500),
   }),
