@@ -27,7 +27,15 @@ const baseRow = {
 function makeDb(opts: {
   row?: typeof baseRow | null;
   version?: { id: string; recordId: string; title: string; values: unknown } | null;
-  versionRows?: Array<{ id: string; title: string; actorId: string | null; createdAt: Date }>;
+  versionRows?: Array<{
+    id: string;
+    title: string;
+    actorId: string | null;
+    createdAt: Date;
+    source?: string;
+    agentId?: string | null;
+    agentName?: string | null;
+  }>;
 }) {
   const inserted: Array<{ table: string; values: unknown }> = [];
   const updated: Array<{ table: string; patch: unknown }> = [];
@@ -159,20 +167,44 @@ describe('RecordsService.restoreVersion', () => {
 
     expect(result.title).toBe('Old title');
   });
+
+  it('#677 — threads source/agentId/agentName through to BOTH the snapshot and the activity event', async () => {
+    const { db, inserted } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: 'Old title', values: { field_a: 'old value' } },
+    });
+    const service = makeService(db);
+    await service.restoreVersion(WORKSPACE_ID, DATABASE_ID, RECORD_ID, 'v1', ACTOR_ID, 'agent', 'agent-1', 'Bot');
+
+    const versionSnapshot = inserted.find((i) => i.table === 'record_versions');
+    expect(versionSnapshot?.values).toMatchObject({ source: 'agent', agentId: 'agent-1', agentName: 'Bot' });
+    const activity = inserted.find((i) => i.table === 'activity_events');
+    expect(activity?.values).toMatchObject({ source: 'agent', agentId: 'agent-1', agentName: 'Bot' });
+  });
+
+  it('#677 — defaults to source: human with no agent badge when the caller passes nothing extra', async () => {
+    const { db, inserted } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: 'Old title', values: { field_a: 'old value' } },
+    });
+    const service = makeService(db);
+    await service.restoreVersion(WORKSPACE_ID, DATABASE_ID, RECORD_ID, 'v1', ACTOR_ID);
+
+    const versionSnapshot = inserted.find((i) => i.table === 'record_versions');
+    expect(versionSnapshot?.values).toMatchObject({ source: 'human', agentId: undefined, agentName: undefined });
+  });
 });
 
 describe('RecordsService.listVersions', () => {
-  it('maps rows to the public shape and reports no next cursor on the last page', async () => {
+  it('maps rows to the public shape — including #677 attribution — and reports no next cursor on the last page', async () => {
     const rows = [
-      { id: 'v2', title: 'B', actorId: ACTOR_ID, createdAt: new Date('2026-07-02T00:00:00Z') },
-      { id: 'v1', title: 'A', actorId: ACTOR_ID, createdAt: new Date('2026-07-01T00:00:00Z') },
+      { id: 'v2', title: 'B', actorId: ACTOR_ID, createdAt: new Date('2026-07-02T00:00:00Z'), source: 'agent', agentId: 'agent-1', agentName: 'Bot' },
+      { id: 'v1', title: 'A', actorId: ACTOR_ID, createdAt: new Date('2026-07-01T00:00:00Z'), source: 'human', agentId: null, agentName: null },
     ];
     const { db } = makeDb({ versionRows: rows });
     const service = makeService(db);
     const result = await service.listVersions(RECORD_ID, 50);
     expect(result.data).toEqual([
-      { id: 'v2', title: 'B', actor_id: ACTOR_ID, created_at: rows[0]!.createdAt },
-      { id: 'v1', title: 'A', actor_id: ACTOR_ID, created_at: rows[1]!.createdAt },
+      { id: 'v2', title: 'B', actor_id: ACTOR_ID, source: 'agent', agent_id: 'agent-1', agent_name: 'Bot', created_at: rows[0]!.createdAt },
+      { id: 'v1', title: 'A', actor_id: ACTOR_ID, source: 'human', agent_id: null, agent_name: null, created_at: rows[1]!.createdAt },
     ]);
     expect(result.has_more).toBe(false);
     expect(result.next_cursor).toBeNull();

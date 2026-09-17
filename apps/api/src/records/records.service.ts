@@ -3040,6 +3040,9 @@ export class RecordsService {
             workspaceId,
             recordId,
             actorId,
+            source,
+            agentId,
+            agentName,
             title: row.title,
             values: before,
           });
@@ -3426,6 +3429,12 @@ export class RecordsService {
         id: v.id,
         title: v.title,
         actor_id: v.actorId,
+        // #677 — visible-at-a-glance human/agent attribution, same shape
+        // record_field_changes already exposes (source) plus the display
+        // name a UI badge needs without a second lookup (agent_name).
+        source: v.source,
+        agent_id: v.agentId,
+        agent_name: v.agentName,
         created_at: v.createdAt,
       })),
       next_cursor:
@@ -3536,6 +3545,10 @@ export class RecordsService {
     versionId: string,
     actorId: string,
     source: ChangeSource = 'human',
+    // #677 — same optional trailing pair update()/create() already accept;
+    // a restore driven by an agent should be attributed like any other write.
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
@@ -3569,6 +3582,9 @@ export class RecordsService {
         workspaceId,
         recordId,
         actorId,
+        source,
+        agentId,
+        agentName,
         title: row.title,
         values: row.values,
       });
@@ -3584,6 +3600,8 @@ export class RecordsService {
         type: 'record.updated',
         payload: { diff, restored_from_version_id: versionId },
         source,
+        agentId,
+        agentName,
       });
       return next!;
     });
