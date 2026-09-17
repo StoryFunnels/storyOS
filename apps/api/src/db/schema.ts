@@ -1042,6 +1042,14 @@ export const recordVersions = pgTable(
       .notNull()
       .references(() => records.id, { onDelete: 'cascade' }),
     actorId: text('actor_id'),
+    // #677 (Gap 1) — was missing entirely: `actor_id` alone cannot tell a
+    // human apart from an agent (same plain text column either way). Mirrors
+    // record_field_changes's own existing badge exactly (source/agentId/
+    // agentName, same "no FK, snapshotted not re-resolved" reasoning) rather
+    // than inventing a second shape for the same concept.
+    source: changeSource('source').notNull().default('human'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
     title: text('title').notNull(),
     values: jsonb('values').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

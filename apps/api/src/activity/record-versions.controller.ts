@@ -80,6 +80,8 @@ export class RecordVersionsController {
       versionId,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 }
