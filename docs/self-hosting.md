@@ -47,6 +47,23 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `PLATFORM_ADMIN_EMAIL` | unset | on API boot, grants `/admin` access to this email if a matching user already signed up — otherwise logs a warning and retries next boot. Set it, sign up with that exact address first if you haven't, then restart the `api` container once. Manage further admins from `/admin` itself afterward rather than rotating this var. |
 | `MCP_OAUTH` | `false` | Turns the API into an OAuth authorization server for hosted-MCP connectors (MN-154), so a claude.ai/ChatGPT connector can sign in instead of pasting a PAT. **Read the ⚠️ warning in [Hosted MCP & OAuth](#hosted-mcp--oauth) before enabling** — it changes how the MCP endpoint challenges clients and can make existing PAT connections need reconnection. Requires the oidc tables migrated. |
 
+## Client portals (#708)
+
+Client portals (inviting an external, non-member recipient to a scoped view of your
+data) are gated by plan tier on StoryOS Cloud, same as every other paid-tier
+capability — but the never-paywalled-capability principle applies here exactly as
+it does everywhere else: **leave `STRIPE_SECRET_KEY` unset (the default) and every
+workspace is Free with billing off, and portal creation has no gate at all** — the
+same code path that checks plan tier on Cloud short-circuits to "allowed" the
+instant billing is disabled, before it ever asks what plan a workspace is on. A
+recipient never counts as a billable seat either way, on Cloud or self-hosted.
+
+If you set `STRIPE_SECRET_KEY` to run your own paid service on top of self-hosted
+StoryOS, portal creation is then gated by whichever plan tier your own Stripe price
+ids map a workspace to — the identical mechanism Cloud uses, not a separate rule,
+because you are at that point choosing to meter your own customers rather than
+running the free/self-host path.
+
 ## Hosted MCP & OAuth
 
 The hosted MCP endpoint (`packages/mcp`, served at e.g. `https://mcp.storyos.dev/mcp`)

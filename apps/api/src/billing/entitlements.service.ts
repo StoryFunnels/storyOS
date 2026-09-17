@@ -56,7 +56,7 @@ function currentPeriodStart(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
-export type Capability = 'automation_run' | 'add_seat';
+export type Capability = 'automation_run' | 'add_seat' | 'create_portal_recipient';
 
 export interface EntitlementOverridePatch {
   includedSeats?: number | null;
@@ -247,6 +247,15 @@ export class EntitlementsService {
         this.getUsage(workspaceId),
       ]);
       return usage.billableSeats < limits.includedSeats;
+    }
+    if (capability === 'create_portal_recipient') {
+      // #708 — MN-107 (#700) decided portal capability is gated BY PLAN TIER
+      // (portals from the cheapest paid plan up), never by recipient count —
+      // #540's own already-decided invariant (recipients never bill as
+      // seats) stands unchanged; this only decides WHETHER a workspace may
+      // create a portal recipient AT ALL, not how many.
+      const status = await this.billing.getStatus(workspaceId);
+      return status.plan !== 'free';
     }
     return true;
   }
