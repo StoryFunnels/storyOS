@@ -33,7 +33,16 @@ jobs:
       DATABASE_URL: postgres://storyos:storyos@localhost:5432/storyos_test
       CI: "true"
     steps:
+      # #722 — fetch-depth: 0 is load-bearing, not hygiene. The default shallow
+      # clone has no `origin/main`, so the contrast advisory's diff half died on
+      # `fatal: bad revision 'origin/main...HEAD'`, printed "Diff check skipped"
+      # and exited 0 — the step stayed GREEN while detecting nothing, for every
+      # run since it was added. #706's 174-site tail was accepted explicitly on
+      # the grounds that new sites would be detected, so that acceptance rested
+      # on a check that had never run. dco.yml in this repo already does this.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
