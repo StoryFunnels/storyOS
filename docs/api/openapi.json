@@ -4633,6 +4633,51 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}": {
+      "get": {
+        "operationId": "RecordVersionsController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A single version, as a diff preview against the record's current values",
+        "tags": [
+          "record-versions"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}/restore": {
       "post": {
         "operationId": "RecordVersionsController_restore",

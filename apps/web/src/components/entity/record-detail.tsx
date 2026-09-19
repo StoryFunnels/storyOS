@@ -410,6 +410,7 @@ export function RecordDetail({
             db={db}
             dbName={database.data?.name ?? ''}
             rec={recordId}
+            fields={allFields}
             readOnly={readOnly}
             canCreate={schemaEditable}
             isAdmin={workspace.data?.role === 'admin'}

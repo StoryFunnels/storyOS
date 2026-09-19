@@ -3446,6 +3446,54 @@ export class RecordsService {
   }
 
   /**
+   * #39 — a single version's diff PREVIEW against the record's CURRENT
+   * values, for the web UI's "confirm before restoring" dialog. Reuses the
+   * exact diff/render machinery `restoreVersion` and `listFieldChanges`
+   * already use, so a version naming a field that has since been deleted or
+   * renamed renders safely (the same '(deleted field)' fallback) rather than
+   * the client needing its own diffing logic. Read-only — computing a
+   * preview never writes a row.
+   */
+  async getVersion(databaseId: string, recordId: string, versionId: string) {
+    const version = await this.db.query.recordVersions.findFirst({
+      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
+    });
+    if (!version) throw new NotFoundException('Version not found');
+
+    const defs = await this.fieldDefs(databaseId);
+    const row = await this.getRow(databaseId, recordId);
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
+    const diff = diffSnapshots(
+      { values: version.values as Record<string, unknown>, title: version.title },
+      { values: row.values as Record<string, unknown>, title: row.title },
+      richTextFieldIds,
+    );
+
+    const ctx = await buildRenderContext(this.db, databaseId);
+    const preview = Object.entries(diff).map(([fieldId, { from, to }]) => {
+      const isTitle = fieldId === 'title';
+      const fieldType = isTitle ? 'title' : (ctx.fieldType.get(fieldId) ?? null);
+      return {
+        field_id: isTitle ? null : fieldId,
+        field_name: isTitle ? 'Name' : (ctx.fieldName.get(fieldId) ?? '(deleted field)'),
+        field_type: fieldType,
+        // #39 — named from the CURRENT record's perspective, matching the
+        // restore action's own framing ("this field will go from X to Y"),
+        // the reverse of diffSnapshots' (before=version, after=current) args.
+        current_display: renderTypedValue(to, fieldType, ctx),
+        restored_display: renderTypedValue(from, fieldType, ctx),
+      };
+    });
+
+    return {
+      id: version.id,
+      created_at: version.createdAt,
+      actor_id: version.actorId,
+      preview,
+    };
+  }
+
+  /**
    * #31 (C2) — the per-record FIELD timeline: who changed what, from what, when.
    *
    * Sibling to listVersions() and deliberately separate: that one answers "what

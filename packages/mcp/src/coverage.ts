@@ -186,6 +186,11 @@ export const EXCLUDED: CoverageRule[] = [
     reason: 'Growth/referral attribution tied to a human account.',
   },
   {
+    match: 'GET /api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}',
+    reason:
+      "#39 — a single version's diff PREVIEW against the record's current values, built specifically for the web UI's confirm-before-restoring dialog. An agent has no equivalent need for a dry-run: get_history(kind:'versions') already lists every version id, get_history(kind:'fields') already gives readable before/after for the same data, and restore_version applies a restore directly — there is no \"show me before I confirm\" step in a tool call the way there is in a click. Mirroring this as a tool would be exactly the false parity coverage.ts's own docstring warns against.",
+  },
+  {
     match: '/api/v1/workspaces/{ws}/onboarding',
     reason: 'Derived state for the UI\'s Getting-Started checklist. `get_started` is the MCP equivalent and is written for a model rather than a widget.',
   },
