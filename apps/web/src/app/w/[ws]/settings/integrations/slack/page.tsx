@@ -6,7 +6,14 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CheckCircle2, MessageSquare, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — stable identity across renders. */
+const SLACK_METHOD_OPTIONS = [
+  { value: 'bot' as const, label: <>Bot token <span className="opacity-75">(recommended)</span></> },
+  { value: 'webhook' as const, label: <>Webhook URL <span className="opacity-75">(simpler)</span></> },
+];
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
@@ -171,38 +178,23 @@ export default function SlackIntegrationPage() {
       />
 
       {/* 1. Method choice first (progressive disclosure) */}
-      <div className="mb-4 inline-flex rounded-[var(--radius-control)] border border-border-default bg-card p-0.5">
-        <button
-          type="button"
-          onClick={() => {
-            setMethod('bot');
-            setMethodTouched(true);
-          }}
-          className={cn(
-            'rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[13px] font-medium transition-colors',
-            method === 'bot'
-              ? 'bg-primary text-[var(--text-on-dark)]'
-              : 'text-ink-secondary hover:bg-hover',
-          )}
-        >
-          Bot token <span className="opacity-75">(recommended)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMethod('webhook');
-            setMethodTouched(true);
-          }}
-          className={cn(
-            'rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[13px] font-medium transition-colors',
-            method === 'webhook'
-              ? 'bg-primary text-[var(--text-on-dark)]'
-              : 'text-ink-secondary hover:bg-hover',
-          )}
-        >
-          Webhook URL <span className="opacity-75">(simpler)</span>
-        </button>
-      </div>
+      {/* #738 — the `solid` variant: a louder selected state than the other
+          three groups, kept deliberately because this chooser IS the step.
+          `itemClassName` carries the font-medium that this site applied to
+          BOTH members, so the unselected label keeps its weight. */}
+      <Segmented
+        label="Slack connection method"
+        variant="solid"
+        size="default"
+        className="mb-4 bg-card"
+        itemClassName="font-medium"
+        value={method}
+        onChange={(m) => {
+          setMethod(m);
+          setMethodTouched(true);
+        }}
+        options={SLACK_METHOD_OPTIONS}
+      />
       <p className="mb-4 text-[13px] text-muted">
         {method === 'bot'
           ? 'A bot token can post to any channel — recommended if you want different automations posting to different channels.'

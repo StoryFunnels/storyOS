@@ -35,7 +35,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — stable identity across renders. */
+const NAME_MODE_OPTIONS = [
+  { value: 'freetext' as const, label: 'Free text' },
+  { value: 'computed' as const, label: 'Computed' },
+];
 import { OPTION_COLORS } from './cells';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { FormulaEditor } from './formula-editor';
@@ -737,28 +744,19 @@ function TitleNameConfig({
   return (
     <div className="flex flex-col gap-2">
       <Label>Name</Label>
-      <div className="inline-flex w-fit rounded-[var(--radius-control)] border border-border-default p-0.5">
-        {(
-          [
-            ['freetext', 'Free text'],
-            ['computed', 'Computed'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={cn(
-              'rounded px-2.5 py-1 text-[12px]',
-              mode === value ? 'bg-active font-medium text-ink' : 'text-muted hover:text-ink',
-            )}
-            onClick={() =>
-              onChange(value === 'computed' ? { name_mode: 'computed', source } : { name_mode: 'freetext' })
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* #738 — adopts the primitive's `sm` (px-2/py-0.5), which is 4px
+          shorter than the px-2.5/py-1 this site hand-rolled. Recorded as a
+          deliberate decision, not a silent round: `sm` is what the other two
+          subtle groups already use, and a third padding for one call site is
+          the drift this primitive exists to stop. */}
+      <Segmented
+        label="Name mode"
+        value={mode}
+        onChange={(value) =>
+          onChange(value === 'computed' ? { name_mode: 'computed', source } : { name_mode: 'freetext' })
+        }
+        options={NAME_MODE_OPTIONS}
+      />
       {mode === 'freetext' ? (
         <p className="text-[12px] text-faint">
           Each record’s name is typed in by hand — the classic editable title.

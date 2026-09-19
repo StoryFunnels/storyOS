@@ -17,7 +17,16 @@ import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-vie
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — hoisted so the array identity is stable across renders; Segmented
+   takes a readonly list, and a literal here would be a new array every time. */
+const CALENDAR_MODE_OPTIONS = [
+  { value: 'month' as const, label: 'month' },
+  { value: 'week' as const, label: 'week' },
+  { value: 'day' as const, label: 'day' },
+];
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode, andFilterNodes } from './filter-config';
@@ -233,21 +242,13 @@ export function CalendarView({
         </button>
         {/* #470 AC2 — persists with the VIEW (onPatch → config.calendar_mode),
             not per session, so reopening this view later shows the same mode. */}
-        <div className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default p-0.5">
-          {(['month', 'week', 'day'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onPatch?.({ calendar_mode: m })}
-              className={cn(
-                'rounded px-2 py-0.5 text-[12px] capitalize',
-                mode === m ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink',
-              )}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Calendar mode"
+          value={mode}
+          onChange={(m) => onPatch?.({ calendar_mode: m })}
+          options={CALENDAR_MODE_OPTIONS}
+          itemClassName="capitalize"
+        />
         {/* #471 AC3/AC4 — day/week-only settings; the month grid has no
             concept of a time increment or an hour window. */}
         {mode !== 'month' && (
