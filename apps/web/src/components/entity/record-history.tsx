@@ -311,8 +311,11 @@ export function RecordHistoryDialog({
               GET .../billing, which is admin-only — this dialog is not, so it
               states the POLICY rather than fetching a number most viewers of
               this dialog aren't allowed to read. Flagged on the ticket as a
-              real gap if the exact count matters enough for its own endpoint. */}
-          <p className="text-[11px] text-faint">
+              real gap if the exact count matters enough for its own endpoint.
+              PR #838 review: text-muted, not text-faint — this is informative
+              prose someone needs to actually read, not decoration (globals.css
+              reserves faint for decorative/non-text content). */}
+          <p className="text-[11px] text-muted">
             History is retained for a window set by your workspace's plan — older changes are pruned automatically.
           </p>
 
@@ -352,7 +355,10 @@ export function RecordHistoryDialog({
                   ))}
                 </div>
               )}
-              <p className="text-[12px] text-faint">
+              {/* PR #838 review: text-muted, not text-faint — a reassurance
+                  before a destructive-looking action is exactly the kind of
+                  prose the reader needs, not decoration. */}
+              <p className="text-[12px] text-muted">
                 Restoring is itself reversible — it saves the current state as a new version first.
               </p>
               <div className="flex justify-end gap-2">
