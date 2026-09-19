@@ -23,7 +23,14 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — stable identity across renders. */
+const ACTIONS_VIEW_OPTIONS = [
+  { value: 'list' as const, label: 'List' },
+  { value: 'canvas' as const, label: 'Canvas' },
+];
 
 interface Rule {
   id: string;
@@ -1000,28 +1007,16 @@ function RuleEditor({
               (declared once, above), not two edit paths: switching tabs never
               touches `actions`, so a rule opened and saved with no edits is
               byte-identical regardless of which view was last shown. */}
-          <div className="flex gap-1 rounded-[var(--radius-control)] border border-border-default p-0.5 text-[12px]">
-            <button
-              type="button"
-              className={cn(
-                'rounded px-2 py-0.5',
-                actionsView === 'list' ? 'bg-hover text-ink' : 'text-muted hover:text-ink',
-              )}
-              onClick={() => setActionsView('list')}
-            >
-              List
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'rounded px-2 py-0.5',
-                actionsView === 'canvas' ? 'bg-hover text-ink' : 'text-muted hover:text-ink',
-              )}
-              onClick={() => setActionsView('canvas')}
-            >
-              Canvas
-            </button>
-          </div>
+          {/* #738 — this site's selected tab was `bg-hover`, which read far
+              fainter than the `bg-active` the other subtle groups use. Not a
+              live bug (its unselected items had no hover background), but the
+              primitive adds one, so `bg-hover` would now collide with it. */}
+          <Segmented
+            label="Actions view"
+            value={actionsView}
+            onChange={setActionsView}
+            options={ACTIONS_VIEW_OPTIONS}
+          />
         </div>
         {actionsView === 'canvas' ? (
           <FlowDiagramEditor
