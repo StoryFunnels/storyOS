@@ -2590,6 +2590,12 @@ export class RecordsService {
           authorId: c.authorId,
           body: c.body,
           mentions: c.mentions,
+          // #734 — this copies an EXISTING comment's history, so its
+          // provenance is copied too, same as authorId above; it must not
+          // read as posted by whoever triggered the duplicate.
+          source: c.source,
+          agentId: c.agentId,
+          agentName: c.agentName,
         })),
       );
     }

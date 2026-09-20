@@ -2082,7 +2082,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List comments',
       description:
-        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author and timestamps.',
+        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author, timestamps, and #734\'s real `source` (human/agent/automation/mcp, plus agent_id/agent_name when source is "agent") — read this instead of hand-typing your own name into a comment body to establish provenance; null means the comment predates this field.',
       inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
     },
     handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
@@ -2090,7 +2090,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const db = await resolveDatabase(client, ws.id, database);
       const rec = await resolveRecordId(ws.id, db.id, record);
       const res = await unwrap<{
-        data: Array<{ id: string; body: unknown; author: { id: string; name: string }; edited_at: string | null; created_at: string }>;
+        data: Array<{
+          id: string;
+          body: unknown;
+          author: { id: string; name: string };
+          source: string | null;
+          agent_id: string | null;
+          agent_name: string | null;
+          edited_at: string | null;
+          created_at: string;
+        }>;
       }>(client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments', { params: { path: { ws: ws.id, db: db.id, rec } } }));
       return text({
         record: rec,
@@ -2099,6 +2108,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           text: commentToText(c.body),
           author: c.author.name,
           author_id: c.author.id,
+          source: c.source,
+          agent_id: c.agent_id,
+          agent_name: c.agent_name,
           created_at: c.created_at,
           edited_at: c.edited_at,
         })),

@@ -81,6 +81,11 @@ describe('#599 — duplicate() carries comments and attachments onto the copy', 
     // The source record's own comments must be untouched — copy, not move.
     const original = await inject(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/${recordId}/comments`);
     expect(original.json().data).toHaveLength(2);
+
+    // #734 — copied comments carry the ORIGINAL comment's provenance, not
+    // "posted by whoever duplicated the record" (same reasoning authorId
+    // preservation already documents above this code).
+    expect(comments.json().data.every((c: { source: string | null }) => c.source === 'human')).toBe(true);
   });
 
   it('a soft-deleted comment is NOT copied onto the duplicate', async () => {
