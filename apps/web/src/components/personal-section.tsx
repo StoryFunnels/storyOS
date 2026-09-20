@@ -14,6 +14,7 @@ import { VIEW_ICON } from '@/components/views/view-tab';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
@@ -138,8 +139,8 @@ function NewPersonalViewDialog({
         >
           <div className="flex flex-col gap-1.5">
             <Label>Database</Label>
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={databaseId}
               onChange={(e) => setDatabaseId(e.target.value)}
               autoFocus
@@ -156,7 +157,7 @@ function NewPersonalViewDialog({
                   ))}
                 </optgroup>
               ))}
-            </select>
+            </Select>
           </div>
           {databaseId && (
             <>

@@ -12,6 +12,7 @@ import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { FreeGuestTip } from '@/components/free-guest-tip';
 
@@ -162,15 +163,19 @@ function MembersPageContent() {
             <div className="flex flex-wrap items-center gap-2">
               {isAdmin ? (
                 <>
-                  <select
-                    className="h-7 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  {/* #717 — was a bespoke h-7 (not one of ui/select.tsx's own
+                      sizes); migrating to `sm` (h-8) rather than adding a new
+                      variant for one site. +4px tall, called out per #717's
+                      own AC rather than silently folded in. */}
+                  <Select
+                    size="sm"
                     value={member.role}
                     onChange={(e) => updateMember.mutate({ id: member.id, role: e.target.value })}
                   >
                     <option value="admin">Admin</option>
                     <option value="member">Member</option>
                     <option value="guest">Guest</option>
-                  </select>
+                  </Select>
                   <Button
                     variant="ghost"
                     size="sm"

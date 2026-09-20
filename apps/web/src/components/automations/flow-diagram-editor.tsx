@@ -6,6 +6,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
+import { Select } from '@/components/ui/select';
 import type { Field } from '@/components/table-view/use-table-data';
 import {
   ACTION_TYPE_GROUPS,
@@ -136,9 +137,10 @@ export function FlowDiagramEditor({
 
       <Connector />
       {addingAt ? (
-        <select
+        <Select
+          size="sm"
           autoFocus
-          className="h-8 w-64 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+          className="w-64"
           defaultValue=""
           onChange={(e) => e.target.value && addAction(e.target.value)}
           onBlur={() => setAddingAt(false)}
@@ -157,7 +159,7 @@ export function FlowDiagramEditor({
                 ))}
             </optgroup>
           ))}
-        </select>
+        </Select>
       ) : (
         <button
           type="button"

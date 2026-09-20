@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -349,8 +350,11 @@ function DelegateToAgentDialog({
               No enabled agents yet — create one in the Agents database, or enable an existing one.
             </p>
           ) : (
-            <select
-              className="h-8 rounded border border-border-default bg-card px-2 text-[13px] text-ink"
+            // #717 — was bare `rounded` (4px), the same token bypass #688
+            // called "almost certainly an oversight"; now the shared
+            // `--radius-control` token like every other migrated control.
+            <Select
+              size="sm"
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
               autoFocus
@@ -363,7 +367,7 @@ function DelegateToAgentDialog({
                   {a.title}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           <div className="flex justify-end gap-2">
             <DialogClose asChild>

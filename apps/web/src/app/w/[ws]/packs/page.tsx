@@ -20,6 +20,7 @@ import { useWorkspace } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { PackVisual, registryVertical } from '@/components/pack-visual';
 
 /**
@@ -274,8 +275,11 @@ function CollisionResolver({
                 </p>
               ) : (
                 <div className="flex items-center gap-2">
-                  <select
-                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[12px] text-ink"
+                  {/* #717 bonus — was 12px (a near-miss on the ticket's own
+                      grep, not the standard 13px shape); now `sm`'s text-body
+                      like every other migrated h-8 select. */}
+                  <Select
+                    size="sm"
                     value={resolution.action}
                     onChange={(e) =>
                       onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
@@ -284,7 +288,7 @@ function CollisionResolver({
                     <option value="reuse">Reuse the existing one</option>
                     <option value="rename">Install under a new name</option>
                     <option value="skip">Skip it</option>
-                  </select>
+                  </Select>
                   {resolution.action === 'rename' && (
                     <Input
                       className="h-8"

@@ -17,6 +17,7 @@ import { OptionChip } from '../table-view/cells';
 import { Avatar } from '@/components/ui/avatar';
 import { FileInput } from '@/components/ui/file-input';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field, SelectOption } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
@@ -554,15 +555,18 @@ function FormBuilder({
               <>
                 <div className="flex items-center gap-2">
                   <label className="text-muted">Who can submit</label>
-                  <select
-                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2"
+                  {/* #717 bonus — had no text-size class at all (a near-miss on
+                      the ticket's own grep); now `sm`'s text-body like every
+                      other migrated h-8 select. */}
+                  <Select
+                    size="sm"
                     value={access}
                     onChange={(e) => patchForm({ access: e.target.value as 'members' | 'link' | 'public' })}
                   >
                     <option value="members">Members only</option>
                     <option value="link">Anyone with the link</option>
                     <option value="public">Public</option>
-                  </select>
+                  </Select>
                 </div>
                 <CopyRow label="Link" value={link} onCopy={() => copy(link, 'Link')} />
                 <CopyRow label="Embed" value={embed} onCopy={() => copy(embed, 'Embed snippet')} />

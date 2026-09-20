@@ -5,6 +5,7 @@ import type { MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
@@ -433,8 +434,8 @@ export function TimelineView({
               <div className="mt-1 flex flex-col gap-2 text-left">
                 <label className="flex items-center justify-between gap-3 text-[13px] text-ink">
                   <span className="text-muted">Start date</span>
-                  <select
-                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  <Select
+                    size="sm"
                     value=""
                     onChange={(e) => e.target.value && onPatch({ start_date_field_id: e.target.value })}
                   >
@@ -442,7 +443,7 @@ export function TimelineView({
                     {dateFields.map((f) => (
                       <option key={f.id} value={f.id}>{f.displayName}</option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               </div>
             </>
