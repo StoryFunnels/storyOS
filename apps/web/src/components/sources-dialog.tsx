@@ -11,6 +11,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -636,8 +637,8 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
 
           <div className="flex flex-col gap-1.5">
             <Label>If both sides changed</Label>
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={editConflictPolicy}
               onChange={(e) => setEditConflictPolicy(e.target.value as SourceConflictPolicy)}
             >
@@ -647,7 +648,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   {p === 'newest_wins' && reason ? ` — ${reason}` : ''}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
         <div className="mt-4 flex justify-between gap-2">
@@ -674,8 +675,8 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
         <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
           <div className="flex flex-col gap-1.5">
             <Label>Provider</Label>
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={providerId}
               onChange={(e) => selectProvider(e.target.value)}
             >
@@ -700,7 +701,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   {calendarPresent.actionable ? '' : ` — ${calendarPresent.label}`}
                 </option>
               </optgroup>
-            </select>
+            </Select>
           </div>
 
           {/* #339 — selecting Calendar hands off to the dedicated integration
@@ -764,8 +765,8 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   No {provider?.connection_provider} connection yet — add one under Settings → Connections first.
                 </p>
               ) : (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={connectionId}
                   onChange={(e) => {
                     setConnectionId(e.target.value);
@@ -784,7 +785,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {c.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
             </div>
           )}
@@ -808,24 +809,19 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   // #341 — required channel picker (by name) instead of a raw,
                   // unreliable free-text id. Falls back to a free-text field
                   // only when the account's channels can't be listed.
+                  // #717 — the two disabled states below dropped their explicit
+                  // text-muted (the primitive's own disabled:opacity-50 dims
+                  // instead), called out per #717's own AC.
                   <>
                     <Label htmlFor="src-config-channel_id">Channel</Label>
                     {!connectionId ? (
-                      <select
-                        id="src-config-channel_id"
-                        disabled
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
-                      >
+                      <Select id="src-config-channel_id" size="sm" disabled>
                         <option>Choose a connection first…</option>
-                      </select>
+                      </Select>
                     ) : channels.isLoading ? (
-                      <select
-                        id="src-config-channel_id"
-                        disabled
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
-                      >
+                      <Select id="src-config-channel_id" size="sm" disabled>
                         <option>Loading your channels…</option>
-                      </select>
+                      </Select>
                     ) : channelFallback ? (
                       <>
                         <Input
@@ -842,9 +838,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         </p>
                       </>
                     ) : (
-                      <select
+                      <Select
                         id="src-config-channel_id"
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        size="sm"
                         value={config['channel_id'] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
                       >
@@ -854,7 +850,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                             {c.title}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     )}
                   </>
                 ) : spec.kind === 'boolean' ? (
@@ -943,8 +939,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-1.5">
               <Label>Schedule</Label>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  className="h-8 w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
+                  className="w-40"
                   value={recurrenceForm.kind}
                   onChange={(e) =>
                     setRecurrenceForm((prev) => ({ ...prev, kind: e.target.value as RecurrenceKind }))
@@ -955,12 +952,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {REPEAT_LABELS[k]}
                     </option>
                   ))}
-                </select>
+                </Select>
 
                 {recurrenceForm.kind === 'weekly' && (
-                  <select
+                  <Select
                     aria-label="Day of week"
-                    className="h-8 w-36 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    size="sm"
+                    className="w-36"
                     value={recurrenceForm.weekday}
                     onChange={(e) =>
                       setRecurrenceForm((prev) => ({ ...prev, weekday: Number(e.target.value) }))
@@ -971,7 +969,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         {label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
 
                 {(recurrenceForm.kind === 'daily' || recurrenceForm.kind === 'weekly') && (
@@ -1037,8 +1035,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       <p className="truncate text-[13px] font-medium text-ink">{item.label}</p>
                       <p className="truncate text-[11px] text-muted">{item.key}</p>
                     </div>
-                    <select
-                      className="h-8 w-56 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    <Select
+                      size="sm"
+                      className="w-56"
                       value={encodedDestination(item)}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1061,7 +1060,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         </optgroup>
                       )}
                       <option value="skip">Don&apos;t import</option>
-                    </select>
+                    </Select>
                   </div>
                 ))}
               </div>

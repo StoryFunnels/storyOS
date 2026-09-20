@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
@@ -697,8 +698,8 @@ function RuleEditor({
       <div className="flex flex-col gap-1.5">
         <Label>When</Label>
         <div className="flex flex-wrap gap-2">
-          <select
-            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+          <Select
+            size="sm"
             value={triggerType}
             onChange={(e) => setTriggerType(e.target.value)}
           >
@@ -707,7 +708,7 @@ function RuleEditor({
             <option value="record_linked">A record is linked/unlinked</option>
             <option value="schedule">On a schedule</option>
             <option value="webhook_received">A webhook is received</option>
-          </select>
+          </Select>
           {triggerType === 'record_linked' &&
             (relationFields.length === 0 ? (
               <p className="text-[12px] text-muted">
@@ -715,8 +716,8 @@ function RuleEditor({
               </p>
             ) : (
               <>
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={relationFieldId}
                   onChange={(e) => setRelationFieldId(e.target.value)}
                 >
@@ -725,21 +726,21 @@ function RuleEditor({
                       via "{f.displayName}"
                     </option>
                   ))}
-                </select>
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                </Select>
+                <Select
+                  size="sm"
                   value={linkDirection}
                   onChange={(e) => setLinkDirection(e.target.value as '' | 'link' | 'unlink')}
                 >
                   <option value="">linked or unlinked</option>
                   <option value="link">linked</option>
                   <option value="unlink">unlinked</option>
-                </select>
+                </Select>
               </>
             ))}
           {triggerType === 'record_updated' && (
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={triggerFieldId}
               onChange={(e) => setTriggerFieldId(e.target.value)}
             >
@@ -749,19 +750,19 @@ function RuleEditor({
                   only "{f.displayName}"
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           {triggerType === 'schedule' && (
             <>
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              <Select
+                size="sm"
                 value={every}
                 onChange={(e) => setEvery(e.target.value)}
               >
                 <option value="hour">every hour</option>
                 <option value="day">every day</option>
                 <option value="week">every week</option>
-              </select>
+              </Select>
               {every !== 'hour' && (
                 <Input
                   className="h-8 w-24"
@@ -905,8 +906,8 @@ function RuleEditor({
         <div className="flex flex-col gap-1.5">
           <Label>Only if (optional)</Label>
           <div className="flex flex-wrap gap-2">
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={conditionField}
               onChange={(e) => {
                 const next = e.target.value;
@@ -923,10 +924,10 @@ function RuleEditor({
                   {f.displayName}
                 </option>
               ))}
-            </select>
+            </Select>
             {selectedConditionField && (
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              <Select
+                size="sm"
                 value={conditionOp}
                 onChange={(e) => setConditionOp(e.target.value)}
               >
@@ -935,14 +936,14 @@ function RuleEditor({
                     {o.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {selectedConditionField &&
               currentOp &&
               currentOp.input !== 'none' &&
               (currentOp.input === 'options' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
@@ -960,10 +961,10 @@ function RuleEditor({
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : currentOp.input === 'relative' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue || 'next_7_days'}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
@@ -972,16 +973,16 @@ function RuleEditor({
                       {r.replaceAll('_', ' ')}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : currentOp.input === 'boolean' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue || 'true'}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
                   <option value="true">checked</option>
                   <option value="false">unchecked</option>
-                </select>
+                </Select>
               ) : (
                 <Input
                   type={

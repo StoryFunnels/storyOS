@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -831,17 +832,18 @@ function BillingSection() {
               }}
             >
               <p className="mb-2 text-[13px] font-medium text-ink">Change plan</p>
-              <select
+              <Select
+                size="sm"
                 value={plan}
                 onChange={(e) => setPlan(e.target.value as (typeof PLAN_IDS)[number])}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                className="mb-2 w-full"
               >
                 {PLAN_IDS.map((p) => (
                   <option key={p} value={p}>
                     {PLAN_LABEL[p]}
                   </option>
                 ))}
-              </select>
+              </Select>
               <Input
                 type="text"
                 required

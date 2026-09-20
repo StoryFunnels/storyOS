@@ -11,6 +11,7 @@ import { matchExistingField } from '@storyos/schemas';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 
@@ -143,9 +144,10 @@ function RelationMatchPicker({
   const target = useDatabase(ws, targetDatabaseId);
   const candidates = (target.data?.fields ?? []).filter((f) => MATCHABLE.has(f.type));
   return (
-    <select
+    <Select
       aria-label="Match on which field"
-      className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+      size="sm"
+      className="w-40 shrink-0"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
     >
@@ -159,7 +161,7 @@ function RelationMatchPicker({
             match on {f.displayName}
           </option>
         ))}
-    </select>
+    </Select>
   );
 }
 
@@ -360,9 +362,9 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
             <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px]">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-ink-secondary">Match existing records by</span>
-                <select
+                <Select
                   aria-label="Key column"
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  size="sm"
                   value={upsertColumn}
                   onChange={(e) => setUpsertColumn(e.target.value)}
                 >
@@ -372,13 +374,13 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       {c.column}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {upsertColumn && (
                   <>
                     <span className="text-ink-secondary">against</span>
-                    <select
+                    <Select
                       aria-label="Match on which field"
-                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      size="sm"
                       value={upsertMatchField ?? ''}
                       onChange={(e) => setUpsertMatchField(e.target.value || undefined)}
                     >
@@ -390,7 +392,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                             {f.displayName}
                           </option>
                         ))}
-                    </select>
+                    </Select>
                   </>
                 )}
               </div>
@@ -398,26 +400,26 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                 <>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-ink-secondary">If a row matches:</span>
-                    <select
+                    <Select
                       aria-label="If a row matches"
-                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      size="sm"
                       value={onMatch}
                       onChange={(e) => setOnMatch(e.target.value as Upsert['on_match'])}
                     >
                       <option value="update">Update it</option>
                       <option value="skip">Skip it</option>
                       <option value="create">Create a new record anyway</option>
-                    </select>
+                    </Select>
                     <span className="text-ink-secondary">If it doesn&apos;t match:</span>
-                    <select
+                    <Select
                       aria-label="If a row doesn't match"
-                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      size="sm"
                       value={onNoMatch}
                       onChange={(e) => setOnNoMatch(e.target.value as Upsert['on_no_match'])}
                     >
                       <option value="create">Create it</option>
                       <option value="skip">Skip it</option>
-                    </select>
+                    </Select>
                   </div>
                   {/* #478 AC — the one place a user makes an irreversible choice;
                       the risk is stated here, not left in a docs page they may
@@ -518,8 +520,9 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         }}
                       />
                     )}
-                    <select
-                      className="h-8 w-56 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    <Select
+                      size="sm"
+                      className="w-56 shrink-0"
                       value={encoded}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -579,7 +582,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         </optgroup>
                       )}
                       <option value="skip">Don't import</option>
-                    </select>
+                    </Select>
                   </div>
                 );
               })}

@@ -10,6 +10,7 @@ import type { DatabaseSummary } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/select';
 
 interface FieldPlan {
   sourceKey: string;
@@ -212,8 +213,8 @@ export function CopyToDialog({
             {!result && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-[12px] font-medium text-ink-secondary">Copy into</label>
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={target}
                   onChange={(e) => {
                     setSkip(new Set());
@@ -234,7 +235,7 @@ export function CopyToDialog({
                       ))}
                     </optgroup>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
 

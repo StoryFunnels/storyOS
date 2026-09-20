@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/select';
 import { EntityPickerRow } from '@/components/entity/entity-picker-row';
 import { DbColorMarker, type LinkChip } from './relation-cell';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
@@ -211,8 +212,9 @@ export function ButtonActionsEditor({
           className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default p-2"
         >
           <div className="flex items-center gap-2">
-            <select
-              className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
+              className="flex-1"
               value={action.type}
               onChange={(e) =>
                 patch(
@@ -247,7 +249,7 @@ export function ButtonActionsEditor({
                     ))}
                 </optgroup>
               ))}
-            </select>
+            </Select>
             {/* #706 — the four delete buttons in this file KEEP faint: each
                 contains only a Trash2 icon, a non-text graphic judged at 3:1,
                 which faint clears. They also darken to text-error on hover. */}

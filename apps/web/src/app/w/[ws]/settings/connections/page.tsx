@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { cn } from '@/lib/utils';
@@ -872,16 +873,20 @@ function HttpConnectDialog({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="http-conn-style">Auth style</Label>
-            <select
+            {/* #717 — was h-9 with a mismatched text-[13px] (default's own
+                text-sm is 14px); migrating to `default` to match the h-9
+                Name field directly above rather than shrinking this one to
+                `sm`'s h-8, which would misalign the two fields' heights.
+                +1px text, called out per #717's own AC. */}
+            <Select
               id="http-conn-style"
-              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
               value={style}
               onChange={(e) => setStyle(e.target.value as HttpAuthStyle)}
             >
               <option value="bearer">Bearer token</option>
               <option value="basic">Basic (username/password)</option>
               <option value="headers">Custom header</option>
-            </select>
+            </Select>
           </div>
           {style === 'bearer' && (
             <div className="flex flex-col gap-1.5">
