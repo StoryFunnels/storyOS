@@ -10,6 +10,7 @@ import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import { ViewsService } from '../views/views.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { trackSampleRecords } from '../workspaces/sample-records';
 import { INTENTS, TEMPLATES } from './definitions';
 import type { TemplateFilterDef } from './types';
 
@@ -281,7 +282,7 @@ export class TemplatesService {
           }
         }
       }
-      await this.trackSamples(membership.workspaceId, sampleIds);
+      await trackSampleRecords(this.db, membership.workspaceId, sampleIds);
     }
 
     // #585 — one row per successful install, counted for the gallery's "N
@@ -299,17 +300,6 @@ export class TemplatesService {
       sample_records: sampleIds.length,
       notes,
     };
-  }
-
-  private async trackSamples(workspaceId: string, ids: string[]) {
-    if (ids.length === 0) return;
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    const existing = (settings.sample_record_ids as string[]) ?? [];
-    await this.db
-      .update(workspaces)
-      .set({ settings: { ...settings, sample_record_ids: [...existing, ...ids] } })
-      .where(eq(workspaces.id, workspaceId));
   }
 
   /** "Remove sample data" — deletes exactly the tracked records (F1). */
