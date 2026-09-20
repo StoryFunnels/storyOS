@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { useQueries, useQuery } from '@tanstack/react-query';
+import { Check, Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useDatabases, useHttpConnections } from '@/lib/queries';
@@ -9,6 +10,9 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { EntityPickerRow } from '@/components/entity/entity-picker-row';
+import { DbColorMarker, type LinkChip } from './relation-cell';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
@@ -167,6 +171,12 @@ export function ButtonActionsEditor({
   const mailConnections = useMailConnections(ws);
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+  // #729 — kept restrictive: the http_request capture-response editor below
+  // writes a raw captured scalar straight onto `target_field_id` with no typed
+  // value control at all (see CaptureRowsEditor), so a relation field (which
+  // needs an array of target ids, not a bare captured string) or a title stay
+  // out of THIS list. `settableForSet` below is the relaxed one for actually
+  // building a typed value through FieldValuesEditor.
   const settable = dbFields.filter(
     (f) =>
       !f.isSystem &&
@@ -182,6 +192,7 @@ export function ButtonActionsEditor({
         'created_by',
       ].includes(f.type),
   );
+  const settableForSet = settableFieldsForSetValues(dbFields);
   const userFields = dbFields.filter((f) => f.type === 'user');
   const relationFields = dbFields.filter((f) => f.type === 'relation');
   const payloadHint = restrictToWebhookSafe ? ' or {payload.path}' : '';
@@ -263,7 +274,8 @@ export function ButtonActionsEditor({
 
           {action.type === 'set_values' && (
             <FieldValuesEditor
-              settable={settable}
+              ws={ws}
+              settable={settableForSet}
               members={members}
               values={action.values}
               addLabel="＋ field to set…"
@@ -453,7 +465,7 @@ export function ButtonActionsEditor({
 }
 
 /** Sensible starting value when a field is added to a "set fields" action. */
-function initialSetValue(field: Field): unknown {
+export function initialSetValue(field: Field): unknown {
   switch (field.type) {
     case 'user':
       return '@me';
@@ -462,6 +474,7 @@ function initialSetValue(field: Field): unknown {
     case 'checkbox':
       return true;
     case 'multi_select':
+    case 'relation':
       return [];
     default:
       return '';
@@ -469,17 +482,41 @@ function initialSetValue(field: Field): unknown {
 }
 
 /**
+ * #729 — the field types an automation can SET a value on, shared by both
+ * `set_values` and `update_linked`. The backend (actions.service.ts) validates
+ * only that the key names a known field, nothing about its type, so this list
+ * exists purely to keep out field types with no meaningful "set" (computed
+ * lookup/rollup, system timestamps/actor, a button) or that need a value
+ * control this editor doesn't build (rich_text). `title` and `relation` used
+ * to be excluded too — over-broad: the API already accepts both, and
+ * SetValueEditor now has a real control for each (a plain text input for
+ * title, RelationSetValuePicker for relation).
+ */
+export function settableFieldsForSetValues(fields: Field[]): Field[] {
+  return fields.filter(
+    (f) =>
+      !f.isSystem &&
+      !['lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(
+        f.type,
+      ),
+  );
+}
+
+/**
  * Shared "set these fields to these values" editor, used by both `set_values` and
  * `update_linked`. The field selector comes first; each chosen field then gets a
- * typed value editor below it (MN-230) — never a raw option UUID.
+ * typed value editor below it (MN-230) — never a raw option UUID. `ws` is only
+ * used by the relation case's record picker.
  */
 function FieldValuesEditor({
+  ws,
   settable,
   members,
   values,
   addLabel,
   onChange,
 }: {
+  ws: string;
   settable: Field[];
   members: Member[];
   values: Record<string, unknown>;
@@ -511,6 +548,7 @@ function FieldValuesEditor({
           <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
             <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
             <SetValueEditor
+              ws={ws}
               field={field}
               members={members}
               value={value}
@@ -541,11 +579,13 @@ function FieldValuesEditor({
  * @now tokens stay reachable on user and date fields.
  */
 function SetValueEditor({
+  ws,
   field,
   members,
   value,
   onChange,
 }: {
+  ws: string;
   field: Field | undefined;
   members: Member[];
   value: unknown;
@@ -606,6 +646,17 @@ function SetValueEditor({
         </div>
       );
     }
+    case 'relation':
+      return field.relation ? (
+        <RelationSetValuePicker
+          ws={ws}
+          field={field}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <span className="flex-1 text-[11px] text-muted">Relation config missing</span>
+      );
     case 'user':
       return (
         <select
@@ -687,6 +738,185 @@ function DateValueEditor({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * #729 (AC2) — record picker for a relation "set field" value. Deliberately
+ * NOT RelationEditor (relation-cell.tsx): that component PUTs to a specific
+ * record's live links on every click, because it edits an actual cell. Here
+ * there is no record yet — this is automation CONFIG, a value that only gets
+ * applied whenever the automation later runs — so picking just updates local
+ * state via `onChange`, the same contract every other SetValueEditor case
+ * already has. Reuses the parts that aren't tied to a live write: the same
+ * record-picker search endpoint/query key RelationEditor uses, EntityPickerRow
+ * (#169) for result rows, and DbColorMarker for the target database's chip.
+ * Stored value is always `string[]` of record ids — the shape
+ * `RecordsService.planLinks` already accepts for every relation cardinality
+ * (single-valued sides just carry one element).
+ */
+function RelationSetValuePicker({
+  ws,
+  field,
+  value,
+  onChange,
+}: {
+  ws: string;
+  field: Field;
+  value: unknown;
+  onChange: (value: string[]) => void;
+}) {
+  const relation = field.relation!;
+  const single = relation.cardinality === 'one_to_many' && relation.side === 'a';
+  const targetDb = relation.target_database_id;
+  const ids = Array.isArray(value) ? (value as unknown[]).map((v) => String(v)) : [];
+
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const results = useQuery({
+    queryKey: ['record-picker', ws, targetDb, search],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDb }, query: { q: search || undefined, limit: 20 } },
+      });
+      if (error) throw error;
+      return (data as unknown as { data: LinkChip[] }).data;
+    },
+    enabled: open,
+  });
+
+  // Resolves titles for already-picked ids that aren't in the current search
+  // results (e.g. reopening a saved automation) — one GET per id, the same
+  // per-id-resolve shape `useWorkspaceFields` (agent-ref-cell.tsx) uses for a
+  // flat list of refs with no batch-lookup endpoint.
+  const resolved = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['record-picker-resolve', ws, targetDb, id],
+      queryFn: async () => {
+        const { data, error } = await api.GET(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}',
+          { params: { path: { ws, db: targetDb, rec: id } } },
+        );
+        if (error) throw error;
+        return data as unknown as LinkChip;
+      },
+      staleTime: 60_000,
+    })),
+  });
+  const byId = new Map<string, LinkChip>();
+  for (const row of results.data ?? []) byId.set(row.id, row);
+  for (const r of resolved) if (r.data) byId.set(r.data.id, r.data);
+  const chips: LinkChip[] = ids.map((id) => byId.get(id) ?? { id, title: '…' });
+
+  function toggle(row: LinkChip) {
+    if (single) {
+      onChange([row.id]);
+      setOpen(false);
+      setSearch('');
+      return;
+    }
+    onChange(ids.includes(row.id) ? ids.filter((x) => x !== row.id) : [...ids, row.id]);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-7 min-w-0 flex-1 flex-wrap items-center gap-1 truncate rounded border border-border-default bg-card px-1.5 text-left text-[12px] text-ink"
+      >
+        {chips.length === 0 ? (
+          <span className="text-muted">Choose {relation.target_database_name ?? 'record'}…</span>
+        ) : (
+          chips.map((chip) => (
+            <span key={chip.id} className="flex items-center gap-1 truncate">
+              <DbColorMarker color={relation.target_database_color} />
+              <span className="truncate">{chip.title || 'Untitled'}</span>
+            </span>
+          ))
+        )}
+      </button>
+      {/*
+       * #729 — a `Popover` here (this file's other pickers' pattern) silently
+       * never receives clicks: this editor is itself rendered inside the
+       * "Buttons & automations" modal Dialog, and Radix's modal Dialog sets
+       * `body { pointer-events: none }` while open, re-enabling only its own
+       * content branch. A Popover's portal is a plain sibling of that branch,
+       * not part of it, so every click on it passed straight through to
+       * whatever the dialog rendered underneath — confirmed live (the click
+       * landed on the dialog's own Cancel/Save row, not the picker). A nested
+       * `<Dialog>` doesn't have this problem: this codebase already nests one
+       * modal Dialog inside another for the same reason (record-history.tsx's
+       * restore-confirmation dialog over its own History dialog), and Radix
+       * Dialogs coordinate their pointer-events locks with each other
+       * correctly where a Dialog-inside-Popover-inside-Dialog chain does not.
+       */}
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setSearch('');
+        }}
+      >
+        {open && (
+          <DialogContent
+            title={`Choose ${relation.target_database_name ?? 'record'}`}
+            className="max-w-sm"
+          >
+            <input
+              autoFocus
+              placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
+              className="mb-2 w-full rounded border border-border-default bg-card px-2 py-1.5 text-[12px] text-ink outline-none placeholder:text-muted"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="max-h-56 overflow-y-auto">
+              {(results.data ?? []).map((row) => (
+                <EntityPickerRow
+                  key={row.id}
+                  icon={<DbColorMarker color={relation.target_database_color} />}
+                  title={row.title || 'Untitled'}
+                  idChip={row.number ?? null}
+                  onClick={() => toggle(row)}
+                  trailing={
+                    ids.includes(row.id) ? (
+                      <Check className="h-3.5 w-3.5 text-accent" />
+                    ) : undefined
+                  }
+                />
+              ))}
+              {results.data?.length === 0 && (
+                // PR #845 review: text-muted, not text-faint — this empty-state
+                // message is the only content shown at that moment and tells
+                // the user their search found nothing, not decoration.
+                <p className="px-2 py-1.5 text-[11px] text-muted">No matches</p>
+              )}
+            </div>
+            <div className="mt-2 flex justify-between border-t border-border-default pt-2">
+              {!single && ids.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-[12px] text-muted hover:text-ink"
+                  onClick={() => onChange([])}
+                >
+                  Clear
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                className="text-[12px] text-ink underline"
+                onClick={() => setOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
   );
 }
 
@@ -1149,21 +1379,7 @@ function UpdateLinkedEditor({
   const relField = relationFields.find((f) => f.id === action.relation_field_id);
   const targetDbId = relField?.relation?.target_database_id ?? '';
   const target = useDatabase(ws, targetDbId);
-  const settable = (target.data?.fields ?? []).filter(
-    (f) =>
-      !f.isSystem &&
-      ![
-        'title',
-        'relation',
-        'lookup',
-        'rollup',
-        'button',
-        'rich_text',
-        'created_at',
-        'updated_at',
-        'created_by',
-      ].includes(f.type),
-  );
+  const settable = settableFieldsForSetValues(target.data?.fields ?? []);
   if (relationFields.length === 0) {
     return (
       <p className="text-[12px] text-muted">This database has no relations to update through.</p>
@@ -1183,6 +1399,7 @@ function UpdateLinkedEditor({
         ))}
       </select>
       <FieldValuesEditor
+        ws={ws}
         settable={settable}
         members={members}
         values={action.values}
