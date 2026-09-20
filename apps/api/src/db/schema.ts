@@ -648,6 +648,19 @@ export const comments = pgTable(
     body: jsonb('body').notNull(),
     /** Extracted server-side from body, never trusted from the client (D4). */
     mentions: text('mentions').array().notNull().default([]),
+    /**
+     * #734 — WHO posted this comment: same vocabulary/columns
+     * activity_events.source/agent_id/agent_name already use (#481/#541),
+     * not a second shape. Deliberately NULLABLE with NO default, same
+     * reasoning as activity_events' own source column: every comment
+     * written before this shipped genuinely has no captured provenance, and
+     * a `NOT NULL DEFAULT 'human'` would retcon every historical agent/mcp
+     * comment into a false claim about a person. Null reads honestly as
+     * "not captured" and must never be treated as 'human'.
+     */
+    source: changeSource('source'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
     editedAt: timestamp('edited_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,

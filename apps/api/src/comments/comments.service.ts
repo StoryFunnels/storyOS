@@ -157,6 +157,12 @@ export class CommentsService {
           name: byId.get(c.authorId)?.name ?? '(deactivated)',
           image: byId.get(c.authorId)?.image ?? null,
         },
+        // #734 — real provenance (api_tokens.origin, via #481/#541's shared
+        // vocabulary), null for a comment posted before this shipped. No
+        // more hand-typing a name into the body to fake it.
+        source: c.source,
+        agent_id: c.agentId,
+        agent_name: c.agentName,
         edited_at: c.editedAt,
         created_at: c.createdAt,
       })),
@@ -169,13 +175,17 @@ export class CommentsService {
     body: CommentBody,
     authorId: string,
     source: ChangeSource = 'human',
+    // #734 — same optional trailing pair every other write path (records,
+    // documents) already accepts.
+    agentId?: string,
+    agentName?: string,
   ) {
     const { mentions } = await this.validateBody(workspaceId, body);
 
     const created = await this.db.transaction(async (tx) => {
       const [comment] = await tx
         .insert(comments)
-        .values({ recordId, authorId, body, mentions })
+        .values({ recordId, authorId, body, mentions, source, agentId, agentName })
         .returning();
       await tx.insert(activityEvents).values({
         workspaceId,
@@ -227,7 +237,14 @@ export class CommentsService {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
-    return { id: created.id, body: created.body, created_at: created.createdAt };
+    return {
+      id: created.id,
+      body: created.body,
+      source: created.source,
+      agent_id: created.agentId,
+      agent_name: created.agentName,
+      created_at: created.createdAt,
+    };
   }
 
   private async notifyMentions(

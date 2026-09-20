@@ -694,6 +694,13 @@
       "when": 1789623005013,
       "tag": "0098_foamy_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1789919585666,
+      "tag": "0099_illegal_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }

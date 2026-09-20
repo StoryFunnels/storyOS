@@ -95,6 +95,8 @@ export class CommentsController {
       body.body as CommentBody,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 

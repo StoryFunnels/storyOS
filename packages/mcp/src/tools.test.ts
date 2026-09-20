@@ -2546,7 +2546,7 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
     body?: Record<string, unknown>;
   }
 
-  function harness(opts?: { commentBody?: unknown }) {
+  function harness(opts?: { commentBody?: unknown; commentSource?: 'human' | 'agent' }) {
     const sent: Sent[] = [];
     const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
     const dbDetail = {
@@ -2591,6 +2591,9 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
                 id: 'cmt-1',
                 body: opts?.commentBody ?? [{ type: 'text', text: 'Shipped ' }, { type: 'mention', user_id: 'u-9' }],
                 author: { id: 'u-1', name: 'Ada' },
+                source: opts?.commentSource ?? 'human',
+                agent_id: opts?.commentSource === 'agent' ? 'agent-1' : null,
+                agent_name: opts?.commentSource === 'agent' ? 'Triage Bot' : null,
                 edited_at: null,
                 created_at: '2026-08-01T00:00:00Z',
               },
@@ -2713,6 +2716,16 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       });
       const out = await call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
       expect(out.comments[0].text).toContain('Looks good');
+    });
+
+    it('#734 — list_comments surfaces real source/agent_id/agent_name, not a body-text convention', async () => {
+      const human = harness({ commentSource: 'human' });
+      const humanOut = await human.call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(humanOut.comments[0]).toMatchObject({ source: 'human', agent_id: null, agent_name: null });
+
+      const agent = harness({ commentSource: 'agent' });
+      const agentOut = await agent.call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(agentOut.comments[0]).toMatchObject({ source: 'agent', agent_id: 'agent-1', agent_name: 'Triage Bot' });
     });
 
     it('get_history defaults to per-field changes and switches endpoint by kind', async () => {

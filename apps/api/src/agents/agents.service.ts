@@ -1422,6 +1422,7 @@ export class AgentsService implements OnModuleInit {
       membership.workspaceId,
       runsDb.id,
       run,
+      agentRecord.id,
       agentRecord.title,
       recordId,
       membership.userId,
@@ -1462,6 +1463,7 @@ export class AgentsService implements OnModuleInit {
     workspaceId: string,
     runsDbId: string,
     run: ProjectedRecord,
+    agentId: string,
     agentName: string,
     recordId: string,
     actorId: string,
@@ -1472,7 +1474,11 @@ export class AgentsService implements OnModuleInit {
       { type: 'text', text: `🤖 Delegated to ${agentName} — ${status}. ` },
       { type: 'record', record_id: run.id, database_id: runsDbId },
     ];
-    await this.comments.create(workspaceId, recordId, body, actorId, 'agent').catch(() => undefined);
+    // #734 — this comment IS the agent's own progress update; carrying its
+    // real id/name means the thread no longer needs the "🤖 Delegated to
+    // {name}" text prefix to establish who posted it (kept here anyway since
+    // rendering surfaces haven't caught up yet — see the ticket's AC2).
+    await this.comments.create(workspaceId, recordId, body, actorId, 'agent', agentId, agentName).catch(() => undefined);
   }
 
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
