@@ -887,7 +887,10 @@ function RelationSetValuePicker({
                 />
               ))}
               {results.data?.length === 0 && (
-                <p className="px-2 py-1.5 text-[11px] text-faint">No matches</p>
+                // PR #845 review: text-muted, not text-faint — this empty-state
+                // message is the only content shown at that moment and tells
+                // the user their search found nothing, not decoration.
+                <p className="px-2 py-1.5 text-[11px] text-muted">No matches</p>
               )}
             </div>
             <div className="mt-2 flex justify-between border-t border-border-default pt-2">
