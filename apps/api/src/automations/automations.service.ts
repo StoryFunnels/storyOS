@@ -232,7 +232,21 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     // Resolve write-only header presence flags against the stored actions so editing
     // an unrelated part of the rule can't clobber a secret webhook header (#249).
     const actions = patch.actions ? restoreActionHeaders(patch.actions, rule.actions) : undefined;
-    if (actions) await this.actions.validate(databaseId, workspaceId, actions, trigger.type, actorRole, source);
+    if (actions) {
+      await this.actions.validate(databaseId, workspaceId, actions, trigger.type, actorRole, source);
+    } else if (patch.enabled === true && !rule.enabled) {
+      // #455 — validate() already checks a send_email/http_request action's
+      // connection_id resolves to a real connection in this workspace, but
+      // ONLY ran when the patch itself replaced `actions`. A patch that only
+      // flips enabled (no actions change) skipped it entirely, so a rule
+      // whose connection was deleted WHILE it sat disabled could be silently
+      // re-enabled and fail only in the run log — exactly the gap flagged
+      // when this ticket first surfaced (packAutomationSchema.enabled
+      // defaults true and nothing re-checks connections at enable time).
+      // Re-validating the rule's OWN stored actions on every disabled→enabled
+      // transition closes it generally, not just for pack installs.
+      await this.actions.validate(databaseId, workspaceId, rule.actions as AutomationAction[], trigger.type, actorRole, source);
+    }
     const condition = patch.condition === undefined ? rule.condition : patch.condition;
     if (trigger.type === 'webhook_received' && condition) {
       throw new UnprocessableEntityException(
