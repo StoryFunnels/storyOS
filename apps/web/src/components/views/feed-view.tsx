@@ -141,7 +141,11 @@ export function FeedView({
                   })}
                 </div>
               )}
-              <div className="mt-3 border-t border-border-default pt-2 text-[11px] text-faint">
+              {/* #706 tail — MUTED, not faint. This line is the card's provenance: who
+                  wrote it and when. globals.css reserves faint for "genuinely
+                  decorative text"; a name and a date are prose. Measured on a white
+                  card: faint 3.44:1 (fails AA), muted 5.73:1 (passes). */}
+              <div className="mt-3 border-t border-border-default pt-2 text-[11px] text-muted">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {author && <Avatar userId={author} name={memberNames.get(author) ?? '?'} image={memberImages?.get(author)} size={16} />}
                   {author && <span>{memberNames.get(author) ?? 'Someone'}</span>}
@@ -184,7 +188,7 @@ export function FeedView({
                         e.stopPropagation();
                         openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
                       }}
-                      className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-faint hover:bg-hover hover:text-ink"
+                      className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-muted hover:bg-hover hover:text-ink"
                       title="Open"
                     >
                       <Maximize2 className="h-3 w-3" /> Open
@@ -241,7 +245,9 @@ function StatusAction({
         className="rounded-full px-1.5 py-0.5 hover:bg-hover"
         title={`Change ${field.displayName}`}
       >
-        {option ? <OptionChip option={option} /> : <span className="text-faint">{field.displayName}</span>}
+        {/* #706 tail — muted: this is the ONLY label on a button
+            (title={`Change ${field.displayName}`}), not a decorative placeholder. */}
+        {option ? <OptionChip option={option} /> : <span className="text-muted">{field.displayName}</span>}
       </button>
       {editing && (
         <CellEditor
@@ -320,6 +326,10 @@ function AssignAction({
         onClick={() => setEditing((v) => !v)}
         className={cn(
           'flex items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-hover',
+          // #706 tail — DELIBERATELY FAINT, do not "fix" this one. When nobody is
+          // assigned the button's entire content is a bare UserPlus icon with no
+          // text, so it is judged at 3:1 for non-text graphics, not 4.5:1. #665
+          // kept nine sites of exactly this shape for the same reason.
           ids.length === 0 && 'text-faint',
         )}
         title={`Assign ${field.displayName}`}
