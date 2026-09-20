@@ -28,6 +28,37 @@ export interface MyWorkSortSpec {
   direction: 'asc' | 'desc';
 }
 
+/** A collection-view filter clause — mirrors `MyWorkFilterCondition`'s flat
+ * field/op/value shape (#736): the embedded-collection builder is the same
+ * component/condition type as My Work's, not the recursive view FilterNode. */
+export interface CollectionViewFilterCondition {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
+/** A collection-view sort key — mirrors `MyWorkSortSpec`. */
+export interface CollectionViewSortSpec {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+/**
+ * Personal override for one embedded relation collection (#736) — mirrors
+ * apps/web's `CollectionView` (entity-field-utils.ts). Kept as its own type
+ * here rather than imported: apps/api has no dependency on apps/web, and this
+ * codebase's own precedent for a preferences sub-shape that mirrors a web-only
+ * type (see `MyWorkFilterCondition` above) is to duplicate the shape with a
+ * comment, not to invent a shared package for a UI-state type nothing else needs.
+ */
+export interface CollectionViewConfig {
+  filters?: { and: CollectionViewFilterCondition[] } | { or: CollectionViewFilterCondition[] };
+  sorts?: CollectionViewSortSpec[];
+  sorts_nulls?: 'first' | 'last';
+  color_by?: string;
+  fields?: string[];
+}
+
 /** Per-database My Work view config (MN-072 part 2), a ViewConfig subset. */
 export interface MyWorkDbConfig {
   group_by_field_id?: string;
@@ -75,6 +106,18 @@ export interface UserPreferences {
    */
   viewFilters: Record<string, FilterNode>;
   /**
+   * Personal embedded-collection view overrides (#736), keyed by the RELATION
+   * FIELD's id. An embedded collection (apps/web's collection-section.tsx)
+   * used to write its filter/sort/color-by/inline-columns straight onto the
+   * field's own shared `config.collection_view` — one viewer's filter became
+   * everyone's, permanently. This is the per-user layer instead, read in
+   * PREFERENCE to the field's own config (which stays as the shared DEFAULT
+   * everyone without a personal override still sees, so existing configs keep
+   * working unmigrated — #736 AC3). Managed by its own dedicated endpoint
+   * (fields/:field/personal-collection-view), same reason viewFilters is.
+   */
+  collectionFilters: Record<string, CollectionViewConfig>;
+  /**
    * GitHub identity for the Reviews sidebar (#43). There is no per-user GitHub
    * OAuth identity in this app (the App connect (#247) is workspace-level,
    * installation-based, with no user-context token) — the reviewer's own
@@ -104,6 +147,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
   viewFilters: {},
+  collectionFilters: {},
   github: { login: null },
   activation: { dismissedWorkspaces: [] },
 };
@@ -116,6 +160,7 @@ export function mergePreferences(stored: unknown): UserPreferences {
     regional?: Partial<UserPreferences['regional']>;
     myWork?: UserPreferences['myWork'];
     viewFilters?: UserPreferences['viewFilters'];
+    collectionFilters?: UserPreferences['collectionFilters'];
     github?: Partial<UserPreferences['github']>;
     activation?: Partial<UserPreferences['activation']>;
   };
@@ -124,6 +169,7 @@ export function mergePreferences(stored: unknown): UserPreferences {
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
     myWork: { ...(s.myWork ?? {}) },
     viewFilters: { ...(s.viewFilters ?? {}) },
+    collectionFilters: { ...(s.collectionFilters ?? {}) },
     github: { ...DEFAULT_PREFERENCES.github, ...(s.github ?? {}) },
     activation: {
       dismissedWorkspaces: [...(s.activation?.dismissedWorkspaces ?? [])],

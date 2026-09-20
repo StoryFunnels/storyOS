@@ -29,7 +29,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
-import { NOT_INLINE } from './entity-field-utils';
+import {
+  NOT_INLINE,
+  useClearCollectionViewOverride,
+  useCollectionViewOverride,
+  useSetCollectionViewOverride,
+} from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { FieldsMenu } from '@/components/views/fields-menu';
@@ -134,9 +139,20 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     },
     onError: () => toast.error('Could not create the record'),
   });
-  const cv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
+  // #736 — the field's own `config.collection_view` is the shared DEFAULT every
+  // viewer without a personal override still sees (never written to again by
+  // this component); a personal override, when set, takes priority for THIS
+  // viewer only. `overrideQuery.data` is `null` (loaded, no override) or
+  // `undefined` (still loading) — both fall through to the shared default
+  // rather than flashing an empty collection while the override loads.
+  const defaultCv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
+  const overrideQuery = useCollectionViewOverride(ws, db, field.id);
+  const hasPersonalOverride = Boolean(overrideQuery.data);
+  const cv = overrideQuery.data ?? defaultCv;
+  const setOverride = useSetCollectionViewOverride(ws, db);
+  const clearOverride = useClearCollectionViewOverride(ws, db);
   const setCv = (patch: Partial<CollectionView>) =>
-    setConfig.mutate({ fieldId: field.id, config: { collection_view: { ...cv, ...patch } } });
+    setOverride.mutate({ fieldId: field.id, config: { ...cv, ...patch } });
 
   const linked = useQuery({
     queryKey: ['collection', ws, targetDbId, rec, field.id, cv],
@@ -249,6 +265,30 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 setCv({ fields: arrayMove(columnApiNames, from, to) });
               }}
             />
+            {/*
+             * #736 AC2 — a personal override reads identically to the shared
+             * default otherwise (same filter chips, same sort/color/columns
+             * controls), so without this a viewer has no way to tell "this is
+             * what I set for myself" from "this is what everyone sees". Only
+             * shown once an override actually exists — the common case (no
+             * override, seeing the shared default) stays exactly as before.
+             */}
+            {hasPersonalOverride && (
+              <span
+                className="flex items-center gap-1 rounded-full border border-border-default bg-hover px-2 py-0.5 text-[11px] text-muted"
+                title="This view of the collection is set for you only — other members see the database's shared default."
+              >
+                Personal
+                <button
+                  type="button"
+                  className="underline hover:text-ink disabled:opacity-50"
+                  disabled={clearOverride.isPending}
+                  onClick={() => clearOverride.mutate(field.id)}
+                >
+                  Reset
+                </button>
+              </span>
+            )}
           </span>
         )}
       </div>
