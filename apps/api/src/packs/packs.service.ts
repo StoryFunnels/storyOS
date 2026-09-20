@@ -47,6 +47,7 @@ import { SkillsService } from '../skills/skills.service';
 import { ViewsService } from '../views/views.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { trackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
 import { deref, findRawUuids, refify } from './pack-refs';
 
@@ -1938,6 +1939,15 @@ export class PacksService {
     result: PackInstallResult,
   ): Promise<void> {
     if (manifest.sample_records.length === 0) return;
+    // #749 — every record THIS install actually creates below gets registered
+    // into workspace.settings.sample_record_ids (trackSampleRecords, shared
+    // with TemplatesService — one registry, not a second copy of it). A
+    // title-matched REUSE further down is deliberately excluded: it is either
+    // already tracked from whichever install created it, or a genuine
+    // pre-existing user record that happens to share a title — either way it
+    // was not seeded by this install, and identity here is the id this
+    // install itself produced, never the title match used to decide reuse.
+    const createdIds: string[] = [];
 
     // Titles read once per database, not once per record: the scan is the same
     // 200 rows every time, and a manifest may carry dozens of samples.
@@ -2008,7 +2018,9 @@ export class PacksService {
       );
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
+      createdIds.push(created.id);
     }
+    await trackSampleRecords(this.db, membership.workspaceId, createdIds);
   }
 
   /**
