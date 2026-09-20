@@ -31,7 +31,8 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
-import { useDatabase, useMembers, useReorderFields, useUpdateDatabaseIcon } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
+import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { fieldReorderMoves } from '@/lib/reorder';
@@ -48,7 +49,7 @@ function DatabasePageInner() {
   const database = useDatabase(ws, db);
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const schemaEditable = atLeast(database.data?.my_access, 'creator');
-  const updateIcon = useUpdateDatabaseIcon(ws, db);
+  const updateDatabase = useUpdateDatabase(ws, db);
 
   const viewId = searchParams.get('view');
   // #497 — the ontology diagram's edge deep-link: `?field={id}` opens that
@@ -69,6 +70,7 @@ function DatabasePageInner() {
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   // #527 — the view being published/managed, or null when the dialog is closed.
   const [sharingViewId, setSharingViewId] = useState<string | null>(null);
+  const [describing, setDescribing] = useState(false);
   const sharingView = views.find((v) => v.id === sharingViewId);
 
   // Drag-to-reorder the canonical field order from the "Hide fields" panel (#338)
@@ -128,7 +130,7 @@ function DatabasePageInner() {
                 <IconColorPicker
                   icon={database.data?.icon ?? null}
                   color={database.data?.color ?? null}
-                  onChange={(patch) => updateIcon.mutate(patch)}
+                  onChange={(patch) => updateDatabase.mutate(patch)}
                 />
               </DropdownMenuContent>
             </DropdownMenu>
@@ -208,11 +210,53 @@ function DatabasePageInner() {
         described. Absent means absent (#305: unconfigured is not invalid) — no
         placeholder, no empty line that reads as a rendering bug.
       */}
-      {database.data?.description && (
-        <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
-          {database.data.description}
-        </p>
-      )}
+      {database.data?.description &&
+        (schemaEditable ? (
+          /*
+            #731 — the banner is the obvious place to fix a wrong description and
+            was the one place you could not. The capability existed; only the
+            sidebar's ⋯ menu could reach it, which is not where anyone looks when
+            they are staring at the sentence itself.
+
+            GATED ON `schemaEditable`, NOT `readOnly`. The PATCH behind this
+            requires `creator` on the database; `readOnly` tests for `editor`,
+            a rung lower. Using it here would offer click-to-edit to someone the
+            API then refuses — which is the very defect this ticket is about, in
+            a new place (see also #725: a control shown where it does nothing).
+
+            The sidebar menu item stays exactly as it is: when a database has NO
+            description there is no banner to click, so the menu remains the only
+            way to ADD one.
+          */
+          <Dialog open={describing} onOpenChange={setDescribing}>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                title="Edit description"
+                className="shrink-0 cursor-pointer border-b border-border-default px-3 py-1.5 text-left text-[12px] text-muted hover:bg-hover hover:text-ink"
+              >
+                {database.data.description}
+              </button>
+            </DialogTrigger>
+            {describing && (
+              <DescriptionDialogContent
+                name={database.data.name}
+                noun="database"
+                initial={database.data.description}
+                onSave={(description) => {
+                  updateDatabase.mutate({ description });
+                  setDescribing(false);
+                }}
+              />
+            )}
+          </Dialog>
+        ) : (
+          /* Without `creator` this is exactly what it was: a read-only line.
+             No hover, no cursor, nothing implying an edit that would be refused. */
+          <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+            {database.data.description}
+          </p>
+        ))}
 
       {/*
         #424 — the toolbar is the highest-risk widget on this route: it renders
