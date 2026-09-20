@@ -747,6 +747,25 @@ export interface paths {
         patch: operations["FieldsController_updateOption"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My personal view override for this embedded collection */
+        get: operations["PersonalCollectionViewController_get"];
+        /** Set (or replace) my personal view override for this embedded collection */
+        put: operations["PersonalCollectionViewController_set"];
+        post?: never;
+        /** Clear my personal override for this embedded collection (falls back to the shared default) */
+        delete: operations["PersonalCollectionViewController_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records": {
         parameters: {
             query?: never;
@@ -4509,6 +4528,30 @@ export interface components {
             /** Format: uuid */
             reassign_to?: string;
         };
+        SetCollectionViewDto: {
+            filters?: {
+                and: {
+                    field: string;
+                    op: string;
+                    value?: unknown;
+                }[];
+            } | {
+                or: {
+                    field: string;
+                    op: string;
+                    value?: unknown;
+                }[];
+            };
+            sorts?: {
+                field: string;
+                /** @enum {string} */
+                direction: "asc" | "desc";
+            }[];
+            /** @enum {string} */
+            sorts_nulls?: "first" | "last";
+            color_by?: string;
+            fields?: string[];
+        };
         CreateRecordDto: {
             /** @default {} */
             values: {
@@ -7287,6 +7330,70 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateOptionDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalCollectionViewController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalCollectionViewController_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCollectionViewDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalCollectionViewController_clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

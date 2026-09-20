@@ -1597,6 +1597,123 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view": {
+      "get": {
+        "operationId": "PersonalCollectionViewController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My personal view override for this embedded collection",
+        "tags": [
+          "fields"
+        ]
+      },
+      "put": {
+        "operationId": "PersonalCollectionViewController_set",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCollectionViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set (or replace) my personal view override for this embedded collection",
+        "tags": [
+          "fields"
+        ]
+      },
+      "delete": {
+        "operationId": "PersonalCollectionViewController_clear",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clear my personal override for this embedded collection (falls back to the shared default)",
+        "tags": [
+          "fields"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records": {
       "get": {
         "operationId": "RecordsController_list",
@@ -10815,6 +10932,108 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        }
+      },
+      "SetCollectionViewDto": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "string"
+                        },
+                        "value": {}
+                      },
+                      "required": [
+                        "field",
+                        "op"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "and"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "string"
+                        },
+                        "value": {}
+                      },
+                      "required": [
+                        "field",
+                        "op"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "or"
+                ]
+              }
+            ]
+          },
+          "sorts": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "direction"
+              ]
+            }
+          },
+          "sorts_nulls": {
+            "type": "string",
+            "enum": [
+              "first",
+              "last"
+            ]
+          },
+          "color_by": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

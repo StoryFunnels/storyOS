@@ -644,6 +644,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_personal_views: 'read',
   get_personal_filter: 'read',
   set_personal_filter: 'write',
+  get_personal_collection_filter: 'read',
+  set_personal_collection_filter: 'write',
   duplicate_view: 'admin',
   set_default_view: 'admin',
   // #293 — publish_view turns a personal view into a shared one, so it sits at
@@ -6115,6 +6117,86 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           }),
         );
         return text({ view: v.name, personal_filter: mapped, visible_to: 'you only' });
+      },
+    ),
+  );
+
+  reg(
+    'get_personal_collection_filter',
+    {
+      title: 'Get my personal filter on an embedded collection',
+      description:
+        "The extra filter the CALLING identity has layered on a record page's embedded relation collection (the linked-records list under a relation field), on top of what everyone else sees, or null if none. Same shape as get_personal_filter but for a field's collection widget rather than a saved view — worth checking when a person says a linked-records list looks wrong: a personal filter here is invisible to teammates by design.",
+      inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
+    },
+    handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+      const res = await unwrap<{ config: Record<string, unknown> | null }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+        }),
+      );
+      return text({ field: detail.fields.find((f) => f.id === fieldId)?.displayName, personal_filter: res.config?.['filters'] ?? null, visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'set_personal_collection_filter',
+    {
+      title: 'Set my personal filter on an embedded collection',
+      description:
+        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — same all-or-nothing reset the "Reset" button in the UI does). ' +
+        "It writes for the identity this token belongs to and cannot filter anyone else's screen. Filter syntax is identical to query_records, applied against the collection's TARGET database (the one the relation links to), not this one. " +
+        'Only the filter is settable here — sort order, color-by, and inline columns are display preferences with no query semantics, not exposed to agents individually.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string(),
+        filter: z.record(z.string(), z.unknown()).optional().describe('A query_records-style filter, evaluated against the TARGET database. Omit with clear:true.'),
+        clear: z.boolean().optional().describe('Remove your entire personal override for this collection (filter, sort, color, columns).'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; filter?: Record<string, unknown>; clear?: boolean }>(
+      async ({ workspace, database, field, filter, clear }) => {
+        if (!clear && !filter) throw new Error('Pass a `filter`, or clear: true to remove the personal filter.');
+        if (clear && filter) throw new Error('Pass either `filter` or clear: true, not both.');
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+        const relField = detail.fields.find((f) => f.id === fieldId);
+        const path = { ws: ws.id, db: db.id, field: fieldId };
+        if (clear) {
+          await unwrap(
+            client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+              params: { path } as never,
+            }),
+          );
+          return text({ field: relField?.displayName, personal_filter: null });
+        }
+        const targetDbId = relField?.relation?.target_database_id;
+        if (!targetDbId) throw new Error(`Field "${field}" has no relation target.`);
+        // Preserve any existing personal sort/color/column choices — this tool
+        // only ever REPLACES `filters`, same narrow scope as the view-level tool.
+        const current = await unwrap<{ config: Record<string, unknown> | null }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+            params: { path } as never,
+          }),
+        );
+        // Mapped against the TARGET database's schema (option labels → ids) —
+        // the collection's rows and fields live there, not on this database.
+        const targetDetail = await getDetail(ws.id, targetDbId);
+        const mapped = mapFilterValues(targetDetail, filter);
+        await unwrap(
+          client.PUT('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+            params: { path } as never,
+            body: { ...(current.config ?? {}), filters: mapped } as never,
+          }),
+        );
+        return text({ field: relField?.displayName, personal_filter: mapped, visible_to: 'you only' });
       },
     ),
   );

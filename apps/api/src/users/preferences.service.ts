@@ -6,7 +6,12 @@ import type { Db } from '../db/client';
 import { fields, userPreferences, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { assertFilterFieldsLive, cleanFilterNode } from '../views/views.service';
-import { DEFAULT_PREFERENCES, mergePreferences, type UserPreferences } from './preferences.constants';
+import {
+  DEFAULT_PREFERENCES,
+  mergePreferences,
+  type CollectionViewConfig,
+  type UserPreferences,
+} from './preferences.constants';
 
 /** Read/write the per-user preferences blob (#30/#31). */
 @Injectable()
@@ -41,6 +46,11 @@ export class PreferencesService {
       // unchanged so an unrelated patch (e.g. a notification toggle) can never
       // silently wipe a personal filter override.
       viewFilters: current.viewFilters,
+      // collectionFilters (#736) is never part of this generic patch either, for
+      // the same reason viewFilters isn't — it's managed by the dedicated
+      // fields/:field/personal-collection-view endpoint, which gets the field
+      // existence/type check that lives there.
+      collectionFilters: current.collectionFilters,
     };
     await this.db
       .insert(userPreferences)
@@ -127,6 +137,79 @@ export class PreferencesService {
     const rest = { ...current.viewFilters };
     delete rest[viewId];
     const next: UserPreferences = { ...current, viewFilters: rest };
+    await this.db
+      .insert(userPreferences)
+      .values({ userId, preferences: next, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: { preferences: next, updatedAt: new Date() },
+      });
+  }
+
+  /** The relation field row scoped to its database — 404 if missing/mismatched/wrong
+   * type, same "existence guard" shape `liveView` gives view-scoped endpoints. Only
+   * relation fields have an embedded collection to override. */
+  private async liveRelationField(databaseId: string, fieldId: string) {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fields.id, fieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    if (!field || field.type !== 'relation') throw new NotFoundException('Relation field not found');
+    return field;
+  }
+
+  /**
+   * Personal collection-view override for one embedded relation (#736): narrows/
+   * sorts/colors the shared collection's results for THIS user only. Unlike
+   * `getViewFilter`, this is NOT cleaned of dead field refs at read time — the
+   * collection query it feeds already degrades a stale field reference safely
+   * rather than crashing (#305's rule, applied in collection-section.tsx the same
+   * way a saved view's own filters are), so there is no separate cleanup to do
+   * here that the read path doesn't already cover.
+   */
+  async getCollectionView(
+    userId: string,
+    databaseId: string,
+    fieldId: string,
+  ): Promise<CollectionViewConfig | undefined> {
+    await this.liveRelationField(databaseId, fieldId);
+    return (await this.get(userId)).collectionFilters[fieldId];
+  }
+
+  /** Validates the field exists on this database and is a relation, then upserts
+   * the override — the client always sends the full config for the field it's
+   * patching, mirroring `setViewFilter`'s whole-value replace. */
+  async setCollectionView(
+    userId: string,
+    databaseId: string,
+    fieldId: string,
+    config: CollectionViewConfig,
+  ): Promise<CollectionViewConfig> {
+    await this.liveRelationField(databaseId, fieldId);
+    const current = await this.get(userId);
+    const next: UserPreferences = {
+      ...current,
+      collectionFilters: { ...current.collectionFilters, [fieldId]: config },
+    };
+    await this.db
+      .insert(userPreferences)
+      .values({ userId, preferences: next, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: { preferences: next, updatedAt: new Date() },
+      });
+    return next.collectionFilters[fieldId]!;
+  }
+
+  /** Clears this user's override for one embedded collection, falling back to the
+   * field's own shared `config.collection_view` default. Idempotent, same as
+   * `clearViewFilter` — a second clear, or clearing one never set, is a no-op. */
+  async clearCollectionView(userId: string, databaseId: string, fieldId: string): Promise<void> {
+    await this.liveRelationField(databaseId, fieldId);
+    const current = await this.get(userId);
+    if (!(fieldId in current.collectionFilters)) return;
+    const rest = { ...current.collectionFilters };
+    delete rest[fieldId];
+    const next: UserPreferences = { ...current, collectionFilters: rest };
     await this.db
       .insert(userPreferences)
       .values({ userId, preferences: next, updatedAt: new Date() })

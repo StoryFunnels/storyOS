@@ -1,3 +1,8 @@
+'use client';
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import type { FilterCondition, NullsPlacement, SortSpec } from '@/components/views/use-view-state';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 
@@ -133,4 +138,64 @@ export interface CollectionView {
   color_by?: string; // target select field api_name
   /** Target-field api_names shown inline as columns per linked record (MN-206). */
   fields?: string[];
+}
+
+/**
+ * #736 — the current viewer's personal override for one embedded relation
+ * collection, mirroring `usePersonalFilter` (#259/use-view-state.ts) exactly:
+ * `null` means "no override" (the COMMON case), never `undefined` — react-query
+ * rejects an undefined queryFn result outright, so the endpoint answers
+ * `{"config": null}` and this hands that back as `null`, not the field's own
+ * shared default (collection-section.tsx layers the default in itself).
+ */
+export function useCollectionViewOverride(ws: string, db: string, fieldId: string | undefined) {
+  return useQuery({
+    queryKey: ['collection-view-override', ws, db, fieldId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view',
+        { params: { path: { ws, db, field: fieldId! } } },
+      );
+      if (error) throw error;
+      return (data as unknown as { config: CollectionView | null }).config ?? null;
+    },
+    enabled: Boolean(fieldId),
+  });
+}
+
+/** Sets (or replaces) the current viewer's personal override for one embedded
+ * collection — never writes to the field's own shared config. */
+export function useSetCollectionViewOverride(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ fieldId, config }: { fieldId: string; config: CollectionView }) => {
+      const { data, error } = await api.PUT(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view',
+        { params: { path: { ws, db, field: fieldId } }, body: config as never },
+      );
+      if (error) throw error;
+      return (data as unknown as { config: CollectionView | null }).config ?? null;
+    },
+    onSuccess: (config, { fieldId }) =>
+      qc.setQueryData(['collection-view-override', ws, db, fieldId], config),
+    onError: () => toast.error('Could not save your personal filter'),
+  });
+}
+
+/** Clears the current viewer's personal override for one embedded collection,
+ * falling back to the field's own shared default. */
+export function useClearCollectionViewOverride(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (fieldId: string) => {
+      const { error } = await api.DELETE(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view',
+        { params: { path: { ws, db, field: fieldId } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_void, fieldId) =>
+      qc.setQueryData(['collection-view-override', ws, db, fieldId], null),
+    onError: () => toast.error('Could not clear your personal filter'),
+  });
 }
