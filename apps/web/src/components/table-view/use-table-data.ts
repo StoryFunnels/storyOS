@@ -129,10 +129,24 @@ export function useUpdateDescriptionPlacement(ws: string, db: string) {
   });
 }
 
-export function useUpdateDatabaseIcon(ws: string, db: string) {
+/**
+ * PATCH a database's own presentation — icon, colour, description. ONE hook for
+ * one endpoint, deliberately: this was `useUpdateDatabaseIcon` until #731 needed
+ * the description too, and the cheap move would have been a second hook against
+ * the same PATCH with its own cache-merge. That is how `config.share` and
+ * `config.form` drifted (#713), and how the MCP grew its own copy of form config
+ * (#718). One endpoint, one hook, one merge.
+ *
+ * NOTE THE ACCESS LEVEL: the server requires `creator` on the database for this
+ * PATCH (`databases.controller.ts` → `assertAccess(..., 'creator')`), which is a
+ * rung ABOVE the `editor` that the page's own `readOnly` flag tests. A caller
+ * gating an affordance on `readOnly` would offer this to an editor and have the
+ * API refuse — gate on `schemaEditable`/`atLeast(my_access, 'creator')` instead.
+ */
+export function useUpdateDatabase(ws: string, db: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: { icon?: string | null; color?: string | null }) => {
+    mutationFn: async (patch: { icon?: string | null; color?: string | null; description?: string | null }) => {
       const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
         params: { path: { ws, db } },
         body: patch,
@@ -142,7 +156,7 @@ export function useUpdateDatabaseIcon(ws: string, db: string) {
     },
     onSuccess: (data) => {
       qc.setQueryData(['database', ws, db], (prev: DatabaseDetail | undefined) =>
-        prev ? { ...prev, icon: data.icon, color: data.color } : prev,
+        prev ? { ...prev, icon: data.icon, color: data.color, description: data.description } : prev,
       );
       void qc.invalidateQueries({ queryKey: ['databases', ws] });
     },
