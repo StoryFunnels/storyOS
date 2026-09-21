@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
+import { Textarea } from '@/components/ui/textarea';
 import { RelationChips } from './relation-cell';
 import { chipVariants } from '@/components/ui/chip';
 import type { LinkChip } from './relation-cell';
@@ -597,7 +598,20 @@ export function CellEditor({ ws, db, rec, field, value, members, onCommit, onTog
         return <ComputedTitleNotice value={value == null ? '' : String(value)} onCancel={onCancel} />;
       }
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
+    // #758 — the multiline setting already exists on `text` fields; this is
+    // the read side. url/email are never multiline — the config key only
+    // applies to `text`, so they always keep the single-line editor.
     case 'text':
+      if (field.config['multiline'] === true) {
+        return (
+          <MultilineTextEditor
+            initial={value == null ? '' : String(value)}
+            onCommit={(v) => onCommit(v === '' ? null : v)}
+            onCancel={onCancel}
+          />
+        );
+      }
+      return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
     case 'url':
     case 'email':
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
@@ -736,6 +750,59 @@ function TextEditor({
         e.stopPropagation();
       }}
     />
+  );
+}
+
+/**
+ * #758 — multiline `text` fields need real room to type in, which a 32px-tall
+ * virtualized grid row (table-view.tsx's ROW_HEIGHT) can't give an inline
+ * child without breaking every other row's position. Same fix the table
+ * already uses for this exact shape of problem (RelationEditor, ColorEditor
+ * above): grow via a `Popover` anchored to the cell's own `relative` wrapper
+ * (`PopoverParentAnchor`) instead of the row itself, so the editor overlays
+ * rather than resizing. Unlike `TextEditor`, Enter inserts a newline — the
+ * whole point of the control — so committing needs its own key.
+ */
+function MultilineTextEditor({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [val, setVal] = useState(initial);
+  const committed = useRef(false);
+  const commit = () => {
+    committed.current = true;
+    onCommit(val.trim());
+  };
+  return (
+    <Popover open onOpenChange={(open) => !open && onCancel()}>
+      <PopoverParentAnchor />
+      <PopoverContent className="w-80 p-1" onClick={(e) => e.stopPropagation()}>
+        <Textarea
+          autoFocus
+          size="default"
+          className="w-full"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onBlur={() => {
+            if (!committed.current) onCommit(val.trim());
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit();
+            if (e.key === 'Escape') {
+              committed.current = true;
+              onCancel();
+            }
+            e.stopPropagation();
+          }}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
