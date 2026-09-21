@@ -14,7 +14,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
-import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
 import { Segmented } from '@/components/ui/segmented';
@@ -59,6 +59,13 @@ export function CalendarView({
   const database = useDatabase(ws, db);
   const router = useRouter();
   const dateField = database.data?.fields.find((f) => f.id === config.date_field_id);
+  // #753 — created_at/updated_at pass the toolbar's date-field picker (MN-150:
+  // usable anywhere a date is) but are system-managed and read_only server-side.
+  // `writable` is the single source both the drag guard and every create
+  // affordance check, so a date-driven calendar can't offer one without the
+  // other agreeing.
+  const dateIsSystemDate = dateField ? isSystemDate(dateField.type) : false;
+  const writable = !readOnly && !dateIsSystemDate;
   // #470 — an optional SECOND date field giving a day/week event real height.
   // Unset (the default, and every calendar saved before this ticket) falls
   // back to a fixed display duration — see calendar-time-grid-layout.ts.
@@ -146,17 +153,27 @@ export function CalendarView({
     return map;
   }, [rows, dateField]);
 
-  const undatedCount = useMemo(() => {
-    if (!dateField) return 0;
-    return 0; // window query excludes undated by definition; counted via a hint link instead
-  }, [dateField]);
+  // #753 — the window query excludes undated records BY CONSTRUCTION (they have
+  // no date to fall inside the visible range), so counting the loaded rows can
+  // only ever report 0. Server-computed via the aggregate endpoint instead
+  // (ADR-0016's "counting must not be done by fetching" applies here exactly as
+  // it does to Tyron), scoped by the SAME filters the calendar's own query
+  // applies so the number matches what "→ table" actually shows.
+  const undatedFilter = useMemo(() => {
+    if (!dateField) return undefined;
+    const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
+    const existing: unknown[] = active ? [active] : [];
+    return { and: [...existing, { field: dateField.apiName, op: 'is_empty' }] };
+  }, [dateField, config.filters, personalFilter]);
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(dateField));
+  const undatedCount = dateField ? (undatedCountQuery.data ?? 0) : 0;
 
   const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function onDragEnd(event: DragEndEvent) {
     lastDragEnd.current = Date.now();
-    if (!dateField || !event.over || readOnly || isSystemDate(dateField.type)) return;
+    if (!dateField || !event.over || !writable) return;
     const day = String(event.over.id).replace('day:', '');
     const rec = String(event.active.id);
     const row = rows.find((r) => r.id === rec);
@@ -183,11 +200,16 @@ export function CalendarView({
   }
 
   // Shared by both the month grid (desktop) and the agenda list (mobile, MN-230d)
-  // so "create on an empty day" behaves identically either way.
+  // so "create on an empty day" behaves identically either way. #753 — every
+  // caller (DayCell, AgendaList, CalendarTimeGrid) is itself gated on
+  // `writable`, so this is never reached on a system-date calendar; the old
+  // isSystemDate branch here (stamping "now" instead of the clicked day) is
+  // exactly the defect this ticket fixes, by making the affordance absent
+  // rather than silently wrong.
   function handleCreate(iso: string) {
-    if (readOnly || !dateField) return;
+    if (!writable || !dateField) return;
     createRecord.mutate(
-      isSystemDate(dateField.type) ? { name: 'Untitled' } : { name: 'Untitled', [dateField.apiName]: iso },
+      { name: 'Untitled', [dateField.apiName]: iso },
       { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
     );
   }
@@ -271,14 +293,28 @@ export function CalendarView({
             />
           </>
         )}
-        <Link
-          href={`/w/${ws}/d/${db}`}
-          className="ml-auto text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
-        >
-          Undated records → table
-        </Link>
-        {undatedCount > 0 && <span />}
+        {/* #753 — was rendered unconditionally with no count (undatedCount was a
+            literal `return 0`); now server-computed via the aggregate endpoint
+            and only shown when there's something to link to. */}
+        {undatedCount > 0 && (
+          <Link
+            href={`/w/${ws}/d/${db}`}
+            className="ml-auto text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+          >
+            {undatedCount} undated record{undatedCount === 1 ? '' : 's'} → table
+          </Link>
+        )}
       </div>
+
+      {/* #753 — said once, before a drag or create is ever attempted (not a
+          silent refusal). Only for a system-date field: these dates are
+          recorded, not chosen, so there is nothing to reschedule and no day
+          to create "into". */}
+      {dateIsSystemDate && (
+        <div className="border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+          {dateField.displayName} is recorded automatically and can&apos;t be edited — cards here are read-only.
+        </div>
+      )}
 
       {mode === 'month' ? (
         <>
@@ -307,12 +343,12 @@ export function CalendarView({
                     chipFields={chipFields}
                     colorField={colorField}
                     memberNames={memberNames}
-                    readOnly={readOnly}
+                    readOnly={!writable}
                     onOpen={(id) => {
                       if (Date.now() - lastDragEnd.current < 200) return;
                       router.push(`/w/${ws}/d/${db}/r/${id}`);
                     }}
-                    onCreate={() => handleCreate(iso)}
+                    onCreate={writable ? () => handleCreate(iso) : undefined}
                   />
                 );
               })}
@@ -326,7 +362,7 @@ export function CalendarView({
             chipFields={chipFields}
             colorField={colorField}
             memberNames={memberNames}
-            readOnly={readOnly}
+            readOnly={!writable}
             todayStr={todayStr}
             onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
             onCreate={handleCreate}
@@ -341,7 +377,7 @@ export function CalendarView({
           chipFields={chipFields}
           colorField={colorField}
           memberNames={memberNames}
-          readOnly={readOnly}
+          readOnly={!writable}
           incrementMinutes={config.calendar_increment_minutes}
           collapsedHours={config.calendar_collapsed_hours}
           onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
@@ -526,7 +562,9 @@ function DayCell({
   memberNames: Map<string, string>;
   readOnly: boolean;
   onOpen: (id: string) => void;
-  onCreate: () => void;
+  /** #753 — undefined (not a no-op function) when creating here isn't possible,
+      so the day cell offers no "new here" at all rather than an inert click. */
+  onCreate?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${iso}` });
   const [expanded, setExpanded] = useState(false);
@@ -541,7 +579,7 @@ function DayCell({
         isOver && 'bg-accent-soft',
       )}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCreate();
+        if (e.target === e.currentTarget) onCreate?.();
       }}
     >
       <span
