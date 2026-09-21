@@ -2546,7 +2546,12 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
     body?: Record<string, unknown>;
   }
 
-  function harness(opts?: { commentBody?: unknown; commentSource?: 'human' | 'agent' }) {
+  function harness(opts?: {
+    commentBody?: unknown;
+    commentSource?: 'human' | 'agent';
+    deleteResponse?: unknown;
+    batchDeleteResponse?: unknown;
+  }) {
     const sent: Sent[] = [];
     const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
     const dbDetail = {
@@ -2579,7 +2584,10 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/trash') {
         return { data: { data: [{ id: 'rec-gone', number: 42, title: 'Deleted one', deleted_at: '2026-08-01T00:00:00Z' }] } };
       }
-      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: live };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') {
+        if (method === 'DELETE' && opts?.deleteResponse) return { data: opts.deleteResponse };
+        return { data: live };
+      }
       if (path === '/api/v1/workspaces/{ws}/databases/{db}/records') {
         return { data: { data: [live], next_cursor: 'cur-2', has_more: true } };
       }
@@ -2610,7 +2618,7 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       if (path.endsWith('/watchers')) return { data: { watchers: [], watching: false } };
       if (path.endsWith('/duplicate')) return { data: { id: 'rec-copy', number: 8, title: 'Live one (copy)', values: {} } };
       if (path.endsWith('/batch-restore')) return { data: { restored: 2 } };
-      if (path.endsWith('/batch-delete')) return { data: { deleted: 2 } };
+      if (path.endsWith('/batch-delete')) return { data: opts?.batchDeleteResponse ?? { deleted: 2 } };
       return { data: {} };
     };
 
@@ -2664,6 +2672,29 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       const { call } = harness();
       const out = await call('delete_records', { workspace: 'Eng', database: 'Issues', records: ['a', 'b', 'c'] });
       expect(out).toMatchObject({ deleted: 2, requested: 3 });
+    });
+
+    it('#542 — delete_record reports a held gate honestly instead of claiming success', async () => {
+      // softDelete returns PendingApprovalResult (still a 200, not an error)
+      // when a workspace-declared gate holds the delete. Before this fix the
+      // handler reported `{ deleted: rec }` unconditionally, so an MCP-driven
+      // agent was told a held delete had happened.
+      const { call } = harness({
+        deleteResponse: { pending_approval: true, approval_id: 'appr-1', message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.' },
+      });
+      const out = await call('delete_record', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(out).toMatchObject({ deleted: false, pending_approval: true, approval_id: 'appr-1' });
+    });
+
+    it('#542 — delete_records reports a held gate for the whole batch, not a partial deleted count', async () => {
+      // batchDelete gates the WHOLE selection once, before any chunk runs —
+      // nothing was deleted, so `deleted: 0` (not the requested count) is the
+      // honest answer.
+      const { call } = harness({
+        batchDeleteResponse: { pending_approval: true, approval_id: 'appr-2', message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.' },
+      });
+      const out = await call('delete_records', { workspace: 'Eng', database: 'Issues', records: ['a', 'b', 'c'] });
+      expect(out).toMatchObject({ deleted: 0, requested: 3, pending_approval: true, approval_id: 'appr-2' });
     });
 
     it('duplicate_record returns the NEW record read back, not the raw create response', async () => {
