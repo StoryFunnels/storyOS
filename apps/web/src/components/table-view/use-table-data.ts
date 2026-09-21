@@ -276,7 +276,7 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
  * to Tyron's. Scoped by the SAME filter the view's own query uses, so the
  * number always matches what the grid is actually showing.
  */
-export function useRecordCount(ws: string, db: string, filter?: unknown) {
+export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
   return useQuery({
     queryKey: [...recordCountKey(ws, db), filter],
     queryFn: async () => {
@@ -287,7 +287,7 @@ export function useRecordCount(ws: string, db: string, filter?: unknown) {
       if (error) throw error;
       return (data as unknown as { value: number }).value;
     },
-    enabled: Boolean(ws && db),
+    enabled: Boolean(ws && db) && enabled,
   });
 }
 
