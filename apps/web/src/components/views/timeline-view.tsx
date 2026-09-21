@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Select } from '@/components/ui/select';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
+import { CellDisplay, fieldValue, isDateField, isSystemDate, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
@@ -195,6 +195,11 @@ export function TimelineView({
   const dateFields = useMemo(() => fields.filter((f) => isDateField(f)), [fields]);
   const startField = fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
   const endField = fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
+  // #757 — created_at/updated_at pass isDateField (MN-150: usable anywhere a date
+  // is) but are system-managed and read_only server-side. isSystemDate is the
+  // paired check; using isDateField alone to gate a WRITE (as opposed to display)
+  // is exactly the bug this ticket fixes.
+  const startIsSystemDate = startField ? isSystemDate(startField.type) : false;
   /* #227 — the optional baseline (planned) pair. Independent of the primary pair;
      dragging a bar rewrites only the primary dates, so the baseline stays put and
      the comparison remains meaningful. */
@@ -343,7 +348,7 @@ export function TimelineView({
     bar: { row: RecordRow; start: number; end: number },
     kind: DragKind,
   ) {
-    if (readOnly || !startField) return;
+    if (readOnly || !startField || startIsSystemDate) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const threshold = 3;
@@ -554,6 +559,15 @@ export function TimelineView({
         )}
       </div>
 
+      {/* #757 — said once, before a drag is ever attempted (not a silent refusal
+          like the calendar's #753). Only for a system-date start field: these
+          dates are recorded, not chosen, so there is nothing to reschedule. */}
+      {startIsSystemDate && (
+        <div className="border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+          {startField.displayName} is recorded automatically and can&apos;t be edited — bars here are read-only.
+        </div>
+      )}
+
       {/* Scrollable canvas: left panel (sticky) + axis, sharing one vertical scroll */}
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
         <div className="relative flex" style={{ minWidth: panelWidth + axisWidth }}>
@@ -734,9 +748,9 @@ export function TimelineView({
                   <div key={row.id} className="relative border-b border-border-default" style={{ height: ROW_H }}>
                     <button
                       onClick={handleClick}
-                      onPointerDown={(e) => startBarPointer(e, bar, 'move')}
+                      onPointerDown={startIsSystemDate ? undefined : (e) => startBarPointer(e, bar, 'move')}
                       title={(row.title || 'Untitled') + baselineOnlyTitle}
-                      className={cn('absolute rounded-[3px] shadow-sm hover:brightness-110', fromBaseline && 'opacity-70', !readOnly && 'cursor-grab active:cursor-grabbing')}
+                      className={cn('absolute rounded-[3px] shadow-sm hover:brightness-110', fromBaseline && 'opacity-70', !readOnly && !startIsSystemDate && 'cursor-grab active:cursor-grabbing')}
                       style={{
                         left: x + px / 2 - size / 2,
                         top: ROW_H / 2 - size / 2,
@@ -783,12 +797,12 @@ export function TimelineView({
                   )}
                   <button
                     onClick={handleClick}
-                    onPointerDown={(e) => startBarPointer(e, bar, 'move')}
+                    onPointerDown={startIsSystemDate ? undefined : (e) => startBarPointer(e, bar, 'move')}
                     title={(row.title || 'Untitled') + baselineOnlyTitle}
                     className={cn(
                       'absolute flex items-center overflow-hidden rounded-md text-left text-[11px] text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
                       fromBaseline && 'opacity-70',
-                      !readOnly && 'cursor-grab active:cursor-grabbing',
+                      !readOnly && !startIsSystemDate && 'cursor-grab active:cursor-grabbing',
                     )}
                     style={{ left: x, top: ROW_H / 2 - 11, width, height: 22, backgroundColor: color }}
                   >
@@ -808,7 +822,7 @@ export function TimelineView({
                       {slipText}
                     </span>
                   )}
-                  {!readOnly && endField && (
+                  {!readOnly && !startIsSystemDate && endField && (
                     <>
                       <span
                         onPointerDown={(e) => startBarPointer(e, bar, 'resize-start')}
