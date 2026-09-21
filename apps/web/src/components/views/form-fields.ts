@@ -22,12 +22,11 @@ export interface FormFieldCfg {
 
 /**
  * Field types a form (public or in-app) can render/accept — mirrors the API's
- * SUPPORTED set in apps/api/src/forms/forms.service.ts, minus `rich_text`.
- * `rich_text` is technically accepted server-side but neither the public form
- * renderer nor the old in-app builder ever produced a valid block-array value
- * for it (a plain-string submit 422s) — excluded here so the new sidebar never
- * offers a type that's a guaranteed dead end. Kept in one place so the sidebar
- * never offers a type the backend would silently drop.
+ * SUPPORTED set in apps/api/src/forms/forms.service.ts exactly. `rich_text`
+ * is absent from both (#758): it used to be server-accepted while neither
+ * renderer ever produced a valid block-array value for it (a plain-string
+ * submit 422s) and the sidebar never offered it — a guaranteed dead end,
+ * removed at the source rather than merely excluded here.
  */
 export const FORM_FIELD_TYPES = new Set([
   'title',

@@ -6,6 +6,7 @@ import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } 
 import { OptionChip } from '@/components/table-view/cells';
 import { embedThemeStyle } from '@/lib/embed-theme';
 import { FileInput } from '@/components/ui/file-input';
+import { Textarea } from '@/components/ui/textarea';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
 // #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
@@ -31,6 +32,10 @@ interface FormField {
   /** User fields only (#224) — must match the field's own single/multi config;
    * the write path rejects an array for a non-multi field and vice versa. */
   multi?: boolean;
+  /** #758 — `text` fields only; renders a `<textarea>` instead of a single-line
+   * `<input>`. The field's own multiline setting (field-dialog-shared.tsx), read
+   * back for the first time here. */
+  multiline?: boolean;
   /** #263 — show this field only when an earlier answer matches. Keyed by
    * api_name so it lines up with `values`, and evaluated by the SAME shared
    * `visibleFormFields` the server runs on submit. */
@@ -388,10 +393,15 @@ function Input({
   if (t === 'relation') {
     return <RelationInput token={token} field={field} value={value} onChange={onChange} />;
   }
-  if (t === 'rich_text') {
+  // #758 — the multiline setting already exists on `text` fields; this is the
+  // read side. `rich_text`'s old textarea branch is gone: the API no longer
+  // serves that type at all (forms.service.ts's SUPPORTED), so it was dead
+  // code reachable only by a legacy card-field selection that predates the
+  // sidebar builder — see the decision recorded there.
+  if (t === 'text' && field.multiline) {
     return (
-      <textarea
-        className={`${base} min-h-24`}
+      <Textarea
+        size="default"
         value={(value as string) ?? ''}
         onChange={(e) => onChange(e.target.value)}
         required={required}

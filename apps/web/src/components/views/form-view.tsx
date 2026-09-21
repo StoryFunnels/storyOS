@@ -18,6 +18,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { FileInput } from '@/components/ui/file-input';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field, SelectOption } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
@@ -370,6 +371,14 @@ function FieldInput({
       return <RelationInput ws={ws} field={field} value={value} onChange={onChange} />;
     case 'title':
       return <input className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} required />;
+    // #758 — the multiline setting already exists on `text` fields
+    // (field-dialog-shared.tsx's checkbox writes it); this is the read side.
+    // A plain `text` field is unaffected — only multiline ones get a textarea.
+    case 'text':
+      if (field.config['multiline'] === true) {
+        return <Textarea size="default" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      }
+      return <input className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
     default:
       return <input className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
   }

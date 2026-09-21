@@ -19,11 +19,11 @@ import type { FormFieldCfg } from './form-fields';
  * server accepts" into an assertion that fails the moment either side
  * changes without the other, instead of a claim nobody re-checks. Keep this
  * list in sync with forms.service.ts's SUPPORTED by hand when either changes.
+ * `rich_text` removed here too (#758) — the API stopped accepting it.
  */
 const API_SUPPORTED_MIRROR = new Set([
   'title',
   'text',
-  'rich_text',
   'number',
   'date',
   'checkbox',
@@ -111,7 +111,7 @@ describe('patchFieldConfig', () => {
 });
 
 describe('FORM_FIELD_TYPES', () => {
-  it('includes relation, user and attachment (#224, #724) and excludes rich_text (unreachable via the sidebar)', () => {
+  it('includes relation, user and attachment (#224, #724) and excludes rich_text (removed from the API too, #758)', () => {
     expect(FORM_FIELD_TYPES.has('relation')).toBe(true);
     expect(FORM_FIELD_TYPES.has('user')).toBe(true);
     expect(FORM_FIELD_TYPES.has('attachment')).toBe(true);
@@ -124,11 +124,9 @@ describe('FORM_FIELD_TYPES', () => {
     }
   });
 
-  it('#724 — matches the API SUPPORTED set exactly, minus the one documented exclusion (rich_text)', () => {
-    const expected = new Set(API_SUPPORTED_MIRROR);
-    expected.delete('rich_text');
-    const missing = [...expected].filter((t) => !FORM_FIELD_TYPES.has(t));
-    const extra = [...FORM_FIELD_TYPES].filter((t) => !expected.has(t));
+  it('#724/#758 — matches the API SUPPORTED set exactly', () => {
+    const missing = [...API_SUPPORTED_MIRROR].filter((t) => !FORM_FIELD_TYPES.has(t));
+    const extra = [...FORM_FIELD_TYPES].filter((t) => !API_SUPPORTED_MIRROR.has(t));
     expect(missing, 'a type the API accepts but the builder never offers').toEqual([]);
     expect(extra, 'a type the builder offers that the API would reject').toEqual([]);
   });

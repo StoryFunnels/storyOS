@@ -26,11 +26,17 @@ import { compileFilter } from '../records/query-compiler';
 import { cleanFilterNode } from '../views/views.service';
 
 /** Field types a public form can render/accept (MN-101, MN-224: relation + user;
- *  #710: attachment, multipart-only — see `submit`'s `file` parameter). */
+ *  #710: attachment, multipart-only — see `submit`'s `file` parameter).
+ *  #758 — `rich_text` deliberately absent: the API used to accept it here while
+ *  neither the public renderer nor the in-app builder ever produced a valid
+ *  block-array value for it (a plain-string submit 422s), and the sidebar
+ *  builder (`FORM_FIELD_TYPES`) never offered it — reachable only by a
+ *  pre-#224 form whose `card_field_ids` happened to include one. Dropped here
+ *  the same way a second attachment field is dropped below, rather than
+ *  rendering a control that's a guaranteed dead end. */
 const SUPPORTED = new Set([
   'title',
   'text',
-  'rich_text',
   'number',
   'date',
   'checkbox',
@@ -319,6 +325,9 @@ export class FormsService {
         // exactly: the record write path rejects an array for a non-multi user
         // field (and vice versa), see coerce() in record-values.ts.
         multi: f.type === 'user' ? (f.config as { multi?: boolean }).multi === true : undefined,
+        // #758 — the setting already exists on `text` fields (field-dialog's
+        // checkbox writes it); this is the first renderer to read it back.
+        multiline: f.type === 'text' ? (f.config as { multiline?: boolean }).multiline === true : undefined,
         // #716 — present on every entry so `visibleFormFields`/submit() can
         // read it; filtered out of the array entirely below unless the
         // caller explicitly asked for hidden fields (submit() only).
