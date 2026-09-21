@@ -21,6 +21,18 @@ import type { FilterOp } from '@storyos/schemas';
 // module graph into this bundle and breaks the MCP Docker image (see this
 // file's own note by the @storyos/schemas/colors import below).
 const AUTOMATION_TOP_N_LIMIT_CEILING = 200;
+// #542 — mirrors apps/api/src/records/records.service.ts's own
+// `PendingApprovalResult` (not imported: this package builds standalone from
+// its own openapi-fetch client, with no dependency on the api app's source
+// tree). softDelete/batchDelete return this union instead of throwing when a
+// workspace-declared gate holds the delete, and the REST layer passes it
+// through as a plain 200 body — a caller that doesn't check for this key
+// reports a held delete as a completed one.
+interface PendingApprovalResult {
+  pending_approval: true;
+  approval_id: string;
+  message: string;
+}
 // Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
@@ -1672,9 +1684,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const rec = await resolveRecordId(ws.id, db.id, record);
-      await unwrap(
+      const res = await unwrap<{ deleted: true } | PendingApprovalResult>(
         client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
       );
+      // #542 — a workspace-declared gate can hold this delete instead of
+      // performing it (the REST call still answers 200, since "held for
+      // approval" is not an error). Reporting `deleted` unconditionally here
+      // told an MCP-driven agent the delete succeeded when it hadn't —
+      // flagged by Vera on #542; matches how AgentsService.applyProposedAction
+      // already reports the same union honestly.
+      if ('pending_approval' in res) {
+        return text({ deleted: false, pending_approval: true, approval_id: res.approval_id, message: res.message });
+      }
       return text({ deleted: rec });
     }),
   );
@@ -1857,12 +1878,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const ids = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
-      const res = await unwrap<{ deleted: number }>(
+      const raw = await unwrap<{ deleted: number; record_ids: string[] } | PendingApprovalResult>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete', {
           params: { path: { ws: ws.id, db: db.id } },
           body: { record_ids: ids } as never,
         }),
       );
+      // #542 — a workspace-declared gate holds the WHOLE selection rather than
+      // deleting any of it (see records.service.ts's own doc comment on why
+      // that's gated once over the whole batch, not per-chunk). Reporting
+      // `deleted` unconditionally here told an MCP-driven agent the batch
+      // succeeded when nothing was applied — flagged by Vera on #542.
+      if ('pending_approval' in raw) {
+        return text({ deleted: 0, requested: ids.length, pending_approval: true, approval_id: raw.approval_id, message: raw.message });
+      }
+      const res = raw;
       // The API only trashes rows that were live, so `deleted` can be lower than
       // what was asked for — reported rather than smoothed over, because a silent
       // shortfall reads as success (#343's lesson applied to a batch).
