@@ -150,6 +150,10 @@ export interface ViewConfig {
    *  packages/schemas/src/views.ts for the eligibility rule. */
   hierarchy_field_id?: string;
   column_widths: Record<string, number>;
+  /** #739 T8 — table row density, a user control with three steps on the 4px
+   *  grid. Undefined = 32, the pre-#739 hardcoded height, so every view saved
+   *  before this ticket renders exactly as it did with no migration. */
+  row_height?: 28 | 32 | 40;
 }
 
 export interface ViewSummary {

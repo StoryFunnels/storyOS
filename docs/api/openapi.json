@@ -14830,6 +14830,28 @@
                 "additionalProperties": {
                   "type": "number"
                 }
+              },
+              "row_height": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      28
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      32
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      40
+                    ]
+                  }
+                ]
               }
             }
           },
@@ -15567,6 +15589,28 @@
                 "additionalProperties": {
                   "type": "number"
                 }
+              },
+              "row_height": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      28
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      32
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      40
+                    ]
+                  }
+                ]
               }
             }
           }
@@ -16284,6 +16328,28 @@
                 "additionalProperties": {
                   "type": "number"
                 }
+              },
+              "row_height": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      28
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      32
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      40
+                    ]
+                  }
+                ]
               }
             }
           },

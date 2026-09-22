@@ -5559,6 +5559,7 @@ export interface components {
                 column_widths?: {
                     [key: string]: number;
                 };
+                row_height?: 28 | 32 | 40;
             };
             /** Format: uuid */
             folder_id?: string | null;
@@ -5757,6 +5758,7 @@ export interface components {
                 column_widths?: {
                     [key: string]: number;
                 };
+                row_height?: 28 | 32 | 40;
             };
         };
         UpdateViewDto__schema0: {
@@ -5951,6 +5953,7 @@ export interface components {
                 column_widths?: {
                     [key: string]: number;
                 };
+                row_height?: 28 | 32 | 40;
             };
             position?: number;
             /** Format: uuid */

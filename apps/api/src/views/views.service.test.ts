@@ -606,4 +606,38 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
     const dropped = opaqueKeys.filter((k) => JSON.stringify(out[k]) !== JSON.stringify({ marker: k }));
     expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
   });
+
+  /**
+   * #739 — neither guard above covers a PLAIN preference: a scalar that names
+   * no field id (so the id-key guard doesn't apply) and isn't a write-path-owned
+   * opaque object (so the opaque-key guard doesn't apply either). `row_height`
+   * fell exactly into this gap: added to viewConfigSchema, passed through the
+   * id-key guard's list (not a `*_field_id`) and the opaque-key guard's list
+   * (not `form`/`share`), and was silently dropped by `cleanViewConfig` anyway —
+   * caught only by a live PATCH-then-reload check, not by this suite, which is
+   * the same class of miss #227/#391/#559 each describe above. A third guard
+   * for this category, so the next plain preference doesn't repeat it.
+   */
+  it('round-trips plain preference keys (no field id, not write-path-owned) verbatim', () => {
+    const preferenceKeys = [
+      'column_sort',
+      'hide_empty_groups',
+      'hide_empty_no_value_group',
+      'calendar_mode',
+      'calendar_increment_minutes',
+      'calendar_collapsed_hours',
+      'card_size',
+      'group_by_granularity',
+      'row_height',
+    ] as const;
+    const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
+    for (const k of preferenceKeys) config[k] = 'marker';
+
+    const out = cleanViewConfig(config as unknown as ViewConfig, new Set(), new Set()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const dropped = preferenceKeys.filter((k) => out[k] !== 'marker');
+    expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
+  });
 });

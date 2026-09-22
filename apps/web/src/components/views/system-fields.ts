@@ -41,6 +41,12 @@ export interface OpSpec {
  * regardless of how the row was seeded ("Created at" → "Created", etc.).
  */
 export const SYSTEM_FIELD_LABELS: Record<string, string> = {
+  // #739 — the `number` → 'ID' relabel is INTENTIONALLY held back here. It
+  // must ship together with hiding the `number` entry from pickers (needs
+  // schemas' `deprecated` flag, Marek's lane) — relabeling alone would give
+  // filter/sort pickers two entries both reading "ID", a real duplicate worse
+  // than today's "Number"/"ID" pair. Do the relabel the same day the flag
+  // lands, not before.
   number: 'Number',
   id: 'ID',
   created_at: 'Created',

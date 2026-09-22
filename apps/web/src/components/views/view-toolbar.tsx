@@ -100,6 +100,16 @@ import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
+import { Segmented } from '@/components/ui/segmented';
+
+/* #739 T8 — hoisted so the array identity is stable across renders; Segmented
+   takes a readonly list, and a literal here would be a new array every time
+   (same reasoning calendar-view.tsx's CALENDAR_MODE_OPTIONS already uses). */
+const ROW_HEIGHT_OPTIONS = [
+  { value: '28', label: '28' },
+  { value: '32', label: '32' },
+  { value: '40', label: '40' },
+] as const;
 
 /**
  * Op menu per field type — mirrors the API op×type matrix.
@@ -461,11 +471,45 @@ export function ViewToolbar({
         />
       ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
-          fields={rendered}
-          numberEntry={numberEntry}
+          // #739 T3 — rich_text is ABSENT from table view's Fields list
+          // entirely, not merely off by default: inline rich-text editing in
+          // a cell isn't supported, so offering it here is a guaranteed dead
+          // end (the same "renders and then 422s" shape #758 already fixed
+          // for a form). Scoped to table only — rich_text renders fine as
+          // prose on the record page and other surfaces that use this same
+          // picker, so excluding it everywhere would remove a legitimate
+          // control from views where it actually works.
+          //
+          // #739 — table's "ID" is now an ORDINARY column (table-view.tsx's
+          // own numberEntry), so it belongs in the ordinary Fields list here
+          // too — merged in rather than routed to the special "Row gutter"
+          // footer below, which still exists for list/feed (unchanged, see
+          // the follow-up comment on #739). Prepended so it appears first,
+          // matching the default column order.
+          fields={
+            viewType === 'table'
+              ? [...(numberEntry ? [numberEntry] : []), ...rendered.filter((f) => f.type !== 'rich_text')]
+              : rendered
+          }
+          numberEntry={viewType === 'table' ? undefined : numberEntry}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
+        />
+      )}
+
+      {/* #739 T8 — row height, a control with three named steps rather than
+          the pre-#739 hardcoded 32. Always offered for table (not data-
+          dependent, unlike the pickers below it), default step matches
+          ROW_HEIGHT in table-view.tsx exactly so an unconfigured view's
+          control reflects what's actually rendering. */}
+      {viewType === 'table' && (
+        <Segmented
+          label="Row height"
+          size="sm"
+          value={String(config.row_height ?? 32) as '28' | '32' | '40'}
+          onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
+          options={ROW_HEIGHT_OPTIONS}
         />
       )}
 
@@ -2966,8 +3010,12 @@ function HiddenFieldsButton({
   /** #699 AC2 — the synthetic permanent-number field, rendered as its OWN
    *  labelled "Row gutter" section below, never mixed into the ordinary field
    *  list: Dara's finding was that list MEMBERSHIP itself promises "this
-   *  becomes a column," a promise this entry can't keep (it merges into the
-   *  row-index gutter cell instead). Undefined when the database has a real
+   *  becomes a column," a promise this entry can't keep for a surface where
+   *  it merges into the row-index gutter cell instead. #739 — table view no
+   *  longer merges it (it's an ordinary column there now), so the caller
+   *  passes `undefined` here for table and merges the entry into `fields`
+   *  itself instead; this prop/footer still exists for list and feed, which
+   *  haven't been re-skinned. Also undefined when the database has a real
    *  `number` field row, which already flows through `fields` normally. */
   numberEntry?: Field;
   hidden: string[];
