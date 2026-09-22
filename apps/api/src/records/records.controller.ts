@@ -27,6 +27,7 @@ import {
   updateRecordSchema,
   upsertRecordSchema,
   aggregateRecordsSchema,
+  groupedAggregateRecordsSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
@@ -46,6 +47,7 @@ class BatchUpdateUndoDto extends createZodDto(batchUpdateUndoSchema) {}
 class BulkRecordJobDto extends createZodDto(bulkRecordJobSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
+class GroupedAggregateRecordsDto extends createZodDto(groupedAggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
 
 const listQuerySchema = z.object({
@@ -164,6 +166,24 @@ export class RecordsController {
   ) {
     await this.assertDb(req, databaseId);
     return this.recordsService.aggregate(databaseId, body, req.user.id, req.membership);
+  }
+
+  /**
+   * #750 — same shape decision as `aggregate` above: a sibling endpoint, not
+   * a flag on `aggregate`, because a grouped result is a different SHAPE
+   * (`groups: [...]` instead of `value`) and a caller wanting one total
+   * should not parse an array to find it.
+   */
+  @Post('aggregate/grouped')
+  @HttpCode(200)
+  @ApiOperation({ summary: "One aggregate value per group — a board/dashboard column's true total, in one query" })
+  async aggregateGrouped(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: GroupedAggregateRecordsDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.groupedAggregate(databaseId, body, req.user.id, req.membership);
   }
 
   @Post('batch')
