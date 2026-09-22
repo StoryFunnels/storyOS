@@ -376,6 +376,21 @@ export function ViewToolbar({
     const hasNumber = fields.some((f) => f.apiName === 'number');
     return hasNumber ? undefined : augmented.find((f) => f.apiName === 'number');
   }, [fields, augmented]);
+  /** #739 AC3 — table's Fields list must keep offering the system DATE
+   *  columns (Created, Last edited), off by default, same "unconfigured, not
+   *  excluded" treatment as `numberEntry` above and the opposite of rich
+   *  text's total removal (AC2). Same "real row wins" guard: only the
+   *  synthetic entry is added, and only when the database has no stored field
+   *  of that type already flowing through `rendered`. */
+  const systemDateEntries = useMemo(
+    () =>
+      augmented.filter(
+        (f) =>
+          (f.type === 'created_at' || f.type === 'updated_at') &&
+          !fields.some((real) => real.apiName === f.apiName),
+      ),
+    [fields, augmented],
+  );
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
@@ -485,10 +500,16 @@ export function ViewToolbar({
           // too — merged in rather than routed to the special "Row gutter"
           // footer below, which still exists for list/feed (unchanged, see
           // the follow-up comment on #739). Prepended so it appears first,
-          // matching the default column order.
+          // matching the default column order. AC3's system date entries are
+          // appended after the real fields — offered, off by default, never
+          // part of the default-visible set.
           fields={
             viewType === 'table'
-              ? [...(numberEntry ? [numberEntry] : []), ...rendered.filter((f) => f.type !== 'rich_text')]
+              ? [
+                  ...(numberEntry ? [numberEntry] : []),
+                  ...rendered.filter((f) => f.type !== 'rich_text'),
+                  ...systemDateEntries,
+                ]
               : rendered
           }
           numberEntry={viewType === 'table' ? undefined : numberEntry}

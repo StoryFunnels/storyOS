@@ -192,6 +192,18 @@ export function TableView({
     if (liveFields.some((f) => f.apiName === 'number')) return undefined;
     return withSystemFields(liveFields).find((f) => f.apiName === 'number');
   }, [database.data]);
+  // #739 AC3 — the system date columns (Created, Last edited), offered from
+  // Fields off by default (view-toolbar.tsx's matching systemDateEntries).
+  // Rendered here the same way numberEntry is: only when the database has no
+  // REAL stored field of that type, and only once actually made visible.
+  const systemDateEntries = useMemo(() => {
+    const liveFields = database.data?.fields ?? [];
+    return withSystemFields(liveFields).filter(
+      (f) =>
+        (f.type === 'created_at' || f.type === 'updated_at') &&
+        !liveFields.some((real) => real.apiName === f.apiName),
+    );
+  }, [database.data]);
 
   const fields = useMemo(() => {
     // HIDDEN_TYPES only ever applies to STORED rows (the raw UUID, created_by)
@@ -207,8 +219,9 @@ export function TableView({
       (f) => !HIDDEN_TYPES.has(f.type) && f.type !== 'rich_text' && !(hiddenFieldIds ?? []).includes(f.id),
     );
     const numberVisible = numberEntry && !(hiddenFieldIds ?? []).includes(numberEntry.id);
-    return numberVisible ? [numberEntry, ...ordinary] : ordinary;
-  }, [database.data, hiddenFieldIds, numberEntry]);
+    const visibleDateEntries = systemDateEntries.filter((f) => !(hiddenFieldIds ?? []).includes(f.id));
+    return [...(numberVisible ? [numberEntry] : []), ...ordinary, ...visibleDateEntries];
+  }, [database.data, hiddenFieldIds, numberEntry, systemDateEntries]);
   // #497 — looked up against the database's FULL field list, not the current
   // view's filtered `fields` above: the deep link's whole point is reaching a
   // relation's config regardless of whether this view happens to hide it.
