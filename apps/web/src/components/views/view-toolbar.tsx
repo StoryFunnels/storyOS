@@ -2975,9 +2975,10 @@ function HiddenFieldsButton({
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
   onReorder?: (activeId: string, overId: string) => void;
 }) {
-  // #659 — the number field's entry in `hidden` is polarity-inverted (default
-  // hidden, so presence means shown); see number-column.ts, shared with
-  // table-view.tsx's own reading of the same array so the two can't drift.
+  // #743 — the number field's entry in `hidden` uses ordinary present-means-
+  // hidden semantics, same as every other field, visible by default; see
+  // number-column.ts, shared with table-view.tsx's own reading of the same
+  // array so the two can't drift.
   const candidateIds = useMemo(
     () => new Set(numberEntry ? [...fields.map((f) => f.id), numberEntry.id] : fields.map((f) => f.id)),
     [fields, numberEntry],
@@ -3029,7 +3030,10 @@ function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next:
         >
           <span className="h-3 w-3 rounded-full bg-card" />
         </span>
-        <span className="truncate">Show record number in the row gutter</span>
+        {/* #743 — "ID" only; "Number" is the pre-#743 label and must not
+            reappear anywhere in the UI now that the field is visible by
+            default. */}
+        <span className="truncate">Show ID in the row gutter</span>
       </button>
     </div>
   );
