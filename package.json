@@ -19,7 +19,8 @@
     "db:generate": "pnpm --filter @storyos/api db:generate",
     "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build",
     "seed:agent-uat": "pnpm --filter @storyos/api seed:agent-uat --",
-    "design:contrast": "node scripts/contrast-advisory.mjs"
+    "design:contrast": "node scripts/contrast-advisory.mjs",
+    "collision:check": "node scripts/collision-check.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
