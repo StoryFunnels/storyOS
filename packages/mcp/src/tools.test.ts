@@ -3607,6 +3607,132 @@ describe('#437/#440 — views and personal surfaces', () => {
 });
 
 /**
+ * #736 — a personal filter on a record page's embedded relation collection,
+ * scoped to a FIELD (no view exists to key against) rather than a view.
+ *
+ * The one thing worth pinning down beyond the #437 shape it mirrors: the
+ * collection's rows live in the relation's TARGET database, not the database
+ * the field itself is defined on, so label→id filter mapping must resolve
+ * against the target's fields/options — mapping against the wrong database
+ * silently returns raw uuids or option labels the API rejects.
+ */
+describe('#736 — personal filters on an embedded collection field', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; query?: Record<string, unknown>; body?: Record<string, unknown> }
+
+  function harness(existingConfig: Record<string, unknown> | null = null) {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const tasksDetail = {
+      id: 'db-1',
+      name: 'Tasks',
+      qualifiedSlug: 'eng/tasks',
+      fields: [
+        { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+        {
+          id: 'f-epic',
+          apiName: 'epic',
+          displayName: 'Epic',
+          type: 'relation',
+          relation: { id: 'rel-1', target_database_id: 'db-2', target_database_name: 'Epics', cardinality: 'one_to_many', side: 'a' },
+        },
+      ],
+    };
+    const epicsDetail = {
+      id: 'db-2',
+      name: 'Epics',
+      qualifiedSlug: 'eng/epics',
+      fields: [{ id: 'f-priority', apiName: 'priority', displayName: 'Priority', type: 'select', options: [{ id: 'opt-hi', label: 'High' }] }],
+    };
+    const log = (method: string) => async (
+      path: string,
+      o?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> }; body?: unknown },
+    ) => {
+      sent.push({ method, path, params: o?.params?.path, query: o?.params?.query, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [tasksDetail, epicsDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') {
+        return { data: o?.params?.path?.db === 'db-2' ? epicsDetail : tasksDetail };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view') {
+        return { data: { config: existingConfig } };
+      }
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('get_personal_collection_filter says plainly that it affects only the caller', async () => {
+    const { call } = harness();
+    const out = await call('get_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic' });
+    expect(out.personal_filter).toBeNull();
+    expect(out.visible_to).toMatch(/you only/i);
+  });
+
+  it('maps a personal collection filter’s LABEL to an option id against the TARGET database, not the field’s own', async () => {
+    // If this resolved against Tasks (which has no "priority" field) instead
+    // of Epics, "High" would pass through unmapped and the API would 422.
+    const { call, sent } = harness();
+    await call('set_personal_collection_filter', {
+      workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    const put = sent.find((s) => s.method === 'PUT')!;
+    expect(JSON.stringify(put.body)).toContain('opt-hi');
+    expect(put.params!.field).toBe('f-epic');
+  });
+
+  it('preserves an existing personal sort/color/column choice when only the filter is written', async () => {
+    const { call, sent } = harness({ sort: [{ field: 'priority', dir: 'desc' }], color_by: 'priority' });
+    await call('set_personal_collection_filter', {
+      workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    const put = sent.find((s) => s.method === 'PUT')!;
+    expect(put.body).toMatchObject({ sort: [{ field: 'priority', dir: 'desc' }], color_by: 'priority' });
+  });
+
+  it('clear:true DELETEs the whole override rather than writing an empty filter', async () => {
+    const { call, sent } = harness();
+    const out = await call('set_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic', clear: true });
+    expect(sent.some((s) => s.method === 'DELETE')).toBe(true);
+    expect(sent.some((s) => s.method === 'PUT')).toBe(false);
+    expect(out.personal_filter).toBeNull();
+  });
+
+  it('refuses a call that says nothing', async () => {
+    const { call } = harness();
+    await expect(call('set_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic' })).rejects.toThrow(
+      /filter.*or clear/i,
+    );
+  });
+
+  it('refuses both a filter and clear:true together', async () => {
+    const { call } = harness();
+    await expect(
+      call('set_personal_collection_filter', {
+        workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' }, clear: true,
+      }),
+    ).rejects.toThrow(/either.*or clear/i);
+  });
+
+  it('names the relation fields when given something that is not one', async () => {
+    const { call } = harness();
+    await expect(call('get_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'name' })).rejects.toThrow(
+      /No relation field matches "name".*epic/s,
+    );
+  });
+});
+
+/**
  * #441 — membership and access, read only.
  *
  * Two assertions carry this whole area: that no WRITE tool exists, and that
