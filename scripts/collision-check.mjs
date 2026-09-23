@@ -124,7 +124,12 @@ if (uncommitted.length > 0) {
   console.error(`  Note: ${uncommitted.length} uncommitted file(s) are NOT part of this check.`);
 }
 
-const raw = sh('gh', ['pr', 'list', '--state', 'open', '--limit', '100',
+/*
+ * The cap is NAMED so the guard below cannot drift from the flag. Two numbers
+ * that must agree, written twice, is how this kind of check goes quietly wrong.
+ */
+const PR_LIMIT = 100;
+const raw = sh('gh', ['pr', 'list', '--state', 'open', '--limit', String(PR_LIMIT),
                       '--json', 'number,title,headRefName,files,changedFiles']);
 if (typeof raw !== 'string') {
   die('`gh pr list` failed',
@@ -137,6 +142,25 @@ try {
   die('`gh` returned unparseable JSON');
 }
 if (!Array.isArray(prs)) die('`gh` returned an unexpected shape');
+
+/*
+ * OTTO'S FINDING, and the inconsistency mattered more than the cap. Vera's
+ * per-PR truncation guard (below) dies loudly when ONE PR's file list is cut
+ * short. This list could be cut short too — `--limit` is a maximum, and hitting
+ * it exactly means there may be more open PRs we never saw. Without this the
+ * script compared a subset, found no overlap in the part it could see, printed
+ * "clear" and exited 0.
+ *
+ * So it died loudly on one truncation and passed silently on the other, inside
+ * the script written to stop exactly that. At five open PRs the risk is remote,
+ * which is precisely why nobody would notice it missing until the day it
+ * mattered — and on that day it answers "clear". That is #722 green for four
+ * days, one level in.
+ */
+if (prs.length >= PR_LIMIT) {
+  die(`${prs.length} open PRs returned, which is the --limit cap`,
+      'There may be more that were never fetched, so "no overlap" cannot be trusted.');
+}
 
 /*
  * LAST RESORT, AND THE ONE THAT MAKES THIS CORRECT EVERYWHERE: match the current
