@@ -8,7 +8,20 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { CopyRecordService } from './copy-record.service';
 
 const copyRecordSchema = z.object({
-  record_ids: z.array(z.string()).min(1),
+  /**
+   * #679 — #435's own AC3 promised a cap "enforced and stated in the UI
+   * before mapping", and #612 found neither half built: nothing here capped
+   * the selection at all. 200, not the 5000 batchUpdate/batchDelete allow
+   * (record-values.ts's batchRecordIdsSchema) — deliberately lower, because
+   * DryRunBuilder computes blocking-field checks EAGERLY across the WHOLE
+   * selection before any chunking happens (see copy-record.service.ts), so
+   * this operation's up-front cost scales differently from a simple batch
+   * write. A rejection (not a silent truncation) — the same shape Otto has
+   * already ruled on for #266/#433/#550/#653: a selection that silently
+   * gets handled only in part is the dangerous outcome, not the missing
+   * cap by itself.
+   */
+  record_ids: z.array(z.string()).min(1).max(200),
   target_database_id: z.string(),
   /** Source field api_names the caller explicitly skips — resolves a blocking field. */
   skip: z.array(z.string()).optional(),
