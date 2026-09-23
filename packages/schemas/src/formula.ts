@@ -774,6 +774,20 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
   const tokens = tokenize(src);
   const byDisplay = new Map(fields.map((f) => [f.display_name.toLowerCase(), f.api_name]));
   const byApi = new Set(fields.map((f) => f.api_name));
+  /**
+   * #760 — a reference resolves by DISPLAY NAME first (case-insensitive,
+   * matching `byDisplay`'s own lowercased keys), falling back to the raw
+   * api_name (this file's own doc comment: refs are stored as api_names "so
+   * renames never break"). The fallback used to check `byApi.has(raw)`
+   * un-lowercased, against a set built from api_names — which are ALWAYS
+   * lowercase snake_case in this codebase. So the fallback only ever matched
+   * a reference typed in that exact case, never the Title Case the product
+   * tells people to write, and the promise in this file's own header was
+   * false for any reference that outlived a display-name rename. Lowercase
+   * here too, matching how `byApi` itself is populated.
+   */
+  const resolveApiName = (raw: string): string | undefined =>
+    byDisplay.get(raw.toLowerCase()) ?? (byApi.has(raw.toLowerCase()) ? raw.toLowerCase() : undefined);
   let pos = 0;
 
   const peek = () => tokens[pos];
@@ -800,7 +814,7 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
       if (dot > 0) {
         const left = token.v.slice(0, dot).trim();
         const right = token.v.slice(dot + 1).trim();
-        const relApi = byDisplay.get(left.toLowerCase()) ?? (byApi.has(left) ? left : undefined);
+        const relApi = resolveApiName(left);
         if (!relApi) throw new FormulaError(`Unknown field "{${left}}"`, token.pos);
         const relField = fields.find((f) => f.api_name === relApi);
         if (!relField || relField.formula_type !== 'relation') {
@@ -810,9 +824,13 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
           );
         }
         const related = relField.related ?? [];
+        // #760 — same fallback-casing fix as resolveApiName above, inlined:
+        // `related` isn't the top-level `fields` list, so it has no byDisplay/
+        // byApi of its own, but the bug (api_name is always lowercase, the
+        // fallback compared against it un-lowered) is the same one.
         const target =
           related.find((f) => f.display_name.toLowerCase() === right.toLowerCase()) ??
-          related.find((f) => f.api_name === right);
+          related.find((f) => f.api_name === right.toLowerCase());
         if (!target) {
           throw new FormulaError(
             `"${right}" is not a field on the records "{${left}}" links to`,
@@ -828,7 +846,7 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
         return { kind: 'rel', relation: relApi, field: target.api_name };
       }
 
-      const apiName = byDisplay.get(token.v.toLowerCase()) ?? (byApi.has(token.v) ? token.v : undefined);
+      const apiName = resolveApiName(token.v);
       if (!apiName) throw new FormulaError(`Unknown field "{${token.v}}"`, token.pos);
       // A bare reference to a relation field is only meaningful as an
       // aggregate's subject; `rel` with no `field` is exactly that, and the
