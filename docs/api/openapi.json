@@ -16661,6 +16661,7 @@
         "properties": {
           "record_ids": {
             "minItems": 1,
+            "maxItems": 200,
             "type": "array",
             "items": {
               "type": "string"
