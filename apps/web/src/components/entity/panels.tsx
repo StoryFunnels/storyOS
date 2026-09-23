@@ -101,6 +101,16 @@ interface Comment {
   author: { id: string; name: string; image: string | null };
   created_at: string;
   edited_at: string | null;
+  /**
+   * #762 — WHO posted this comment, same vocabulary/columns as
+   * ActivityEntry['source'] (#481/#541/#734, shared not re-invented). Null
+   * for a comment posted before #734 shipped provenance capture — genuinely
+   * not recorded, must render as "unknown source" via SourceBadge, never
+   * silently folded into 'human'.
+   */
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  agent_id: string | null;
+  agent_name: string | null;
 }
 
 /**
@@ -314,6 +324,11 @@ export function CommentsPanel({
             <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
               <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
               {comment.author.name}
+              {/* #762 — same SourceBadge ActivityPanel already uses (line ~451
+                  below), so an agent/automation/MCP-authored comment reads
+                  differently from a human one at a glance instead of the two
+                  rendering byte-identical. */}
+              <SourceBadge source={comment.source} />
             </span>
             <span className="flex items-center gap-2 text-[11px] text-muted">
               {fmt.dateTime(comment.created_at)}
