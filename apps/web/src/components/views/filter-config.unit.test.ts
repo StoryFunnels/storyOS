@@ -19,6 +19,7 @@ import {
   reorderConditions,
   turnIntoGroup,
   ungroupNodeAt,
+  visibleFilterChips,
 } from './filter-config';
 import type { FilterCondition, FilterNode } from './filter-config';
 
@@ -583,5 +584,47 @@ describe('#224 per-column filter helpers', () => {
   it('is a no-op when the field has no condition', () => {
     const list = filterConditions(buildFilterGroup('and', [at('owner')]));
     expect(clearConditionsForField(list, 'state')).toEqual([at('owner')]);
+  });
+});
+
+/**
+ * #733 — the old rule (`leaves.length <= 2 ? leaves : leaves.filter(pinned)`)
+ * meant a THIRD filter condition made the first two vanish, because nobody
+ * had pinned anything until that exact moment. Confirmed live before this fix
+ * existed. Every leaf must always be a chip; pinning only reorders.
+ */
+describe('visibleFilterChips — #733: a filter chip is never gated on staying under three conditions', () => {
+  const leaf = (id: string, pinned = false) => ({ id, node: cond({ field: id, pinned }) });
+
+  it('shows all three-plus conditions as chips, not just pinned ones — the exact defect this ticket fixes', () => {
+    const leaves = [leaf('a'), leaf('b'), leaf('c')];
+    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('a fourth condition stays visible too — no cliff reappears further out', () => {
+    const leaves = [leaf('a'), leaf('b'), leaf('c'), leaf('d')];
+    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('pinning promotes to the front rather than gating visibility (AC2)', () => {
+    const leaves = [leaf('a'), leaf('b', true), leaf('c'), leaf('d', true)];
+    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  it('preserves each group’s original relative order — pinning promotes, it does not shuffle', () => {
+    const leaves = [leaf('a', true), leaf('b'), leaf('c', true), leaf('d')];
+    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'c', 'b', 'd']);
+  });
+
+  it('one or two conditions still show in full, matching pre-#733 behavior for the common case (AC5)', () => {
+    expect(visibleFilterChips([leaf('a')]).map((f) => f.id)).toEqual(['a']);
+    expect(visibleFilterChips([leaf('a'), leaf('b')]).map((f) => f.id)).toEqual(['a', 'b']);
+  });
+
+  it('an existing deliberately-pinned view keeps behaving as before — pinned conditions still show (AC3)', () => {
+    const leaves = [leaf('a', true), leaf('b'), leaf('c'), leaf('d')];
+    const ids = visibleFilterChips(leaves).map((f) => f.id);
+    expect(ids).toContain('a');
+    expect(ids).toHaveLength(4);
   });
 });

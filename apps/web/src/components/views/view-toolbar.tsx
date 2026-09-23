@@ -93,6 +93,7 @@ import {
   turnIntoGroup,
   ungroupNodeAt,
   updateNodeAt,
+  visibleFilterChips,
 } from './filter-config';
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
@@ -1202,16 +1203,13 @@ export function FiltersSection({
     [nodes],
   );
   /*
-   * #429 — Q5, "should a pinned condition be the DEFAULT presentation for a
-   * simple filter, so the common case never needs the panel?" Otto's ruling:
-   * yes. A one-or-two-condition filter is exactly the size someone reads at a
-   * glance and tweaks without ceremony, so it renders as toolbar chips
-   * without anyone having to find `Pin to toolbar` first. Past that size,
-   * only conditions someone deliberately pinned show here — the ones densest
-   * enough to matter, on a view with too many to show them all as chips
-   * anyway; the panel is where the rest live.
+   * #733 — every condition is a chip, always; pinning promotes rather than
+   * gates (see visibleFilterChips's own comment for why the old ≤2-conditions
+   * cliff was a defect, not a design). #429's original "renders as toolbar
+   * chips without anyone having to find `Pin to toolbar` first" intent is
+   * still true — it's just no longer conditional on staying under three.
    */
-  const pinned = leaves.length <= 2 ? leaves : leaves.filter((f) => f.node.pinned);
+  const visibleLeaves = visibleFilterChips(leaves);
   /**
    * #426 — the chip counts what is CONFIGURED, and says so when that differs
    * from what is applied.
@@ -1339,7 +1337,7 @@ export function FiltersSection({
 
   return (
     <>
-      {pinned.map((leaf) => {
+      {visibleLeaves.map((leaf) => {
         const field = fields.find((f) => f.apiName === leaf.node.field);
         if (!field) return null;
         return (
