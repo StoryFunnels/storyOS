@@ -610,11 +610,23 @@ export function AttachmentsStrip({
   db,
   rec,
   readOnly,
+  hasAttachmentField,
 }: {
   ws: string;
   db: string;
   rec: string;
   readOnly: boolean;
+  /**
+   * #740 AC1 — attachments stop being a DEFAULT block: most databases sampled
+   * had zero attachments and no reason to reserve the space. But the upload
+   * endpoint below is record-level (no `?field=`), so a record can already
+   * hold real, uploaded attachments in a database with no attachment-type
+   * field configured at all — gating on schema alone would hide/orphan them
+   * (a real AC5 violation, not a hypothetical one). So this only skips
+   * rendering when BOTH the schema has no attachment field AND the record's
+   * own attachments actually come back empty — never on schema alone.
+   */
+  hasAttachmentField: boolean;
 }) {
   const qc = useQueryClient();
   const key = ['attachments', ws, db, rec];
@@ -655,10 +667,19 @@ export function AttachmentsStrip({
     onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
   });
 
+  // Schema says yes → always show (the ordinary, common case). Schema says no
+  // → show only once we've confirmed this record is a genuine exception, not
+  // before (a flash of an empty box while loading is worse than a half-second
+  // delay for content that, per the measured findings, usually isn't there).
+  // Placed after every hook, same early-return-after-hooks discipline the
+  // rest of this codebase already follows (table-view.tsx's own #346 note).
+  const hasExisting = (attachments.data ?? []).length > 0;
+  if (!hasAttachmentField && (attachments.isLoading || !hasExisting)) return null;
+
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
+        'mb-6 mt-5 rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
         dragOver && 'border-[var(--accent)] bg-accent-soft',
       )}
       onDragOver={(e) => {

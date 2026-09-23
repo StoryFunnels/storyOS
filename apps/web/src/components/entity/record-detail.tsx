@@ -611,9 +611,17 @@ export function RecordDetail({
             </DragPreview>
           </DndContext>
 
-          <div className="mb-6 mt-5">
-            <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
-          </div>
+          {/* #740 AC1 — no longer a default block; own margin lives inside
+              AttachmentsStrip now, since it renders nothing (no wrapper div,
+              no blank space) for a database with no attachment field and no
+              pre-existing attachments on this record. */}
+          <AttachmentsStrip
+            ws={ws}
+            db={db}
+            rec={recordId}
+            readOnly={readOnly}
+            hasAttachmentField={allFields.some((f) => f.type === 'attachment')}
+          />
 
           <MentionedIn ws={ws} db={db} rec={recordId} />
 
