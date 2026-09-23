@@ -4318,48 +4318,260 @@ export class RecordsService {
       };
     }
 
-    if (!input.field) {
-      throw new UnprocessableEntityException(
-        `"${input.op}" needs a field to aggregate; only "count" works without one`,
-      );
-    }
-    const def = byApiName.get(input.field);
-    if (!def) throw new UnprocessableEntityException(`unknown field "${input.field}"`);
-
-    /*
-     * Read the value the same way the rest of the read path does: stored values
-     * are keyed by field UUID (ADR-0002), and formulas/rollups live in
-     * `computed_values`. Casting through `numeric` rather than `int` so a
-     * currency or a decimal is not silently truncated.
-     */
-    const source =
-      def.type === 'formula' || def.type === 'rollup'
-        ? sql`${records.computedValues}->>${def.id}`
-        : sql`${records.values}->>${def.id}`;
-    // A non-numeric value is SKIPPED, not zero. Zero would drag an average down
-    // and report a total that is quietly wrong.
-    const numeric = sql`NULLIF(${source}, '')::numeric`;
-    const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
-    const expr =
-      input.op === 'sum'
-        ? sql`sum(${numeric})`
-        : input.op === 'avg'
-          ? sql`avg(${numeric})`
-          : input.op === 'min'
-            ? sql`min(${numeric})`
-            : sql`max(${numeric})`;
+    // #750 — shared with groupedAggregate() via buildAggExpr(): same field
+    // lookup, same computed_values-vs-values source, same numeric guard.
+    // Read the value the same way the rest of the read path does: stored
+    // values are keyed by field UUID (ADR-0002), and formulas/rollups live
+    // in computed_values. A non-numeric value is SKIPPED, not zero — zero
+    // would drag an average down and report a total that is quietly wrong.
+    const expr = await this.buildAggExpr(input.op, input.field, byApiName);
 
     const [row] = await this.db
       .select({ value: sql<string | null>`${expr}` })
       .from(records)
-      .where(and(where, guard));
+      .where(and(where, expr.guard));
     return {
       op: input.op,
-      field: input.field,
+      field: input.field ?? null,
       value: row?.value == null ? null : Number(row.value),
       filtered: Boolean(input.filter || input.q),
       exact: true,
     };
+  }
+
+  /**
+   * #750 — ONE value per group, in one query, rather than the caller running
+   * `aggregate` once per column (which is what a board without this had to
+   * do client-side against a single paginated page — undercounting every
+   * column that didn't fit on it, per the ticket's own measurement).
+   *
+   * The per-op aggregate EXPRESSION (count/sum/avg/min/max — field lookup,
+   * computed_values-vs-values source, the non-numeric guard) is shared with
+   * `aggregate()` via `buildAggExpr()`, extracted from this ticket's own
+   * work rather than left duplicated a second time. The filter/visibility
+   * CONDITIONS are still built here, not shared — this method additionally
+   * validates and compiles a group-by field, which `aggregate()` has no
+   * concept of, so folding the two into one shared builder would hide that
+   * difference behind a parameter neither call site's reader would expect.
+   *
+   * Grouping is supported for exactly the field types a board can group by
+   * (`boardGroupError` in views.service.ts) — select, workflow, single user,
+   * date (with a required `group_by_granularity`), a binned number, the
+   * single ("a") side of a one-to-many relation, text, and lookup — because
+   * those are the only types where "one column per value" has a single
+   * meaning. A multi-valued field is refused with the same reasoning
+   * `boardGroupError` already states.
+   *
+   * Group keys are the RAW stored value (an option id, a user id, a linked
+   * record id, a bin index as a string, or a bucket's start date as
+   * `YYYY-MM-DD` for a date field) — never a resolved display label, mirroring
+   * every other place this API returns an id for the caller to resolve
+   * against field metadata it already has. The one exception is a number
+   * field's bins, which come with a human `label` in the field's own config
+   * at no extra query cost, so that's returned alongside the key.
+   */
+  async groupedAggregate(
+    databaseId: string,
+    input: {
+      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      group_by: string;
+      group_by_granularity?: 'week' | 'month' | 'quarter' | 'year';
+      filter?: unknown;
+      q?: string;
+    },
+    currentUserId: string,
+    membership?: Membership,
+  ): Promise<{
+    op: string;
+    field: string | null;
+    group_by: string;
+    groups: Array<{ key: string | null; label?: string; value: number | null }>;
+    filtered: boolean;
+    exact: true;
+  }> {
+    const defs = await this.fieldDefs(databaseId);
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+
+    const groupDef = byApiName.get(input.group_by);
+    if (!groupDef) throw new UnprocessableEntityException(`unknown field "${input.group_by}"`);
+
+    const numberBins = (groupDef.config?.['bins'] as Array<{ label: string; min: number | null; max: number | null }> | undefined) ?? [];
+    if (groupDef.type === 'select' || groupDef.type === 'workflow' || groupDef.type === 'text' || groupDef.type === 'lookup') {
+      // groupable — one column per raw value.
+    } else if (groupDef.type === 'date') {
+      if (!input.group_by_granularity) {
+        throw new UnprocessableEntityException(`grouping by a date field ("${input.group_by}") needs group_by_granularity`);
+      }
+    } else if (groupDef.type === 'user') {
+      if (groupDef.config?.['multi'] === true) {
+        throw new UnprocessableEntityException(
+          `cannot group by "${input.group_by}" — a multi-person field would put one record in several groups`,
+        );
+      }
+    } else if (groupDef.type === 'relation') {
+      if (groupDef.config?.['multi'] !== false) {
+        throw new UnprocessableEntityException(
+          `cannot group by "${input.group_by}" — only the single side of a one-to-many relation can group (a many-to-many or the many side would put a record in several groups)`,
+        );
+      }
+    } else if (groupDef.type === 'number') {
+      if (numberBins.length === 0) {
+        throw new UnprocessableEntityException(`configure bins on "${input.group_by}" before grouping by it`);
+      }
+    } else {
+      throw new UnprocessableEntityException(
+        `cannot group by a "${groupDef.type}" field — use a select, a single user, a date, a binned number, or a one-to-many relation`,
+      );
+    }
+
+    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.filter) {
+      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+    }
+    // #474 — same narrowing the single-value aggregate() applies; a grouped
+    // count is still a count, and must not leak rows (or whole GROUPS) a
+    // guest with record-scoped access wouldn't otherwise see.
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
+    const where = and(...(conditions as SQL[]));
+
+    // The group key expression, used for both the SELECT list and (via its
+    // "key" alias, see below) the GROUP BY clause.
+    let keyExpr: SQL;
+    if (groupDef.type === 'relation') {
+      const relationId = groupDef.config['relation_id'] as string;
+      const side = (groupDef.config['side'] as 'a' | 'b' | undefined) ?? 'a';
+      const myCol = side === 'a' ? 'from_record_id' : 'to_record_id';
+      const otherCol = side === 'a' ? 'to_record_id' : 'from_record_id';
+      // Scalar subquery, not a JOIN — a JOIN here would fan out one row per
+      // link before the GROUP BY ever runs, over-counting every group. Same
+      // "plain SQL aliasing, not drizzle's alias()" reasoning #657 already
+      // documents on the sibling sort expression in query-compiler.ts.
+      // `${records.id}` (rather than `sql.raw('"records"."id"')`) rendered
+      // as a BARE `"id"` here — correct in the outer query's own SELECT
+      // list, where "records" is the sole FROM table and needs no
+      // qualifier, but WRONG inside this correlated subquery, where
+      // unqualified `"id"` resolves to `record_links`'s own `id` column
+      // instead of the outer row. That silently turned the correlation into
+      // `rl.from_record_id = rl.id` — never true, so every group read NULL.
+      // Explicit qualification, not a column reference, sidesteps drizzle's
+      // context-dependent rendering entirely.
+      keyExpr = sql`(SELECT rl.${sql.raw(otherCol)} FROM ${recordLinks} rl WHERE rl.relation_id = ${relationId} AND rl.${sql.raw(myCol)} = "records"."id" LIMIT 1)`;
+    } else if (groupDef.type === 'date') {
+      // Truncated to the first 10 chars before casting: a date field stores
+      // either `YYYY-MM-DD` or a full ISO timestamp (`include_time`), and
+      // bucketing only ever needs the date part. Casting the DATE-only
+      // substring to `::date` (never `::timestamptz`) sidesteps timezone
+      // entirely — a bare date has none, matching the client's own UTC-only
+      // bucketing (date-buckets.ts) without needing to force a session
+      // timezone here. The key returned is the bucket's START date, not the
+      // client's compact key format ("2026-Q3") — unambiguous and directly
+      // usable without a second parse.
+      const raw = sql`(${records.values}->>${groupDef.id})`;
+      const asDate = sql`NULLIF(substring(${raw} from 1 for 10), '')::date`;
+      keyExpr = sql`(date_trunc(${input.group_by_granularity}, ${asDate}))::date`;
+    } else if (groupDef.type === 'number') {
+      const source = sql`(${records.values}->>${groupDef.id})`;
+      const numeric = sql`NULLIF(${source}, '')::numeric`;
+      const cases = numberBins.map((bin, i) => {
+        const lower = bin.min === null ? sql`TRUE` : sql`${numeric} >= ${bin.min}`;
+        const upper = bin.max === null ? sql`TRUE` : sql`${numeric} < ${bin.max}`;
+        return sql`WHEN ${numeric} IS NOT NULL AND ${lower} AND ${upper} THEN ${String(i)}`;
+      });
+      keyExpr = sql`(CASE ${sql.join(cases, sql` `)} ELSE NULL END)`;
+      // The label is resolved AFTER the query returns, from `numberBins` in
+      // JS, keyed by the same bin index — not a second SQL CASE. A SQL
+      // label expression would need to either repeat this whole range-CASE
+      // a second time (each repetition binds its embedded values to FRESH
+      // `$n` parameters, so Postgres no longer sees it as the same
+      // expression as the GROUP BY key — see the .as('key') comment below)
+      // or reference the "key" output column from a sibling SELECT-list
+      // expression, which plain SQL does not allow. `numberBins` is already
+      // loaded from the field's own config with no extra query, so a JS
+      // lookup is both simpler and correct.
+    } else if (groupDef.type === 'lookup') {
+      keyExpr = sql`(${records.computedValues}->>${groupDef.id})`;
+    } else {
+      // select, workflow, user (single), text — plain stored scalar.
+      keyExpr = sql`(${records.values}->>${groupDef.id})`;
+    }
+
+    const aggExpr = await this.buildAggExpr(input.op, input.field, byApiName);
+
+    // `.as(alias)` is what actually gives the SELECT list a real output
+    // column name — passing a bare `sql` fragment as an object value gives
+    // drizzle nothing to alias it with, so the column comes back unnamed and
+    // `GROUP BY "key"` below has no column to find.
+    const rows = (await this.db
+      .select({ key: keyExpr.as('key'), value: aggExpr.as('value') })
+      .from(records)
+      .where(input.op === 'count' ? where : and(where, aggExpr.guard))
+      // GROUP BY the output ALIAS ("key"), not keyExpr itself: passing the
+      // same SQL object to both .select() and .groupBy() serializes it
+      // TWICE, each time binding its embedded values (the field id) to a
+      // fresh, separate `$n` parameter — so Postgres sees two syntactically
+      // different expressions and refuses with "must appear in the GROUP BY
+      // clause", even though they're identical at execution time. Grouping
+      // by the SELECT list's own alias is one expression, unambiguous, and
+      // exactly what a hand-written query would do here.
+      .groupBy(sql`"key"`)) as Array<{ key: string | null; value: string | number | null }>;
+
+    return {
+      op: input.op,
+      field: input.op === 'count' ? null : (input.field ?? null),
+      group_by: input.group_by,
+      groups: rows.map((r) => {
+        // Number bins: the key IS the bin index ("0", "1", ...) — resolved
+        // to its human label here, from the field's own config, rather than
+        // a second SQL expression (see the comment where keyExpr is built).
+        const label = groupDef.type === 'number' && r.key != null ? numberBins[Number(r.key)]?.label : undefined;
+        return {
+          key: r.key,
+          ...(label != null ? { label } : {}),
+          value: r.value == null ? null : Number(r.value),
+        };
+      }),
+      filtered: Boolean(input.filter || input.q),
+      exact: true,
+    };
+  }
+
+  /**
+   * The aggregate SELECT expression for `aggregate()`/`groupedAggregate()`
+   * — count(*) needs no field and no numeric guard; sum/avg/min/max need
+   * both, extracted here so the two callers can't drift on how a field's
+   * raw stored value becomes a number (formula/rollup live in
+   * computed_values, everything else in values; a non-numeric value is
+   * SKIPPED via `guard`, never coerced to zero, which would drag an average
+   * down and report a total that is quietly wrong).
+   */
+  private async buildAggExpr(
+    op: 'count' | 'sum' | 'avg' | 'min' | 'max',
+    field: string | undefined,
+    byApiName: Map<string, FieldDef>,
+  ): Promise<SQL & { guard: SQL }> {
+    if (op === 'count') {
+      const expr = sql`count(*)::int` as SQL & { guard: SQL };
+      expr.guard = sql`TRUE`;
+      return expr;
+    }
+    if (!field) {
+      throw new UnprocessableEntityException(`"${op}" needs a field to aggregate; only "count" works without one`);
+    }
+    const def = byApiName.get(field);
+    if (!def) throw new UnprocessableEntityException(`unknown field "${field}"`);
+    const source =
+      def.type === 'formula' || def.type === 'rollup' ? sql`${records.computedValues}->>${def.id}` : sql`${records.values}->>${def.id}`;
+    const numeric = sql`NULLIF(${source}, '')::numeric`;
+    const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
+    const expr = (
+      op === 'sum' ? sql`sum(${numeric})` : op === 'avg' ? sql`avg(${numeric})` : op === 'min' ? sql`min(${numeric})` : sql`max(${numeric})`
+    ) as SQL & { guard: SQL };
+    expr.guard = guard;
+    return expr;
   }
 
   /**

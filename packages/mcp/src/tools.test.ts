@@ -4615,6 +4615,107 @@ describe('count_records resolves filter labels the same way query_records does (
   });
 });
 
+describe('#750 — count_records_grouped', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'ToDo' },
+          { id: 'opt-done', label: 'Done' },
+        ],
+      },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped') {
+          return {
+            data: {
+              op: 'count',
+              field: null,
+              group_by: (o?.body as Record<string, unknown>)?.group_by,
+              groups: [
+                { key: 'opt-todo', value: 5 },
+                { key: 'opt-done', value: 12 },
+              ],
+              filtered: (o?.body as Record<string, unknown>)?.filter !== undefined,
+              exact: true,
+            },
+          };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('hits the grouped endpoint, not the single-value one, and passes group_by through', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+    });
+    expect(res.isError).toBeUndefined();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped');
+    expect((posted[0]!.body as { group_by: string }).group_by).toBe('state');
+    const parsed = JSON.parse(res.content[0]!.text);
+    expect(parsed.groups).toEqual([
+      { key: 'opt-todo', value: 5 },
+      { key: 'opt-done', value: 12 },
+    ]);
+  });
+
+  it('resolves a filter label the same way count_records does (#558) — same helper, new endpoint', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    const body = posted[0]!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('passes group_by_granularity through untouched', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+      group_by_granularity: 'month',
+    });
+    expect((posted[0]!.body as { group_by_granularity: string }).group_by_granularity).toBe('month');
+  });
+});
+
 describe('describe_database advertises an `ops` array per field, including workflow (#558)', () => {
   const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
   const DATABASE = {

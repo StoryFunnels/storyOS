@@ -835,6 +835,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** One aggregate value per group — a board/dashboard column's true total, in one query */
+        post: operations["RecordsController_aggregateGrouped"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch": {
         parameters: {
             query?: never;
@@ -4620,6 +4637,33 @@ export interface components {
             filter?: components["schemas"]["AggregateRecordsDto__schema0"];
             q?: string;
         };
+        GroupedAggregateRecordsDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["GroupedAggregateRecordsDto__schema0"][];
+        } | {
+            or: components["schemas"]["GroupedAggregateRecordsDto__schema0"][];
+        };
+        GroupedAggregateRecordsDto: {
+            /**
+             * @default count
+             * @enum {string}
+             */
+            op: "count" | "sum" | "avg" | "min" | "max";
+            field?: string;
+            filter?: components["schemas"]["GroupedAggregateRecordsDto__schema0"];
+            q?: string;
+            group_by: string;
+            /** @enum {string} */
+            group_by_granularity?: "week" | "month" | "quarter" | "year";
+        };
         CreateRecordsBatchDto: {
             records: {
                 /** @default {} */
@@ -7507,6 +7551,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AggregateRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_aggregateGrouped: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupedAggregateRecordsDto"];
             };
         };
         responses: {
