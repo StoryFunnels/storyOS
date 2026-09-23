@@ -13,6 +13,7 @@ import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
 import { canGroupListBy } from './groupable-fields';
+import { groupCountLabel } from './paginated-count';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { ViewQueryError } from './query-error';
@@ -140,7 +141,13 @@ export function ListView({
                   </button>
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
                   <span className="text-[12px] font-medium text-ink">{group.label}</span>
-                  <span className="text-[11px] text-faint">{group.rows.length}</span>
+                  {/* #755 — while more pages remain unloaded (records.hasNextPage),
+                      this group's row count is only a lower bound: Will Not Do read
+                      4 and held 63 on storyos/issues (740 records, page size 100).
+                      Same shared rule list-view.tsx and board-view.tsx both read. */}
+                  <span className="text-[11px] text-faint">
+                    {groupCountLabel(group.rows.length, Boolean(records.hasNextPage))}
+                  </span>
                 </div>
               )}
               {!isCollapsed && (
