@@ -267,28 +267,57 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
   });
 }
 
+/** The `/records/aggregate` op set — mirrors AggregateRecordsDto exactly. */
+export type AggregateOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
 /**
- * #659 — the view's total row count, for the persistent "N records" indicator.
- * Server-computed via `/records/aggregate` (op: count) rather than counting
- * fetched pages — `useRecordsInfinite` only holds however many pages have been
- * scrolled into view so far, and the ADR-0016 rule against it ("counting must
- * not be done by fetching") applies just as much to a table's own row count as
- * to Tyron's. Scoped by the SAME filter the view's own query uses, so the
- * number always matches what the grid is actually showing.
+ * #659/#759 — ONE server-computed number via `/records/aggregate`, rather than
+ * paging the dataset client-side and reducing it in the browser —
+ * `useRecordsInfinite` only holds however many pages have been scrolled (or
+ * auto-fetched) into view so far, and the ADR-0016 rule against this ("counting
+ * must not be done by fetching") applies just as much to a table's row count
+ * or a dashboard tile as to Tyron's. Scoped by the SAME filter AST `/query`
+ * takes, so the number always matches what a records view of the same filter
+ * would show. Grant-scoped server-side exactly like `/query` — a database the
+ * viewer cannot read throws (404/403) rather than returning a value, so a
+ * caller can tell "no access" from "adds up to zero" (#304) by checking
+ * `isError`, never by reading `0`.
  */
-export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
+export function useRecordAggregate(
+  ws: string,
+  db: string,
+  input: { op: AggregateOp; field?: string; filter?: unknown },
+  enabled = true,
+) {
   return useQuery({
-    queryKey: [...recordCountKey(ws, db), filter],
+    queryKey: [...recordCountKey(ws, db), input],
     queryFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
         params: { path: { ws, db } },
-        body: { op: 'count', ...(filter ? { filter } : {}) } as never,
+        body: {
+          op: input.op,
+          ...(input.field ? { field: input.field } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+        } as never,
       });
       if (error) throw error;
-      return (data as unknown as { value: number }).value;
+      return (data as unknown as { value: number | null }).value;
     },
     enabled: Boolean(ws && db) && enabled,
   });
+}
+
+/**
+ * #659 — the view's total row count, for the persistent "N records" indicator.
+ * A thin `op: 'count'` wrapper over `useRecordAggregate` — see its own comment
+ * for why this asks the server for one number rather than counting pages.
+ * `count` never returns null server-side (records.service.ts's own `?? 0`),
+ * so this coerces the shared hook's `number | null` back to the `number`
+ * every existing caller already expects — a narrowing, not a behavior change.
+ */
+export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
+  const query = useRecordAggregate(ws, db, { op: 'count', filter }, enabled);
+  return { ...query, data: query.data ?? undefined };
 }
 
 /**
