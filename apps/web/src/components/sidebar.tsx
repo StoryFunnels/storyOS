@@ -8,6 +8,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
+import { atLeast } from '@/lib/access';
 import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -1897,7 +1898,6 @@ function FolderSection({
                   ws={ws}
                   db={db}
                   active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                  canEdit={canEdit}
                   isAdmin={isAdmin}
                   folders={folders}
                   onMove={onMove}
@@ -2010,7 +2010,6 @@ function DatabaseBranch({
         ws={ws}
         db={db}
         active={isHere}
-        canEdit={canEdit}
         isAdmin={isAdmin}
         folders={folders}
         onMove={onMove}
@@ -2045,7 +2044,6 @@ function DatabaseRow({
   ws,
   db,
   active,
-  canEdit,
   isAdmin,
   folders = [],
   onMove,
@@ -2057,7 +2055,6 @@ function DatabaseRow({
   ws: string;
   db: DatabaseSummary;
   active: boolean;
-  canEdit: boolean;
   isAdmin: boolean;
   folders?: FolderInfo[];
   onMove?: (dbId: string, folderId: string | null) => void;
@@ -2071,6 +2068,20 @@ function DatabaseRow({
   const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /**
+   * #752 — every content-mutating item below (rename/duplicate/description/
+   * icon/import/sync/automations/move/delete) leads to a `PATCH`/`DELETE .../
+   * databases/:db` or a database-scoped write that the API refuses below
+   * `creator` on THIS database (`databases.controller.ts`'s `assertAccess`).
+   * The menu used to gate on workspace `role !== 'guest'` — a workspace member
+   * whose effective access on this particular database is only viewer through
+   * editor saw every item, opened the dialog, and was refused on save. `db`
+   * (the sidebar's own list row, `DatabaseSummary`) already carries `my_access`
+   * — the identical batched `AccessService` computation the database page's
+   * own `schemaEditable` reads from the detail query — so this reuses it
+   * rather than re-deriving a second copy of the ladder.
+   */
+  const schemaEditable = atLeast(db.my_access ?? undefined, 'creator');
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
   // #457 — see the note on the space row: a separate item, not folded into Rename.
@@ -2163,7 +2174,7 @@ function DatabaseRow({
         </Link>
         </>
       )}
-      {canEdit && !renaming && (
+      {!renaming && (
         /*
          * #389 — through the SHARED menu now, not this row's own markup.
          *
@@ -2177,18 +2188,47 @@ function DatabaseRow({
          * to inherit what the older ones had, because the behaviour lived per
          * component. One definition means the next row type gets it by
          * construction.
+         *
+         * #752 — no longer gated on the workspace-level `canEdit` (role !==
+         * 'guest'): SidebarRowMenu itself renders nothing when every action is
+         * hidden ("an all-hidden menu renders nothing rather than an empty
+         * popover"), so per-item `hidden: !schemaEditable` below already
+         * collapses to the old behaviour for a plain viewer/commenter/
+         * contributor/editor on this database, and correctly OFFERS the menu
+         * to a guest who holds a database-scoped creator grant — a real,
+         * supported access shape this workspace-level boolean could never see.
+         *
+         * THE AUDIT (AC4) — every item below, the endpoint it leads to, and
+         * what that endpoint actually requires (apps/api, `assertAccess`
+         * unless noted):
+         *   Rename                  PATCH  .../databases/:db            creator (per-db)
+         *   Duplicate                POST  .../databases/:db/duplicate  creator (per-db, PacksService)
+         *   Edit/Add description    PATCH  .../databases/:db            creator (per-db)
+         *   Icon & color            PATCH  .../databases/:db            creator (per-db)
+         *   Import CSV…              POST  .../databases/:db/import     creator (per-db)
+         *   Sync from…          POST/PATCH/DELETE  .../sources[/:id]    creator (per-db)
+         *   Buttons & automations     CRUD  .../databases/:db/automations   creator (per-db)
+         *   Manage access             POST/DELETE  .../grants           admin (WORKSPACE-level, @MinRole) — already correct, unchanged
+         *   Move to …                PATCH  .../databases/:db (folder_id)  creator (per-db) — same PATCH as Rename
+         *   Hide from my sidebar     no API call — client-only localStorage — no gate needed
+         *   Relations / Trash        navigation only — the destination page has its own gate
+         *   Delete database        DELETE  .../databases/:db            creator (per-db)
+         * Every content-mutating item needs `creator` on THIS database; only
+         * "Manage access" needs workspace `admin` instead. Re-audit this list
+         * before adding a new item rather than assuming it also needs `creator`.
          */
         <SidebarRowMenu
           label={db.name}
           contentClassName="w-56"
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true) },
+            { label: 'Rename', onSelect: () => setRenaming(true), hidden: !schemaEditable },
             {
               // #524 — fires immediately, no dialog and no name prompt, matching
               // the view/record duplicate precedent (view-tab.tsx) rather than
               // the typed-confirm pattern below: this isn't destructive, so
               // there's nothing to guard against.
               label: 'Duplicate',
+              hidden: !schemaEditable,
               onSelect: () =>
                 mutations.duplicateDatabase.mutate(
                   { id: db.id },
@@ -2209,19 +2249,22 @@ function DatabaseRow({
             },
             {
               label: db.description ? 'Edit description' : 'Add description',
+              hidden: !schemaEditable,
               onSelect: () => setDescribing(true),
             },
-            { label: 'Icon & color', onSelect: () => setIconing(true) },
-            { label: 'Import CSV…', onSelect: () => setImporting(true) },
-            { label: 'Sync from…', onSelect: () => setSyncing(true) },
-            { label: 'Buttons & automations', onSelect: () => setAutomating(true) },
+            { label: 'Icon & color', onSelect: () => setIconing(true), hidden: !schemaEditable },
+            { label: 'Import CSV…', onSelect: () => setImporting(true), hidden: !schemaEditable },
+            { label: 'Sync from…', onSelect: () => setSyncing(true), hidden: !schemaEditable },
+            { label: 'Buttons & automations', onSelect: () => setAutomating(true), hidden: !schemaEditable },
             // `hidden` rather than a conditional spread — see the note on
             // SidebarMenuAction. The item is declared in place and simply not
             // rendered, so it cannot be lost to a misplaced spread.
             { label: 'Manage access', onSelect: () => setSharing(true), hidden: !isAdmin },
             // "Move to" — the section header rides on the FIRST target, so the
-            // heading cannot outlive the group it labels.
-            ...(onMove && (folders.length > 0 || db.folderId)
+            // heading cannot outlive the group it labels. Same `creator`
+            // requirement as Rename etc. — a move is the same PATCH with a
+            // different field.
+            ...(schemaEditable && onMove && (folders.length > 0 || db.folderId)
               ? [
                   ...(db.folderId
                     ? [
@@ -2255,7 +2298,12 @@ function DatabaseRow({
             },
             { label: 'Relations', href: `/w/${ws}/d/${db.id}/relations` },
             { label: 'Trash', href: `/w/${ws}/d/${db.id}/trash` },
-            { label: 'Delete database', danger: true, onSelect: () => setConfirmingDelete(true) },
+            {
+              label: 'Delete database',
+              danger: true,
+              hidden: !schemaEditable,
+              onSelect: () => setConfirmingDelete(true),
+            },
           ]}
         />
       )}
