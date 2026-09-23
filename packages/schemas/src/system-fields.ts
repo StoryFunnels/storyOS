@@ -40,6 +40,16 @@ export interface SystemFieldSpec {
   sortable: boolean;
   /** System fields are never client-writable. */
   read_only: true;
+  /**
+   * #743 — still resolves (deprecate, never delete: a stored view config or
+   * formula referencing this api_name today must not silently break — #760
+   * fixed the specific way a formula reference COULD have silently broken
+   * on a display_name change, ahead of this flag existing at all), but a
+   * picker enumerating "what can I filter/sort/group by" should not OFFER
+   * it. The consuming surface's own job, not this registry's — this flag
+   * only records the fact. Absent/false for every other entry.
+   */
+  deprecated?: boolean;
 }
 
 const NUMBER_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'];
@@ -49,21 +59,37 @@ const USER_OPS: FilterOp[] = ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_e
 /**
  * The canonical set. Order is the order surfaces should present them in.
  *
- * `number` and `id` both resolve to `records.number` (the sequential public id):
- * `number` is the canonical, self-describing name (fixes the live "unknown field
- * number" failure), `id` is kept because it is the long-standing, tested handle
- * for the same value (public-record-id contract). The record's UUID is always
- * returned as the top-level `id` on every record, but is not itself a filterable
- * system field (its api_name is taken by the record-number handle).
+ * `number` and `id` both resolve to `records.number` (the sequential public
+ * id). REVERSED from this registry's original reasoning (#351): `number` was
+ * added as "the canonical, self-describing name"; `id` was kept only for
+ * back-compat. Ievgen's #743 ruling is the opposite — `id` is canonical (it
+ * was already the long-standing, tested handle for this value, and is what
+ * everyone says out loud: "issue 759"), `number` means the on-screen ROW
+ * INDEX instead, is deliberately never offered as a field anywhere, and its
+ * entry here exists only so an existing stored view config or formula
+ * referencing the OLD api_name still resolves (`deprecated: true` — see
+ * systemFieldDefsFor's additive-overlay contract, unaffected by this). The
+ * record's UUID is always returned as the top-level `id` on every record,
+ * but is not itself a filterable system field and never will be (#743
+ * amendment 1, withdrawn).
  */
 export const SYSTEM_FIELDS: readonly SystemFieldSpec[] = [
   {
+    // #743 — deprecated, not removed: `number` still resolves to
+    // records.number exactly as before, for any stored view config or
+    // formula that already filters/sorts/references it. What changed is
+    // display_name, from 'Number' to 'ID' — Ievgen's ruling that the word
+    // "Number" must never appear in the UI applies even to a chip on an
+    // existing saved view rendering THIS entry's label, not just to
+    // newly-offered picker entries (which a consuming surface hides via
+    // `deprecated` instead).
     api_name: 'number',
-    display_name: 'Number',
+    display_name: 'ID',
     type: 'id',
     filter_ops: NUMBER_OPS,
     sortable: true,
     read_only: true,
+    deprecated: true,
   },
   {
     api_name: 'id',
