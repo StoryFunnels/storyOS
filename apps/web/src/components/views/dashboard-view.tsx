@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Select } from '@/components/ui/select';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Input } from '@/components/ui/input';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordAggregate } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { FilterNode, ViewConfig, FilterGroup } from './use-view-state';
-import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
+import { andFilterNodes } from './use-view-state';
+import { activeFilterNode } from './filter-config';
 import { FiltersSection } from './view-toolbar';
 import {
   TILE_OPS,
-  computeTileValue,
   defaultBlockLabel,
   defaultTileLabel,
   formatTileValue,
@@ -53,16 +53,21 @@ export interface DashboardTile {
 
 
 /**
- * Dashboard view (MN-225 / #168, Phase 1) — a grid of KPI / metric tiles, each
- * an aggregate (count/sum/avg/min/max) over the database's records. Records are
- * fetched through the SAME grant-scoped `/records/query` path every other view
- * uses (via `queryBodyFromConfig`), so a tile only ever aggregates records the
- * viewer can access, and the view's own filter scopes every tile. All pages are
- * pulled so the aggregate is correct over the full (filtered) dataset — a
- * server-side `/records/aggregate` endpoint is the Phase 2 optimization.
+ * Dashboard view (MN-225 / #168) — a grid of KPI / metric tiles, each an
+ * aggregate (count/sum/avg/min/max) over the database's records.
  *
- * Phase 1 is metric tiles only. Charts, cross-database tiles, per-tile filters,
- * and drag-to-arrange layout are deferred to later phases.
+ * #759 — each tile computes its value with ONE server-side `POST
+ * .../records/aggregate` call (`useRecordAggregate`), the SAME grant-scoped
+ * path `/query` uses, filtered by the identical AST — so a tile only ever
+ * aggregates records the viewer can access, the view's own filter scopes
+ * every tile, and a source the viewer cannot read fails (see `TileValue`'s
+ * own #304 comment) rather than returning a value. This used to page the
+ * whole filtered dataset client-side via `useRecordsInfinite` and reduce it
+ * in the browser — on `storyos/issues` (740 records, page size 100), one
+ * count tile cost 8 requests and 740 records transferred to display one
+ * number, and the view rendered nothing until every page of every tile had
+ * landed. The endpoint already existed and was already used by the PUBLIC
+ * dashboard (`public-views.service.ts`) — this was the only caller missing.
  */
 export function DashboardView({
   ws,
@@ -662,41 +667,41 @@ function TileValue({
     () => (crossDatabase ? tile.filter : andFilterNodes(personalFilter, tile.filter)),
     [crossDatabase, personalFilter, tile.filter],
   );
-  const queryBody = useMemo(
-    () =>
-      crossDatabase
-        ? { filters: scoped as FilterNode | undefined }
-        : queryBodyFromConfig(config, scoped as FilterNode | undefined),
-    [crossDatabase, config, scoped],
+  // #759 — the same filter `queryBodyFromConfig` would have sent to `/query`
+  // (the view's own active filter ANDed with the personal override and the
+  // tile's own scope; a cross-database tile drops the view's filter/personal
+  // override entirely, per the comment above), just handed to `/aggregate`
+  // instead of a row-fetching endpoint.
+  const aggregateFilter = useMemo(
+    () => (crossDatabase ? scoped : andFilterNodes(activeFilterNode(config.filters), scoped)),
+    [crossDatabase, config.filters, scoped],
   );
-  // `enabled` inside the hook keeps an unconfigured tile from querying at all.
-  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
-  // Aggregate over the whole matching set, not just page 1.
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
-  const loading = records.isLoading || hasNextPage || isFetchingNextPage;
+  // `enabled` keeps an unconfigured tile from querying at all.
+  const aggregate = useRecordAggregate(
+    ws,
+    sourceDb ?? '',
+    { op: tile.op, field: tile.field_api_name, filter: aggregateFilter },
+    !unconfigured,
+  );
   if (unconfigured) {
     return <span className="text-[13px] font-normal text-muted">Pick a database</span>;
   }
-  if (loading) return <span className="text-muted">…</span>;
+  if (aggregate.isLoading) return <span className="text-muted">…</span>;
   /**
-   * #304 — the query is grant-scoped server-side, so a source the VIEWER cannot
-   * read fails rather than returning rows. Say so. Rendering 0 here would be a
-   * lie: "no access" and "adds up to zero" are different answers, and a tile
-   * quietly reading 0 is indistinguishable from an empty database.
+   * #304 — the aggregate is grant-scoped server-side exactly like `/query`, so
+   * a source the VIEWER cannot read fails rather than returning a value. Say
+   * so. Rendering 0 here would be a lie: "no access" and "adds up to zero" are
+   * different answers, and a tile quietly reading 0 is indistinguishable from
+   * an empty database.
    */
-  if (records.isError) {
+  if (aggregate.isError) {
     return (
       <span className="text-[13px] font-normal text-muted" title="You don't have access to this tile's database">
         No access
       </span>
     );
   }
-  const value = computeTileValue(tile.op, tile.field_api_name, rows);
+  const value = aggregate.data ?? null;
   /*
    * #388 — the target, when there is one and it can be computed honestly.
    * `targetProgress` returns null for a missing value, a missing target or a
