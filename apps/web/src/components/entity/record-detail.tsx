@@ -43,7 +43,8 @@ import {
   CollapsibleBody,
   useCollapsedSection,
 } from '@/components/entity/collapsible-section';
-import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/components/entity/panels';
+import { AboutPanel, ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
+import { Segmented } from '@/components/ui/segmented';
 import {
   AUDIT_TYPES,
   HIDDEN,
@@ -302,7 +303,9 @@ export function RecordDetail({
     else setFieldConfig.mutate({ fieldId: field.id, config: { entity_zones: next, entity_hidden: false } });
   };
 
-  const [tab, setTab] = useState<'comments' | 'activity'>('comments');
+  // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
+  // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
+  const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   // #312 — retire the title draft only once the saved value has actually arrived, so
   // the input never falls back to a stale title mid-save. If the save fails the draft
@@ -611,28 +614,33 @@ export function RecordDetail({
             </DragPreview>
           </DndContext>
 
-          <div className="mb-6 mt-5">
-            <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
-          </div>
-
-          <MentionedIn ws={ws} db={db} rec={recordId} />
+          {/* #740 AC1 — no longer a default block; own margin lives inside
+              AttachmentsStrip now, since it renders nothing (no wrapper div,
+              no blank space) for a database with no attachment field and no
+              pre-existing attachments on this record. */}
+          <AttachmentsStrip
+            ws={ws}
+            db={db}
+            rec={recordId}
+            readOnly={readOnly}
+            hasAttachmentField={allFields.some((f) => f.type === 'attachment')}
+          />
 
           <div className="mt-8 border-t border-border-default pt-4">
-            <div className="mb-4 flex gap-1">
-              {(['comments', 'activity'] as const).map((t) => (
-                <button
-                  key={t}
-                  className={cn(
-                    'rounded px-2.5 py-1 text-[13px] capitalize',
-                    tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
-                  )}
-                  onClick={() => setTab(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-            {tab === 'comments' ? (
+            <Segmented
+              label="Record panel"
+              className="mb-4"
+              options={[
+                { value: 'activity', label: 'Activity' },
+                { value: 'comments', label: 'Comments' },
+                { value: 'about', label: 'About' },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+            {tab === 'activity' ? (
+              <ActivityPanel ws={ws} db={db} rec={recordId} />
+            ) : tab === 'comments' ? (
               !canComment ? (
                 <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
               ) : (
@@ -646,7 +654,18 @@ export function RecordDetail({
                 />
               )
             ) : (
-              <ActivityPanel ws={ws} db={db} rec={recordId} />
+              <AboutPanel
+                ws={ws}
+                db={db}
+                rec={recordId}
+                members={memberList}
+                databaseName={database.data?.name ?? ''}
+                spaceName={spaceName}
+                recordNumber={record.data.number}
+                createdAt={record.data.created_at}
+                updatedAt={record.data.updated_at}
+                myAccess={database.data?.my_access}
+              />
             )}
           </div>
         </div>

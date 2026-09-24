@@ -46,6 +46,7 @@ import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { ViewQueryError } from './query-error';
 import { boardGroupIsReadOnly } from './groupable-fields';
+import { groupCountLabel } from './paginated-count';
 
 const NO_VALUE = '__none__';
 
@@ -273,9 +274,16 @@ export function BoardView({
           hide_empty_groups: config.hide_empty_groups,
           hide_empty_no_value_group: config.hide_empty_no_value_group,
         },
-        { groupType: groupField?.type ?? '' },
+        { groupType: groupField?.type ?? '', hasMore: Boolean(records.hasNextPage) },
       ),
-    [columns, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, groupField],
+    [
+      columns,
+      config.column_sort,
+      config.hide_empty_groups,
+      config.hide_empty_no_value_group,
+      groupField,
+      records.hasNextPage,
+    ],
   );
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
@@ -472,7 +480,8 @@ export function BoardView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-      <div className="flex h-full gap-3 overflow-x-auto p-4">
+      <div className="flex h-full flex-col">
+      <div className="flex flex-1 gap-3 overflow-x-auto p-4">
         {shownColumns.map((column) => (
           /*
            * #424 — per COLUMN, not per board. A board groups by a user-chosen
@@ -485,6 +494,7 @@ export function BoardView({
           <BoardColumn
             key={column.id}
             column={column}
+            hasMore={Boolean(records.hasNextPage)}
             cardFields={cardFields}
             size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
@@ -520,6 +530,24 @@ export function BoardView({
           </ErrorBoundary>
         ))}
       </div>
+      {/* #755 — the board otherwise never advances past its first page: no
+          affordance meant every column count (and hide_empty_groups) was
+          permanently wrong past 100 records, not just transiently. Same
+          "Load more" idiom list-view.tsx already uses, so reaching "fully
+          loaded" (and the plain count/hide-empty behavior that unlocks) works
+          identically on both surfaces. */}
+      {records.hasNextPage && (
+        <div className="shrink-0 border-t border-border-default px-4 py-2">
+          <button
+            className="rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            onClick={() => void records.fetchNextPage()}
+            disabled={records.isFetchingNextPage}
+          >
+            {records.isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
+      </div>
       <DragOverlay>
         {dragging && (
           <Card row={dragging} cardFields={cardFields} size={config.card_size ?? 'medium'} memberNames={memberNames} memberImages={memberImages} overlay />
@@ -533,6 +561,7 @@ export type CardSize = 'small' | 'medium' | 'large';
 
 function BoardColumn({
   column,
+  hasMore,
   cardFields,
   size,
   memberNames,
@@ -543,6 +572,9 @@ function BoardColumn({
   onAdd,
 }: {
   column: { id: string; label: string; color: string; icon?: string | null; rows: RecordRow[] };
+  /** #755 — while more pages remain unloaded, this column's row count can only
+   *  ever be a lower bound; the header must say so rather than read as final. */
+  hasMore: boolean;
   cardFields: Field[];
   size: CardSize;
   memberNames: Map<string, string>;
@@ -580,7 +612,7 @@ function BoardColumn({
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
           )}
           {column.label}
-          <span className="text-faint">{column.rows.length}</span>
+          <span className="text-faint">{groupCountLabel(column.rows.length, hasMore)}</span>
         </span>
         {!readOnly && (
           <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">

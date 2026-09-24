@@ -1924,6 +1924,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped": {
+      "post": {
+        "operationId": "RecordsController_aggregateGrouped",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupedAggregateRecordsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One aggregate value per group — a board/dashboard column's true total, in one query",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch": {
       "post": {
         "operationId": "RecordsController_createBatch",
@@ -11306,6 +11345,128 @@
           }
         }
       },
+      "GroupedAggregateRecordsDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "not_contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {},
+              "disabled": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GroupedAggregateRecordsDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GroupedAggregateRecordsDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
+      "GroupedAggregateRecordsDto": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "default": "count",
+            "type": "string",
+            "enum": [
+              "count",
+              "sum",
+              "avg",
+              "min",
+              "max"
+            ]
+          },
+          "field": {
+            "type": "string"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/GroupedAggregateRecordsDto__schema0"
+          },
+          "q": {
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "group_by_granularity": {
+            "type": "string",
+            "enum": [
+              "week",
+              "month",
+              "quarter",
+              "year"
+            ]
+          }
+        },
+        "required": [
+          "group_by"
+        ]
+      },
       "CreateRecordsBatchDto": {
         "type": "object",
         "properties": {
@@ -16566,6 +16727,7 @@
         "properties": {
           "record_ids": {
             "minItems": 1,
+            "maxItems": 200,
             "type": "array",
             "items": {
               "type": "string"

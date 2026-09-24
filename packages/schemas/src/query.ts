@@ -203,3 +203,23 @@ export const aggregateRecordsSchema = z.object({
   q: z.string().optional(),
 });
 export type AggregateRecordsInput = z.infer<typeof aggregateRecordsSchema>;
+
+/**
+ * A server-side aggregate, ONE VALUE PER GROUP (#750).
+ *
+ * Extends `aggregateRecordsSchema` with `group_by` rather than duplicating
+ * it — same op/field/filter/q semantics, same access scoping, so "the total"
+ * and "the total per column" can never quietly disagree.
+ *
+ * `group_by_granularity` mirrors `views.ts`'s `group_by_field_id` sibling of
+ * the same name exactly (only meaningful when `group_by` points at a DATE
+ * field) — not imported from there to avoid a schema-to-schema dependency
+ * for one literal union, but the values must stay identical to the board's
+ * own bucketing (#307) or a board's column count and this endpoint's count
+ * for the same period would disagree.
+ */
+export const groupedAggregateRecordsSchema = aggregateRecordsSchema.extend({
+  group_by: z.string(),
+  group_by_granularity: z.enum(['week', 'month', 'quarter', 'year']).optional(),
+});
+export type GroupedAggregateRecordsInput = z.infer<typeof groupedAggregateRecordsSchema>;

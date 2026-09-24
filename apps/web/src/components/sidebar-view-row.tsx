@@ -42,7 +42,7 @@ export function SidebarViewRow({
   onRename,
   onDelete,
   canEdit,
-  depth = 2,
+  depth = 0,
 }: {
   ws: string;
   view: SidebarView;
@@ -53,7 +53,11 @@ export function SidebarViewRow({
   onRename?: (view: SidebarView) => void;
   onDelete?: (view: SidebarView) => void;
   canEdit: boolean;
-  /** #380 — 2 when nested under its database, 1 at the space root. */
+  /** #380/#742 — 0 at the space root or nested under its database (the
+   * database-expanded-views wrapper supplies that one step itself); 0 inside
+   * a folder too, for the same reason. There is only one real indent step
+   * left in the whole tree (SIDEBAR_INDENT_PX[1], a folder's own body), and
+   * it always comes from a WRAPPER, never stacked again on the row itself. */
   depth?: SidebarDepth;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;

@@ -221,4 +221,34 @@ describe('copy-record (#521) — access', () => {
     });
     expect(res.statusCode, res.body).toBe(422); // zod's own min(1) on record_ids
   });
+
+  it('#679 — a selection over 200 is rejected up front, never silently handled in part', async () => {
+    // Fabricated ids, not real records: the cap is enforced at the schema
+    // layer, before any lookup — the point is that this never reaches the
+    // point of deciding which 200 of the 201 to actually copy.
+    const tooMany = Array.from({ length: 201 }, () => crypto.randomUUID());
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${leadsId}/records/copy`, {
+      record_ids: tooMany,
+      target_database_id: contactsId,
+      dry_run: true,
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json().error.details[0].path).toBe('record_ids');
+  });
+
+  it('#679 — exactly 200 is accepted (the cap is inclusive, not off-by-one)', async () => {
+    const ids = await Promise.all(
+      Array.from({ length: 200 }, (_, i) =>
+        as(admin.token, 'POST', `/workspaces/${wsId}/databases/${leadsId}/records`, { values: { name: `Bulk ${i}` } }).then(
+          (r) => r.json().id,
+        ),
+      ),
+    );
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${leadsId}/records/copy`, {
+      record_ids: ids,
+      target_database_id: contactsId,
+      dry_run: true,
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+  }, 30_000);
 });

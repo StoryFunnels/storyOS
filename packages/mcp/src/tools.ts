@@ -1196,6 +1196,75 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     ),
   );
 
+  /**
+   * #750 — the per-column sibling of count_records, for the exact "how many
+   * of each" shape count_records cannot answer without one call per value:
+   * asking for a database's Bug/Feature/Chore totals one column at a time
+   * hits the same page-one-undercount problem #404 already fixed for a
+   * single total, just per group — a board grouping a paginated fetch
+   * client-side undercounts every column that didn't fit on the page it saw.
+   */
+  reg(
+    'count_records_grouped',
+    {
+      title: 'Count records, grouped',
+      description:
+        'Count records (or total/average/min/max a numeric field) PER GROUP of another field, in one call — ' +
+        'computed in the database. USE THIS for "how many of each type", "totals by status", or any board/' +
+        'dashboard column count, rather than calling count_records once per value or grouping query_records ' +
+        'results yourself (query_records is paginated, so a client-side group-by undercounts every value that ' +
+        "didn't fit on the page it saw). group_by must be a field a board could group by: select, workflow, a " +
+        'single-person user field, a date field (with group_by_granularity), a number field with configured ' +
+        'bins, the single side of a one-to-many relation, text, or lookup. Same filter AST and label resolution ' +
+        'as count_records/query_records.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Database name, api slug, or id.'),
+        group_by: z.string().describe('Field api_name to group by — see the type list above.'),
+        group_by_granularity: z
+          .enum(['week', 'month', 'quarter', 'year'])
+          .optional()
+          .describe('Required when group_by is a date field; ignored otherwise. Each group\'s key is that bucket\'s start date.'),
+        op: z
+          .enum(['count', 'sum', 'avg', 'min', 'max'])
+          .optional()
+          .describe('Default "count". The others need `field` and aggregate its numeric values within each group.'),
+        field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
+        filter: z.any().optional().describe('Same filter AST as query_records — see get_started.'),
+        q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      group_by: string;
+      group_by_granularity?: string;
+      op?: string;
+      field?: string;
+      filter?: unknown;
+      q?: string;
+    }>(async ({ workspace, database, group_by, group_by_granularity, op, field, filter, q }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      // #558's own fix applies identically here — see count_records above.
+      const detail = filter !== undefined ? await getDetail(ws.id, db.id) : undefined;
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: {
+            op: op ?? 'count',
+            field,
+            group_by,
+            group_by_granularity,
+            filter: detail ? mapFilterValues(detail, filter) : filter,
+            q,
+          } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
   reg(
     'query_records',
     {

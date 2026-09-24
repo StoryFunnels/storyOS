@@ -12,13 +12,29 @@
 /**
  * Depth is a named scale, not a per-component guess.
  *
- * - 0 — a space. Leftmost.
- * - 1 — everything inside a space: database, folder, space-level dashboard,
- *   document. One shared left edge, a visible step right of the space.
- * - 2 — a view nested under its database, or a folder's children. These
- *   previously disagreed with each other (`ml-4` vs `ml-3`); one value now.
+ * #742 redesign — REPLACES the old three-level margin scale (space=0 <
+ * contents=10 < nested=26) with the design artifact's model: alignment comes
+ * from every row sharing ONE fixed icon-gutter column, not from increasing
+ * margins. A space's letter-mark and a database's glyph occupy the SAME
+ * column, so their LABELS start at the same x — that is "four levels, zero
+ * indent steps" (findings 02/12). The single exception is a folder's own
+ * children: a folder genuinely CONTAINS its rows rather than merely preceding
+ * them, so those get ONE real indent step, 20px, and it is the only one in
+ * the whole tree.
+ *
+ * This also folds in finding 06 (views are siblings of databases, not
+ * nested under them) — there is no longer a "view under a database" depth at
+ * all, only "row directly in a space" vs. "row inside a folder".
+ *
+ * - 0 — every row directly in a space: the space header itself, a database,
+ *   a folder, a space-level view, a dashboard, a document. One shared edge —
+ *   the bug this file exists to prevent (#380) was a dashboard rendering
+ *   left of the databases beside it, and "one shared edge" is still the
+ *   guarantee, it is just now also the SPACE's own edge, not a step right of
+ *   it.
+ * - 1 — a row inside a folder. The one real indent step.
  */
-export const SIDEBAR_INDENT_PX = { 0: 0, 1: 10, 2: 26 } as const;
+export const SIDEBAR_INDENT_PX = { 0: 0, 1: 20 } as const;
 
 export type SidebarDepth = keyof typeof SIDEBAR_INDENT_PX;
 
