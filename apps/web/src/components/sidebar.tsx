@@ -617,47 +617,6 @@ function HiddenRow({
 }
 
 /**
- * #382 — per-database expand state, reusing the SAME localStorage shape spaces
- * and folders already use (`storyos:space-collapsed:`,
- * `storyos:folder-collapsed:`). A third mechanism here would be the same drift
- * #380 documents for indentation.
- *
- * ONE difference, and it is the point of the ticket: the DEFAULT flips. Spaces
- * and folders default to expanded; a database defaults to COLLAPSED. So the
- * stored value means "this one is open" and absence means closed — which is why
- * the key is `-expanded:` rather than `-collapsed:`. Reusing the word
- * "collapsed" with an inverted meaning would be worse than a new key: every
- * future reader would have to remember which way this one runs.
- *
- * Per-device, matching spaces and folders. The founder asked for state to
- * survive reopening app.storyos.dev, which localStorage satisfies for the same
- * browser. Following the person across devices would mean putting it on the user
- * record — a deliberate decision recorded on #382, and not what the existing
- * two do.
- */
-function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
-  const key = `storyos:database-expanded:${databaseId}`;
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (typeof window !== 'undefined') setExpanded(window.localStorage.getItem(key) === '1');
-  }, [key]);
-  const toggle = () =>
-    setExpanded((e) => {
-      const next = !e;
-      if (typeof window !== 'undefined') {
-        // Absence means collapsed, so closing REMOVES the key rather than
-        // writing '0'. Otherwise every database ever opened leaves a row behind
-        // forever, including deleted ones (#382 asks that keys not accumulate).
-        if (next) window.localStorage.setItem(key, '1');
-        else window.localStorage.removeItem(key);
-      }
-      return next;
-    });
-  // You should always be able to see where you are, whatever was stored.
-  return { expanded: expanded || forceOpen, toggle };
-}
-
-/**
  * #369 — the space root as a drop target, so a leaf can be dragged OUT of a
  * folder (and a view out from under its database) rather than only in.
  *
@@ -2113,11 +2072,6 @@ function DatabaseBranch({
   isAdmin: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
-  const { expanded, toggle } = useDatabaseExpanded(db.id, isHere);
-  // #382 — a caret only where there is something behind it. With #381 removing
-  // the default view, most databases have no children at all, which is what
-  // makes the sidebar compact rather than merely collapsible.
-  const hasChildren = views.length > 0;
 
   return (
     <Fragment>
@@ -2129,28 +2083,24 @@ function DatabaseBranch({
         folders={folders}
         onMove={onMove}
         reorderable={canEdit}
-        expandable={hasChildren}
-        expanded={expanded}
-        onToggle={toggle}
       />
-      {hasChildren && expanded &&
-        views.map((v) => (
-          /* #380 — indent comes from SidebarRow's depth. This wrapper only draws
-             the guide line; it used to add ml-4 while a folder's children used
-             ml-3, so the two nesting levels disagreed by 4px. */
-          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
-            <SidebarViewRow
-              ws={ws}
-              view={v}
-              active={isHere && currentViewId === v.id}
-              folders={folders}
-              onMove={onMoveView}
-              onRename={onRenameView}
-              onDelete={onDeleteView}
-              canEdit={canEdit}
-            />
-          </div>
-        ))}
+      {/* #742 finding 06 — a database's own views render as FLAT SIBLINGS now,
+          not behind an expand/collapse caret. No leaf row has children in the
+          new model, so there is nothing left to expand: depth 0, same as the
+          database beside it, no guide line (that implied nesting). */}
+      {views.map((v) => (
+        <SidebarViewRow
+          key={v.id}
+          ws={ws}
+          view={v}
+          active={isHere && currentViewId === v.id}
+          folders={folders}
+          onMove={onMoveView}
+          onRename={onRenameView}
+          onDelete={onDeleteView}
+          canEdit={canEdit}
+        />
+      ))}
     </Fragment>
   );
 }
