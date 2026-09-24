@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
-import { Bot, HelpCircle, Paperclip, Send, Terminal, Trash2, Workflow } from 'lucide-react';
+import { Bell, BellOff, Bot, HelpCircle, Paperclip, Send, Terminal, Trash2, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -611,6 +611,148 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
   );
 }
 
+interface WatchersResponse {
+  watching: boolean;
+  /** User ids only (#236's API shape) — resolved to name/image via `members`. */
+  watchers: string[];
+}
+
+function useWatchers(ws: string, db: string, rec: string) {
+  const qc = useQueryClient();
+  const key = ['watchers', ws, db, rec];
+  const query = useQuery({
+    queryKey: key,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watchers',
+        { params: { path: { ws, db, rec } } },
+      );
+      if (error) throw error;
+      return data as unknown as WatchersResponse;
+    },
+  });
+  const toggle = useMutation({
+    mutationFn: async (watching: boolean) => {
+      if (watching) {
+        const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', {
+          params: { path: { ws, db, rec } },
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', {
+          params: { path: { ws, db, rec } },
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
+  });
+  return { query, toggle };
+}
+
+/**
+ * #740 AC2 — the "About" tab: watchers, "Mentioned in" (unchanged, just moved
+ * off the main column into here), and a Details block of record metadata that
+ * previously had nowhere to live. Version count is intentionally NOT here —
+ * the version-history initiative (docs/architecture/version-history.md) has
+ * no count endpoint yet, and adding one is out of this ticket's decided AC.
+ */
+export function AboutPanel({
+  ws,
+  db,
+  rec,
+  members,
+  databaseName,
+  spaceName,
+  recordNumber,
+  createdAt,
+  updatedAt,
+  myAccess,
+}: {
+  ws: string;
+  db: string;
+  rec: string;
+  members: Array<{ id: string; name: string; image: string | null }>;
+  databaseName: string;
+  spaceName?: string;
+  recordNumber: number | null;
+  createdAt: string;
+  updatedAt: string;
+  myAccess?: string;
+}) {
+  const fmt = useDateFormat();
+  const { query, toggle } = useWatchers(ws, db, rec);
+  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+  const watching = query.data?.watching ?? false;
+  const watcherIds = query.data?.watchers ?? [];
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-muted">Watchers</h3>
+          <button
+            type="button"
+            onClick={() => toggle.mutate(!watching)}
+            disabled={toggle.isPending}
+            className="flex items-center gap-1 text-[12px] text-info hover:underline disabled:opacity-50"
+          >
+            {watching ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
+            {watching ? 'Stop watching' : 'Watch'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {watcherIds.length === 0 && <p className="text-[13px] text-muted">Nobody is watching this record.</p>}
+          {watcherIds.map((id) => {
+            const m = memberById.get(id);
+            return (
+              <span
+                key={id}
+                className="flex items-center gap-1.5 rounded-full border border-border-default px-2 py-1 text-[12px] text-ink"
+              >
+                <Avatar userId={id} name={m?.name ?? 'Unknown'} image={m?.image ?? null} size={16} />
+                {m?.name ?? 'Unknown'}
+              </span>
+            );
+          })}
+        </div>
+      </section>
+
+      <MentionedIn ws={ws} db={db} rec={rec} />
+
+      <section>
+        <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">Details</h3>
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-[13px]">
+          <dt className="text-muted">Database</dt>
+          <dd className="text-ink">{databaseName}</dd>
+          {spaceName && (
+            <>
+              <dt className="text-muted">Space</dt>
+              <dd className="text-ink">{spaceName}</dd>
+            </>
+          )}
+          {recordNumber !== null && (
+            <>
+              <dt className="text-muted">Record</dt>
+              <dd className="tabular-nums text-ink">#{recordNumber}</dd>
+            </>
+          )}
+          <dt className="text-muted">Created</dt>
+          <dd className="text-ink">{fmt.dateTime(createdAt)}</dd>
+          <dt className="text-muted">Updated</dt>
+          <dd className="text-ink">{fmt.dateTime(updatedAt)}</dd>
+          {myAccess && (
+            <>
+              <dt className="text-muted">Your access</dt>
+              <dd className="capitalize text-ink">{myAccess}</dd>
+            </>
+          )}
+        </dl>
+      </section>
+    </div>
+  );
+}
+
 interface Attachment {
   id: string;
   filename: string;
@@ -625,11 +767,23 @@ export function AttachmentsStrip({
   db,
   rec,
   readOnly,
+  hasAttachmentField,
 }: {
   ws: string;
   db: string;
   rec: string;
   readOnly: boolean;
+  /**
+   * #740 AC1 — attachments stop being a DEFAULT block: most databases sampled
+   * had zero attachments and no reason to reserve the space. But the upload
+   * endpoint below is record-level (no `?field=`), so a record can already
+   * hold real, uploaded attachments in a database with no attachment-type
+   * field configured at all — gating on schema alone would hide/orphan them
+   * (a real AC5 violation, not a hypothetical one). So this only skips
+   * rendering when BOTH the schema has no attachment field AND the record's
+   * own attachments actually come back empty — never on schema alone.
+   */
+  hasAttachmentField: boolean;
 }) {
   const qc = useQueryClient();
   const key = ['attachments', ws, db, rec];
@@ -670,10 +824,19 @@ export function AttachmentsStrip({
     onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
   });
 
+  // Schema says yes → always show (the ordinary, common case). Schema says no
+  // → show only once we've confirmed this record is a genuine exception, not
+  // before (a flash of an empty box while loading is worse than a half-second
+  // delay for content that, per the measured findings, usually isn't there).
+  // Placed after every hook, same early-return-after-hooks discipline the
+  // rest of this codebase already follows (table-view.tsx's own #346 note).
+  const hasExisting = (attachments.data ?? []).length > 0;
+  if (!hasAttachmentField && (attachments.isLoading || !hasExisting)) return null;
+
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
+        'mb-6 mt-5 rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
         dragOver && 'border-[var(--accent)] bg-accent-soft',
       )}
       onDragOver={(e) => {
