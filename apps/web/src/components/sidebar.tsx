@@ -119,9 +119,17 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
   // Personal hide (#35): hidden spaces drop out entirely; a database hidden on its own
   // (its space still visible) drops out too. Both surface in the Hidden section.
+  //
+  // #769 — the personal space is excluded from this generic tree entirely, not
+  // just when hidden. It already has its own dedicated section (PersonalSection,
+  // below) with its own menu (Rename / Move to shared space / Delete) — per
+  // docs/architecture/personal-space.md, it "isn't just another space in the
+  // list." Rendering it here too pointed the SAME document at two rows with two
+  // different, disagreeing menus (the generic one offers "Copy to My Space" on
+  // a doc that's already personal, and has no "Move to shared space" at all).
   const allSpaces = spaces.data ?? [];
   const allDatabases = databases.data ?? [];
-  const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id));
+  const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id) && !s.personal);
   const hiddenSpaces = allSpaces.filter((s) => isHidden('space', s.id));
   const hiddenDatabases = allDatabases.filter((d) => isHidden('database', d.id) && !isHidden('space', d.spaceId));
 
