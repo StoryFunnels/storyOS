@@ -1415,16 +1415,16 @@ describe('describe_database enumerates system fields from the registry (#354)', 
     };
   }
 
-  it('lists ALL six system fields (previously only `id` showed), each read-only with ops', async () => {
+  it('lists the non-deprecated system fields (#770: `number` is deprecated, so five show, not six), each read-only with ops', async () => {
     const { fields } = await describe();
     const byName = new Map(fields.map((f) => [f.api_name, f]));
-    for (const name of ['number', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
+    for (const name of ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
       const f = byName.get(name);
       expect(f, `system field ${name} present`).toBeTruthy();
       expect(f!.read_only).toBe(true);
       expect(Array.isArray(f!.ops) && f!.ops!.length > 0).toBe(true);
     }
-    expect(byName.get('number')!.ops).toContain('gte');
+    expect(byName.get('id')!.ops).toContain('gte');
     expect(byName.get('created_at')!.ops).toContain('within');
     expect(byName.get('created_by')!.ops).toContain('has');
   });
@@ -4905,6 +4905,80 @@ describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
     const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
     const intro = res.content[0]!.text;
     expect(intro).toMatch(/workflow\s+:/);
+  });
+});
+
+/**
+ * #770 — a `deprecated` SYSTEM_FIELDS entry (#743: `number`, superseded by
+ * `id`) is never newly OFFERED by either enumeration surface, mirroring the
+ * web picker's hide-not-relabel treatment (#861) — but it still RESOLVES for
+ * a filter that already references it, since only enumeration changed here,
+ * not resolution.
+ */
+describe('deprecated system fields are omitted from enumeration, not from resolution (#770)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'Eng' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [{ id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' }],
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const sent: Array<{ path: string; body?: Record<string, unknown> }> = [];
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o?: { body?: Record<string, unknown> }) => {
+        sent.push({ path, body: o?.body });
+        if (path.endsWith('/records/aggregate')) return { data: { value: 3 } };
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, sent };
+  }
+
+  it('describe_database omits `number` (deprecated) but keeps `id` labelled "ID"', async () => {
+    const { handlers } = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'Eng', database: 'Issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    expect(detail.fields.find((f) => f.api_name === 'number')).toBeUndefined();
+    const id = detail.fields.find((f) => f.api_name === 'id')!;
+    expect(id).toBeTruthy();
+    expect(id.name).toBe('ID');
+    expect(id.read_only).toBe(true);
+  });
+
+  it('get_started\'s cheat sheet does not list `number` as a system-field row, but does list `id`', async () => {
+    const { handlers } = harness();
+    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const intro = res.content[0]!.text;
+    // The generated system-field row is "  <api_name padded> : <ops>" — match
+    // that exact shape rather than a bare substring, since "number" also
+    // appears in unrelated prose ("number/id are the record's sequential...").
+    expect(intro).not.toMatch(/^ {2}number\s+:/m);
+    expect(intro).toMatch(/^ {2}id\s+:/m);
+  });
+
+  it('a filter already referencing the deprecated api_name `number` still resolves (enumeration changed, not resolution)', async () => {
+    const { handlers, sent } = harness();
+    const res = (await handlers.get('count_records')!({
+      workspace: 'Eng',
+      database: 'Issues',
+      filter: { field: 'number', op: 'gte', value: 320 },
+    })) as { content: Array<{ text: string }>; isError?: boolean };
+    expect(res.isError).toBeFalsy();
+    const forwarded = sent.find((s) => s.path.endsWith('/records/aggregate'))!;
+    expect((forwarded.body!.filter as { field: string }).field).toBe('number');
   });
 });
 
