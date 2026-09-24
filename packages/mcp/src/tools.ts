@@ -300,7 +300,11 @@ export const FILTER_GUIDE = [
   'next_7_days, this_month, next_30_days.',
   'System fields — every database has these built-in columns, filterable AND sortable',
   'by these api_names (read-only, never in create/update values):',
-  ...SYSTEM_FIELDS.map(
+  // #770 — a deprecated entry (e.g. `number`, superseded by `id`) still
+  // resolves for a stored filter/sort that already references it, but is
+  // never newly offered here — same hide-not-relabel treatment #743 shipped
+  // for the web picker.
+  ...SYSTEM_FIELDS.filter((f) => !f.deprecated).map(
     (f) => `  ${f.api_name.padEnd(14)} : ${f.filter_ops.join(', ')}${f.sortable ? '  (sortable)' : ''}`,
   ),
   '  number/id are the record\'s sequential public number; created_by/updated_by take a',
@@ -344,7 +348,10 @@ function describeFields(db: DatabaseDetail) {
       if (opsKey) out.ops = OPS_BY_FIELD_TYPE[opsKey];
       return out;
     });
-  const system = SYSTEM_FIELDS.map((f) => ({
+  // #770 — same omission as the get_started cheat sheet above: a deprecated
+  // entry is never newly enumerated, though it still resolves if a stored
+  // filter/sort already references it.
+  const system = SYSTEM_FIELDS.filter((f) => !f.deprecated).map((f) => ({
     api_name: f.api_name,
     name: f.display_name,
     type: f.type,
