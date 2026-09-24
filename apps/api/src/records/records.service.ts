@@ -64,6 +64,10 @@ import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
+// #434 — type only (erased at compile time): RecordsService does not take a
+// runtime dependency on CommentsService, so this can't create the module
+// cycle a value import would (comments.module.ts already imports records).
+import type { CommentSegment } from '../comments/comments.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -2596,8 +2600,42 @@ export class RecordsService {
           source: c.source,
           agentId: c.agentId,
           agentName: c.agentName,
+          // #434 — without this, every copied comment silently defaults to
+          // createdAt=now() (the column's own default), which is exactly
+          // the "restamped to now" AC4 explicitly forbids: the original
+          // chronological order between comments is lost the moment two or
+          // more share (near enough) the same insert timestamp, since
+          // list()'s own ordering has no secondary tiebreak. `editedAt` is
+          // copied too — silently dropping "this was edited" would
+          // misrepresent the carried comment's real history.
+          createdAt: c.createdAt,
+          editedAt: c.editedAt,
         })),
       );
+    }
+    // #434 AC6 — a system note stating how many comments were carried and
+    // from which record, so a reader of the copy's thread is never left
+    // thinking the conversation happened here. Inserted AFTER the carried
+    // comments (and left to its own default createdAt = now), so it sorts
+    // to the top under comments.service.ts's own newest-first ordering
+    // without needing to know what "top" means on every rendering surface.
+    // A second raw insert, same reasoning as the block above: this is not a
+    // notification-worthy event on its own (nobody is @mentioned), and using
+    // CommentsService.create() here would add a dependency RecordsService
+    // does not otherwise have, for no behavior this ticket's AC asks for.
+    if (sourceComments.length) {
+      await this.db.insert(comments).values({
+        recordId: created.id,
+        authorId: actorId,
+        body: [
+          {
+            type: 'text',
+            text: `${sourceComments.length} comment${sourceComments.length === 1 ? '' : 's'} copied from #${src.number}`,
+          },
+        ] as CommentSegment[],
+        mentions: [],
+        source,
+      });
     }
 
     // #599 — the source record's attachments (files), physically copied.
