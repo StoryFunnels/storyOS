@@ -434,6 +434,20 @@ export function ButtonActionsEditor({
                       {f.displayName}
                     </option>
                   ))}
+                {/* #730 AC4 — a specific named workspace member, not the rule owner
+                    and not anyone on the record. The API already accepts and
+                    validates `@member:<id>` (#841); this is the picker built
+                    against it. Valid on a webhook rule too — unlike a person
+                    field, it needs no triggering record to resolve. */}
+                {members.length > 0 && (
+                  <optgroup label="Notify a specific member">
+                    {members.map((m) => (
+                      <option key={m.id} value={`@member:${m.id}`}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <Input
                 className="h-7"
