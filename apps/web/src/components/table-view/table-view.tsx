@@ -40,13 +40,12 @@ import type { ViewConfig } from '../views/use-view-state';
 import { andFilterNodes } from '../views/filter-config';
 import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { isNumberColumnHidden } from './number-column';
+import { withSystemFields } from '../views/system-fields';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
 import { ViewQueryError } from '../views/query-error';
 
-const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 // #296: how far the pointer has to move before a mousedown-on-a-cell turns into
@@ -54,9 +53,18 @@ const TITLE_WIDTH = 260;
 // PointerSensor below already uses for drag-to-reorder-columns.
 const DRAG_THRESHOLD = 6;
 
-// The public id renders in the row gutter (Airtable-style), not as its own column.
+// #739 — the view-relative row index renders in the gutter; the permanent
+// record number ("ID") is its own column now, computed separately (see
+// `numberEntry` below) and never passed through the STORED-field filter this
+// set applies to, so it's unaffected by `HIDDEN_TYPES` excluding type `id`.
 /**
- * Field types the table never renders as a column.
+ * STORED field-row types the table never renders as a column. Applies only to
+ * `database.data.fields` (real rows) — the raw internal UUID (a genuine
+ * stored `id`-type row) and `created_by` are excluded here because they
+ * render nowhere useful, not because the compiler-level `id` TYPE itself is
+ * forbidden: the synthetic "ID" column (`numberEntry`, api_name `number`)
+ * also carries `type: 'id'` per its registry entry and is added to `fields`
+ * separately, downstream of this filter.
  *
  * #408 — exported so the relationship with `NON_TOGGLABLE` can be ASSERTED
  * rather than assumed. The two lists encode halves of one rule ("what renders"
@@ -70,10 +78,13 @@ export const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // Types with no inline editor. `rollup` was missing, which had two consequences:
 // an empty rollup cell offered a fake "Add <field>" affordance, and double-clicking
 // one opened an editor on a value the server computes and will never accept.
-// created_by/updated_by are system columns for the same reason.
+// created_by/updated_by are system columns for the same reason. #739 — `id`
+// joins them: the only field that ever reaches this code with type `id` is
+// the synthetic "ID" column (HIDDEN_TYPES keeps the raw UUID stored row out
+// of `fields` entirely), and it's exactly as read-only as created_at.
 const NO_EDITOR = new Set([
   'checkbox', 'rich_text', 'lookup', 'rollup', 'button', 'formula',
-  'created_at', 'updated_at', 'created_by', 'updated_by',
+  'created_at', 'updated_at', 'created_by', 'updated_by', 'id',
 ]);
 
 /** #187: empty for the ghost-affordance check — null/blank, or an empty
@@ -137,6 +148,9 @@ export function TableView({
   const database = useDatabase(ws, db);
   // #149 — the operator's word for a row ("task"), not "record".
   const noun = databaseNoun(database.data?.name);
+  // #739 T8 — density control, three steps on the 4px grid. Undefined = 32,
+  // the pre-#739 hardcoded height.
+  const rowHeight = config?.row_height ?? 32;
 
   // #233 — hierarchy mode. `hierarchyField` is the "Parent" side field this
   // view nests by, resolved from config; undefined is the overwhelming
@@ -165,13 +179,49 @@ export function TableView({
   // screen at the top level.
   const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter']);
 
-  const fields = useMemo(
-    () =>
-      (database.data?.fields ?? []).filter(
-        (f) => !HIDDEN_TYPES.has(f.type) && !(hiddenFieldIds ?? []).includes(f.id),
-      ),
-    [database.data, hiddenFieldIds],
-  );
+  // #739 — the permanent record number as an ORDINARY column, "ID" in the UI,
+  // `number` in code (T6). Computed via the SAME shared registry helper
+  // view-toolbar.tsx's Fields picker already uses for this — one source, not
+  // a second copy that could disagree about when the synthetic entry applies.
+  // `undefined` when the database happens to have a REAL field literally
+  // named `number` (rare): that real row already flows through the ordinary
+  // ` fields ` list below with no special-casing at all (registry semantics,
+  // real always wins).
+  const numberEntry = useMemo(() => {
+    const liveFields = database.data?.fields ?? [];
+    if (liveFields.some((f) => f.apiName === 'number')) return undefined;
+    return withSystemFields(liveFields).find((f) => f.apiName === 'number');
+  }, [database.data]);
+  // #739 AC3 — the system date columns (Created, Last edited), offered from
+  // Fields off by default (view-toolbar.tsx's matching systemDateEntries).
+  // Rendered here the same way numberEntry is: only when the database has no
+  // REAL stored field of that type, and only once actually made visible.
+  const systemDateEntries = useMemo(() => {
+    const liveFields = database.data?.fields ?? [];
+    return withSystemFields(liveFields).filter(
+      (f) =>
+        (f.type === 'created_at' || f.type === 'updated_at') &&
+        !liveFields.some((real) => real.apiName === f.apiName),
+    );
+  }, [database.data]);
+
+  const fields = useMemo(() => {
+    // HIDDEN_TYPES only ever applies to STORED rows (the raw UUID, created_by)
+    // — numberEntry is synthetic and never passes through it, so its own
+    // type `id` can't collide with the raw UUID's exclusion.
+    //
+    // #739 T3 — rich_text is excluded from RENDERING here too, not just from
+    // the Fields picker's offer list (view-toolbar.tsx): a rich_text field
+    // that simply hasn't been hidden yet (hidden_field_ids doesn't name it)
+    // would otherwise still render as a column despite never being offered
+    // as one — "absent from the list" only holds if it can never appear.
+    const ordinary = (database.data?.fields ?? []).filter(
+      (f) => !HIDDEN_TYPES.has(f.type) && f.type !== 'rich_text' && !(hiddenFieldIds ?? []).includes(f.id),
+    );
+    const numberVisible = numberEntry && !(hiddenFieldIds ?? []).includes(numberEntry.id);
+    const visibleDateEntries = systemDateEntries.filter((f) => !(hiddenFieldIds ?? []).includes(f.id));
+    return [...(numberVisible ? [numberEntry] : []), ...ordinary, ...visibleDateEntries];
+  }, [database.data, hiddenFieldIds, numberEntry, systemDateEntries]);
   // #497 — looked up against the database's FULL field list, not the current
   // view's filtered `fields` above: the deep link's whole point is reaching a
   // relation's config regardless of whether this view happens to hide it.
@@ -183,12 +233,6 @@ export function TableView({
   useEffect(() => {
     if (autoOpenFieldId && database.data && !autoOpenField) onAutoOpenFieldConsumed?.();
   }, [autoOpenFieldId, database.data, autoOpenField, onAutoOpenFieldConsumed]);
-  // #289/#659/#743 — see number-column.ts: the record number ("ID") is
-  // visible by default, alongside the row-index column below.
-  const numberHidden = useMemo(() => {
-    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
-    return isNumberColumnHidden(hiddenFieldIds, real?.id);
-  }, [hiddenFieldIds, database.data]);
 
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
@@ -359,7 +403,7 @@ export function TableView({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 20,
   });
 
@@ -760,11 +804,17 @@ export function TableView({
 
   useShortcut('n', () => {
     if (readOnly) return;
+    // #739 — col 0 used to always be the title (the only frozen-by-default
+    // column). With "ID" now also frozen-leading and read-only, hardcoding 0
+    // would land the cursor on a column that refuses to enter edit mode
+    // (`id` is in NO_EDITOR) instead of the record's new name. Find title
+    // explicitly rather than re-deriving frozenCount's own leading-column rule.
+    const nameCol = fields.findIndex((f) => f.type === 'title');
     createRecord.mutate(
       {},
       {
         onSuccess: () => {
-          setCursor({ row: rows.length, col: 0 });
+          setCursor({ row: rows.length, col: nameCol >= 0 ? nameCol : 0 });
           setEditing(true);
           requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length));
         },
@@ -969,7 +1019,7 @@ export function TableView({
                 matches how the rest of this codebase declares a gap instead
                 of hiding one (dashboard exports, the audit-pack ticket). */}
             {hierarchyInfo.isExpanded && hierarchyInfo.hasMoreChildren && (
-              <span className="shrink-0 text-[11px] text-faint" title="Only the first 200 children load inline">
+              <span className="shrink-0 text-meta text-faint" title="Only the first 200 children load inline">
                 200+
               </span>
             )}
@@ -979,7 +1029,7 @@ export function TableView({
                 e.stopPropagation();
                 openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
               }}
-              className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+              className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
             >
               <Maximize2 className="h-3 w-3" /> Open
             </Link>
@@ -1003,7 +1053,7 @@ export function TableView({
                   e.stopPropagation();
                   openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
                 }}
-                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
               >
                 <Maximize2 className="h-3 w-3" /> Open
               </Link>
@@ -1026,7 +1076,7 @@ export function TableView({
           click after the newly-revealed rows' own counts land opens the next
           level down. */}
       {hierarchyField && (
-        <div className="flex items-center gap-2 border-b border-border-default bg-app px-3 py-1 text-[12px] text-muted">
+        <div className="flex items-center gap-2 border-b border-border-default bg-app px-3 py-1 text-label text-muted">
           <button
             type="button"
             className="hover:text-ink"
@@ -1066,7 +1116,7 @@ export function TableView({
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div
-              className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}
+              className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-meta font-medium text-faint', pinned && 'sticky left-0 z-30')}
               // #659 — the persistent total-record-count AC: this gutter header is
               // sticky in both axes already (pinned left + the header's own sticky
               // top), so it's always on screen regardless of scroll — the one spot
@@ -1141,7 +1191,7 @@ export function TableView({
               </SortableContext>
               <DragPreview>
                 {columnDrag.activeId && (
-                  <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                  <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
                     {columnLabel(columnDrag.activeId) ?? ''}
                   </div>
                 )}
@@ -1150,7 +1200,7 @@ export function TableView({
             {schemaEditable && (
               <Dialog open={addingField !== null} onOpenChange={(open) => setAddingField(open ? {} : null)}>
                 <DialogTrigger asChild>
-                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-ink">
+                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-label font-medium text-muted hover:bg-hover hover:text-ink">
                     <Plus className="h-3.5 w-3.5" /> New field
                   </button>
                 </DialogTrigger>
@@ -1182,7 +1232,7 @@ export function TableView({
                 <div
                   key={row.id}
                   className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-accent-soft' : 'bg-card')}
-                  style={{ top: item.start, height: ROW_HEIGHT }}
+                  style={{ top: item.start, height: rowHeight }}
                 >
                   <div
                     className={cn(
@@ -1192,39 +1242,33 @@ export function TableView({
                     )}
                   >
                     {/*
-                      #659 — the view-relative row index (1, 2, 3…) is the new
-                      default first column: a live position/count indicator
-                      derived straight from this view's own filtered/sorted
-                      row order (`item.index`), so it recalculates for free
-                      whenever that order changes. It is not a field — never
-                      stored, never itself hideable. It fades to row actions
-                      on hover, same as before.
+                      #659/#739 — the view-relative row index (1, 2, 3…) is
+                      the gutter's ONLY content: a live position/count
+                      indicator derived straight from this view's own
+                      filtered/sorted row order (`item.index`), so it
+                      recalculates for free whenever that order changes. It
+                      is not a field — never stored, never itself hideable,
+                      never labelled. It fades to row actions on hover.
 
-                      #699 AC5 — the permanent record number ("ID", visible
-                      by default since #743, togglable via Fields → Row
-                      gutter) used to fade out WITH the index, so a field the
-                      user explicitly switched on vanished the moment they
-                      pointed at its own row while Priority (an ordinary
-                      column) stayed put — the same "a toggle that can't
-                      change what you see" defect AC1 fixed elsewhere in this
-                      file, just triggered by hover instead of by nothing.
-                      It's pulled out as its own small corner badge below,
-                      NEVER tied to hover/selection state, so switching it on
-                      has one meaning in every row state.
+                      #739 — the permanent record number used to merge into
+                      this same gutter as a small corner badge (#699 AC5).
+                      It's now an ordinary column instead — "ID" in `fields`
+                      below, ordinary Hide-Fields visibility, no special
+                      fade/hover handling of its own — because a value that
+                      renders inside another field's cell isn't a value a
+                      user can point at, filter by, or reason about the same
+                      way as any other column. See the follow-up noted on
+                      #739 for list/feed, which still merge it into their own
+                      gutter and haven't been re-skinned yet.
                     */}
                     <span
                       className={cn(
-                        'flex items-center gap-0.5 text-[11px] tabular-nums text-faint',
+                        'flex items-center gap-0.5 text-meta tabular-nums text-faint',
                         selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
                       )}
                     >
                       {item.index + 1}
                     </span>
-                    {row.number !== null && !numberHidden && (
-                      <span className="pointer-events-none absolute right-0.5 top-0.5 text-[9px] tabular-nums text-faint">
-                        {row.number}
-                      </span>
-                    )}
                     <div
                       className={cn(
                         'absolute inset-0 flex items-center justify-center gap-0.5',
@@ -1288,7 +1332,7 @@ export function TableView({
             <button
               // #254 — the tooltip names the shortcut, from the shared registry.
               title={newRecordTitle}
-              className="flex h-8 w-full items-center gap-2 px-3 text-[13px] text-muted hover:bg-hover"
+              className="flex h-8 w-full items-center gap-2 px-3 text-body text-muted hover:bg-hover"
               onClick={() => {
                 createRecord.mutate(
                   {},

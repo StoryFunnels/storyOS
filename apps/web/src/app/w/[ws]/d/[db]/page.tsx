@@ -24,6 +24,7 @@ import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
+import { defaultTableHiddenFieldIds } from './default-table-columns';
 import {
   EMPTY_CONFIG,
   queryBodyFromConfig,
@@ -432,6 +433,7 @@ function NewViewDialog({
 
   function createView(kind: ViewKind) {
     const patch: Partial<ViewConfig> = {};
+    if (kind === 'table') patch.hidden_field_ids = defaultTableHiddenFieldIds(fields);
     if (kind === 'board') patch.group_by_field_id = boardDefaultGroupId;
     if (kind === 'calendar') patch.date_field_id = dateFields[0]?.id;
     if (kind === 'timeline') patch.start_date_field_id = dateFields[0]?.id;

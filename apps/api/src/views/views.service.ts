@@ -293,6 +293,10 @@ export function cleanViewConfig(
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
+    // #739 — same allowlist trap this function's own history already documents
+    // above (#227/#391/#559): a plain preference naming no field id passes
+    // through unconditionally, same as column_sort/calendar_mode.
+    row_height: config.row_height,
   };
 }
 
