@@ -2,38 +2,36 @@ import { describe, expect, it } from 'vitest';
 import { SIDEBAR_INDENT_PX, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
 
 /**
- * #380 — this geometry has regressed TWICE, so it is pinned.
+ * #380 / #742 — this geometry has regressed twice under the OLD margin-scale
+ * model, so its replacement is pinned too.
  *
  * #219 fixed the document row by copying an invisible grip spacer out of
  * DatabaseRow. #347 then added view rows, which never inherited that copy, and a
  * space-level dashboard rendered ~10px LEFT of the databases beside it.
  *
- * The point of these assertions is that a row type added later (#368, #369) gets
- * its indent from ONE scale rather than a per-component guess — so the next new
- * type cannot silently miss it the way view rows did.
+ * #742 REPLACES the three-level margin scale with the design artifact's
+ * fixed-icon-gutter model: a space's label and a database's label now start
+ * at the SAME x (findings 02/12 — "four levels, zero indent steps"), and the
+ * only real indent left is a folder's own children (one step). These
+ * assertions changed deliberately along with the model, not as a drift — the
+ * invariant they protect is still "one row type cannot silently disagree
+ * with its siblings about where it starts."
  */
-describe('sidebar row geometry (#380)', () => {
-  it('a space is leftmost; its contents step right; nested things step right again', () => {
-    // Asserted as an ORDERING, not three magic numbers — the founder's spec is
-    // relative ("database slightly to the right of the space"), so pinning exact
-    // pixels would fail on a legitimate re-space while missing an inversion.
-    expect(sidebarRowIndent(0)).toBeLessThan(sidebarRowIndent(1));
-    expect(sidebarRowIndent(1)).toBeLessThan(sidebarRowIndent(2));
+describe('sidebar row geometry (#380, model replaced by #742)', () => {
+  it('every row directly in a space shares ONE edge — including the space header itself', () => {
+    // Depth 0 is now "not inside a folder", not "is a space" — a space header,
+    // a database, a folder row, a space-level view/dashboard/document all
+    // share it. This is the #742 redesign's core claim: labels no longer step
+    // right as you go deeper, alignment comes from the icon column instead.
+    expect(sidebarRowIndent(0)).toBe(0);
+    expect(sidebarRowIndent(0)).toBe(SIDEBAR_INDENT_PX[0]);
   });
 
-  it('databases, folders, dashboards and documents share ONE left edge', () => {
-    // All four are depth 1. The bug was a dashboard rendering LEFT of the
-    // databases it sits beside, so what matters is that one depth means one
-    // number for every row type that claims it.
-    const edges = new Set([sidebarRowIndent(1), sidebarRowIndent(1), sidebarRowIndent(1)]);
-    expect(edges.size).toBe(1);
+  it('a folder\'s own children get the ONE real indent step in the tree', () => {
+    // A folder genuinely CONTAINS its rows rather than merely preceding them
+    // — the one case an indent states a fact instead of decorating one.
+    expect(sidebarRowIndent(1)).toBeGreaterThan(sidebarRowIndent(0));
     expect(sidebarRowIndent(1)).toBe(SIDEBAR_INDENT_PX[1]);
-  });
-
-  it('nested views and folder children resolve to ONE deeper edge', () => {
-    // These used to disagree: ml-4 (16px) for a database's views vs ml-3 (12px)
-    // for a folder's children. Both are depth 2 now.
-    expect(sidebarRowIndent(2)).toBe(SIDEBAR_INDENT_PX[2]);
   });
 
   it('marks the active row with BACKGROUND only — no accent bar', () => {

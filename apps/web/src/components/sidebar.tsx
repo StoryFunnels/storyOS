@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -40,6 +40,14 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import {
+  SIDEBAR_NAV_DEFAULT_W,
+  SIDEBAR_NAV_MAX_W,
+  SIDEBAR_NAV_MIN_W,
+  SIDEBAR_NAV_STEP,
+  clampSidebarNavWidth,
+  useSidebarNavWidth,
+} from '@/lib/sidebar-width';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { openTyron } from '@/lib/tyron-panel';
@@ -140,8 +148,16 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     visibleSpaces.map((sp) => sp.id),
   );
 
+  // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
+  const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
+    useSidebarNavWidth();
+
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-default bg-sidebar">
+    <div className="relative flex h-full shrink-0">
+    <aside
+      style={{ width: sidebarWidth }}
+      className="flex h-full shrink-0 flex-col border-r border-border-default bg-sidebar"
+    >
       <div className="flex shrink-0 items-stretch">
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
@@ -313,6 +329,100 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
     </aside>
+      <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />
+    </div>
+  );
+}
+
+/**
+ * #742 finding 13 — drag the right edge (220–460px), double-click to reset,
+ * arrow keys when focused. Deliberately simpler than record-detail's
+ * `ResizeHandle`: this sidebar isn't squeezing a measured sibling body, it
+ * sits beside the whole app's content area, so there's no container-width
+ * reservation math here — just the fixed [MIN, MAX] clamp.
+ */
+function SidebarResizeHandle({
+  width,
+  onResize,
+  onCommit,
+}: {
+  width: number;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) {
+  const drag = useRef<{ startX: number; startW: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // Keep the latest width in a ref so the window listeners (bound once) read
+  // the current value without re-subscribing on every resize.
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const s = drag.current;
+      if (!s) return;
+      onResize(clampSidebarNavWidth(s.startW + (e.clientX - s.startX)));
+    }
+    function onUp() {
+      if (!drag.current) return;
+      drag.current = null;
+      setDragging(false);
+      onCommit(widthRef.current);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [onResize, onCommit]);
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuemin={SIDEBAR_NAV_MIN_W}
+      aria-valuemax={SIDEBAR_NAV_MAX_W}
+      aria-valuenow={Math.round(width)}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        drag.current = { startX: e.clientX, startW: width };
+        setDragging(true);
+      }}
+      onDoubleClick={() => onCommit(SIDEBAR_NAV_DEFAULT_W)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          onCommit(clampSidebarNavWidth(width - SIDEBAR_NAV_STEP));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          onCommit(clampSidebarNavWidth(width + SIDEBAR_NAV_STEP));
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          onCommit(SIDEBAR_NAV_DEFAULT_W);
+        }
+      }}
+      className={cn(
+        'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch md:block',
+        '-mx-2 w-4 z-10',
+        dragging && 'select-none',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
+          dragging
+            ? 'bg-accent'
+            : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
+        )}
+      />
+    </div>
   );
 }
 
@@ -1451,9 +1561,10 @@ function SpaceSection({
                 onRename={onRenameView}
                 onDelete={onDeleteView}
                 canEdit={canEdit}
-                /* #380 — a space-level dashboard is a SIBLING of the databases,
-                   so it shares their left edge. It used to render LEFT of them. */
-                depth={1}
+                /* #380/#742 — a space-level dashboard is a SIBLING of the
+                   databases, so it shares their left edge — depth 0 under the
+                   new zero-indent model, same as every other space-root row. */
+                depth={0}
               />
             ))}
           {/* #368 — only the unfiled ones here; a document in a folder renders
@@ -1507,7 +1618,10 @@ function DocumentRow({
   onDelete,
   onCopyToPersonal,
   setDialog,
-  depth = 1,
+  // #742 — a space-root document is depth 0 now; a folder-nested one relies
+  // on the folder body's own wrapper for the one real step, same reasoning
+  // as DatabaseRow's default above.
+  depth = 0,
   canEdit = true,
 }: {
   ws: string;
@@ -1751,9 +1865,11 @@ function FolderSection({
       ref={setDropRef}
       className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
     >
-      {/* #380 — a folder sits on the SAME left edge as the databases beside it
-          (founder's spec: "folders, dashboards — the same padding left as
-          databases"), so it goes through the shared row at depth 1. */}
+      {/* #380/#742 — a folder sits on the SAME left edge as the databases
+          beside it (founder's spec: "folders, dashboards — the same padding
+          left as databases"), so it goes through the shared row at depth 0
+          under the new zero-indent model — the folder's OWN body wrapper is
+          what supplies the one real step for its children, not this row. */}
       {/* #383 — the header is a ROW, not a button.
           It used to be a single <button> wrapping everything, which is why it
           could never grow a menu: a <button> inside a <button> is invalid HTML
@@ -1765,7 +1881,7 @@ function FolderSection({
           and the caret is still the first thing inside, so #380's measured
           alignment holds. */}
       <div
-        style={{ paddingLeft: SIDEBAR_INDENT_PX[1] }}
+        style={{ paddingLeft: SIDEBAR_INDENT_PX[0] }}
         /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
            an extra flex gap here put the folder icon 4px right of every other
            depth-1 icon. The icon→label gap is applied on the inner span so it
@@ -1916,12 +2032,11 @@ function FolderSection({
               onRename={onRenameView}
               onDelete={onDeleteView}
               canEdit={canEdit}
-              /* #380/#368 — a FOLDER already supplies the nesting offset, so its
-                 children are all depth 1 relative to it. Left at the default 2 a
-                 view sat 16px right of the databases and documents in the same
-                 folder — the same class of misalignment #380 exists to end,
-                 introduced by adding a second row type to this list. */
-              depth={1}
+              /* #380/#368/#742 — the folder BODY wrapper (below) now supplies
+                 the one real indent step itself (SIDEBAR_INDENT_PX[1]), so a
+                 row inside it stays depth 0 — stacking another step here would
+                 double the folder's own indent. */
+              depth={0}
             />
           ))}
           {documents.map((d) => (
@@ -2051,6 +2166,13 @@ function DatabaseRow({
   expandable = false,
   expanded = false,
   onToggle,
+  // #742 — the OLD geometry hardcoded depth 1 here, because every database
+  // row (space-root or folder-nested) got the same single step and a folder
+  // added a second one on top. Under the new zero-indent model a space-root
+  // database is depth 0; a folder-nested one relies on the folder body's own
+  // wrapper for the one real step, so it ALSO passes 0 here rather than
+  // stacking a second indent on top of the folder's.
+  depth = 0,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -2063,6 +2185,7 @@ function DatabaseRow({
   expandable?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
+  depth?: SidebarDepth;
 }) {
   const mutations = useSidebarMutations(ws);
   const router = useRouter();
@@ -2102,7 +2225,7 @@ function DatabaseRow({
 
   return (
     <SidebarRow
-      depth={1}
+      depth={depth}
       active={active}
       draggable={canDrag}
       ref={reorderable ? setNodeRef : undefined}
