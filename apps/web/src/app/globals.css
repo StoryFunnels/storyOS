@@ -329,6 +329,25 @@
    * text-2xl 3). So the app ends with a heading scale and a UI scale, which is
    * normal and is at least written down.
    *
+   * WHERE THE SCALE DELIBERATELY STOPS (#748, ruled by Otto).
+   *
+   * --text-title (16px) is the top of this scale and it is NOT the ceiling for
+   * a title on screen. This scale is UI CHROME: labels, cell text, menu items,
+   * toolbar copy — the furniture around content. RECORD AND DOCUMENT TITLES ARE
+   * CONTENT, and they are out of scope here ON PURPOSE. They use Tailwind's
+   * heading scale above: a record title is `text-2xl` today
+   * (entity/record-detail.tsx, chosen partly because >=24px is WCAG large text).
+   *
+   * So if you are sizing a title and reach for --text-title, you are in the
+   * wrong scale. Use text-xl/text-2xl. Do NOT snap an existing 24px title down
+   * to 16px to "put it on the scale" — that is a visible design change wearing
+   * the costume of a refactor, which is exactly what #634 avoided when it landed
+   * this scale with zero visual change.
+   *
+   * No display steps were added, and that is a decision rather than an omission:
+   * #624 kept this scale small after measuring real call sites, and two title
+   * sites do not make a scale. A step nothing uses is worse than no step.
+   *
    * Frozen on ticket #624 so the zero-change claim is checkable against that
    * record rather than against memory.
    */

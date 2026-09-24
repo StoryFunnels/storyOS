@@ -523,6 +523,9 @@ export const viewConfigSchema = z.object({
       z.number().finite().transform((v) => Math.min(1200, Math.max(40, Math.round(v)))),
     )
     .default({}),
+  /** #739 T8 — table row density, three steps on the 4px grid. Undefined = 32,
+   *  the pre-#739 hardcoded height. */
+  row_height: z.union([z.literal(28), z.literal(32), z.literal(40)]).optional(),
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;
 

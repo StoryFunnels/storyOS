@@ -101,6 +101,16 @@ import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
+import { Segmented } from '@/components/ui/segmented';
+
+/* #739 T8 — hoisted so the array identity is stable across renders; Segmented
+   takes a readonly list, and a literal here would be a new array every time
+   (same reasoning calendar-view.tsx's CALENDAR_MODE_OPTIONS already uses). */
+const ROW_HEIGHT_OPTIONS = [
+  { value: '28', label: '28' },
+  { value: '32', label: '32' },
+  { value: '40', label: '40' },
+] as const;
 
 /**
  * Op menu per field type — mirrors the API op×type matrix.
@@ -367,6 +377,21 @@ export function ViewToolbar({
     const hasNumber = fields.some((f) => f.apiName === 'number');
     return hasNumber ? undefined : augmented.find((f) => f.apiName === 'number');
   }, [fields, augmented]);
+  /** #739 AC3 — table's Fields list must keep offering the system DATE
+   *  columns (Created, Last edited), off by default, same "unconfigured, not
+   *  excluded" treatment as `numberEntry` above and the opposite of rich
+   *  text's total removal (AC2). Same "real row wins" guard: only the
+   *  synthetic entry is added, and only when the database has no stored field
+   *  of that type already flowing through `rendered`. */
+  const systemDateEntries = useMemo(
+    () =>
+      augmented.filter(
+        (f) =>
+          (f.type === 'created_at' || f.type === 'updated_at') &&
+          !fields.some((real) => real.apiName === f.apiName),
+      ),
+    [fields, augmented],
+  );
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
@@ -462,11 +487,51 @@ export function ViewToolbar({
         />
       ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
-          fields={rendered}
-          numberEntry={numberEntry}
+          // #739 T3 — rich_text is ABSENT from table view's Fields list
+          // entirely, not merely off by default: inline rich-text editing in
+          // a cell isn't supported, so offering it here is a guaranteed dead
+          // end (the same "renders and then 422s" shape #758 already fixed
+          // for a form). Scoped to table only — rich_text renders fine as
+          // prose on the record page and other surfaces that use this same
+          // picker, so excluding it everywhere would remove a legitimate
+          // control from views where it actually works.
+          //
+          // #739 — table's "ID" is now an ORDINARY column (table-view.tsx's
+          // own numberEntry), so it belongs in the ordinary Fields list here
+          // too — merged in rather than routed to the special "Row gutter"
+          // footer below, which still exists for list/feed (unchanged, see
+          // the follow-up comment on #739). Prepended so it appears first,
+          // matching the default column order. AC3's system date entries are
+          // appended after the real fields — offered, off by default, never
+          // part of the default-visible set.
+          fields={
+            viewType === 'table'
+              ? [
+                  ...(numberEntry ? [numberEntry] : []),
+                  ...rendered.filter((f) => f.type !== 'rich_text'),
+                  ...systemDateEntries,
+                ]
+              : rendered
+          }
+          numberEntry={viewType === 'table' ? undefined : numberEntry}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
+        />
+      )}
+
+      {/* #739 T8 — row height, a control with three named steps rather than
+          the pre-#739 hardcoded 32. Always offered for table (not data-
+          dependent, unlike the pickers below it), default step matches
+          ROW_HEIGHT in table-view.tsx exactly so an unconfigured view's
+          control reflects what's actually rendering. */}
+      {viewType === 'table' && (
+        <Segmented
+          label="Row height"
+          size="sm"
+          value={String(config.row_height ?? 32) as '28' | '32' | '40'}
+          onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
+          options={ROW_HEIGHT_OPTIONS}
         />
       )}
 
@@ -2964,8 +3029,12 @@ function HiddenFieldsButton({
   /** #699 AC2 — the synthetic permanent-number field, rendered as its OWN
    *  labelled "Row gutter" section below, never mixed into the ordinary field
    *  list: Dara's finding was that list MEMBERSHIP itself promises "this
-   *  becomes a column," a promise this entry can't keep (it merges into the
-   *  row-index gutter cell instead). Undefined when the database has a real
+   *  becomes a column," a promise this entry can't keep for a surface where
+   *  it merges into the row-index gutter cell instead. #739 — table view no
+   *  longer merges it (it's an ordinary column there now), so the caller
+   *  passes `undefined` here for table and merges the entry into `fields`
+   *  itself instead; this prop/footer still exists for list and feed, which
+   *  haven't been re-skinned. Also undefined when the database has a real
    *  `number` field row, which already flows through `fields` normally. */
   numberEntry?: Field;
   hidden: string[];
@@ -2973,9 +3042,10 @@ function HiddenFieldsButton({
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
   onReorder?: (activeId: string, overId: string) => void;
 }) {
-  // #659 — the number field's entry in `hidden` is polarity-inverted (default
-  // hidden, so presence means shown); see number-column.ts, shared with
-  // table-view.tsx's own reading of the same array so the two can't drift.
+  // #743 — the number field's entry in `hidden` uses ordinary present-means-
+  // hidden semantics, same as every other field, visible by default; see
+  // number-column.ts, shared with table-view.tsx's own reading of the same
+  // array so the two can't drift.
   const candidateIds = useMemo(
     () => new Set(numberEntry ? [...fields.map((f) => f.id), numberEntry.id] : fields.map((f) => f.id)),
     [fields, numberEntry],
@@ -3027,7 +3097,10 @@ function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next:
         >
           <span className="h-3 w-3 rounded-full bg-card" />
         </span>
-        <span className="truncate">Show record number in the row gutter</span>
+        {/* #743 — "ID" only; "Number" is the pre-#743 label and must not
+            reappear anywhere in the UI now that the field is visible by
+            default. */}
+        <span className="truncate">Show ID in the row gutter</span>
       </button>
     </div>
   );
