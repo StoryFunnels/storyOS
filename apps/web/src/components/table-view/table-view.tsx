@@ -183,8 +183,8 @@ export function TableView({
   useEffect(() => {
     if (autoOpenFieldId && database.data && !autoOpenField) onAutoOpenFieldConsumed?.();
   }, [autoOpenFieldId, database.data, autoOpenField, onAutoOpenFieldConsumed]);
-  // #289/#659 — see number-column.ts: the record number now defaults to
-  // hidden, in favour of the row-index column below.
+  // #289/#659/#743 — see number-column.ts: the record number ("ID") is
+  // visible by default, alongside the row-index column below.
   const numberHidden = useMemo(() => {
     const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
     return isNumberColumnHidden(hiddenFieldIds, real?.id);
@@ -1200,16 +1200,17 @@ export function TableView({
                       stored, never itself hideable. It fades to row actions
                       on hover, same as before.
 
-                      #699 AC5 — the permanent record number (opt-in via
-                      Fields → Row gutter, #289) used to fade out WITH the
-                      index, so a field the user explicitly switched on
-                      vanished the moment they pointed at its own row while
-                      Priority (an ordinary column) stayed put — the same
-                      "a toggle that can't change what you see" defect AC1
-                      fixed elsewhere in this file, just triggered by hover
-                      instead of by nothing. It's pulled out as its own small
-                      corner badge below, NEVER tied to hover/selection state,
-                      so switching it on has one meaning in every row state.
+                      #699 AC5 — the permanent record number ("ID", visible
+                      by default since #743, togglable via Fields → Row
+                      gutter) used to fade out WITH the index, so a field the
+                      user explicitly switched on vanished the moment they
+                      pointed at its own row while Priority (an ordinary
+                      column) stayed put — the same "a toggle that can't
+                      change what you see" defect AC1 fixed elsewhere in this
+                      file, just triggered by hover instead of by nothing.
+                      It's pulled out as its own small corner badge below,
+                      NEVER tied to hover/selection state, so switching it on
+                      has one meaning in every row state.
                     */}
                     <span
                       className={cn(
