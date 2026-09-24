@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import archiver from 'archiver';
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
@@ -12,6 +12,8 @@ import {
   relations,
   selectOptions,
   spaces,
+  spaceDocuments,
+  views,
   fields,
   workspaces,
 } from '../db/schema';
@@ -23,7 +25,14 @@ import { getStorage } from '../attachments/storage';
  * change — see docs/architecture/workspace-export.md.
  */
 export const WORKSPACE_EXPORT_FORMAT = 'storyos-workspace-export';
-export const WORKSPACE_EXPORT_VERSION = 1;
+/**
+ * #293 — v2 adds standalone space documents and shared (non-personal) views
+ * to the export, per docs/architecture/workspace-export.md's own note that
+ * this was a named "not yet included, candidate for a format_version bump"
+ * gap. Bumped rather than left at 1 so a future importer keyed on this field
+ * can tell an archive that has `documents.json` from one that doesn't.
+ */
+export const WORKSPACE_EXPORT_VERSION = 2;
 
 /** One page of records/links at a time — memory stays bounded on a huge workspace. */
 const PAGE = 500;
@@ -54,6 +63,7 @@ type AttachmentRef = {
  *   manifest.json                          — workspace meta, format version, index
  *   spaces/<space-slug>/<db-slug>.json     — schema + records (values keyed by field id)
  *   relations.json                         — relation defs + links, by record id
+ *   documents.json                         — standalone space documents + shared views (#293)
  *   attachments/<attachment-id>/<filename> — the actual files
  */
 @Injectable()
@@ -100,6 +110,50 @@ export class WorkspaceExportService {
     const relationRows = await this.db.query.relations.findMany({
       where: eq(relations.workspaceId, workspaceId),
     });
+
+    /**
+     * #293 — the export boundary follows an item's CURRENT container, same
+     * reasoning as the personal-space exclusion just above: `spaceRows` here
+     * already excludes personal spaces, so a document/view that has been
+     * moved/published OUT of Personal (into one of these shared spaces)
+     * appears; one still IN Personal does not, because its space was never
+     * loaded in the first place. Nothing personal-space-specific to check —
+     * the exclusion is inherited for free from `spaceRows`.
+     */
+    const sharedSpaceIds = spaceRows.map((s) => s.id);
+    const spaceDocumentRows = sharedSpaceIds.length
+      ? await this.db.query.spaceDocuments.findMany({
+          where: and(inArray(spaceDocuments.spaceId, sharedSpaceIds), isNull(spaceDocuments.deletedAt)),
+          orderBy: [asc(spaceDocuments.position), asc(spaceDocuments.id)],
+        })
+      : [];
+    /**
+     * #291 — a view's privacy is `ownerUserId`, NOT `spaceId` (a personal
+     * view is "a private WINDOW onto shared data, not a private container" —
+     * see views.ownerUserId's own doc comment). So unlike documents, a
+     * personal-space check alone isn't the exclusion here: `ownerUserId IS
+     * NOT NULL` must be excluded regardless of which space/database the view
+     * sits under, matching #291's own "private from admins too" rule this
+     * export already applies to personal spaces. What DOES follow spaceRows
+     * is the space-owned half (a dashboard/multi-source view, `databaseId`
+     * null) — those genuinely do live in a space and move with #292's
+     * publish/copy-to-personal, exactly like a document.
+     */
+    const exportedDatabaseIds = databaseRows.map((d) => d.id);
+    const viewRows =
+      sharedSpaceIds.length || exportedDatabaseIds.length
+        ? await this.db.query.views.findMany({
+            where: and(
+              isNull(views.deletedAt),
+              isNull(views.ownerUserId),
+              or(
+                sharedSpaceIds.length ? inArray(views.spaceId, sharedSpaceIds) : undefined,
+                exportedDatabaseIds.length ? inArray(views.databaseId, exportedDatabaseIds) : undefined,
+              ),
+            ),
+            orderBy: [asc(views.position), asc(views.id)],
+          })
+        : [];
 
     // Attachment metadata (not bytes): resolve every attachment in the workspace
     // through record → database, so each record can reference its files by a stable
@@ -165,6 +219,8 @@ export class WorkspaceExportService {
         databases: databaseRows.length,
         relations: relationRows.length,
         attachments: allAttachments.length,
+        documents: spaceDocumentRows.length,
+        views: viewRows.length,
       },
       spaces: spaceRows.map((s) => ({
         id: s.id,
@@ -197,6 +253,39 @@ export class WorkspaceExportService {
 
     // The relation graph, streamed: definitions (few) then links (potentially many).
     archive.append(Readable.from(this.relationsJson(relationRows)), { name: 'relations.json' });
+
+    // #293 — standalone space documents and shared views, small enough (unlike
+    // records) that streaming per-page isn't worth the complexity; written whole.
+    archive.append(
+      JSON.stringify({
+        documents: spaceDocumentRows.map((d) => ({
+          id: d.id,
+          space_id: d.spaceId,
+          folder_id: d.folderId,
+          title: d.title,
+          icon: d.icon,
+          content: d.content,
+          content_text: d.contentText,
+          position: d.position,
+          created_by: d.createdBy,
+          created_at: d.createdAt,
+          updated_at: d.updatedAt,
+        })),
+        views: viewRows.map((v) => ({
+          id: v.id,
+          database_id: v.databaseId,
+          space_id: v.spaceId,
+          folder_id: v.folderId,
+          name: v.name,
+          type: v.type,
+          config: v.config,
+          position: v.position,
+          is_default: v.isDefault,
+          created_by: v.createdBy,
+        })),
+      }),
+      { name: 'documents.json' },
+    );
 
     // Finally the attachment bytes, each pulled through the storage seam on demand.
     const storage = getStorage();
