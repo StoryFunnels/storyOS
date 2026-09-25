@@ -13,11 +13,10 @@ while landing 16 PRs in two overnight batches (2026-07-16).
    `packages/sdk/src/generated/` change whenever anyone touches API surface.
    These conflicts are *fake*: the files are build artifacts committed for the
    CI drift check.
-3. **Hotspot files** — very large UI files that many features route through:
-   `apps/web/src/app/w/[ws]/d/[db]/r/[rec]/page.tsx`,
-   `apps/web/src/components/table-view/field-dialogs.tsx`,
-   `apps/web/src/components/table-view/table-view.tsx`,
-   `apps/api/src/relations/relations.service.ts`.
+3. **Files two open PRs both touch** — most often a large UI file that many
+   features route through. This used to be a list of four filenames here and
+   in CLAUDE.md; it is now computed per PR by `scripts/collision-check.mjs`,
+   for the reason in rule 3 below.
 4. **The merge gate** — main requires up-to-date + green CI, which serializes
    *merging* even when *building* was parallel. The merge queue fixes this.
 
@@ -52,14 +51,25 @@ interacts with these lanes.
    pnpm --filter @storyos/schemas build && pnpm sdk:generate
    ```
    Commit the result. Never resolve these hunks by hand.
-3. **One branch per hotspot.** ~~Only one in-flight branch may touch a hotspot
-   file at a time.~~ **Relaxed (#197, 2026-07-17):** the four hotspots were
-   decomposed into focused modules — the record page into
-   `components/entity/*`, `field-dialogs.tsx` into ten per-dialog files,
-   `table-view.tsx`'s `BatchBar`/`HeaderCell` into siblings, and relation
-   auto-link into `auto-link.service.ts`. Work now lands in a small module, so
-   branches no longer collide on one giant file. Still check open PRs before a
-   change to `table-view.tsx` itself (the remaining ~600-line `TableView` core).
+3. **Declare overlaps; CI computes them.** ~~Only one in-flight branch may
+   touch a hotspot file at a time.~~ ~~**Relaxed (#197, 2026-07-17):** the four
+   hotspots were decomposed into focused modules, so branches no longer collide
+   on one giant file.~~ **Replaced (ticket #747, 2026-09-25):**
+   `scripts/collision-check.mjs` runs on every PR and asks GitHub whether
+   another open PR already touches a file yours touches. Overlap is allowed but
+   must be declared — `Overlaps-With: #NNN — why` in the PR description — and
+   every "cannot tell" fails the build.
+
+   **Both struck-through versions are kept on purpose**, because this rule has
+   now gone stale twice in the same way and the shape of the failure is the
+   argument for the mechanism. The original named `field-dialogs.tsx`, which
+   stopped existing at commit `2669191`. The #197 relaxation that replaced it
+   then drifted too: it said the decomposition produced "ten per-dialog files"
+   (there are four — `add-field-dialog.tsx`, `change-type-dialog.tsx`,
+   `edit-field-dialog.tsx`, `field-dialog-shared.tsx`) and described a
+   "remaining ~600-line `TableView` core" that is 1,380 lines. **A filename or
+   a line count written into prose is a measurement taken once and then
+   asserted forever.** Let CI take the measurement.
 
 ## Session mechanics
 
