@@ -383,6 +383,48 @@ function renderInviteAccepted(
   return { subject, text, html };
 }
 
+const ONBOARDING_NUDGE_COPY: Record<
+  'guest_invited' | 'second_database' | 'form_published',
+  { subject: string; heading: string; body: string; cta: string }
+> = {
+  guest_invited: {
+    subject: 'Invite a client or teammate — it\'s free',
+    heading: 'Invite a guest for free',
+    body: "Viewers and guests are always free on StoryOS — any paying team can invite unlimited external collaborators at zero cost. If you're working with a client or contractor, give them their own scoped view instead of screen-sharing or exporting.",
+    cta: 'Invite a guest',
+  },
+  second_database: {
+    subject: 'Set up a second database',
+    heading: 'Most teams use more than one database',
+    body: 'A single database covers one thing well, but most StoryOS workspaces end up with a few — one per project, client, or process. Adding a second is a good next step if you\'re still finding your footing.',
+    cta: 'Create a database',
+  },
+  form_published: {
+    subject: 'Turn a database into a public form',
+    heading: 'Collect submissions with a public form',
+    body: "Any database can become a public form or client portal in a couple of clicks — no separate tool, and submissions land straight in your workspace. It's also how new visitors discover StoryOS when you share the link.",
+    cta: 'Create a form',
+  },
+};
+
+function renderOnboardingNudge(
+  milestone: 'guest_invited' | 'second_database' | 'form_published',
+  ctaUrl: string,
+): RenderedEmail {
+  const copy = ONBOARDING_NUDGE_COPY[milestone];
+  const text = [`${copy.body}`, '', `${copy.cta}: ${ctaUrl}`].join('\n');
+  const html = renderBrandedEmail({
+    heading: copy.heading,
+    preheader: copy.body,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;">${escapeHtml(copy.body)}</p>
+    `,
+    cta: { label: copy.cta, url: ctaUrl },
+  });
+  return { subject: copy.subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -404,5 +446,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderAutoReloadFailed(input.workspaceName, input.billingUrl);
     case 'invite-accepted':
       return renderInviteAccepted(input.workspaceName, input.memberEmail, input.role, input.membersUrl);
+    case 'onboarding-nudge':
+      return renderOnboardingNudge(input.milestone, input.ctaUrl);
   }
 }

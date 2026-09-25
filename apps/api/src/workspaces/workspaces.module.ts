@@ -5,6 +5,7 @@ import { FoldersService } from '../spaces/folders.service';
 import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
 import { OnboardingController } from './onboarding.controller';
+import { OnboardingNudgeService } from './onboarding-nudge.service';
 import { SpacesService } from './spaces.service';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import {
@@ -24,6 +25,7 @@ import { WorkspacesService } from './workspaces.service';
     InvitesService,
     FoldersService,
     WorkspaceAccessGuard,
+    OnboardingNudgeService,
   ],
   exports: [WorkspaceAccessGuard, SpacesService, WorkspacesService],
 })
