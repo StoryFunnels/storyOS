@@ -495,7 +495,21 @@ export function PersonalSection({ ws }: { ws: string }) {
                 ...sharedSpaces.map((s, i) => ({
                   label: s.name,
                   ...(i === 0 ? { sectionLabel: 'Move to shared space', separatorBefore: true } : {}),
-                  onSelect: () => moveDocToSpace.mutate({ docId: doc.id, targetSpaceId: s.id }),
+                  // #768 — this is a one-way, visibility-changing move: the
+                  // reverse ("Copy to My Space") is a fork with no sync back,
+                  // not an undo. That's a different risk class from Delete
+                  // right below (which already confirms) or Copy (which
+                  // doesn't need to — it can't leak anything), so this gets
+                  // the same confirm() gate, worded per the ADR verbatim
+                  // (docs/architecture/personal-space.md).
+                  onSelect: async () => {
+                    const ok = await confirm({
+                      title: `Move "${doc.title || 'Untitled'}" to ${s.name}?`,
+                      message: "This will be visible to the workspace — you can copy it back later, but it won't stay in sync.",
+                      confirmLabel: 'Move',
+                    });
+                    if (ok) moveDocToSpace.mutate({ docId: doc.id, targetSpaceId: s.id });
+                  },
                 })),
                 {
                   label: 'Delete',
