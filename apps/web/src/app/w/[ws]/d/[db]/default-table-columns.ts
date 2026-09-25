@@ -39,7 +39,14 @@ import type { Field } from '@/components/table-view/use-table-data';
  * failure this derivation exists to prevent.
  */
 const PREFERRED_TYPE_ORDER = ['workflow', 'select', 'user', 'relation'] as const;
-const INELIGIBLE_TYPES = new Set(['rich_text', 'id', 'created_by', 'created_at', 'updated_at', 'button']);
+/* `updated_by` belongs here with the other three audit fields. It was the only
+   one missing, and the omission was not theoretical: on `general/tasks` it
+   became a real default column, because that database has few enough eligible
+   fields to reach the fill-from-rest step. */
+const INELIGIBLE_TYPES = new Set([
+  'rich_text', 'id', 'button',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
 const DEFAULT_COLUMN_COUNT = 4;
 
 /**
@@ -54,7 +61,27 @@ const DEFAULT_COLUMN_COUNT = 4;
  */
 export function defaultTableHiddenFieldIds(fields: Field[]): string[] {
   const eligible = fields.filter((f) => f.type !== 'title' && !INELIGIBLE_TYPES.has(f.type));
-  const preferred = PREFERRED_TYPE_ORDER.flatMap((type) => eligible.filter((f) => f.type === type));
+  /*
+   * PREFERRED_TYPE_ORDER is an ELIGIBILITY TIER, not an ordering. Within the
+   * tier, the field's own schema position decides — because that position is
+   * the database author's statement of what matters, and we have nothing
+   * better.
+   *
+   * This used to group by type wholesale (`PREFERRED_TYPE_ORDER.flatMap(...)`),
+   * which meant every select was taken before any user field was reached.
+   * Measured on the real `storyos/issues` schema, that produced
+   * state/priority/type/VERDICT — and verdict is filled on 38 of 740 records
+   * (5.1%) while assignee is filled on 480 (64.9%). A default column that is
+   * blank 95% of the time, displacing one that is filled two-thirds, is the
+   * same defect this ticket exists to fix, one layer in.
+   *
+   * Checked against seven real databases: this changes `storyos/issues`,
+   * reorders two fields on `general/tasks` with both still present, and leaves
+   * the other five untouched. Capping per type was the alternative and was
+   * rejected on evidence — it fixes issues but drops two useful selects on
+   * `borderlands_group/assets` for two URL fields.
+   */
+  const preferred = eligible.filter((f) => (PREFERRED_TYPE_ORDER as readonly string[]).includes(f.type));
   const rest = eligible.filter((f) => !(PREFERRED_TYPE_ORDER as readonly string[]).includes(f.type));
   const defaultVisible = new Set([...preferred, ...rest].slice(0, DEFAULT_COLUMN_COUNT).map((f) => f.id));
 
