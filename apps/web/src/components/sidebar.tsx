@@ -20,9 +20,9 @@ import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
-import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
+import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
-import type { DatabaseSummary, Space } from '@/lib/queries';
+import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
@@ -106,6 +106,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
+  const groups = useSpaceGroups(ws);
   const mutations = useSidebarMutations(ws);
 
   const canEdit = workspace.data?.role !== 'guest';
@@ -132,6 +133,24 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id) && !s.personal);
   const hiddenSpaces = allSpaces.filter((s) => isHidden('space', s.id));
   const hiddenDatabases = allDatabases.filter((d) => isHidden('database', d.id) && !isHidden('space', d.spaceId));
+
+  /**
+   * #742 finding 04 — Groups render as a tier ABOVE ungrouped spaces, each
+   * group showing its own member spaces in their existing position order.
+   * PRESENTATIONAL ONLY (Otto's 2026-09-24 ruling): this is purely a render
+   * grouping over the same `visibleSpaces` list — it changes nothing about
+   * which spaces a viewer can reach, only where they're drawn. No access
+   * check anywhere reads `groupId`.
+   */
+  const sortedGroups = [...(groups.data ?? [])].sort((a, b) => a.position - b.position);
+  const spacesByGroup = new Map<string, Space[]>();
+  for (const space of visibleSpaces) {
+    if (!space.groupId) continue;
+    const list = spacesByGroup.get(space.groupId) ?? [];
+    list.push(space);
+    spacesByGroup.set(space.groupId, list);
+  }
+  const ungroupedSpaces = visibleSpaces.filter((s) => !s.groupId || !spacesByGroup.has(s.groupId));
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -268,15 +287,20 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             bottom margin already separates the two sections. */}
         <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Spaces</span>
-          {(spaces.data ?? []).length > 0 && (
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
-              title="Collapse all spaces"
-              className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
-            >
-              <ChevronsDownUp className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="flex items-center gap-0.5">
+            {canEdit && (
+              <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
+            )}
+            {(spaces.data ?? []).length > 0 && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
+                title="Collapse all spaces"
+                className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+              >
+                <ChevronsDownUp className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
         {/* #409/#412/#415 — the shared drag presentation: a portalled preview so
             the dragged row cannot paint over its neighbours, and announcements
@@ -293,7 +317,35 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               padding on every header would. */}
           <div className="flex flex-col gap-2">
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-            {visibleSpaces.map((space) => (
+            {sortedGroups.map((group) => {
+              const members = spacesByGroup.get(group.id);
+              if (!members || members.length === 0) return null;
+              return (
+                <div key={group.id} className="flex flex-col gap-1.5">
+                  <GroupHeaderRow
+                    group={group}
+                    canEdit={canEdit}
+                    onRename={(name) => mutations.updateGroup.mutate({ id: group.id, name })}
+                    onDelete={() => mutations.deleteGroup.mutate(group.id)}
+                  />
+                  <div className="flex flex-col gap-2">
+                    {members.map((space) => (
+                      <SpaceSection
+                        key={space.id}
+                        ws={ws}
+                        space={space}
+                        databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
+                        canEdit={canEdit}
+                        isAdmin={isAdmin}
+                        groups={sortedGroups}
+                        onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {ungroupedSpaces.map((space) => (
               <SpaceSection
                 key={space.id}
                 ws={ws}
@@ -301,6 +353,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                 databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
                 canEdit={canEdit}
                 isAdmin={isAdmin}
+                groups={sortedGroups}
+                onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
               />
             ))}
           </SortableContext>
@@ -659,12 +713,17 @@ function SpaceSection({
   databases,
   canEdit,
   isAdmin,
+  groups,
+  onMoveToGroup,
 }: {
   ws: string;
   space: Space;
   databases: DatabaseSummary[];
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 04 — the workspace's groups, for the "Move to group" menu. */
+  groups?: SpaceGroup[];
+  onMoveToGroup?: (groupId: string | null) => void;
 }) {
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
@@ -1339,6 +1398,31 @@ function SpaceSection({
                 <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
+                )}
+                {/* #742 finding 04 — presentational only: reassigning a space's
+                    group changes where it renders, never what it grants. */}
+                {groups && groups.length > 0 && onMoveToGroup && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                      Move to group
+                    </div>
+                    {groups.map((g) => (
+                      <DropdownMenuItem
+                        key={g.id}
+                        disabled={space.groupId === g.id}
+                        onSelect={() => onMoveToGroup(g.id)}
+                      >
+                        <LetterMark name={g.name} color={g.color} className="mr-2" />
+                        {g.name}
+                      </DropdownMenuItem>
+                    ))}
+                    {space.groupId && (
+                      <DropdownMenuItem onSelect={() => onMoveToGroup(null)}>
+                        Remove from group
+                      </DropdownMenuItem>
+                    )}
+                  </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => hide('space', space.id)}>
@@ -2461,6 +2545,116 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
         if (e.key === 'Escape') onDone(initial);
       }}
     />
+  );
+}
+
+/**
+ * #742 finding 08 — "three marks, three jobs, no overlap": a coloured letter
+ * mark is how a GROUP (and, per the same finding, a SPACE) is told apart from
+ * a database's monochrome glyph or a view's per-type icon. First letter of
+ * the name, uppercased; falls back to a neutral border-tinted grey when no
+ * color is set rather than picking one, since an unset color is information
+ * (nobody has customized this one yet), not a value to paper over.
+ */
+function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+  const letter = (name.trim()[0] ?? '?').toUpperCase();
+  return (
+    <span
+      className={cn(
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold text-[var(--text-on-dark)]',
+        className,
+      )}
+      style={{ backgroundColor: color ?? 'var(--text-faint)' }}
+      aria-hidden
+    >
+      {letter}
+    </span>
+  );
+}
+
+function GroupHeaderRow({
+  group,
+  canEdit,
+  onRename,
+  onDelete,
+}: {
+  group: SpaceGroup;
+  canEdit: boolean;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const confirmDialog = useConfirm();
+  return (
+    <div className="group flex items-center gap-1.5 px-2">
+      <LetterMark name={group.name} color={group.color} />
+      {renaming ? (
+        <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted">
+          {group.name}
+        </span>
+      )}
+      {canEdit && (
+        <SidebarRowMenu
+          label={group.name}
+          actions={[
+            { label: 'Rename', onSelect: () => setRenaming(true) },
+            {
+              label: 'Delete group',
+              danger: true,
+              onSelect: () => {
+                void (async () => {
+                  const ok = await confirmDialog({
+                    title: `Delete "${group.name}"?`,
+                    message: 'Its spaces are not deleted — they move back to the ungrouped list.',
+                    confirmLabel: 'Delete group',
+                    danger: true,
+                  });
+                  if (ok) onDelete();
+                })();
+              },
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          title="New group"
+          className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </DialogTrigger>
+      <DialogContent title="New group">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) onCreate(name.trim());
+            setName('');
+            setOpen(false);
+          }}
+        >
+          <Input autoFocus placeholder="e.g. Client Work" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary" size="sm">Cancel</Button>
+            </DialogClose>
+            <Button type="submit" size="sm" disabled={!name.trim()}>Create</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

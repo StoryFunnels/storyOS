@@ -708,6 +708,13 @@
       "when": 1790337615711,
       "tag": "0100_cloudy_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790340986304,
+      "tag": "0101_special_hulk",
+      "breakpoints": true
     }
   ]
 }

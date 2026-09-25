@@ -350,6 +350,42 @@ export interface paths {
         patch: operations["FoldersController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/space-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Presentational sidebar groups (#742 finding 04) */
+        get: operations["GroupsController_list"];
+        put?: never;
+        /** Create a sidebar group */
+        post: operations["GroupsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/space-groups/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a sidebar group (its spaces fall back to ungrouped) */
+        delete: operations["GroupsController_remove"];
+        options?: never;
+        head?: never;
+        /** Rename / re-colour / reorder a sidebar group */
+        patch: operations["GroupsController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/onboarding": {
         parameters: {
             query?: never;
@@ -4406,6 +4442,8 @@ export interface components {
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose" | null;
             position?: number;
             description?: string | null;
+            /** Format: uuid */
+            groupId?: string | null;
         };
         /** @default {} */
         DeleteSpaceDto: {
@@ -4441,6 +4479,15 @@ export interface components {
         UpdateFolderDto: {
             name?: string;
             icon?: string | null;
+            position?: number;
+        };
+        CreateGroupDto: {
+            name: string;
+            color?: string;
+        };
+        UpdateGroupDto: {
+            name?: string;
+            color?: string | null;
             position?: number;
         };
         CheckoutDto: {
@@ -6787,6 +6834,86 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateFolderDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GroupsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GroupsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GroupsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GroupsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupDto"];
             };
         };
         responses: {

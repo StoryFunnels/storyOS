@@ -131,6 +131,8 @@ export class SpacesService {
       color?: string | null;
       position?: number;
       description?: string | null;
+      /** #742 finding 04 — presentational sidebar group; null ungroups. */
+      groupId?: string | null;
     },
   ) {
     let icon = patch.icon;

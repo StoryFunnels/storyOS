@@ -18,6 +18,16 @@ export interface Space {
    *  "move to shared space" destination picker without a second round-trip. */
   personal?: boolean;
   ownerUserId?: string | null;
+  /** #742 finding 04 — presentational sidebar group; null/absent = ungrouped. */
+  groupId?: string | null;
+}
+/** #742 finding 04 — a presentational-only sidebar tier above spaces. Carries
+ *  no access semantics; see the schema comment on `spaceGroups` in the API. */
+export interface SpaceGroup {
+  id: string;
+  name: string;
+  color: string | null;
+  position: number;
 }
 export interface DatabaseSummary {
   id: string;
@@ -87,6 +97,21 @@ export function useSpaces(ws: string, enabled = true) {
   });
 }
 
+/** #742 finding 04 — the workspace's presentational sidebar groups. */
+export function useSpaceGroups(ws: string, enabled = true) {
+  return useQuery({
+    queryKey: ['space-groups', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/space-groups', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: SpaceGroup[] }).data;
+    },
+    enabled: enabled && Boolean(ws),
+  });
+}
+
 export function useDatabases(ws: string, enabled = true) {
   return useQuery({
     queryKey: ['databases', ws],
@@ -135,6 +160,7 @@ export function useSidebarMutations(ws: string) {
     // until F5). Invalidating the singular key too keeps the two in step.
     void qc.invalidateQueries({ queryKey: ['database', ws] });
   };
+  const invalidateGroups = () => void qc.invalidateQueries({ queryKey: ['space-groups', ws] });
 
   return {
     /**
@@ -160,7 +186,19 @@ export function useSidebarMutations(ws: string) {
       onSuccess: invalidate,
     }),
     updateSpace: useMutation({
-      mutationFn: async ({ id, ...body }: { id: string; name?: string; icon?: string | null; color?: string | null; position?: number; description?: string | null }) =>
+      mutationFn: async ({
+        id,
+        ...body
+      }: {
+        id: string;
+        name?: string;
+        icon?: string | null;
+        color?: string | null;
+        position?: number;
+        description?: string | null;
+        /** #742 finding 04 — null removes the space from its group. */
+        groupId?: string | null;
+      }) =>
         unwrap<Space>(
           await api.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
             params: { path: { ws, space: id } },
@@ -182,6 +220,40 @@ export function useSidebarMutations(ws: string) {
           }),
         ),
       onSuccess: invalidate,
+    }),
+    // #742 finding 04 — presentational sidebar groups, above spaces.
+    createGroup: useMutation({
+      mutationFn: async (body: { name: string; color?: string }) =>
+        unwrap<SpaceGroup>(
+          await api.POST('/api/v1/workspaces/{ws}/space-groups', {
+            params: { path: { ws } },
+            body,
+          } as never),
+        ),
+      onSuccess: invalidateGroups,
+    }),
+    updateGroup: useMutation({
+      mutationFn: async ({ id, ...body }: { id: string; name?: string; color?: string | null; position?: number }) =>
+        unwrap<SpaceGroup>(
+          await api.PATCH('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws, group: id } },
+            body,
+          } as never),
+        ),
+      onSuccess: invalidateGroups,
+    }),
+    deleteGroup: useMutation({
+      mutationFn: async (id: string) =>
+        unwrap<unknown>(
+          await api.DELETE('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws, group: id } },
+          } as never),
+        ),
+      // Spaces fall back to ungrouped server-side (FK set null) — refresh both.
+      onSuccess: () => {
+        invalidateGroups();
+        invalidate();
+      },
     }),
     createDatabase: useMutation({
       mutationFn: async (body: { space_id: string; name: string }) =>
