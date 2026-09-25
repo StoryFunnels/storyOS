@@ -24,6 +24,9 @@ beforeAll(async () => {
   const invite = await as(alice.token, 'POST', `/workspaces/${wsId}/invites`, { email: bob.email, role: 'member' });
   const token = new URL(invite.json().accept_url).searchParams.get('token')!;
   await as(bob.token, 'POST', '/invites/accept', { token });
+  // #650 — accepting bob's invite now notifies alice (the inviter); clear it so the
+  // suite's "0 unread" baselines below reflect only what each test itself produces.
+  await as(alice.token, 'POST', `/workspaces/${wsId}/notifications/read-all`);
   const members = (await as(alice.token, 'GET', `/workspaces/${wsId}/members`)).json();
   bobId = members.find((m: { user: { name: string } }) => m.user.name === 'Bob').user.id;
 

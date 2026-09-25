@@ -83,7 +83,14 @@ export type NotificationType =
    * silently stopped. Deduped to once/calendar-month via the source's own
    * `cursor.cap_notified_month`, not this service's 60s burst-collapse.
    */
-  | 'source_run_cap_reached';
+  | 'source_run_cap_reached'
+  /**
+   * #650 AC3 — a guest/member accepted the invite sent by `actorId`. Sent to
+   * the inviter only; not an opt-out ping, same reasoning as
+   * `connection_error`/`automation_disabled` — it's a one-off "this thing you
+   * did completed" heads-up, not a recurring stream a user would want to mute.
+   */
+  | 'invite_accepted';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

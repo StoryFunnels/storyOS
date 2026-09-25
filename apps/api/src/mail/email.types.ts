@@ -42,6 +42,15 @@ export type EmailInput =
       to: string;
       workspaceName: string;
       billingUrl: string;
+    }
+  | {
+      /** #650 AC3 — sent to the inviter when their invite is accepted. */
+      kind: 'invite-accepted';
+      to: string;
+      workspaceName: string;
+      memberEmail: string;
+      role: string;
+      membersUrl: string;
     };
 
 export type EmailKind = EmailInput['kind'];

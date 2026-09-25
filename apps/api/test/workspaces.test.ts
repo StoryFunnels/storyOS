@@ -99,6 +99,46 @@ describe('workspaces & tenancy (MN-008)', () => {
       expect(ws.statusCode).toBe(200);
     });
 
+    it('#650 — accepting an invite notifies the inviter, not the accepter', async () => {
+      const guest = await signUpUser(app, 'Priya');
+      const invite = await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${wsId}/invites`,
+        headers: authed(admin.token),
+        payload: { email: guest.email, role: 'member' },
+      });
+      const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+
+      const accept = await app.inject({
+        method: 'POST',
+        url: '/api/v1/invites/accept',
+        headers: authed(guest.token),
+        payload: { token },
+      });
+      expect(accept.statusCode).toBe(201);
+
+      const adminNotifications = await app.inject({
+        method: 'GET',
+        url: `/api/v1/workspaces/${wsId}/notifications`,
+        headers: authed(admin.token),
+      });
+      const invited = adminNotifications
+        .json()
+        .data.find((n: { type: string; snippet: string }) => n.type === 'invite_accepted');
+      expect(invited, JSON.stringify(adminNotifications.json())).toBeTruthy();
+      expect(invited.snippet).toBe(`${guest.email} joined as member`);
+
+      const guestNotifications = await app.inject({
+        method: 'GET',
+        url: `/api/v1/workspaces/${wsId}/notifications`,
+        headers: authed(guest.token),
+      });
+      expect(
+        guestNotifications.json().data.some((n: { type: string }) => n.type === 'invite_accepted'),
+        'the accepter is never notified about their own acceptance',
+      ).toBe(false);
+    });
+
     it('an invite issued for another email cannot be accepted', async () => {
       const invite = await app.inject({
         method: 'POST',
