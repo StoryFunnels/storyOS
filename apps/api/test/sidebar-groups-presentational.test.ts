@@ -25,6 +25,15 @@
  * If a future Groups implementation wires visibility to `settings.groups` (or
  * any grouping construct) in either direction, this test starts failing
  * immediately — that is the tripwire "becoming checkable" Otto asked for.
+ *
+ * Vera's adversarial review of the first 4 tests found a real gap, closed by
+ * the 5th test below: those 4 only exercise the LIST endpoints
+ * (visibleSpaceIds/visibleDatabaseIds). A Groups implementation wired into
+ * the single-item ASSERTION gate (effectiveForDatabase/effectiveForSpace,
+ * shared by every direct-open/rename/delete/move endpoint, not just the
+ * sidebar list) would leave all 4 green while still leaking direct access —
+ * she reproduced exactly that by patching effectiveForDatabase instead of
+ * SpacesService.list().
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -166,5 +175,37 @@ describe('#742 S2 — Groups (or any future sidebar grouping) confers no access'
 
     const dbsRes = await as(dbGuest.token, 'GET', `/workspaces/${wsId}/databases`);
     expect(dbsRes.json().map((d: { id: string }) => d.id)).toEqual([dbInB]);
+  });
+
+  it('ADVERSARIAL (Vera, #742 S2 review): a DIRECT single-item open of an ungranted-but-grouped database is still refused', async () => {
+    // The 4 tests above only exercise the LIST endpoints (visibleSpaceIds/
+    // visibleDatabaseIds). A direct open — GET /databases/:db, which routes
+    // through DatabasesService.assertAccess -> AccessService.effectiveForDatabase
+    // — is a completely separate code path every direct-open/rename/delete/move
+    // endpoint shares, not just the sidebar list. A Groups implementation wired
+    // into THIS gate instead of the listing helpers would leave the 4 tests
+    // above green while still leaking direct access — exactly the gap Vera's
+    // adversarial pass found (reproduced independently: patching
+    // effectiveForDatabase to consult the same settings blob left all 4 prior
+    // tests green while a direct GET on dbInB returned 200 for a guest scoped
+    // only to Space A).
+    const guest3 = await signUpUser(app, 'ScopedGuestThree');
+    const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: guest3.email,
+      role: 'guest',
+      grants: [{ space_id: spaceA, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(guest3.token, 'POST', '/invites/accept', { token });
+
+    // The settings blob (still in place from the earlier test) groups A/B/C
+    // together — a direct open of B's database must still 404, never 200.
+    const direct = await as(guest3.token, 'GET', `/workspaces/${wsId}/databases/${dbInB}`);
+    expect(direct.statusCode, 'a grouping blob must never make effectiveForDatabase resolve an ungranted database').toBe(404);
+
+    // Same assertion for the guest's own granted database, as a sanity check
+    // that 404 above is a real access refusal and not a broken test setup.
+    const ownDirect = await as(guest3.token, 'GET', `/workspaces/${wsId}/databases/${dbInA}`);
+    expect(ownDirect.statusCode).toBe(200);
   });
 });
