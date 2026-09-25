@@ -356,6 +356,33 @@ function renderAutoReloadFailed(workspaceName: string, billingUrl: string): Rend
   return { subject, text, html };
 }
 
+function renderInviteAccepted(
+  workspaceName: string,
+  memberEmail: string,
+  role: string,
+  membersUrl: string,
+): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const safeEmail = escapeHtml(memberEmail);
+  const safeRole = escapeHtml(role);
+  const subject = `${memberEmail} joined ${workspaceName}`;
+  const text = [
+    `${memberEmail} accepted your invite to ${workspaceName} as ${role}.`,
+    '',
+    `View members: ${membersUrl}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${safeEmail} joined ${safeWorkspace}`,
+    preheader: `${safeEmail} accepted your invite to ${safeWorkspace} as ${safeRole}.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;"><strong>${safeEmail}</strong> accepted your invite to <strong>${safeWorkspace}</strong> as a <strong>${safeRole}</strong>.</p>
+    `,
+    cta: { label: 'View members', url: membersUrl },
+  });
+  return { subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -375,5 +402,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderTrialReminder(input.workspaceName, input.daysRemaining, input.billingUrl);
     case 'auto-reload-failed':
       return renderAutoReloadFailed(input.workspaceName, input.billingUrl);
+    case 'invite-accepted':
+      return renderInviteAccepted(input.workspaceName, input.memberEmail, input.role, input.membersUrl);
   }
 }
