@@ -1,15 +1,20 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
   entitlementOverrideEvents,
   memberships,
   usageCounters,
+  user,
   workspaceEntitlementOverrides,
+  workspaces,
 } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { env } from '../config/env';
+import { EmailService } from '../mail/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { incrementUsageCounter, currentMonthPeriodStart, AUTOMATION_RUN_METRIC } from './usage-metering';
 import { BillingService } from './billing.service';
 import { StripeService } from './stripe.service';
 import { PLANS } from './plans';
@@ -33,7 +38,14 @@ export interface WorkspaceUsage {
 /** Self-host / billing-disabled: full capability, no metering (MN-168). */
 const UNLIMITED: PlanLimits = { automationRunsPerMonth: Infinity, includedSeats: Infinity, historyRetentionDays: Infinity };
 
-const AUTOMATION_RUN_METRIC = 'automation_runs';
+/**
+ * #650 AC3 — warn before the automation-run cap actually blocks (MN-168's
+ * `can('automation_run')` still enforces the hard stop; this is purely an
+ * earlier heads-up). Placeholder like `ONBOARDING_NUDGE_WINDOW_DAYS` — a
+ * usage-warning threshold is a product call, not an implementation detail,
+ * flagged as such rather than picked silently.
+ */
+const USAGE_WARNING_THRESHOLD = 0.8;
 
 /** MN-256 — EMAIL_DAILY_CAP_* env vars, keyed by plan. */
 function emailDailyCapFor(plan: PlanId): number {
@@ -50,11 +62,6 @@ function emailDailyCapFor(plan: PlanId): number {
   }
 }
 
-/** First-of-month UTC — the natural monthly reset; no cron needed. */
-function currentPeriodStart(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
 
 export type Capability = 'automation_run' | 'add_seat' | 'create_portal_recipient';
 
@@ -89,11 +96,15 @@ export const MAX_WORKSPACES_SELF_SERVE = 1;
  */
 @Injectable()
 export class EntitlementsService {
+  private readonly logger = new Logger(EntitlementsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly stripe: StripeService,
     private readonly billing: BillingService,
     private readonly access: AccessService,
+    private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -216,7 +227,7 @@ export class EntitlementsService {
     const row = await this.db.query.usageCounters.findFirst({
       where: and(
         eq(usageCounters.workspaceId, workspaceId),
-        eq(usageCounters.periodStart, currentPeriodStart()),
+        eq(usageCounters.periodStart, currentMonthPeriodStart()),
         eq(usageCounters.metric, AUTOMATION_RUN_METRIC),
       ),
     });
@@ -311,13 +322,52 @@ export class EntitlementsService {
    */
   async recordNonAiRun(workspaceId: string): Promise<void> {
     if (!this.stripe.enabled) return;
-    const periodStart = currentPeriodStart();
-    await this.db
-      .insert(usageCounters)
-      .values({ workspaceId, periodStart, metric: AUTOMATION_RUN_METRIC, count: 1 })
-      .onConflictDoUpdate({
-        target: [usageCounters.workspaceId, usageCounters.periodStart, usageCounters.metric],
-        set: { count: sql`${usageCounters.count} + 1` },
+    const newCount = await incrementUsageCounter(this.db, workspaceId, currentMonthPeriodStart(), AUTOMATION_RUN_METRIC);
+
+    // #650 AC3 — warn once per billing period, at the exact run whose atomic
+    // increment lands ON the threshold count. Each call increments by
+    // exactly 1, so `newCount` is unique per call — no two concurrent runs
+    // can both land on the same threshold value, which is what makes this
+    // "once per period" without a separate claim column or row to reset.
+    const limits = await this.getLimits(workspaceId);
+    if (!Number.isFinite(limits.automationRunsPerMonth)) return; // Enterprise/override: no ceiling, nothing to warn about
+    const thresholdCount = Math.ceil(limits.automationRunsPerMonth * USAGE_WARNING_THRESHOLD);
+    if (newCount === thresholdCount) {
+      await this.notifyUsageThreshold(workspaceId, 'automation runs', USAGE_WARNING_THRESHOLD * 100).catch((error: unknown) => {
+        // Best-effort, like every other notification producer in this codebase —
+        // a failed warning must never be the reason a real automation run fails.
+        this.logger.warn(`usage-threshold notification failed for ${workspaceId}: ${String(error)}`);
       });
+    }
+  }
+
+  private async notifyUsageThreshold(workspaceId: string, metricLabel: string, percentUsed: number): Promise<void> {
+    const [workspace, admins] = await Promise.all([
+      this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) }),
+      this.db.query.memberships.findMany({
+        where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.role, 'admin'), eq(memberships.status, 'active')),
+      }),
+    ]);
+    if (admins.length === 0) return;
+    const adminUsers = await this.db.query.user.findMany({ where: inArray(user.id, admins.map((m) => m.userId)) });
+    if (adminUsers.length === 0) return;
+
+    const workspaceName = workspace?.name ?? 'your workspace';
+    const billingUrl = `${env().WEB_URL.replace(/\/$/, '')}/w/${workspace?.slug ?? ''}/settings/billing`;
+
+    await this.notifications.notify({
+      workspaceId,
+      actorId: 'system',
+      type: 'usage_threshold_reached',
+      recipients: adminUsers.map((u) => u.id),
+      snippet: `${workspaceName} has used ${percentUsed}% of its ${metricLabel} for this month`,
+    });
+
+    for (const admin of adminUsers) {
+      await this.email.send(
+        { kind: 'usage-threshold', to: admin.email, workspaceName, metricLabel, percentUsed, billingUrl },
+        workspaceId, // MN-194 — attributes this send's cost to the workspace it's about
+      );
+    }
   }
 }

@@ -90,7 +90,14 @@ export type NotificationType =
    * `connection_error`/`automation_disabled` — it's a one-off "this thing you
    * did completed" heads-up, not a recurring stream a user would want to mute.
    */
-  | 'invite_accepted';
+  | 'invite_accepted'
+  /**
+   * #650 AC3 — a metered usage counter (currently: non-AI automation runs)
+   * crossed a warn-before-the-cap threshold this billing period. Not an
+   * opt-out ping, same reasoning as `send_email_cap_reached` — it explains
+   * why the workspace is about to lose a capability, not an FYI to mute.
+   */
+  | 'usage_threshold_reached';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

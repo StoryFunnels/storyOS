@@ -425,6 +425,32 @@ function renderOnboardingNudge(
   return { subject: copy.subject, text, html };
 }
 
+function renderUsageThreshold(
+  workspaceName: string,
+  metricLabel: string,
+  percentUsed: number,
+  billingUrl: string,
+): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const safeMetric = escapeHtml(metricLabel);
+  const subject = `${workspaceName} has used ${percentUsed}% of its ${metricLabel} for this month`;
+  const text = [
+    `${workspaceName} has used ${percentUsed}% of its monthly ${metricLabel} allowance.`,
+    '',
+    `Review your plan: ${billingUrl}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${percentUsed}% of your ${safeMetric} allowance used`,
+    preheader: `${safeWorkspace} has used ${percentUsed}% of its monthly ${safeMetric} allowance.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;"><strong>${safeWorkspace}</strong> has used <strong>${percentUsed}%</strong> of its monthly <strong>${safeMetric}</strong> allowance.</p>
+    `,
+    cta: { label: 'Review your plan', url: billingUrl },
+  });
+  return { subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -448,5 +474,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderInviteAccepted(input.workspaceName, input.memberEmail, input.role, input.membersUrl);
     case 'onboarding-nudge':
       return renderOnboardingNudge(input.milestone, input.ctaUrl);
+    case 'usage-threshold':
+      return renderUsageThreshold(input.workspaceName, input.metricLabel, input.percentUsed, input.billingUrl);
   }
 }
