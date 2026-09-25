@@ -37,7 +37,7 @@ interface PendingApprovalResult {
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
-import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
 import {
@@ -586,6 +586,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_folder: 'admin',
   update_folder: 'admin',
   delete_folder: 'admin',
+  // #742 finding 04 — same ceiling as folders above; presentational-only,
+  // no access semantics (Otto's 2026-09-24 ruling).
+  list_space_groups: 'admin',
+  create_space_group: 'admin',
+  update_space_group: 'admin',
+  delete_space_group: 'admin',
   // #394 — the pack gallery is public/read-only; installing one is admin.
   list_packs: 'read',
   /*
@@ -4356,6 +4362,102 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     }),
   );
 
+  // ---- Space groups (#742 finding 04): a presentational tier ABOVE spaces ----
+  // in the sidebar, distinct from folders (which sit INSIDE a space). Otto's
+  // 2026-09-24 ruling: presentational only, no access semantics — a space's
+  // visibility never depends on its group.
+
+  reg(
+    'list_space_groups',
+    {
+      title: 'List space groups',
+      description:
+        'The workspace\'s sidebar groups — a presentational tier above spaces, distinct from list_folders (which groups things INSIDE one space). Read this before create_space_group so you file a space under an existing group instead of inventing a near-duplicate.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data: Array<{ id: string; name: string; color: string | null; position: number }> }>(
+        client.GET('/api/v1/workspaces/{ws}/space-groups', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ groups: res.data ?? [] });
+    }),
+  );
+
+  reg(
+    'create_space_group',
+    {
+      title: 'Create space group',
+      description: 'Add a presentational sidebar group. Move a space into it with update_space\'s `group` param.',
+      inputSchema: {
+        workspace: z.string(),
+        name: z.string().describe('Group name, max 100 chars.'),
+        color: z.string().optional().describe('CSS colour for the group\'s letter-mark avatar.'),
+      },
+    },
+    handle<{ workspace: string; name: string; color?: string }>(async ({ workspace, name, color }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const created = await unwrap<{ id: string; name: string; color: string | null }>(
+        client.POST('/api/v1/workspaces/{ws}/space-groups', {
+          params: { path: { ws: ws.id } } as never,
+          body: { name, color } as never,
+        }),
+      );
+      return text(created);
+    }),
+  );
+
+  reg(
+    'update_space_group',
+    {
+      title: 'Update space group',
+      description: 'Rename a group, change its colour, or move it up/down the sidebar with `position`.',
+      inputSchema: {
+        workspace: z.string(),
+        group: z.string().describe('Group name or id (from list_space_groups).'),
+        name: z.string().optional(),
+        color: z.string().nullable().optional().describe('Pass null to clear.'),
+        position: z.number().int().optional().describe('Sidebar order — lower sorts first.'),
+      },
+    },
+    handle<{ workspace: string; group: string; name?: string; color?: string | null; position?: number }>(
+      async ({ workspace, group, name, color, position }) => {
+        if (name === undefined && color === undefined && position === undefined) {
+          throw new Error('Nothing to change — pass at least one of name, color, position.');
+        }
+        const ws = await resolveWorkspace(client, workspace);
+        const groupId = await resolveSpaceGroup(client, ws.id, group);
+        const updated = await unwrap<{ id: string; name: string; color: string | null }>(
+          client.PATCH('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws: ws.id, group: groupId } } as never,
+            body: { name, color, position } as never,
+          }),
+        );
+        return text(updated);
+      },
+    ),
+  );
+
+  reg(
+    'delete_space_group',
+    {
+      title: 'Delete space group',
+      description:
+        'Remove a sidebar group. Its spaces are NOT deleted — they fall back to the ungrouped list. That makes this the safe way to undo a grouping you got wrong.',
+      inputSchema: { workspace: z.string(), group: z.string().describe('Group name or id (from list_space_groups).') },
+    },
+    handle<{ workspace: string; group: string }>(async ({ workspace, group }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const groupId = await resolveSpaceGroup(client, ws.id, group);
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/space-groups/{group}', {
+          params: { path: { ws: ws.id, group: groupId } } as never,
+        }),
+      );
+      return text({ deleted: groupId, note: 'Its spaces fell back to ungrouped; nothing was destroyed.' });
+    }),
+  );
+
   // ============ Relations (MN-146 fast-follow): link databases ============
 
   reg(
@@ -4911,7 +5013,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update space',
       description:
-        'Rename a space, or set its icon, colour or description. Only the fields you pass change; pass null to clear colour or description.',
+        'Rename a space, set its icon/colour/description, or move it into a sidebar group (#742 finding 04). Only the fields you pass change; pass null to clear colour, description, or group.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug or id.'),
@@ -4924,6 +5026,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+        group: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Group name or id (from list_space_groups) to file this space under. Pass null to ungroup it.'),
       },
     },
     handle<{
@@ -4933,7 +5040,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       icon?: string;
       color?: string | null;
       description?: string | null;
-    }>(async ({ workspace, space, rename_to, icon, color, description }) => {
+      group?: string | null;
+    }>(async ({ workspace, space, rename_to, icon, color, description, group }) => {
       const ws = await resolveWorkspace(client, workspace);
       const spaceId = await resolveSpaceId(ws.id, space);
       const body: Record<string, unknown> = {};
@@ -4943,6 +5051,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // would silently drop it.
       if (color !== undefined) body.color = color;
       if (description !== undefined) body.description = description;
+      if (group !== undefined) body.groupId = group === null ? null : await resolveSpaceGroup(client, ws.id, group);
       const res = await unwrap<unknown>(
         client.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
           params: { path: { ws: ws.id, space: spaceId } } as never,

@@ -176,3 +176,27 @@ export async function resolveFolder(
     `No folder matches "${ref}" in this space. Available: ${list.map((f) => f.name).join(', ') || '(none)'}.`,
   );
 }
+
+/**
+ * #742 finding 04 — resolve a presentational sidebar group by id or name,
+ * workspace-wide (groups aren't scoped to a space, unlike folders above).
+ */
+export async function resolveSpaceGroup(client: Client, workspaceId: string, ref: string): Promise<string> {
+  const res = await client.GET('/api/v1/workspaces/{ws}/space-groups', {
+    params: { path: { ws: workspaceId } },
+  } as never);
+  const list = (res as { data?: { data?: Array<{ id: string; name: string }> } }).data?.data ?? [];
+  const lower = ref.trim().toLowerCase();
+
+  const byId = list.find((g) => g.id === ref);
+  if (byId) return byId.id;
+
+  const exact = list.filter((g) => g.name.toLowerCase() === lower);
+  if (exact.length === 1) return exact[0]!.id;
+  if (exact.length > 1) {
+    throw new Error(`"${ref}" matches ${exact.length} groups. Pass the group id instead.`);
+  }
+  throw new Error(
+    `No group matches "${ref}" in this workspace. Available: ${list.map((g) => g.name).join(', ') || '(none)'}.`,
+  );
+}

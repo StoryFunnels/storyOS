@@ -123,6 +123,31 @@ export const workspaces = pgTable('workspaces', {
   ...timestamps,
 });
 
+/**
+ * #742 finding 04 — a presentational-only tier ABOVE spaces in the sidebar
+ * (Otto's 2026-09-24 ruling: "Groups are presentational only, with no access
+ * semantics, so they are not a container in the sense line 68 forbids").
+ * Deliberately the same shape as `spaceFolders` below (named, coloured,
+ * ordered, workspace-scoped) rather than a denormalized column on `spaces` —
+ * a group is an entity with its own identity (rename, reorder, delete), not
+ * a per-space attribute.
+ *
+ * NO ACCESS CHECK MAY EVER KEY ON THIS TABLE (the tripwire from D1/S2). Grep
+ * `apps/api/src/access/` for "group" before touching this again — if that
+ * grep stops coming back empty, the tripwire has fired and this needs to go
+ * to Otto before another line is written.
+ */
+export const spaceGroups = pgTable('space_groups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  color: text('color'),
+  position: integer('position').notNull().default(0),
+  ...timestamps,
+});
+
 export const spaces = pgTable(
   'spaces',
   {
@@ -135,6 +160,10 @@ export const spaces = pgTable(
     slug: text('slug').notNull(),
     icon: text('icon'),
     color: text('color'),
+    /** #742 finding 04 — optional presentational group; null = ungrouped, rendered
+     *  at the top level exactly as spaces are today. Deleting the group falls the
+     *  space back to ungrouped rather than cascading (same shape as folderId below). */
+    groupId: uuid('group_id').references(() => spaceGroups.id, { onDelete: 'set null' }),
     /** #400 — one line: what this area of work is. Null = never described. */
     description: text('description'),
     position: integer('position').notNull().default(0),

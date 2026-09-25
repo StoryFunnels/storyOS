@@ -94,6 +94,8 @@ export const updateSpaceSchema = z.object({
   position: z.number().int().optional(),
   /** #400 — null clears it. */
   description: descriptionPatchSchema,
+  /** #742 finding 04 — presentational sidebar group; null ungroups. */
+  groupId: z.string().uuid().nullable().optional(),
 });
 
 import { grantScopeSchema } from './access';

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { BillingModule } from '../billing/billing.module';
 import { FoldersController } from '../spaces/folders.controller';
 import { FoldersService } from '../spaces/folders.service';
+import { GroupsController } from '../spaces/groups.controller';
+import { GroupsService } from '../spaces/groups.service';
 import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
 import { OnboardingController } from './onboarding.controller';
@@ -17,13 +19,21 @@ import { WorkspacesService } from './workspaces.service';
 
 @Module({
   imports: [BillingModule],
-  controllers: [WorkspacesController, WorkspaceController, InviteAcceptController, FoldersController, OnboardingController],
+  controllers: [
+    WorkspacesController,
+    WorkspaceController,
+    InviteAcceptController,
+    FoldersController,
+    GroupsController,
+    OnboardingController,
+  ],
   providers: [
     WorkspacesService,
     SpacesService,
     MembersService,
     InvitesService,
     FoldersService,
+    GroupsService,
     WorkspaceAccessGuard,
     OnboardingNudgeService,
   ],
