@@ -944,7 +944,7 @@ export function FilterValueEditor({
 }) {
   const boxed = compact
     ? 'bg-card text-ink outline-none'
-    : 'rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink outline-none';
+    : 'rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink outline-none';
 
   const optionSource = optionSourceFor(field, members);
 
@@ -1171,7 +1171,7 @@ export function FilterChip({
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
   return (
-    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]">
+    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label">
       <span className="font-medium text-ink">{field.displayName}</span>
       <select
         className="bg-card text-muted outline-none"
@@ -1426,7 +1426,7 @@ export function FiltersSection({
           type="button"
           onClick={openBuilder}
           title="A personal filter narrows this view for you only — teammates don't see it"
-          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-[12px] text-ink"
+          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-label text-ink"
         >
           <UserRound className="h-3 w-3" />
           Personal filter
@@ -1437,7 +1437,7 @@ export function FiltersSection({
           type="button"
           onClick={() => (open ? closeBuilder() : openBuilder())}
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
             activeCount ? 'text-ink' : 'text-muted',
           )}
         >
@@ -1542,7 +1542,7 @@ function PinnedFilterChip({
   return (
     <span
       className={cn(
-        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]',
+        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label',
         condition.disabled && 'opacity-50',
       )}
     >
@@ -1665,12 +1665,12 @@ export function FilterBuilderPanel({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+        <span className="text-meta font-semibold uppercase tracking-wider text-muted">
           {sectionLabel ?? 'Filters'}
         </span>
         <span className="flex items-center gap-2">
           {onClearAll && nodes.length > 0 && (
-            <button type="button" onClick={onClearAll} className="text-[11px] text-muted hover:text-ink">
+            <button type="button" onClick={onClearAll} className="text-meta text-muted hover:text-ink">
               Clear all
             </button>
           )}
@@ -1687,14 +1687,14 @@ export function FilterBuilderPanel({
       </div>
 
       {personalScopeHint && (
-        <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-muted">
+        <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
           Narrows the shared view for you only — teammates keep seeing the Global filters above.
         </p>
       )}
 
       {nodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
-          <p className="mb-2 text-[12px] text-muted">
+          <p className="mb-2 text-label text-muted">
             {personalScopeHint
               ? 'No personal filter yet — narrow this view down further, just for you.'
               : 'No filters yet — narrow this view down to what matters.'}
@@ -1725,7 +1725,7 @@ export function FilterBuilderPanel({
             </SortableContext>
             <DragPreview>
               {filterDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
                   {filterLabel(filterDrag.activeId) ?? ''}
                 </div>
               )}
@@ -1777,10 +1777,10 @@ function GroupVisibilityToggles({
   canSortColumns: boolean;
   onChange: (patch: Partial<ViewConfig>) => void;
 }) {
-  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[12px] text-ink hover:bg-hover';
+  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-label text-ink hover:bg-hover';
   return (
     <div className="border-t border-border-default py-1">
-      <span className="block px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Groups</span>
+      <span className="block px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted">Groups</span>
       <label className={row}>
         Hide empty groups
         <input
@@ -1805,7 +1805,7 @@ function GroupVisibilityToggles({
               controls. The Sort panel sorts CARDS and now says so. */}
           Column order
           <select
-            className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
             value={columnSort}
             onChange={(e) => onChange({ column_sort: e.target.value as ColumnSort })}
           >
@@ -1823,7 +1823,7 @@ function GroupVisibilityToggles({
 
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
   return (
-    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(['and', 'or'] as const).map((c) => (
         <button
           key={c}
@@ -1959,7 +1959,7 @@ function GroupRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Where</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -2082,7 +2082,7 @@ function ConditionRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Where</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -2090,7 +2090,7 @@ function ConditionRow({
           <div className={cn('flex flex-wrap items-center gap-1', condition.disabled && 'opacity-50')}>
             <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 shrink-0 text-faint" />} />
             <select
-              className="max-w-28 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+              className="max-w-28 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
               value={condition.field}
               onChange={(e) => {
                 const nextField = fields.find((f) => f.apiName === e.target.value);
@@ -2106,7 +2106,7 @@ function ConditionRow({
               ))}
             </select>
             <select
-              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
               value={condition.op}
               onChange={(e) => {
                 const nextOp = ops.find((o) => o.op === e.target.value)!;
@@ -2123,12 +2123,12 @@ function ConditionRow({
           </div>
 
           {editingLabel && (
-            <div className="mt-1.5 flex items-center gap-1.5 rounded border border-border-default bg-app p-1.5">
+            <div className="mt-1.5 flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
               <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
                     title="Change icon"
                   >
                     <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
@@ -2146,14 +2146,14 @@ function ConditionRow({
               </Popover>
               <input
                 autoFocus
-                className="h-6 flex-1 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink outline-none"
+                className="h-6 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink outline-none"
                 placeholder={defaultLabel}
                 value={condition.label ?? ''}
                 onChange={(e) => onChange({ ...condition, label: e.target.value || undefined })}
               />
               <button
                 type="button"
-                className="text-[11px] text-muted hover:text-ink"
+                className="text-meta text-muted hover:text-ink"
                 onClick={() => {
                   setEditingLabel(false);
                   setPickingIcon(false);
@@ -2177,7 +2177,7 @@ function ConditionRow({
             reads it rather than re-deriving emptiness here.
           */}
           {isIncompleteCondition(condition) && !condition.disabled && (
-            <p className="mt-0.5 text-[11px] text-warning">Needs a value — not applied yet</p>
+            <p className="mt-0.5 text-meta text-warning">Needs a value — not applied yet</p>
           )}
         </div>
 
@@ -2317,7 +2317,7 @@ function OptionMultiPick({
       {selectedOptions.map((option) => (
         <span
           key={option.id}
-          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink"
         >
           {/* #215: through the shared OptionIcon, tinted with the option's own
               colour — not a re-implementation of "how do I draw an icon ref". */}
@@ -2347,7 +2347,7 @@ function OptionMultiPick({
             <input
               autoFocus
               placeholder="Search…"
-              className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
+              className="w-full bg-transparent text-body text-ink outline-none placeholder:text-muted"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               // Radix menus run a typeahead off keydown; let the input own its keys.
@@ -2358,7 +2358,7 @@ function OptionMultiPick({
             {filtered.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
               >
                 <input
                   type="checkbox"
@@ -2371,7 +2371,7 @@ function OptionMultiPick({
                 <span className="truncate">{option.label}</span>
               </label>
             ))}
-            {filtered.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted">No matches.</p>}
+            {filtered.length === 0 && <p className="px-2 py-1.5 text-label text-muted">No matches.</p>}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2475,7 +2475,7 @@ function RecordPicker({
             {selected.map((id) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+                className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink"
               >
                 <span className="max-w-32 truncate">{titleFor(id)}</span>
                 <button onClick={() => toggle(id)} className="text-faint hover:text-error">
@@ -2488,7 +2488,7 @@ function RecordPicker({
         <input
           autoFocus
           placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
-          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted"
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-body text-ink outline-none placeholder:text-muted"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           // Keep keystrokes in the box — the popover mustn't treat them as typeahead.
@@ -2499,7 +2499,7 @@ function RecordPicker({
             <button
               key={row.id}
               className={cn(
-                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
+                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover',
                 selected.includes(row.id) && 'bg-hover',
               )}
               onClick={() => toggle(row.id)}
@@ -2509,7 +2509,7 @@ function RecordPicker({
             </button>
           ))}
           {results.data?.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-muted">No matches.</p>
+            <p className="px-2 py-1.5 text-label text-muted">No matches.</p>
           )}
         </div>
       </PopoverContent>
@@ -2603,7 +2603,7 @@ export function SortButton({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+          'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
           sorts.length ? 'text-ink' : 'text-muted',
         )}
       >
@@ -2618,7 +2618,7 @@ export function SortButton({
               {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
                   order lives in the Filter panel's Groups section. The old label is
                   why this was filed as a bug rather than a missing feature. */}
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Sort cards</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Sort cards</span>
               <a
                 href="https://docs.storyos.dev/concepts/views/#filters--sorts"
                 target="_blank"
@@ -2631,19 +2631,19 @@ export function SortButton({
             </div>
 
             {hasUnsortableComputedFields && (
-              <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-muted">
+              <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
                 Lookup fields, and formulas that reference a lookup, aren't sortable yet.
               </p>
             )}
 
             {sorts.length === 0 ? (
               <div className="px-3 py-6 text-center">
-                <p className="mb-2 text-[12px] text-muted">No sort yet — records show in manual order.</p>
+                <p className="mb-2 text-label text-muted">No sort yet — records show in manual order.</p>
                 <button
                   type="button"
                   onClick={addSort}
                   disabled={sortableFields.length === 0}
-                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add your first sort
                 </button>
@@ -2666,7 +2666,7 @@ export function SortButton({
                   </SortableContext>
                   <DragPreview>
                     {sortDrag.activeId && (
-                      <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                      <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
                         {sortLabel(sortDrag.activeId) ?? ''}
                       </div>
                     )}
@@ -2679,7 +2679,7 @@ export function SortButton({
               <div className="border-t border-border-default p-2">
                 {showNulls && (
                   <div className="mb-1.5 flex items-center justify-between px-1">
-                    <span className="text-[11px] text-muted">Empty values</span>
+                    <span className="text-meta text-muted">Empty values</span>
                     <EmptyPlacementToggle
                       value={nulls ?? 'last'}
                       onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
@@ -2690,7 +2690,7 @@ export function SortButton({
                   <button
                     type="button"
                     onClick={addSort}
-                    className="flex items-center gap-1 rounded px-1 py-1 text-[12px] text-muted hover:text-ink"
+                    className="flex items-center gap-1 rounded px-1 py-1 text-label text-muted hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Add sort
                   </button>
@@ -2714,7 +2714,7 @@ function EmptyPlacementToggle({
   onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(
         [
           ['last', 'Bottom'],
@@ -2787,14 +2787,14 @@ function SortRow({
 
         <div className="min-w-0 flex-1">
           <div className="mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            <span className="text-meta font-semibold uppercase tracking-wider text-muted">
               {index === 0 ? 'Sort by' : 'Then by'}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-1">
             <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
             <select
-              className="max-w-28 flex-1 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+              className="max-w-28 flex-1 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
               value={sort.field}
               onChange={(e) => onChange({ ...sort, field: e.target.value })}
             >
@@ -2805,7 +2805,7 @@ function SortRow({
               ))}
             </select>
             <select
-              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
               value={sort.direction}
               onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
             >
