@@ -333,8 +333,9 @@ reporting it as complete.
 Not at file time, and not against a summary. A ticket is written in good faith
 and then ages while the repo moves: ticket #737 asked for a type scale that
 had shipped eleven days earlier; ticket #738 cited two tickets as live proof
-of a gap both had already closed. **Against `main`, specifically** — not a local worktree. A
-checkout eight days stale invalidated a day of otherwise careful work.
+of a gap both had already closed. **Against `main`, specifically** — not a
+local worktree. A checkout eight days stale invalidated a day of otherwise
+careful work.
 
 Before writing code, run the premise:
 
@@ -356,8 +357,9 @@ A successful call and a landed fact are not the same thing. In
 `storyos/github_pull_requests`, **151 PR numbers appear in more than one repo**,
 and storyOS's own sync stopped at PR #463 (ticket #666) — so "look up PR
 #838" for a storyOS ticket returns a real record, with a plausible title and a
-genuinely stale timestamp, **from a different repository**. A drift check built on number
-alone reports "silent for three weeks" about an unrelated repo, with total
+genuinely stale timestamp, **from a different repository**. A drift check
+built on number alone reports "silent for three weeks" about an unrelated
+repo, with total
 confidence and no indication anything is wrong.
 
 So: resolve by the pair, and when a PR cannot be resolved, **fail loudly**.
