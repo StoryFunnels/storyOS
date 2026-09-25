@@ -51,6 +51,15 @@ export type EmailInput =
       memberEmail: string;
       role: string;
       membersUrl: string;
+    }
+  | {
+      /** #650 AC1 — a workspace hasn't reached one of three real activation
+       * milestones (see OnboardingNudgeService); one kind, one `milestone`
+       * discriminant, since the three only differ in copy/CTA, not shape. */
+      kind: 'onboarding-nudge';
+      to: string;
+      milestone: 'guest_invited' | 'second_database' | 'form_published';
+      ctaUrl: string;
     };
 
 export type EmailKind = EmailInput['kind'];

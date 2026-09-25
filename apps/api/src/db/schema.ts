@@ -111,6 +111,15 @@ export const workspaces = pgTable('workspaces', {
   /** #400 — one line: what this company is doing here. Null = never described. */
   description: text('description'),
   settings: jsonb('settings').notNull().default({}),
+  /**
+   * #650 AC1 — onboarding-milestone nudge emails, one sent-at column per
+   * milestone (same atomic claim-then-act shape as billingSubscriptions'
+   * trialReminder23/29SentAt — see OnboardingNudgeService). Null = not yet
+   * sent (or the milestone has already been reached and never will be).
+   */
+  onboardingNudgeGuestInvitedSentAt: timestamp('onboarding_nudge_guest_invited_sent_at', { withTimezone: true }),
+  onboardingNudgeSecondDatabaseSentAt: timestamp('onboarding_nudge_second_database_sent_at', { withTimezone: true }),
+  onboardingNudgeFormPublishedSentAt: timestamp('onboarding_nudge_form_published_sent_at', { withTimezone: true }),
   ...timestamps,
 });
 
