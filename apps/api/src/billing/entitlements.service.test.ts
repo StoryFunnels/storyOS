@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { AccessService } from '../access/access.service';
+import type { EmailService } from '../mail/email.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { BillingService, BillingStatus } from './billing.service';
 import type { StripeService } from './stripe.service';
 import { EntitlementsService } from './entitlements.service';
@@ -12,6 +14,14 @@ function makeDb(opts: {
   ownedWorkspaces?: unknown[];
   override?: Record<string, unknown> | null;
   overridesByWorkspace?: Record<string, unknown>[];
+  /** What incrementUsageCounter's .returning() reports as the POST-increment
+   * count — simulating "this happens to be the Nth run this month", since the
+   * real row's total is never what .values({..count: by}) itself carries. */
+  incrementReturnsCount?: number;
+  /** Active admins for notifyUsageThreshold's own lookups. */
+  admins?: { workspaceId: string; userId: string; role: string; status: string }[];
+  adminUsers?: { id: string; email: string }[];
+  workspace?: { id: string; name: string; slug: string } | null;
 }) {
   const upserts: Record<string, unknown>[] = [];
   const overrideWrites: { action: 'upsert' | 'delete'; values: Record<string, unknown> }[] = [];
@@ -24,11 +34,17 @@ function makeDb(opts: {
         ),
       },
       memberships: {
-        findMany: vi.fn().mockResolvedValue(opts.ownedWorkspaces ?? []),
+        findMany: vi.fn().mockResolvedValue(opts.admins ?? opts.ownedWorkspaces ?? []),
       },
       workspaceEntitlementOverrides: {
         findFirst: vi.fn().mockResolvedValue(opts.override ?? undefined),
         findMany: vi.fn().mockResolvedValue(opts.overridesByWorkspace ?? []),
+      },
+      user: {
+        findMany: vi.fn().mockResolvedValue(opts.adminUsers ?? []),
+      },
+      workspaces: {
+        findFirst: vi.fn().mockResolvedValue(opts.workspace === undefined ? { id: 'ws1', name: 'Acme', slug: 'acme' } : opts.workspace),
       },
     },
     insert: () => {
@@ -40,7 +56,10 @@ function makeDb(opts: {
         },
         onConflictDoUpdate() {
           upserts.push(vals);
-          return Promise.resolve();
+          return {
+            returning: async () => [{ count: opts.incrementReturnsCount ?? (vals.count as number | undefined) ?? 1 }],
+            then: (resolve: (v: unknown) => unknown) => resolve(undefined),
+          };
         },
       };
     },
@@ -100,10 +119,20 @@ function accessStub(billableUserIds: string[]): AccessService {
   return { billableUserIds: vi.fn().mockResolvedValue(billableUserIds) } as unknown as AccessService;
 }
 
+const notificationsStub = { notify: vi.fn().mockResolvedValue(undefined) } as unknown as NotificationsService;
+const emailStub = { send: vi.fn().mockResolvedValue(undefined) } as unknown as EmailService;
+
+/** #650 AC3 — every existing call site constructs EntitlementsService with just
+ * (db, stripe, billing, access); this appends the two usage-threshold
+ * collaborators so none of those call sites need touching individually. */
+function makeService(db: Db, stripe: StripeService, billing: BillingService, access: AccessService): EntitlementsService {
+  return new EntitlementsService(db, stripe, billing, access, notificationsStub, emailStub);
+}
+
 describe('EntitlementsService.getLimits', () => {
   it('returns the plan catalogue limits when billing is enabled', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     const limits = await svc.getLimits('ws1');
 
@@ -113,7 +142,7 @@ describe('EntitlementsService.getLimits', () => {
   it('returns unlimited without touching billing when Stripe is disabled (self-host)', async () => {
     const { db } = makeDb({});
     const billing = billingStub('free');
-    const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub([]));
+    const svc = makeService(db, stripeStub(false), billing, accessStub([]));
 
     const limits = await svc.getLimits('ws1');
 
@@ -128,7 +157,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
     const { db } = makeDb({
       override: { includedSeats: 50, automationRunsPerMonth: null, expiresAt: null },
     });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     const limits = await svc.getLimits('ws1');
 
@@ -140,7 +169,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
     const { db } = makeDb({
       override: { includedSeats: 999, automationRunsPerMonth: 999, expiresAt: new Date(Date.now() - 1000) },
     });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     const limits = await svc.getLimits('ws1');
 
@@ -151,14 +180,14 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
     const { db } = makeDb({
       override: { includedSeats: 50, automationRunsPerMonth: null, expiresAt: new Date(Date.now() + 1_000_000) },
     });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     expect((await svc.getLimits('ws1')).includedSeats).toBe(50);
   });
 
   it('no override row at all — plan defaults apply, no crash', async () => {
     const { db } = makeDb({ override: undefined });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
     // #31: Free is 0 — the feature is OFF, so nothing is captured at all.
     expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2, historyRetentionDays: 0 });
@@ -166,7 +195,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
 
   it('fixes the Enterprise zero-seat placeholder — unlimited by default until overridden', async () => {
     const { db } = makeDb({ override: undefined });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
 
     const limits = await svc.getLimits('ws1');
 
@@ -178,7 +207,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
 describe('EntitlementsService.setOverride / clearOverride (MN-196)', () => {
   it('setOverride upserts the row and writes a "set" audit event', async () => {
     const { db, overrideWrites, auditEvents } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
 
     const expiresAt = new Date('2027-01-01T00:00:00Z');
     await svc.setOverride('ws1', 'admin-user', { includedSeats: 25 }, 'negotiated Enterprise contract', expiresAt);
@@ -202,7 +231,7 @@ describe('EntitlementsService.setOverride / clearOverride (MN-196)', () => {
   it('clearOverride deletes the row and writes a "clear" audit event with the prior snapshot', async () => {
     const priorRow = { workspaceId: 'ws1', includedSeats: 25, reason: 'old reason' };
     const { db, auditEvents } = makeDb({ override: priorRow });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
 
     await svc.clearOverride('ws1', 'admin-user', 'contract ended');
 
@@ -218,7 +247,7 @@ describe('EntitlementsService.setOverride / clearOverride (MN-196)', () => {
 
   it('clearOverride on a workspace with no override is a no-op — no audit event written', async () => {
     const { db, auditEvents } = makeDb({ override: null });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
     await svc.clearOverride('ws1', 'admin-user', 'nothing to clear');
 
@@ -229,7 +258,7 @@ describe('EntitlementsService.setOverride / clearOverride (MN-196)', () => {
 describe('EntitlementsService.getUsage', () => {
   it('reads seats live even when billing is disabled', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub(['u1', 'u2']));
+    const svc = makeService(db, stripeStub(false), billingStub('free'), accessStub(['u1', 'u2']));
 
     const usage = await svc.getUsage('ws1');
 
@@ -239,7 +268,7 @@ describe('EntitlementsService.getUsage', () => {
 
   it('reads the current-month counter when billing is enabled', async () => {
     const { db } = makeDb({ existingCount: 42 });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     const usage = await svc.getUsage('ws1');
 
@@ -250,7 +279,7 @@ describe('EntitlementsService.getUsage', () => {
 describe('EntitlementsService.can', () => {
   it('self-host: always true, never queries usage or limits', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(false), billingStub('free'), accessStub([]));
 
     expect(await svc.can('ws1', 'automation_run')).toBe(true);
     expect(db.query.usageCounters.findFirst).not.toHaveBeenCalled();
@@ -258,14 +287,14 @@ describe('EntitlementsService.can', () => {
 
   it('allows a run strictly under the allowance', async () => {
     const { db } = makeDb({ existingCount: 99 });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
     expect(await svc.can('ws1', 'automation_run')).toBe(true); // Free = 100/mo
   });
 
   it('blocks once usage reaches the allowance', async () => {
     const { db } = makeDb({ existingCount: 100 });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
     expect(await svc.can('ws1', 'automation_run')).toBe(false);
   });
@@ -274,32 +303,32 @@ describe('EntitlementsService.can', () => {
 describe('EntitlementsService.can — add_seat (MN-190)', () => {
   it('Free: allows a 2nd billable member (at, not over, the included tier)', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub(['owner']));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub(['owner']));
     expect(await svc.can('ws1', 'add_seat')).toBe(true); // 1 billable < 2 included
   });
 
   it('Free: blocks a 3rd billable member — the only real seat ceiling in the system', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub(['a', 'b']));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub(['a', 'b']));
     expect(await svc.can('ws1', 'add_seat')).toBe(false); // 2 billable == 2 included
   });
 
   it('Pro: always allows another seat — no ceiling, just +$12/mo', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub(['a', 'b', 'c', 'd', 'e']));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub(['a', 'b', 'c', 'd', 'e']));
     expect(await svc.can('ws1', 'add_seat')).toBe(true);
   });
 
   it('Business: always allows another seat', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('business'), accessStub(['a', 'b', 'c', 'd', 'e', 'f']));
+    const svc = makeService(db, stripeStub(true), billingStub('business'), accessStub(['a', 'b', 'c', 'd', 'e', 'f']));
     expect(await svc.can('ws1', 'add_seat')).toBe(true);
   });
 
   it('self-host: always true, never reads billing status', async () => {
     const { db } = makeDb({});
     const billing = billingStub('free');
-    const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub(['a', 'b']));
+    const svc = makeService(db, stripeStub(false), billing, accessStub(['a', 'b']));
     expect(await svc.can('ws1', 'add_seat')).toBe(true);
     expect(billing.getStatus).not.toHaveBeenCalled();
   });
@@ -308,32 +337,32 @@ describe('EntitlementsService.can — add_seat (MN-190)', () => {
 describe('EntitlementsService.can — create_portal_recipient (#708 / MN-107)', () => {
   it('Free: blocked — portals are a paid-plan capability, gated by plan tier, not recipient count', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
     expect(await svc.can('ws1', 'create_portal_recipient')).toBe(false);
   });
 
   it('Pro: allowed', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
     expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
   });
 
   it('Business: allowed', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('business'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('business'), accessStub([]));
     expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
   });
 
   it('Enterprise: allowed', async () => {
     const { db } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
     expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
   });
 
   it('self-host: always true, never reads billing status — the never-paywalled-capability principle', async () => {
     const { db } = makeDb({});
     const billing = billingStub('free');
-    const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub([]));
+    const svc = makeService(db, stripeStub(false), billing, accessStub([]));
     expect(await svc.can('ws1', 'create_portal_recipient')).toBe(true);
     expect(billing.getStatus).not.toHaveBeenCalled();
   });
@@ -342,19 +371,19 @@ describe('EntitlementsService.can — create_portal_recipient (#708 / MN-107)', 
 describe('EntitlementsService.canCreateWorkspace (MN-191)', () => {
   it('allows the first workspace — a brand new admin owns none yet', async () => {
     const { db } = makeDb({ ownedWorkspaces: [] });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
     expect(await svc.canCreateWorkspace('user1')).toBe(true);
   });
 
   it('blocks a 2nd workspace — multi-workspace is Enterprise-only, no plan unlocks it self-serve', async () => {
     const { db } = makeDb({ ownedWorkspaces: [{ workspaceId: 'ws1' }] });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
     expect(await svc.canCreateWorkspace('user1')).toBe(false);
   });
 
   it('self-host: unlimited, never queries memberships', async () => {
     const { db } = makeDb({ ownedWorkspaces: [{ workspaceId: 'ws1' }] });
-    const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(false), billingStub('free'), accessStub([]));
     expect(await svc.canCreateWorkspace('user1')).toBe(true);
     expect(db.query.memberships.findMany).not.toHaveBeenCalled();
   });
@@ -366,7 +395,7 @@ describe('EntitlementsService.canCreateWorkspace — MN-196 maxWorkspaces overri
       ownedWorkspaces: [{ workspaceId: 'ws1' }],
       overridesByWorkspace: [{ workspaceId: 'ws1', maxWorkspaces: 5, expiresAt: null }],
     });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
 
     expect(await svc.canCreateWorkspace('user1')).toBe(true); // 1 owned < 5
   });
@@ -378,7 +407,7 @@ describe('EntitlementsService.canCreateWorkspace — MN-196 maxWorkspaces overri
         { workspaceId: 'ws1', maxWorkspaces: 5, expiresAt: new Date(Date.now() - 1000) },
       ],
     });
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
 
     expect(await svc.canCreateWorkspace('user1')).toBe(false); // 1 owned, flat cap is 1
   });
@@ -387,7 +416,7 @@ describe('EntitlementsService.canCreateWorkspace — MN-196 maxWorkspaces overri
 describe('EntitlementsService.recordNonAiRun', () => {
   it('self-host: never writes to usage_counters (no phone-home)', async () => {
     const { db, upserts } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub([]));
+    const svc = makeService(db, stripeStub(false), billingStub('free'), accessStub([]));
 
     await svc.recordNonAiRun('ws1');
 
@@ -396,12 +425,83 @@ describe('EntitlementsService.recordNonAiRun', () => {
 
   it('upserts an increment when billing is enabled', async () => {
     const { db, upserts } = makeDb({});
-    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
 
     await svc.recordNonAiRun('ws1');
 
     expect(upserts).toHaveLength(1);
     expect(upserts[0]).toMatchObject({ workspaceId: 'ws1', metric: 'automation_runs', count: 1 });
+  });
+});
+
+describe('#650 AC3 — usage-threshold warning', () => {
+  // Pro: automationRunsPerMonth = 1000, so the warn threshold is ceil(1000*0.8) = 800.
+  const admins = [{ workspaceId: 'ws1', userId: 'u1', role: 'admin', status: 'active' }];
+  const adminUsers = [{ id: 'u1', email: 'admin@acme.test' }];
+
+  it('notifies + emails exactly on the run whose increment lands on the threshold count', async () => {
+    vi.clearAllMocks();
+    const { db } = makeDb({ incrementReturnsCount: 800, admins, adminUsers });
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    await svc.recordNonAiRun('ws1');
+
+    expect(notificationsStub.notify).toHaveBeenCalledTimes(1);
+    expect(notificationsStub.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws1', type: 'usage_threshold_reached', recipients: ['u1'] }),
+    );
+    expect(emailStub.send).toHaveBeenCalledTimes(1);
+    expect((emailStub.send as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
+      kind: 'usage-threshold',
+      to: 'admin@acme.test',
+      metricLabel: 'automation runs',
+      percentUsed: 80,
+    });
+  });
+
+  it('does not notify one run below the threshold', async () => {
+    vi.clearAllMocks();
+    const { db } = makeDb({ incrementReturnsCount: 799, admins, adminUsers });
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    await svc.recordNonAiRun('ws1');
+
+    expect(notificationsStub.notify).not.toHaveBeenCalled();
+    expect(emailStub.send).not.toHaveBeenCalled();
+  });
+
+  it('does not re-notify on every run PAST the threshold — only the one that lands exactly on it', async () => {
+    vi.clearAllMocks();
+    const { db } = makeDb({ incrementReturnsCount: 801, admins, adminUsers });
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    await svc.recordNonAiRun('ws1');
+
+    expect(notificationsStub.notify).not.toHaveBeenCalled();
+    expect(emailStub.send).not.toHaveBeenCalled();
+  });
+
+  it('never notifies for an unlimited plan (Enterprise) — there is no ceiling to approach', async () => {
+    vi.clearAllMocks();
+    const { db } = makeDb({ incrementReturnsCount: 999_999, admins, adminUsers });
+    const svc = makeService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    await svc.recordNonAiRun('ws1');
+
+    expect(notificationsStub.notify).not.toHaveBeenCalled();
+    expect(emailStub.send).not.toHaveBeenCalled();
+  });
+
+  it('claims (increments) even with no active admin, but sends nothing', async () => {
+    vi.clearAllMocks();
+    const { db, upserts } = makeDb({ incrementReturnsCount: 800, admins: [], adminUsers: [] });
+    const svc = makeService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    await svc.recordNonAiRun('ws1');
+
+    expect(upserts).toHaveLength(1);
+    expect(notificationsStub.notify).not.toHaveBeenCalled();
+    expect(emailStub.send).not.toHaveBeenCalled();
   });
 });
 

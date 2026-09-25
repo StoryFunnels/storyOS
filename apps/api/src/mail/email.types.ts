@@ -60,6 +60,18 @@ export type EmailInput =
       to: string;
       milestone: 'guest_invited' | 'second_database' | 'form_published';
       ctaUrl: string;
+    }
+  | {
+      /** #650 AC3 — a metered usage counter crossed a warn-before-the-cap
+       * threshold (see EntitlementsService.recordNonAiRun). Sent once per
+       * metric per billing period, at the exact call whose atomic increment
+       * lands on the threshold count. */
+      kind: 'usage-threshold';
+      to: string;
+      workspaceName: string;
+      metricLabel: string;
+      percentUsed: number;
+      billingUrl: string;
     };
 
 export type EmailKind = EmailInput['kind'];
