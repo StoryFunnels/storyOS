@@ -266,7 +266,7 @@ function MyWorkInner() {
       {empty && (
         <p className="max-w-3xl rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
           {tab === 'assigned' && 'Nothing assigned to you yet. When someone sets you in a Person field, it shows up here.'}
-          {tab === 'created' && "You haven't created any records yet."}
+          {tab === 'created' && "You haven't created any items yet."}
           {tab === 'activity' && 'No recent activity yet.'}
         </p>
       )}

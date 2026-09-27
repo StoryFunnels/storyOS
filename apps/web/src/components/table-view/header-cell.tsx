@@ -278,7 +278,7 @@ export function HeaderCell({
             {canManage && <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>}
             {canManage && <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>}
             {field.type === 'relation' && onAddLookup && (
-              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked records</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked items</DropdownMenuItem>
             )}
             {canFilter && (
               <DropdownMenuItem onSelect={filterByField}>

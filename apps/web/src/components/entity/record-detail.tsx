@@ -338,7 +338,7 @@ export function RecordDetail({
   const propDrag = useDragPresentation(fieldLabel);
 
   if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
-  if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
+  if (!record.data) return <p className="p-6 text-sm text-error">Item not found.</p>;
 
   // The route param can be a pretty `slug-{number}` (MN-087); every child + mutation
   // must use the resolved UUID, never the raw param.
@@ -628,7 +628,7 @@ export function RecordDetail({
 
           <div className="mt-8 border-t border-border-default pt-4">
             <Segmented
-              label="Record panel"
+              label="Item panel"
               className="mb-4"
               options={[
                 { value: 'activity', label: 'Activity' },
@@ -642,7 +642,7 @@ export function RecordDetail({
               <ActivityPanel ws={ws} db={db} rec={recordId} />
             ) : tab === 'comments' ? (
               !canComment ? (
-                <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
+                <p className="text-[13px] text-muted">You can view this item but not comment on it.</p>
               ) : (
                 <CommentsPanel
                   ws={ws}
@@ -702,7 +702,7 @@ export function RecordDetail({
                 the default case stays quiet. */}
             {schemaEditable && hasOwnRecordOrder(allFields, descriptionOrder) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-default px-3 py-2 text-[11px] text-muted">
-                <span>Arranged for records, so it no longer follows the database order.</span>
+                <span>Arranged for items, so it no longer follows the database order.</span>
                 <button
                   type="button"
                   onClick={followDatabaseOrder}
@@ -977,7 +977,7 @@ function DescriptionSection({
           <button
             type="button"
             onClick={onHide}
-            title="Remove Description from this database's records"
+            title="Remove Description from this database's items"
           /* #706 — KEEPS faint: this button's only content is an X icon, a
              non-text graphic judged at 3:1, which faint clears. */
             className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/bodyrow:opacity-100"

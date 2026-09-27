@@ -92,13 +92,13 @@ export default function TrashPage() {
         </Link>
       </div>
       {nothingAtAll ? (
-        <p className="text-sm text-muted">Nothing here. Deleted records and views stay restorable for 30 days.</p>
+        <p className="text-sm text-muted">Nothing here. Deleted items and views stay restorable for 30 days.</p>
       ) : (
         <div className="flex flex-col gap-6">
           <TrashSection
-            title="Records"
+            title="Items"
             items={trash.data ?? []}
-            emptyText="No deleted records."
+            emptyText="No deleted items."
             label={(r) => r.title}
             onRestore={(r) => restore.mutate(r.id)}
             restoringId={restore.isPending ? restore.variables : undefined}

@@ -480,7 +480,7 @@ export default function GoogleCalendarIntegrationPage() {
                     ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }]
                     : []),
                 ]}
-                help="Example: Start. Records without this value are skipped."
+                help="Example: Start. Items without this value are skipped."
               />
               <SelectField
                 label="End date (optional)"

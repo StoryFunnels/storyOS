@@ -2638,7 +2638,7 @@ export function SortButton({
 
             {sorts.length === 0 ? (
               <div className="px-3 py-6 text-center">
-                <p className="mb-2 text-label text-muted">No sort yet — records show in manual order.</p>
+                <p className="mb-2 text-label text-muted">No sort yet — items show in manual order.</p>
                 <button
                   type="button"
                   onClick={addSort}

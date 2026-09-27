@@ -361,14 +361,14 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                 render identically to before when no key column is chosen. */}
             <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px]">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-ink-secondary">Match existing records by</span>
+                <span className="text-ink-secondary">Match existing items by</span>
                 <Select
                   aria-label="Key column"
                   size="sm"
                   value={upsertColumn}
                   onChange={(e) => setUpsertColumn(e.target.value)}
                 >
-                  <option value="">nothing — always create new records</option>
+                  <option value="">nothing — always create new items</option>
                   {inferred.map((c) => (
                     <option key={c.column} value={c.column}>
                       {c.column}
@@ -384,7 +384,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       value={upsertMatchField ?? ''}
                       onChange={(e) => setUpsertMatchField(e.target.value || undefined)}
                     >
-                      <option value="">the record title</option>
+                      <option value="">the item title</option>
                       {(database.data?.fields ?? [])
                         .filter((f) => MATCHABLE.has(f.type) && f.type !== 'title')
                         .map((f) => (
@@ -408,7 +408,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                     >
                       <option value="update">Update it</option>
                       <option value="skip">Skip it</option>
-                      <option value="create">Create a new record anyway</option>
+                      <option value="create">Create a new item anyway</option>
                     </Select>
                     <span className="text-ink-secondary">If it doesn&apos;t match:</span>
                     <Select
@@ -541,7 +541,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         setMapping(next);
                       }}
                     >
-                      <option value="title">→ Record title</option>
+                      <option value="title">→ Item title</option>
                       <optgroup label="New field">
                         {offerableTypes.map((t) => (
                           <option key={t} value={`new:${t}`}>

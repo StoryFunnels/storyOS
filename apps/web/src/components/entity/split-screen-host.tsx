@@ -298,7 +298,7 @@ export function SplitArea({
           BOTH panes and the grid.
         */}
         <ErrorBoundary
-          label="This record"
+          label="This item"
           className={showStack ? 'flex min-h-0 min-w-0 flex-1' : 'contents'}
         >
           {renderPrimary(controls)}
@@ -314,7 +314,7 @@ export function SplitArea({
         <div className="min-w-0 flex-1 overflow-y-auto">
           {/* Each pane gets its OWN boundary: in split screen, one broken record
               must not cost the other one you were comparing it to. */}
-          <ErrorBoundary label="This record">
+          <ErrorBoundary label="This item">
             <RecordDetail
               ws={ws}
               db={view.activePanel.target.db}

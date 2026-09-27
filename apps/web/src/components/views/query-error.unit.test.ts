@@ -91,9 +91,16 @@ describe('ViewQueryError renders an error, never an empty view (#346)', () => {
   it('never uses empty-state wording — that conflation IS the bug', async () => {
     const html = await render({ error: { message: 'op "has_none" on "status" expects a non-empty array of ids' } });
     expect(html.toLowerCase()).not.toContain('no records');
+    // #149 renamed the empty state to "No items yet." The guard above only knew
+    // the old noun, so it would have passed on the exact wording it exists to
+    // reject. Both are checked now, and a future rename must add its own.
+    expect(html.toLowerCase()).not.toContain('no items');
     expect(html.toLowerCase()).not.toContain('nothing here');
     // And it says the data is fine, because "empty grid" taught users otherwise.
-    expect(html).toContain('records are safe');
+    // Deliberately NOT pinned to the noun: asserting "records are safe" made this
+    // test specify the copy, and it failed on #149 for a rename that kept the
+    // reassurance perfectly intact. The reassurance is the requirement.
+    expect(html).toContain('are safe');
   });
 
   it('points at the filter when the filter is the cause', async () => {

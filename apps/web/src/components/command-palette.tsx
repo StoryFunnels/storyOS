@@ -306,7 +306,7 @@ export function CommandPalette() {
           <Search className="h-4 w-4 shrink-0 text-faint" />
           <input
             autoFocus
-            placeholder="Search records, databases, actions…"
+            placeholder="Search items, databases, actions…"
             className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -334,7 +334,7 @@ export function CommandPalette() {
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {showSkeleton && (
             <div className="px-1">
-              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted">Records</p>
+              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted">Items</p>
               {[0, 1, 2, 3].map((n) => (
                 <div key={n} className="flex items-center gap-2.5 px-2.5 py-2">
                   <span className="h-6 w-6 shrink-0 animate-pulse rounded-[var(--radius-control)] bg-hover" />

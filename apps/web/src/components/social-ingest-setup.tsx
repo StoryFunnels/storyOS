@@ -136,7 +136,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
       )}
 
       <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-5">
-        <h2 className="text-sm font-semibold text-ink">Where do records land?</h2>
+        <h2 className="text-sm font-semibold text-ink">Where do items land?</h2>
         <p className="mt-1 text-[13px] text-muted">
           Comments and mentions become ordinary records. Open any database, choose{' '}
           <strong>Sources</strong> in its menu, add the <strong>{cfg.label}</strong> source, pick the

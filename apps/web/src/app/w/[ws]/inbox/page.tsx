@@ -290,7 +290,7 @@ export default function InboxPage() {
                   </p>
                 )}
                 {selected.record?.deleted && (
-                  <p className="mt-2 text-[12px] text-faint">This record has been deleted.</p>
+                  <p className="mt-2 text-[12px] text-faint">This item has been deleted.</p>
                 )}
               </div>
 

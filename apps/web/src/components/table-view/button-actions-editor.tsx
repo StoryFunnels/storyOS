@@ -1355,7 +1355,7 @@ function SendTestRequestButton({
       <div className="flex items-center gap-1.5">
         <Input
           className="h-7 flex-1"
-          placeholder="Record id to test against (from its URL)"
+          placeholder="Item id to test against (from its URL)"
           value={recordRef}
           onChange={(e) => setRecordRef(e.target.value)}
         />

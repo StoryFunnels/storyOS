@@ -175,7 +175,7 @@ export default function BillingPage() {
           </div>
         </Section>
 
-        <Section title="Usage this month" description="StoryOS never limits records — this is scale, not capability.">
+        <Section title="Usage this month" description="StoryOS never limits items — this is scale, not capability.">
           <UsageRow
             label="Non-AI automation runs"
             used={b.usage.automationRunsThisMonth}

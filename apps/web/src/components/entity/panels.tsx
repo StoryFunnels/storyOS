@@ -702,7 +702,7 @@ export function AboutPanel({
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {watcherIds.length === 0 && <p className="text-[13px] text-muted">Nobody is watching this record.</p>}
+          {watcherIds.length === 0 && <p className="text-[13px] text-muted">Nobody is watching this item.</p>}
           {watcherIds.map((id) => {
             const m = memberById.get(id);
             return (
@@ -733,7 +733,7 @@ export function AboutPanel({
           )}
           {recordNumber !== null && (
             <>
-              <dt className="text-muted">Record</dt>
+              <dt className="text-muted">Item</dt>
               <dd className="tabular-nums text-ink">#{recordNumber}</dd>
             </>
           )}
