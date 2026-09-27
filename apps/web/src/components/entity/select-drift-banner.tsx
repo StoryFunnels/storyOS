@@ -67,7 +67,7 @@ export function SelectDriftBanner({
       void qc.invalidateQueries({ queryKey: ['records', ws] });
       void qc.invalidateQueries({ queryKey: ['record', ws] });
     },
-    onError: () => toast.error('Could not link the matching records'),
+    onError: () => toast.error('Could not link the matching items'),
   });
 
   const d = drift.data;

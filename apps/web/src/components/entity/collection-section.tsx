@@ -137,7 +137,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
       setCreating(false);
       invalidateCollection();
     },
-    onError: () => toast.error('Could not create the record'),
+    onError: () => toast.error('Could not create the item'),
   });
   // #736 — the field's own `config.collection_view` is the shared DEFAULT every
   // viewer without a personal override still sees (never written to again by

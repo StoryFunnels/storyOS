@@ -44,7 +44,7 @@ export function QuickAddFab() {
       setQuery('');
       router.push(`/w/${ws}/d/${dbId}/r/${created.id}`);
     },
-    onError: () => toast.error('Could not create record'),
+    onError: () => toast.error('Could not create item'),
   });
 
   const filtered = useMemo(() => {
@@ -61,7 +61,7 @@ export function QuickAddFab() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Quick add a record"
+        aria-label="Quick add an item"
         title={newRecordTitle}
         className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[var(--shadow-lifted)] hover:bg-primary-hover md:hidden"
       >
@@ -75,7 +75,7 @@ export function QuickAddFab() {
           if (!next) setQuery('');
         }}
       >
-        <DialogContent title="New record" className="max-w-sm">
+        <DialogContent title="New item" className="max-w-sm">
           <Input
             autoFocus
             placeholder="Search databases…"

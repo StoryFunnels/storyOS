@@ -41,7 +41,7 @@ export function AddFieldDialog({
   ws: string;
   db: string;
   onDone: () => void;
-  /** Preset the dialog — e.g. "Add a field from linked records" opens it on lookup + the relation (MN-17). */
+  /** Preset the dialog — e.g. "Add a field from linked items" opens it on lookup + the relation (MN-17). */
   initialType?: string;
   initialRelationId?: string;
 }) {
@@ -220,7 +220,7 @@ export function AddFieldDialog({
         {(type === 'lookup' || type === 'rollup') &&
           (relationFields.length === 0 ? (
             <p className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px] text-muted">
-              {type === 'rollup' ? 'Rollups aggregate related records' : "Lookups surface a related record's field"} — this
+              {type === 'rollup' ? 'Rollups aggregate related items' : "Lookups surface a related item's field"} — this
               database needs a relation first. Add a Relation field, then come back.
             </p>
           ) : (
@@ -235,7 +235,7 @@ export function AddFieldDialog({
                     onChange={(e) => setRollupOp(e.target.value)}
                   >
                     <optgroup label="Aggregate them">
-                      <option value="count">Count linked records</option>
+                      <option value="count">Count linked items</option>
                       <option value="sum">Sum</option>
                       <option value="avg">Average</option>
                       <option value="min">Min</option>

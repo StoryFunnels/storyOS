@@ -83,12 +83,12 @@ export function ViewQueryError({
       <AlertTriangle className="h-6 w-6 text-error" aria-hidden />
       <div className="space-y-1">
         <p className="text-sm font-medium text-ink">This view couldn&apos;t load.</p>
-        {/* Never "no records": the whole point is that we do not know what is in
+        {/* Never "no items": the whole point is that we do not know what is in
             here, and saying nothing is what made this look like data loss. */}
         <p className="max-w-md text-[13px] text-muted">
           {filterish
-            ? 'Your records are safe — the filter on this view was rejected, so nothing could be fetched. Adjust or remove the filter condition to get the view back.'
-            : 'Your records are safe — the request for them failed. This is not an empty database.'}
+            ? 'Your items are safe — the filter on this view was rejected, so nothing could be fetched. Adjust or remove the filter condition to get the view back.'
+            : 'Your items are safe — the request for them failed. This is not an empty database.'}
         </p>
         {message ? (
           <p className="mx-auto max-w-md break-words pt-1 font-mono text-[12px] text-error">{message}</p>

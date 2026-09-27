@@ -54,7 +54,7 @@ export function CopyLinkButton() {
     <button
       type="button"
       title="Copy link"
-      aria-label="Copy link to this record"
+      aria-label="Copy link to this item"
       onClick={() => void copyRecordLink()}
       className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
     >
@@ -199,13 +199,13 @@ export function RecordActions({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className={HEADER_ICON_BTN} title="Actions" aria-label="Record actions">
+          <button className={HEADER_ICON_BTN} title="Actions" aria-label="Item actions">
             <MoreHorizontal className="h-4 w-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {/* This record — everyday, non-destructive actions (#197). */}
-          <DropdownMenuLabel>This record</DropdownMenuLabel>
+          <DropdownMenuLabel>This item</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => void copyRecordLink()}>
             <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
           </DropdownMenuItem>

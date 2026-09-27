@@ -177,7 +177,7 @@ export default function RunsPage() {
           </button>
         ))}
         <Input
-          placeholder="Search by record title…"
+          placeholder="Search by item title…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="ml-auto max-w-[220px]"
@@ -186,7 +186,7 @@ export default function RunsPage() {
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border-default px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
-          <span>Rule / record</span>
+          <span>Rule / item</span>
           <span>Status</span>
           <span>Started</span>
           <span>Duration</span>

@@ -85,23 +85,23 @@ export function computeTileValue(
 
 /**
  * Human label for a tile when the user hasn't typed one. E.g.
- * "Count of records", "Sum of Amount". Falls back to the raw api_name when the
+ * "Count of items", "Sum of Amount". Falls back to the raw api_name when the
  * display name is unknown.
  *
  * #387 — kept for the places that genuinely have no source to name (a tile whose
  * database is not configured yet). Prefer `defaultBlockLabel` everywhere a source
- * IS known: derived from the OP alone, this returns "Count of records" for every
+ * IS known: derived from the OP alone, this returns "Count of items" for every
  * count tile in existence, which is exactly the founder's screenshot.
  */
 export function defaultTileLabel(op: TileOp, fieldDisplayName?: string): string {
-  if (op === 'count') return 'Count of records';
+  if (op === 'count') return 'Count of items';
   return `${opLabel(op)} of ${fieldDisplayName ?? 'field'}`;
 }
 
 /**
  * #387 — the default name for a tile or chart, derived from WHAT it measures.
  *
- * The founder's dashboard showed two tiles both headed "Count of records",
+ * The founder's dashboard showed two tiles both headed "Count of items",
  * reading 383 and 5, distinguishable only by the database dropdown in the editor
  * beneath each one. #385's view mode correctly hides that dropdown — so without
  * this, view mode would make the screen strictly LESS informative than the
@@ -109,7 +109,7 @@ export function defaultTileLabel(op: TileOp, fieldDisplayName?: string): string 
  *
  * The database name leads because it is the part that DISTINGUISHES tiles; the
  * operation is the part that repeats. "Issues · Count" and "Docs · Count" tell
- * you something; "Count of records" twice does not.
+ * you something; "Count of items" twice does not.
  *
  * Returns null when there is no source to name — the caller renders its
  * unconfigured state rather than inventing a label for a tile measuring nothing
