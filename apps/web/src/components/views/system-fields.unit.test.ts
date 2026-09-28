@@ -5,6 +5,7 @@ import {
   SYSTEM_FIELD_LABELS,
   SYSTEM_FIELD_OPS,
   SYSTEM_SORTABLE_TYPES,
+  isPickableField,
   withSystemFields,
 } from './system-fields';
 
@@ -44,8 +45,17 @@ describe('withSystemFields — field-list enumeration', () => {
   it('appends the two fields with no stored row (number, updated_by) as synthetic system fields', () => {
     const number = byApiName.get('number');
     const updatedBy = byApiName.get('updated_by');
-    expect(number).toMatchObject({ apiName: 'number', type: 'id', isSystem: true, displayName: 'Number' });
+    // #743 — the word "Number" must never appear in the UI; `number` is
+    // deprecated (superseded by `id`) but still resolves, labelled "ID".
+    expect(number).toMatchObject({ apiName: 'number', type: 'id', isSystem: true, displayName: 'ID', deprecated: true });
     expect(updatedBy).toMatchObject({ apiName: 'updated_by', type: 'updated_by', isSystem: true, displayName: 'Last edited by' });
+    expect(updatedBy?.deprecated).toBeFalsy();
+  });
+
+  it('#743 — isPickableField excludes the deprecated `number` entry, but not its live replacement `id`', () => {
+    expect(isPickableField(byApiName.get('number')!)).toBe(false);
+    expect(isPickableField(byApiName.get('id')!)).toBe(true);
+    expect(isPickableField(byApiName.get('created_at')!)).toBe(true);
   });
 
   it('applies the ticket display labels to the stored system rows', () => {

@@ -25,6 +25,11 @@ export interface Field {
   type: string;
   config: Record<string, unknown>;
   isSystem: boolean;
+  /** #743 — set by `withSystemFields()` for a deprecated system field (e.g.
+   *  `number`, superseded by `id`): it still resolves for an existing saved
+   *  filter/sort, but `isPickableField()` excludes it from NEW picks. Absent
+   *  (undefined) for every ordinary field. */
+  deprecated?: boolean;
   options?: SelectOption[];
   relation?: {
     id: string;
