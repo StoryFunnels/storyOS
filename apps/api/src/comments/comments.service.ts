@@ -139,7 +139,9 @@ export class CommentsService {
   async list(recordId: string, limit = 100) {
     const rows = await this.db.query.comments.findMany({
       where: and(eq(comments.recordId, recordId), isNull(comments.deletedAt)),
-      orderBy: [desc(comments.createdAt)],
+      // #771 — createdAt alone leaves two same-millisecond comments in
+      // undefined order; id is a stable, arbitrary-but-fixed tiebreak.
+      orderBy: [desc(comments.createdAt), desc(comments.id)],
       limit,
     });
     const authors = rows.length
