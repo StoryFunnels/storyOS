@@ -166,11 +166,33 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
    * that is an ordinary reorder, not a group move — so this only changes
    * behaviour when the pointer is over EMPTY space inside a group/the
    * ungrouped zone (no row there to prefer).
+   *
+   * #774 — a GROUP itself is now ALSO a sortable row (reordering groups
+   * relative to each other), which means every group header carries TWO
+   * ids on the same element: `group:<id>` (the existing container-drop
+   * target, for a SPACE joining it) and the bare `<id>` (its own sortable
+   * row, for GROUP reordering). Both can be simultaneously "under the
+   * pointer" at once, so which one wins depends on what is actually being
+   * dragged — a bare-id row must never win while a SPACE is being dragged
+   * (that would silently break "drop a space on a group to join it"), and
+   * only a bare-id row may ever win while a GROUP is being dragged (a
+   * group has no "container" or "ungrouped" concept to join).
    */
   const spaceCollisionStrategy = (args: Parameters<typeof pointerWithin>[0]) => {
+    const activeId = String(args.active.id);
     const within = pointerWithin(args);
+    if (sortedGroups.some((g) => g.id === activeId)) {
+      const groupRow = within.find((c) => sortedGroups.some((g) => g.id === String(c.id)));
+      if (groupRow) return [groupRow];
+      return closestCenter(args);
+    }
     const container = within.find((c) => String(c.id).startsWith('group:') || String(c.id) === 'ungrouped');
-    const row = within.find((c) => !String(c.id).startsWith('group:') && String(c.id) !== 'ungrouped');
+    const row = within.find(
+      (c) =>
+        !String(c.id).startsWith('group:') &&
+        String(c.id) !== 'ungrouped' &&
+        !sortedGroups.some((g) => g.id === String(c.id)),
+    );
     if (row) return [row];
     if (container) return [container];
     return closestCenter(args);
@@ -182,6 +204,18 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     const activeId = String(event.active.id);
     const overId = String(over.id);
     if (activeId === overId) return;
+
+    // #774 — a GROUP being dragged onto another group's own row: reorder the
+    // groups themselves, persisted via space_groups.position. The collision
+    // strategy above only ever resolves `over` to another group's bare id
+    // for this case, so there is nothing else this branch needs to rule out.
+    const activeGroup = sortedGroups.find((g) => g.id === activeId);
+    if (activeGroup) {
+      for (const move of computeReorder(sortedGroups, activeId, overId)) {
+        mutations.updateGroup.mutate(move);
+      }
+      return;
+    }
 
     // Dropped on a GROUP's own area, or the ungrouped zone: reassign the
     // space's group. Presentational only (#742 finding 04) — this writes
@@ -217,11 +251,14 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
    * announcements. `label` maps a sortable id to a NAME, which is the whole fix
    * for #415: every sortable in this app is keyed by uuid, so dnd-kit's stock
    * strings read out hex ("Picked up draggable item 102568ca-…").
+   *
+   * #774 — extended to also resolve a GROUP's own id/name, since a group is
+   * now itself draggable.
    */
   const spaceDrag = useDragPresentation(
-    (id) => visibleSpaces.find((sp) => sp.id === id)?.name,
+    (id) => visibleSpaces.find((sp) => sp.id === id)?.name ?? sortedGroups.find((g) => g.id === id)?.name,
     { onDragEnd: onSpaceDragEnd },
-    visibleSpaces.map((sp) => sp.id),
+    [...visibleSpaces.map((sp) => sp.id), ...sortedGroups.map((g) => g.id)],
   );
 
   // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
@@ -355,6 +392,12 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               also padding out the void above the very FIRST space, the way
               padding on every header would. */}
           <div className="flex flex-col gap-2">
+          {/* #774 — groups get their OWN SortableContext, nested alongside the
+              spaces one rather than inside it: two independent id spaces
+              (group ids vs space ids) that never collide, so dnd-kit can
+              track "reorder among groups" and "reorder/reassign among
+              spaces" as two separate sortable lists sharing one DndContext. */}
+          <SortableContext items={sortedGroups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {sortedGroups.map((group) => {
               // #742 finding 04/phase 5 — a group with no members yet still
@@ -411,11 +454,14 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               ))}
             </UngroupedDropZone>
           </SortableContext>
+          </SortableContext>
           </div>
           <DragPreview>
             {spaceDrag.activeId && (
               <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-meta font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
-                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ?? ''}
+                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ??
+                  sortedGroups.find((g) => g.id === spaceDrag.activeId)?.name ??
+                  ''}
               </div>
             )}
           </DragPreview>
@@ -912,29 +958,48 @@ function RootDropZone({ spaceId, children }: { spaceId: string; children: React.
 }
 
 /**
- * #742 phase 5 — a group's header (and everything under it) is a real
- * drop target for reassigning a space's group, the same container-drop
- * shape `RootDropZone`/a folder already use one level down. Wraps the
- * WHOLE group block (header + members), not just the header row, so
- * dropping anywhere in a group's own area — including on top of one of
- * its member spaces — still resolves to "join this group" once the
- * container-preferring collision strategy below picks it.
+ * #742 phase 5 — a group's HEADER (not the members below it — those render in
+ * a sibling div back in `Sidebar()`) is a real drop target for reassigning a
+ * space's group, the same container-drop shape `RootDropZone`/a folder
+ * already use one level down: dropping a space here resolves to "join this
+ * group" once the container-preferring collision strategy picks it.
+ *
+ * #774 — ALSO a sortable row now, for reordering groups relative to each
+ * other. Two ids share this one element: `group:<id>` (the droppable above,
+ * for a SPACE joining it) and the sortable's own bare `<id>` (for GROUP
+ * reordering) — `spaceCollisionStrategy` picks between them by checking what
+ * is actually being dragged, so the two never fight over the same drop.
+ * `useSortable` already returns a combined draggable+droppable node; the
+ * plain `useDroppable` above is a SECOND, independent registration on the
+ * same DOM node (a supported dnd-kit pattern — see e.g. their own
+ * multi-container examples, where a column is both sortable-among-columns
+ * and droppable-for-cards), so both refs are set together below.
  */
 function GroupDropZone({ groupId, children }: { groupId: string; children: React.ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `group:${groupId}` });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `group:${groupId}` });
+  const { attributes, listeners, setNodeRef: setSortRef, transform, transition } = useSortable({ id: groupId });
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setDropRef(node);
+        setSortRef(node);
+      }}
       // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
       // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
       // rows deep you still read which group you're in" is the artifact's own
       // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
       // is the exact height a SpaceSection's own sticky header offsets against.
-      style={{ height: GROUP_BAND_H }}
+      // #774 — also carries the sortable's own transform/transition, so a
+      // group-reorder drag still moves this element; sticky positioning only
+      // matters while NOT dragging (transform is `none` then), and mid-drag a
+      // portalled DragPreview represents it instead.
+      style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 flex flex-col justify-center gap-1.5 rounded bg-sidebar',
+        'sticky top-0 z-30 flex cursor-grab touch-none flex-col justify-center gap-1.5 rounded bg-sidebar active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
+      {...attributes}
+      {...listeners}
     >
       {children}
     </div>
