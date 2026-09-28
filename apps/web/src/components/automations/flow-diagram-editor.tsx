@@ -128,7 +128,7 @@ export function FlowDiagramEditor({
         </SortableContext>
         <DragPreview>
           {drag.activeId && (
-            <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-[13px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+            <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-body font-medium text-ink shadow-[var(--shadow-lifted)]">
               {label(drag.activeId) ?? ''}
             </div>
           )}
@@ -163,7 +163,7 @@ export function FlowDiagramEditor({
       ) : (
         <button
           type="button"
-          className="flex items-center gap-1 self-start rounded-[var(--radius-control)] border border-dashed border-border-default px-2 py-1 text-[13px] text-muted hover:border-solid hover:text-ink"
+          className="flex items-center gap-1 self-start rounded-[var(--radius-control)] border border-dashed border-border-default px-2 py-1 text-body text-muted hover:border-solid hover:text-ink"
           onClick={() => setAddingAt(true)}
         >
           <Plus className="h-3.5 w-3.5" /> Add action
@@ -212,7 +212,7 @@ function ActionNode({
             {step.fanOut && <Split className="h-3.5 w-3.5 shrink-0" aria-hidden />}
             <span className="min-w-0 flex-1 truncate">{step.label}</span>
             {!step.recognized && (
-              <span className="shrink-0 text-[11px] text-faint">(diagram can't draw this one yet)</span>
+              <span className="shrink-0 text-meta text-faint">(diagram can't draw this one yet)</span>
             )}
             <button
               type="button"
@@ -232,7 +232,7 @@ function ActionNode({
             </button>
           </div>
           {step.branchLabel && (
-            <div className="mt-1.5 flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default bg-card px-2 py-1 text-[12px] text-muted">
+            <div className="mt-1.5 flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default bg-card px-2 py-1 text-label text-muted">
               <GitBranch className="h-3 w-3 shrink-0" aria-hidden />
               Only if {step.branchLabel}
             </div>
@@ -251,7 +251,7 @@ function FlowBox({ kind, children }: { kind: 'trigger' | 'condition' | 'action' 
   return (
     <div
       className={
-        'rounded-[var(--radius-card)] border px-3 py-2 text-[13px] ' +
+        'rounded-[var(--radius-card)] border px-3 py-2 text-body ' +
         (kind === 'trigger'
           ? 'border-primary/40 bg-primary/5 text-ink'
           : kind === 'condition'

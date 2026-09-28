@@ -37,7 +37,7 @@ export function DiffView({
 
   if (!patch) {
     return (
-      <div className="p-4 text-[13px] text-muted">
+      <div className="p-4 text-body text-muted">
         No diff to show — binary file, or GitHub declined to compute one (very large change).
       </div>
     );
@@ -73,7 +73,7 @@ function Gutter({
   const [hover, setHover] = useState(false);
   return (
     <td
-      className="group w-12 shrink-0 select-none border-r border-border-default px-1.5 text-right align-top text-[11px] text-faint"
+      className="group w-12 shrink-0 select-none border-r border-border-default px-1.5 text-right align-top text-meta text-faint"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -114,7 +114,7 @@ function UnifiedTable({
           if (row.kind === 'hunk') {
             return (
               <tr key={i} className={rowBg('hunk')}>
-                <td colSpan={3} className="px-2 py-1 text-[11px] text-muted">
+                <td colSpan={3} className="px-2 py-1 text-meta text-muted">
                   {row.content}
                 </td>
               </tr>
@@ -123,7 +123,7 @@ function UnifiedTable({
           if (row.kind === 'no-newline') {
             return (
               <tr key={i}>
-                <td colSpan={3} className="px-2 py-0.5 text-[11px] italic text-faint">
+                <td colSpan={3} className="px-2 py-0.5 text-meta italic text-faint">
                   {row.content}
                 </td>
               </tr>
@@ -188,7 +188,7 @@ function SplitTable({
           if (row.marker !== undefined) {
             return (
               <tr key={i} className={rowBg('hunk')}>
-                <td colSpan={4} className="px-2 py-1 text-[11px] text-muted">
+                <td colSpan={4} className="px-2 py-1 text-meta text-muted">
                   {row.marker}
                 </td>
               </tr>

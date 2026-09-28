@@ -143,16 +143,16 @@ export function ThreadMenu({
               user when they click into the conversation behind it. */}
           <span className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} aria-hidden />
           <div className="absolute right-0 top-full z-[var(--z-overlay)] mt-1 max-h-80 w-72 overflow-auto rounded-[var(--radius-card)] border border-border-default bg-card py-1 shadow-[var(--shadow-popover)]">
-            {threads.isLoading && <p className="px-3 py-2 text-[12px] text-faint">Loading…</p>}
-            {threads.isError && <p className="px-3 py-2 text-[12px] text-error">Could not load conversations.</p>}
+            {threads.isLoading && <p className="px-3 py-2 text-label text-faint">Loading…</p>}
+            {threads.isError && <p className="px-3 py-2 text-label text-error">Could not load conversations.</p>}
             {threads.data?.length === 0 && (
-              <p className="px-3 py-2 text-[12px] text-faint">No earlier conversations yet.</p>
+              <p className="px-3 py-2 text-label text-faint">No earlier conversations yet.</p>
             )}
             {threads.data?.map((t) => (
               <div
                 key={t.id}
                 className={cn(
-                  'group flex items-center gap-1 px-2 py-1.5 text-[13px] hover:bg-hover',
+                  'group flex items-center gap-1 px-2 py-1.5 text-body hover:bg-hover',
                   t.id === threadId && 'bg-hover',
                 )}
               >
@@ -169,7 +169,7 @@ export function ThreadMenu({
                       }
                       if (e.key === 'Escape') setRenaming(null);
                     }}
-                    className="min-w-0 flex-1 rounded border border-border-strong bg-card px-1 py-0.5 text-[13px] focus:outline-none"
+                    className="min-w-0 flex-1 rounded border border-border-strong bg-card px-1 py-0.5 text-body focus:outline-none"
                     aria-label="Conversation title"
                   />
                 ) : (

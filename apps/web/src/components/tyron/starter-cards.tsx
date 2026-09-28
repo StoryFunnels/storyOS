@@ -129,8 +129,8 @@ export function StarterCards({
   if (open === 'paste') {
     return (
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-        <p className="text-[13px] font-medium text-ink">Paste your list.</p>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="text-body font-medium text-ink">Paste your list.</p>
+        <p className="mt-1 text-label text-muted">
           Rows from a spreadsheet, a block of names and emails, notes — it does not need to be tidy.
         </p>
         <Textarea
@@ -164,11 +164,11 @@ export function StarterCards({
               setOpen(null);
               setPasted('');
             }}
-            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
           >
             Make it a database
           </button>
-          <button type="button" onClick={() => setOpen(null)} className="px-1 text-[12px] text-muted hover:text-ink">
+          <button type="button" onClick={() => setOpen(null)} className="px-1 text-label text-muted hover:text-ink">
             Back
           </button>
         </div>
@@ -191,12 +191,12 @@ export function StarterCards({
         >
           <card.icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
           <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-ink">{card.title}</span>
-            <span className="mt-0.5 block text-[12px] text-muted">{card.blurb}</span>
+            <span className="block text-body font-medium text-ink">{card.title}</span>
+            <span className="mt-0.5 block text-label text-muted">{card.blurb}</span>
             {card.readOnly && (
               // Named on the card, not buried in the reply. A nervous first-time
               // user should be able to see that trying this costs them nothing.
-              <span className="mt-1 block text-[11px] text-faint">Changes nothing — just reads.</span>
+              <span className="mt-1 block text-meta text-faint">Changes nothing — just reads.</span>
             )}
           </span>
         </button>

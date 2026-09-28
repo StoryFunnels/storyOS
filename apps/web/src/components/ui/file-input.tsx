@@ -48,14 +48,14 @@ export function FileInput({
           className="absolute inset-0 cursor-pointer opacity-0"
         />
       </div>
-      <span className={cn('flex-1 truncate text-[13px]', file ? 'text-ink' : 'text-muted')}>
+      <span className={cn('flex-1 truncate text-body', file ? 'text-ink' : 'text-muted')}>
         {file ? file.name : 'No file chosen'}
       </span>
       {file && (
         <button
           type="button"
           onClick={() => onChange(null)}
-          className="text-[12px] text-muted underline hover:text-ink"
+          className="text-label text-muted underline hover:text-ink"
         >
           Remove
         </button>

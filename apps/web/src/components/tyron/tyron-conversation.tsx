@@ -226,7 +226,7 @@ export function TyronConversation({ ws }: { ws: string }) {
           the buttons could live one row higher would spread the state for a
           cosmetic gain. */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-default px-3 py-1.5">
-        <span className="min-w-0 truncate text-[12px] text-muted" title={thread.data?.title}>
+        <span className="min-w-0 truncate text-label text-muted" title={thread.data?.title}>
           {thread.data?.title ?? 'New conversation'}
         </span>
         <ThreadMenu ws={ws} threadId={threadId} onPick={setThreadId} />
@@ -246,7 +246,7 @@ export function TyronConversation({ ws }: { ws: string }) {
            * build a workspace to someone who already has one reads as an offer to
            * replace it.
            */
-          <p className="text-[13px] text-muted">Ask about your data, or tell me what to change.</p>
+          <p className="text-body text-muted">Ask about your data, or tell me what to change.</p>
         )}
         {/*
          * #363 — OUTSIDE the empty-state branch, and that placement is the fix.
@@ -298,7 +298,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               <div className="min-w-0">
                 <p
                   className={cn(
-                    'whitespace-pre-wrap text-[13px]',
+                    'whitespace-pre-wrap text-body',
                     m.role === 'assistant' ? 'text-ink' : 'text-ink-secondary',
                   )}
                 >
@@ -319,7 +319,7 @@ export function TyronConversation({ ws }: { ws: string }) {
                   relabelling its own history.
                 */}
                 {m.role === 'assistant' && m.model ? (
-                  <p className="mt-1 text-[11px] text-faint">Answered by {m.model}</p>
+                  <p className="mt-1 text-meta text-faint">Answered by {m.model}</p>
                 ) : null}
               </div>
             </div>
@@ -347,30 +347,30 @@ export function TyronConversation({ ws }: { ws: string }) {
               and Cancel is the quiet one, so the safe action is the easy one.
             */
             <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover p-2">
-              <span className="min-w-0 flex-1 text-[13px] text-ink">{question.message}</span>
+              <span className="min-w-0 flex-1 text-body text-ink">{question.message}</span>
               <button
                 type="button"
                 onClick={() => confirm.mutate(false)}
-                className="rounded-[var(--radius-control)] px-2 py-1 text-[12px] text-muted hover:bg-active hover:text-ink"
+                className="rounded-[var(--radius-control)] px-2 py-1 text-label text-muted hover:bg-active hover:text-ink"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => confirm.mutate(true)}
-                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-[12px] font-medium text-[var(--on-accent,#fff)]"
+                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--on-accent,#fff)]"
               >
                 Yes, do it
               </button>
             </div>
           )}
           {confirm.isError && (
-            <p className="text-[13px] text-error">
+            <p className="text-body text-error">
               {apiErrorMessage(confirm.error, "I couldn't finish that just now.")}
             </p>
           )}
           {send.isError && (
-            <p className="text-[13px] text-error">
+            <p className="text-body text-error">
               {/*
                 `apiErrorMessage` — the SHARED helper, not a hand-rolled reader.
                 The first version of this checked `err.message`, which is not

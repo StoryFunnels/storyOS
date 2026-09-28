@@ -31,11 +31,11 @@ export function FlowDiagram({ rule, fields }: { rule: DiagramRule; fields: Field
               {action.fanOut && <Split className="h-3.5 w-3.5 shrink-0" aria-hidden />}
               <span>{action.label}</span>
               {!action.recognized && (
-                <span className="text-[11px] text-faint">(diagram can't draw this one yet)</span>
+                <span className="text-meta text-faint">(diagram can't draw this one yet)</span>
               )}
             </div>
             {action.branchLabel && (
-              <div className="mt-1.5 flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default bg-card px-2 py-1 text-[12px] text-muted">
+              <div className="mt-1.5 flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default bg-card px-2 py-1 text-label text-muted">
                 <GitBranch className="h-3 w-3 shrink-0" aria-hidden />
                 Only if {action.branchLabel}
               </div>
@@ -61,7 +61,7 @@ function FlowBox({
   return (
     <div
       className={
-        'rounded-[var(--radius-card)] border px-3 py-2 text-[13px] ' +
+        'rounded-[var(--radius-card)] border px-3 py-2 text-body ' +
         (kind === 'trigger'
           ? 'border-primary/40 bg-primary/5 text-ink'
           : kind === 'condition'
