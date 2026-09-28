@@ -22,6 +22,7 @@ import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
+import { useViewsOnlyMode } from '@/lib/views-only-mode';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
@@ -117,6 +118,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const paletteKeys = useShortcutKeys('palette');
   const unread = useUnreadCount(ws);
   const { isHidden, unhide } = useHidden(ws);
+  const { viewsOnly, toggle: toggleViewsOnly } = useViewsOnlyMode(ws);
 
   // Personal hide (#35): hidden spaces drop out entirely; a database hidden on its own
   // (its space still visible) drops out too. Both surface in the Hidden section.
@@ -288,6 +290,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
           <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
           <div className="flex items-center gap-0.5">
+            <ViewsOnlyModeButton active={viewsOnly} onToggle={toggleViewsOnly} />
             {canEdit && (
               <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
             )}
@@ -339,6 +342,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                         isAdmin={isAdmin}
                         groups={sortedGroups}
                         onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                        viewsOnly={viewsOnly}
                       />
                     ))}
                   </div>
@@ -355,6 +359,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                 isAdmin={isAdmin}
                 groups={sortedGroups}
                 onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                viewsOnly={viewsOnly}
               />
             ))}
           </SortableContext>
@@ -715,6 +720,7 @@ function SpaceSection({
   isAdmin,
   groups,
   onMoveToGroup,
+  viewsOnly,
 }: {
   ws: string;
   space: Space;
@@ -724,6 +730,8 @@ function SpaceSection({
   /** #742 finding 04 — the workspace's groups, for the "Move to group" menu. */
   groups?: SpaceGroup[];
   onMoveToGroup?: (groupId: string | null) => void;
+  /** #742 finding 05 — hide every database row, keep their views. */
+  viewsOnly?: boolean;
 }) {
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
@@ -1317,7 +1325,16 @@ function SpaceSection({
               className="flex min-w-0 flex-1 items-center gap-1 text-left text-meta font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
               onPointerDown={(e) => e.stopPropagation()}
             >
-              {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />}
+              {space.icon ? (
+                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
+              ) : (
+                /* #742 finding 08 — glyph vocabulary: a space with no custom
+                   icon gets a coloured letter mark, same primitive Groups
+                   already use, rather than rendering nothing at all. A
+                   space WITH a custom icon keeps it — this never overrides
+                   a deliberate choice. */
+                <LetterMark name={space.name} color={space.color} />
+              )}
               <span className="truncate">{space.name}</span>
               {collapsed && databases.length > 0 && (
                 <span className="ml-1 text-faint/70">{databases.length}</span>
@@ -1567,6 +1584,7 @@ function SpaceSection({
               pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
+              viewsOnly={viewsOnly}
             />
           ))}
           {(() => {
@@ -1589,6 +1607,7 @@ function SpaceSection({
                       onDeleteView={onDeleteView}
                       canEdit={canEdit}
                       isAdmin={isAdmin}
+                      viewsOnly={viewsOnly}
                     />
                   ))}
                 </SortableContext>
@@ -1858,6 +1877,7 @@ function FolderSection({
   pathname,
   canEdit,
   isAdmin,
+  viewsOnly,
 }: {
   ws: string;
   folder: FolderInfo;
@@ -1888,6 +1908,9 @@ function FolderSection({
   pathname: string;
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 05 — hide this folder's database rows; their views (below,
+   *  unchanged) still render. */
+  viewsOnly?: boolean;
 }) {
   /**
    * #369 — the whole folder is the drop target, header included, so it accepts a
@@ -2058,20 +2081,24 @@ function FolderSection({
             </div>
           )}
           {/* #369 — no nested DndContext: the space owns the one context now. */}
-          <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
-              {databases.map((db) => (
-                <DatabaseRow
-                  key={db.id}
-                  ws={ws}
-                  db={db}
-                  active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                  isAdmin={isAdmin}
-                  folders={folders}
-                  onMove={onMove}
-                  reorderable={canEdit}
-                />
-              ))}
-          </SortableContext>
+          {/* #742 finding 05 — views-only mode hides these rows; their views
+              (below) render regardless, unaffected by the toggle. */}
+          {!viewsOnly && (
+            <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+                {databases.map((db) => (
+                  <DatabaseRow
+                    key={db.id}
+                    ws={ws}
+                    db={db}
+                    active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                    isAdmin={isAdmin}
+                    folders={folders}
+                    onMove={onMove}
+                    reorderable={canEdit}
+                  />
+                ))}
+            </SortableContext>
+          )}
           {views.map((v) => (
             <SidebarViewRow
               key={v.id}
@@ -2148,6 +2175,7 @@ function DatabaseBranch({
   onDeleteView,
   canEdit,
   isAdmin,
+  viewsOnly,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -2162,20 +2190,25 @@ function DatabaseBranch({
   onDeleteView: (view: SidebarView) => void;
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 05 — hide the database's own row; its views (siblings
+   *  since finding 06) still render below, unaffected. */
+  viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
 
   return (
     <Fragment>
-      <DatabaseRow
-        ws={ws}
-        db={db}
-        active={isHere}
-        isAdmin={isAdmin}
-        folders={folders}
-        onMove={onMove}
-        reorderable={canEdit}
-      />
+      {!viewsOnly && (
+        <DatabaseRow
+          ws={ws}
+          db={db}
+          active={isHere}
+          isAdmin={isAdmin}
+          folders={folders}
+          onMove={onMove}
+          reorderable={canEdit}
+        />
+      )}
       {/* #742 finding 06 — a database's own views render as FLAT SIBLINGS now,
           not behind an expand/collapse caret. No leaf row has children in the
           new model, so there is nothing left to expand: depth 0, same as the
@@ -2619,6 +2652,39 @@ function GroupHeaderRow({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * #742 finding 10 — "the mode button wears the database glyph, struck
+ * through when off." Read literally: OFF names the state being toggled
+ * (databases), not whether the button itself has been pressed — so the
+ * struck-through glyph is what views-only mode LOOKS like (databases are
+ * off), and the plain glyph is the normal, everything-visible state. One
+ * button that states which mode you're in, not a press/no-press pair.
+ */
+function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={active ? 'Showing views only — click to show databases too' : 'Show views only, hiding databases'}
+      aria-pressed={active}
+      className={cn(
+        'relative rounded p-0.5 hover:bg-hover',
+        active ? 'text-ink' : 'text-faint hover:text-muted',
+      )}
+    >
+      <Database className="h-3.5 w-3.5" />
+      {active && (
+        <span
+          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          aria-hidden
+        >
+          <span className="h-px w-4 rotate-45 bg-current" />
+        </span>
+      )}
+    </button>
   );
 }
 
