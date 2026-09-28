@@ -871,17 +871,33 @@ export function TableView({
         className={cn(
           'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
           isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
-          pinned &&
-            colIndex < frozenCount &&
-            cn(
-              'sticky z-10',
-              colIndex === frozenCount - 1 &&
-                'shadow-[var(--shadow-edge-right)]',
-              selected.has(row.id)
-                ? 'bg-accent-soft'
-                : 'bg-card group-hover:bg-hover',
-            ),
-          inRange && !isCursor && 'z-10 bg-accent-soft/60',
+          pinned && colIndex < frozenCount
+            ? cn(
+                'sticky z-10',
+                colIndex === frozenCount - 1 &&
+                  'shadow-[var(--shadow-edge-right)]',
+                /*
+                 * #735 — a frozen cell's background must stay OPAQUE in
+                 * every state, including range selection, which none of the
+                 * ticket's three named states (base/hover/selected) covers
+                 * but which breaks the same way: the real bug was TWO
+                 * classes both setting background-color on one element —
+                 * this branch's opaque bg-card/bg-accent-soft, and the
+                 * translucent bg-accent-soft/60 below — with the
+                 * translucent one winning the cascade, so a frozen cell
+                 * mid-range-select let the row's own ground bleed through
+                 * at 40%. Folding range selection into THIS branch (so a
+                 * frozen cell only ever gets one background-color source)
+                 * fixes it; non-frozen cells keep the translucent tint,
+                 * which was never the reported defect.
+                 */
+                inRange && !isCursor
+                  ? 'bg-accent-soft'
+                  : selected.has(row.id)
+                    ? 'bg-accent-soft'
+                    : 'bg-card group-hover:bg-hover',
+              )
+            : inRange && !isCursor && 'z-10 bg-accent-soft/60',
         )}
         onMouseDown={(e) => {
           suppressClickRef.current = false;
