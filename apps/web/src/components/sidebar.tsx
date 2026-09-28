@@ -156,12 +156,60 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  /**
+   * #742 phase 5 — a container (a group's own area, or the ungrouped zone)
+   * wins over a plain space row under the pointer, same reasoning as the
+   * per-space collision strategy one level down (`SpaceSection`'s own
+   * `collisionStrategy`): a container is a tall droppable whose CENTRE is
+   * far from the pointer, so bare `closestCenter` never picks it over a
+   * small sortable row. `pointerWithin` asks what's actually under the
+   * pointer instead. A row under the pointer still wins when both match —
+   * that is an ordinary reorder, not a group move — so this only changes
+   * behaviour when the pointer is over EMPTY space inside a group/the
+   * ungrouped zone (no row there to prefer).
+   */
+  const spaceCollisionStrategy = (args: Parameters<typeof pointerWithin>[0]) => {
+    const within = pointerWithin(args);
+    const container = within.find((c) => String(c.id).startsWith('group:') || String(c.id) === 'ungrouped');
+    const row = within.find((c) => !String(c.id).startsWith('group:') && String(c.id) !== 'ungrouped');
+    if (row) return [row];
+    if (container) return [container];
+    return closestCenter(args);
+  };
+
   function onSpaceDragEnd(event: DragEndEvent) {
-    if (!event.over) return;
-    // Reorder over the full space list (positions are shared), so dragging a
-    // space across several slots shifts the run instead of swapping endpoints.
-    for (const move of computeReorder(spaces.data ?? [], String(event.active.id), String(event.over.id))) {
-      mutations.updateSpace.mutate(move);
+    const over = event.over;
+    if (!over) return;
+    const activeId = String(event.active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    // Dropped on a GROUP's own area, or the ungrouped zone: reassign the
+    // space's group. Presentational only (#742 finding 04) — this writes
+    // groupId, never anything access-related, and never touches position.
+    if (overId.startsWith('group:')) {
+      mutations.updateSpace.mutate({ id: activeId, groupId: overId.slice('group:'.length) });
+      return;
+    }
+    if (overId === 'ungrouped') {
+      mutations.updateSpace.mutate({ id: activeId, groupId: null });
+      return;
+    }
+
+    // Dropped on another SPACE row: reorder over the full space list
+    // (positions are shared across every space regardless of group), so
+    // dragging a space across several slots shifts the run instead of
+    // swapping endpoints. Dropping next to a GROUPED space also joins that
+    // group — the natural reading of "I put it here" when "here" already
+    // has a colour — while dropping next to an ungrouped one clears it,
+    // both via the same one-field patch as the explicit drop zones above.
+    const targetSpace = visibleSpaces.find((s) => s.id === overId);
+    for (const move of computeReorder(spaces.data ?? [], activeId, overId)) {
+      if (move.id === activeId && targetSpace) {
+        mutations.updateSpace.mutate({ ...move, groupId: targetSpace.groupId ?? null });
+      } else {
+        mutations.updateSpace.mutate(move);
+      }
     }
   }
 
@@ -310,7 +358,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             that name the space instead of reading out its uuid. */}
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={spaceCollisionStrategy}
           {...spaceDrag.contextProps}
         >
           {/* #641 — a gap here (not padding on the header) separates one
@@ -321,16 +369,22 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           <div className="flex flex-col gap-2">
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {sortedGroups.map((group) => {
-              const members = spacesByGroup.get(group.id);
-              if (!members || members.length === 0) return null;
+              // #742 finding 04/phase 5 — a group with no members yet still
+              // renders (header only): drag-and-drop reassignment needs a
+              // REAL drop target to move the first space into, and an empty
+              // group that's invisible until it already has a member is a
+              // target nobody can ever reach.
+              const members = spacesByGroup.get(group.id) ?? [];
               return (
                 <div key={group.id} className="flex flex-col gap-1.5">
-                  <GroupHeaderRow
-                    group={group}
-                    canEdit={canEdit}
-                    onRename={(name) => mutations.updateGroup.mutate({ id: group.id, name })}
-                    onDelete={() => mutations.deleteGroup.mutate(group.id)}
-                  />
+                  <GroupDropZone groupId={group.id}>
+                    <GroupHeaderRow
+                      group={group}
+                      canEdit={canEdit}
+                      onRename={(name) => mutations.updateGroup.mutate({ id: group.id, name })}
+                      onDelete={() => mutations.deleteGroup.mutate(group.id)}
+                    />
+                  </GroupDropZone>
                   <div className="flex flex-col gap-2">
                     {members.map((space) => (
                       <SpaceSection
@@ -349,19 +403,24 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                 </div>
               );
             })}
-            {ungroupedSpaces.map((space) => (
-              <SpaceSection
-                key={space.id}
-                ws={ws}
-                space={space}
-                databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
-                canEdit={canEdit}
-                isAdmin={isAdmin}
-                groups={sortedGroups}
-                onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
-                viewsOnly={viewsOnly}
-              />
-            ))}
+            {/* #742 phase 5 — always a real drop target, even with zero
+                ungrouped spaces right now (e.g. everything already grouped):
+                dragging a space out of every group has to land somewhere. */}
+            <UngroupedDropZone>
+              {ungroupedSpaces.map((space) => (
+                <SpaceSection
+                  key={space.id}
+                  ws={ws}
+                  space={space}
+                  databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
+                  canEdit={canEdit}
+                  isAdmin={isAdmin}
+                  groups={sortedGroups}
+                  onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                  viewsOnly={viewsOnly}
+                />
+              ))}
+            </UngroupedDropZone>
           </SortableContext>
           </div>
           <DragPreview>
@@ -701,6 +760,42 @@ function RootDropZone({ spaceId, children }: { spaceId: string; children: React.
       // it. This is the div actually stacking Members/Agents/Runs etc., so
       // the fix belongs here.
       className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * #742 phase 5 — a group's header (and everything under it) is a real
+ * drop target for reassigning a space's group, the same container-drop
+ * shape `RootDropZone`/a folder already use one level down. Wraps the
+ * WHOLE group block (header + members), not just the header row, so
+ * dropping anywhere in a group's own area — including on top of one of
+ * its member spaces — still resolves to "join this group" once the
+ * container-preferring collision strategy below picks it.
+ */
+function GroupDropZone({ groupId, children }: { groupId: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `group:${groupId}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn('flex flex-col gap-1.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** #742 phase 5 — the ungrouped list's own drop target, so dragging a space
+ *  out of every group has somewhere to land even when the list is currently
+ *  empty (everything already grouped) and there's no sibling row to drop near. */
+function UngroupedDropZone({ children }: { children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'ungrouped' });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
     >
       {children}
     </div>
