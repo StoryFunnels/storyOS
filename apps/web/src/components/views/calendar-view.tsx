@@ -257,7 +257,7 @@ export function CalendarView({
           <ChevronRight className="h-4 w-4" />
         </button>
         <button
-          className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
           onClick={() => setAnchorDate(today)}
         >
           Today
@@ -276,7 +276,7 @@ export function CalendarView({
         {mode !== 'month' && (
           <>
             <select
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px] text-ink-secondary"
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink-secondary"
               value={config.calendar_increment_minutes ?? 15}
               onChange={(e) => onPatch?.({ calendar_increment_minutes: Number(e.target.value) as 10 | 15 | 30 | 60 })}
               title="Drag and create snap to this increment"
@@ -299,7 +299,7 @@ export function CalendarView({
         {undatedCount > 0 && (
           <Link
             href={`/w/${ws}/d/${db}`}
-            className="ml-auto text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+            className="ml-auto text-label text-muted underline-offset-2 hover:text-ink hover:underline"
           >
             {undatedCount} undated record{undatedCount === 1 ? '' : 's'} → table
           </Link>
@@ -311,7 +311,7 @@ export function CalendarView({
           recorded, not chosen, so there is nothing to reschedule and no day
           to create "into". */}
       {dateIsSystemDate && (
-        <div className="border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+        <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
           {dateField.displayName} is recorded automatically and can&apos;t be edited — cards here are read-only.
         </div>
       )}
@@ -324,7 +324,7 @@ export function CalendarView({
                 familiar month grid at `md` and up. */}
             <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
               {WEEKDAYS.map((d) => (
-                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-muted">
+                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-meta font-medium text-muted">
                   {d}
                 </div>
               ))}
@@ -408,7 +408,7 @@ function CollapsedHoursControl({
   const end = value?.end ?? 22;
   const hourLabel = (h: number) => (h === 0 || h === 24 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`);
   return (
-    <label className="flex items-center gap-1 text-[12px] text-ink-secondary">
+    <label className="flex items-center gap-1 text-label text-ink-secondary">
       <input
         type="checkbox"
         checked={enabled}
@@ -418,7 +418,7 @@ function CollapsedHoursControl({
       {enabled && (
         <>
           <select
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-[12px]"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label"
             value={start}
             onChange={(e) => onChange({ start: Number(e.target.value), end })}
           >
@@ -432,7 +432,7 @@ function CollapsedHoursControl({
           </select>
           <span>–</span>
           <select
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-[12px]"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label"
             value={end}
             onChange={(e) => onChange({ start, end: Number(e.target.value) })}
           >
@@ -490,15 +490,15 @@ function AgendaList({
         return (
           <div key={iso} className="flex gap-3 px-4 py-2.5">
             <div className="w-10 shrink-0 text-center">
-              <div className="text-[10px] uppercase text-muted">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
-              <div className={cn('text-[14px]', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
+              <div className="text-micro uppercase text-muted">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
+              <div className={cn('text-prose', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
                 {day.getDate()}
               </div>
             </div>
             <div className="min-w-0 flex-1 space-y-1 pt-0.5">
               {chips.length === 0 ? (
                 !readOnly && (
-                  <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => onCreate(iso)}>
+                  <button type="button" className="text-label text-muted hover:text-ink" onClick={() => onCreate(iso)}>
                     + Add
                   </button>
                 )
@@ -516,12 +516,12 @@ function AgendaList({
                     className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
                     onClick={() => onOpen(row.id)}
                   >
-                    <p className="truncate text-[13px] font-medium text-ink">{row.title || 'Untitled'}</p>
+                    <p className="truncate text-body font-medium text-ink">{row.title || 'Untitled'}</p>
                     {chipFields.map((field) => {
                       const value = row.values[field.apiName];
                       if (value === undefined || value === null || value === '') return null;
                       return (
-                        <div key={field.id} className="truncate text-[11px] text-muted">
+                        <div key={field.id} className="truncate text-meta text-muted">
                           <CellDisplay field={field} value={value} memberNames={memberNames} />
                         </div>
                       );
@@ -584,7 +584,7 @@ function DayCell({
     >
       <span
         className={cn(
-          'mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]',
+          'mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-meta',
           // #706 — an out-of-month day is DE-EMPHASISED, not decorative: the cell
           // is clickable (onCreate) and a drop target, so this number is how you
           // know which date you are about to act on. At 11px, AA's 4.5:1 applies
@@ -621,7 +621,7 @@ function DayCell({
       ))}
       {chips.length > 3 && !expanded && (
         <button
-          className="mt-0.5 text-[11px] text-muted hover:text-ink"
+          className="mt-0.5 text-meta text-muted hover:text-ink"
           onClick={(e) => {
             e.stopPropagation();
             setExpanded(true);
@@ -674,12 +674,12 @@ function CalendarChip({
         onOpen();
       }}
     >
-      <p className="truncate text-[12px] font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className="truncate text-label font-medium text-ink">{row.title || 'Untitled'}</p>
       {chipFields.map((field) => {
         const value = row.values[field.apiName];
         if (value === undefined || value === null || value === '') return null;
         return (
-          <div key={field.id} className="truncate text-[11px] text-muted">
+          <div key={field.id} className="truncate text-meta text-muted">
             <CellDisplay field={field} value={value} memberNames={memberNames} />
           </div>
         );

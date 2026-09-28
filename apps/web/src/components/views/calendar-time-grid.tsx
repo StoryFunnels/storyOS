@@ -184,12 +184,12 @@ export function CalendarTimeGrid({
             const isToday = iso === fmtDate(new Date());
             return (
               <div key={iso} className="flex-1 border-l border-border-default px-2 py-1.5 text-center">
-                <div className="text-[10px] uppercase text-faint">
+                <div className="text-micro uppercase text-faint">
                   {d.toLocaleDateString(undefined, { weekday: 'short' })}
                 </div>
                 <div
                   className={cn(
-                    'inline-flex h-6 w-6 items-center justify-center rounded-full text-[13px]',
+                    'inline-flex h-6 w-6 items-center justify-center rounded-full text-body',
                     isToday ? 'bg-primary font-semibold text-[var(--text-on-dark)]' : 'text-ink-secondary',
                   )}
                 >
@@ -202,7 +202,7 @@ export function CalendarTimeGrid({
 
         {/* All-day row (AC5) */}
         <div className="flex border-b border-border-default">
-          <div className="w-12 shrink-0 py-1 text-right text-[10px] text-faint">All day</div>
+          <div className="w-12 shrink-0 py-1 text-right text-micro text-faint">All day</div>
           {days.map((_, i) => {
             const iso = dayKeys[i]!;
             const chips = allDayByDay.get(iso) ?? [];
@@ -227,7 +227,7 @@ export function CalendarTimeGrid({
         <div ref={scrollRef} className="flex flex-1 overflow-y-auto">
           <div className="w-12 shrink-0">
             {visibleHours.map((h) => (
-              <div key={h} style={{ height: HOUR_HEIGHT }} className="border-b border-border-default pr-1 text-right text-[10px] text-faint">
+              <div key={h} style={{ height: HOUR_HEIGHT }} className="border-b border-border-default pr-1 text-right text-micro text-faint">
                 {h === 0 ? '' : `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`}
               </div>
             ))}
@@ -405,7 +405,7 @@ function EventChip({
       style={colorTint ? { backgroundColor: `${colorTint}22`, borderColor: `${colorTint}55` } : undefined}
       className={cn(
         'cursor-pointer overflow-hidden rounded border border-border-default bg-card px-1 py-0.5 text-left hover:border-border-strong',
-        compact && 'mb-0.5 inline-block max-w-full align-top text-[11px]',
+        compact && 'mb-0.5 inline-block max-w-full align-top text-meta',
         fill && 'h-full w-full',
         isDragging && 'opacity-40',
       )}
@@ -414,13 +414,13 @@ function EventChip({
         onOpen();
       }}
     >
-      <p className="truncate text-[11px] font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className="truncate text-meta font-medium text-ink">{row.title || 'Untitled'}</p>
       {!compact &&
         chipFields?.map((field) => {
           const value = row.values[field.apiName];
           if (value === undefined || value === null || value === '') return null;
           return (
-            <div key={field.id} className="truncate text-[10px] text-muted">
+            <div key={field.id} className="truncate text-micro text-muted">
               <CellDisplay field={field} value={value} memberNames={memberNames ?? new Map()} />
             </div>
           );

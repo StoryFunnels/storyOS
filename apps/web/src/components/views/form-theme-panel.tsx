@@ -51,11 +51,11 @@ export function FormThemePanel({
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Match your site</p>
+        <p className="text-meta font-medium uppercase tracking-wider text-muted">Match your site</p>
         {theme && (
           <button
             type="button"
-            className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+            className="text-label text-muted underline-offset-2 hover:text-ink hover:underline"
             /* Spec §4 of the panel: reset must return to today's appearance
                EXACTLY. Clearing to undefined does that by construction —
                "default" means "emit nothing", so there is no set of values to
@@ -67,7 +67,7 @@ export function FormThemePanel({
         )}
       </div>
 
-      <p className="text-[12px] text-muted">
+      <p className="text-label text-muted">
         Applies to the embedded form only. Your own copy of the form is unchanged.
       </p>
 
@@ -96,12 +96,12 @@ export function FormThemePanel({
            picked the colours — so this offers the correction rather than just
            naming the fault. */
         <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover p-2">
-          <span className="text-[12px] text-ink">
+          <span className="text-label text-ink">
             Text and Surface are close — {ratio.toFixed(1)}:1. Small labels will be hard to read.
           </span>
           <button
             type="button"
-            className="ml-auto shrink-0 rounded-[var(--radius-control)] border border-border-default px-2 py-0.5 text-[12px] text-ink hover:bg-card"
+            className="ml-auto shrink-0 rounded-[var(--radius-control)] border border-border-default px-2 py-0.5 text-label text-ink hover:bg-card"
             onClick={() => set({ text: readableTextFor(text, surface) })}
           >
             Fix for me
@@ -110,14 +110,14 @@ export function FormThemePanel({
       )}
 
       <div className="rounded-[var(--radius-control)] border border-border-default p-3" style={style}>
-        <p className="mb-2 text-[11px] uppercase tracking-wider text-muted">Preview</p>
-        <div className="flex flex-col gap-2 text-[13px]">
+        <p className="mb-2 text-meta uppercase tracking-wider text-muted">Preview</p>
+        <div className="flex flex-col gap-2 text-body">
           <span className="text-[15px] font-semibold text-ink">Your form</span>
-          <span className="text-[12px] text-muted">A short description under the title.</span>
-          <span className="text-[12px] font-medium text-ink-secondary">Email</span>
+          <span className="text-label text-muted">A short description under the title.</span>
+          <span className="text-label font-medium text-ink-secondary">Email</span>
           <div className="h-8 rounded-[var(--radius-control)] border border-border-strong bg-card" />
-          <span className="text-[11px] text-muted">Help text under the field.</span>
-          <div className="mt-1 rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-center text-[13px] font-medium text-[var(--text-on-dark)]">
+          <span className="text-meta text-muted">Help text under the field.</span>
+          <div className="mt-1 rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-center text-body font-medium text-[var(--text-on-dark)]">
             Submit
           </div>
         </div>
@@ -153,12 +153,12 @@ function Swatch({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
-        className="h-7 w-24 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 font-mono text-[12px] text-ink"
+        className="h-7 w-24 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 font-mono text-label text-ink"
         aria-label={`${label} hex`}
       />
       {/* Spec: each control says what it affects. Four abstract colour slots
           are four guesses otherwise. */}
-      <span className="truncate text-[12px] text-muted">{hint}</span>
+      <span className="truncate text-label text-muted">{hint}</span>
     </label>
   );
 }

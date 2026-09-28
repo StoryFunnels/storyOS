@@ -114,7 +114,7 @@ export function FieldsMenu({
         ) : (
           <button
             className={cn(
-              'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+              'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover hover:text-ink',
               triggerActive ? 'text-ink' : 'text-muted',
             )}
           >
@@ -154,7 +154,7 @@ export function FieldsMenu({
           ) : (
             rows
           )}
-          {list.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">{emptyLabel}</p>}
+          {list.length === 0 && <p className="px-2 py-1.5 text-label text-faint">{emptyLabel}</p>}
         </div>
         {footer}
       </DropdownMenuContent>
@@ -187,7 +187,7 @@ function FieldRow({
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        'group/fm flex items-center gap-1 rounded px-1.5 py-1.5 text-[13px] text-ink hover:bg-hover',
+        'group/fm flex items-center gap-1 rounded px-1.5 py-1.5 text-body text-ink hover:bg-hover',
         isDragging && 'opacity-50',
       )}
     >

@@ -422,7 +422,7 @@ export function TimelineView({
           {dateFields.length === 0 ? (
             <>
               <p className="text-sm font-medium text-ink">This database has no date field</p>
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 Add a Start (and optional Due) date field to the database, then choose it here to lay records out on a
                 timeline.
               </p>
@@ -430,14 +430,14 @@ export function TimelineView({
           ) : readOnly ? (
             <>
               <p className="text-sm font-medium text-ink">Timeline not configured</p>
-              <p className="text-[13px] text-muted">No start-date field has been chosen for this timeline yet.</p>
+              <p className="text-body text-muted">No start-date field has been chosen for this timeline yet.</p>
             </>
           ) : (
             <>
               <p className="text-sm font-medium text-ink">Choose the dates to lay out</p>
-              <p className="text-[13px] text-muted">Pick which date field starts each bar, and optionally one that ends it.</p>
+              <p className="text-body text-muted">Pick which date field starts each bar, and optionally one that ends it.</p>
               <div className="mt-1 flex flex-col gap-2 text-left">
-                <label className="flex items-center justify-between gap-3 text-[13px] text-ink">
+                <label className="flex items-center justify-between gap-3 text-body text-ink">
                   <span className="text-muted">Start date</span>
                   <Select
                     size="sm"
@@ -465,13 +465,13 @@ export function TimelineView({
     <div className="flex h-full flex-col">
       {/* Controls: zoom, date-field selectors, today */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border-default px-3 py-1.5">
-        <span className="mr-1 text-[12px] text-muted">Zoom</span>
+        <span className="mr-1 text-label text-muted">Zoom</span>
         {(['day', 'week', 'month', 'quarter'] as const).map((z) => (
           <button
             key={z}
             onClick={() => setZoom(z)}
             className={cn(
-              'rounded px-2 py-0.5 text-[12px]',
+              'rounded px-2 py-0.5 text-label',
               zoom === z ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
             )}
           >
@@ -482,17 +482,17 @@ export function TimelineView({
         <div className="mx-1 h-4 w-px bg-border-default" />
         <button
           onClick={scrollToToday}
-          className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
         >
           Today
         </button>
 
         {!readOnly && (
           <div className="ml-auto flex items-center gap-1.5">
-            <label className="flex items-center gap-1 text-[12px] text-muted">
+            <label className="flex items-center gap-1 text-label text-muted">
               Start
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={startField.id}
                 onChange={(e) => onPatch({ start_date_field_id: e.target.value })}
               >
@@ -501,10 +501,10 @@ export function TimelineView({
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-1 text-[12px] text-muted">
+            <label className="flex items-center gap-1 text-label text-muted">
               End
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={endField?.id ?? ''}
                 onChange={(e) => onPatch({ end_date_field_id: e.target.value || undefined })}
               >
@@ -520,10 +520,10 @@ export function TimelineView({
                 baseline start is what turns the feature on — the end is optional,
                 exactly like the primary pair, so a single planned date still
                 renders as a point rather than being rejected. */}
-            <label className="flex items-center gap-1 text-[12px] text-muted">
+            <label className="flex items-center gap-1 text-label text-muted">
               Planned
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={baselineStartField?.id ?? ''}
                 onChange={(e) =>
                   onPatch({
@@ -541,10 +541,10 @@ export function TimelineView({
               </select>
             </label>
             {baselineStartField && (
-              <label className="flex items-center gap-1 text-[12px] text-muted">
+              <label className="flex items-center gap-1 text-label text-muted">
                 to
                 <select
-                  className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                  className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                   value={baselineEndField?.id ?? ''}
                   onChange={(e) => onPatch({ baseline_end_date_field_id: e.target.value || undefined })}
                 >
@@ -563,7 +563,7 @@ export function TimelineView({
           like the calendar's #753). Only for a system-date start field: these
           dates are recorded, not chosen, so there is nothing to reschedule. */}
       {startIsSystemDate && (
-        <div className="border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+        <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
           {startField.displayName} is recorded automatically and can&apos;t be edited — bars here are read-only.
         </div>
       )}
@@ -577,7 +577,7 @@ export function TimelineView({
               {leftFields.map((f, i) => (
                 <div
                   key={f.id}
-                  className="relative flex items-center border-r border-border-default px-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
+                  className="relative flex items-center border-r border-border-default px-3 text-meta font-semibold uppercase tracking-wide text-muted"
                   style={{ width: colW(f) }}
                 >
                   <span className="truncate">{f.displayName}</span>
@@ -699,7 +699,7 @@ export function TimelineView({
                 {primary.map((s) => (
                   <div
                     key={s.key}
-                    className="absolute flex items-center border-r border-border-default px-1.5 text-[11px] font-medium text-muted"
+                    className="absolute flex items-center border-r border-border-default px-1.5 text-meta font-medium text-muted"
                     style={{ left: s.left, width: s.width, height: HEADER_H / 2 }}
                   >
                     <span className="truncate">{s.label}</span>
@@ -710,7 +710,7 @@ export function TimelineView({
                 {secondary.map((s) => (
                   <div
                     key={s.key}
-                    className="absolute flex items-center justify-center border-r border-border-default text-[10px] tabular-nums text-muted"
+                    className="absolute flex items-center justify-center border-r border-border-default text-micro tabular-nums text-muted"
                     style={{ left: s.left, width: s.width, height: HEADER_H / 2 }}
                   >
                     {s.width > 18 ? s.label : ''}
@@ -761,7 +761,7 @@ export function TimelineView({
                       }}
                     />
                     <span
-                      className="pointer-events-none absolute truncate text-[11px] text-ink-secondary"
+                      className="pointer-events-none absolute truncate text-meta text-ink-secondary"
                       style={{ left: x + px / 2 + size, top: ROW_H / 2 - 8, maxWidth: 220 }}
                     >
                       {row.title || 'Untitled'}
@@ -800,7 +800,7 @@ export function TimelineView({
                     onPointerDown={startIsSystemDate ? undefined : (e) => startBarPointer(e, bar, 'move')}
                     title={(row.title || 'Untitled') + baselineOnlyTitle}
                     className={cn(
-                      'absolute flex items-center overflow-hidden rounded-md text-left text-[11px] text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
+                      'absolute flex items-center overflow-hidden rounded-md text-left text-meta text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
                       fromBaseline && 'opacity-70',
                       !readOnly && !startIsSystemDate && 'cursor-grab active:cursor-grabbing',
                     )}
@@ -814,7 +814,7 @@ export function TimelineView({
                   {slipText && slip !== 0 && (
                     <span
                       className={cn(
-                        'pointer-events-none absolute text-[10px] tabular-nums',
+                        'pointer-events-none absolute text-micro tabular-nums',
                         slip! > 0 ? 'text-error' : 'text-success',
                       )}
                       style={{ left: x + width + 6, top: ROW_H / 2 - 6 }}
@@ -846,7 +846,7 @@ export function TimelineView({
       </div>
 
       {undated > 0 && (
-        <div className="border-t border-border-default px-3 py-1.5 text-[12px] text-muted">
+        <div className="border-t border-border-default px-3 py-1.5 text-label text-muted">
           {/* #227 — a baseline-only record now renders (see `bars`), so what's
               actually hidden is narrower than "no start date" once a baseline
               pair is mapped: neither a planned NOR an actual start exists. */}

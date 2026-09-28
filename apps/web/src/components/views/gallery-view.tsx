@@ -114,7 +114,7 @@ export function GalleryView({
       </div>
       {records.hasNextPage && (
         <button
-          className="mt-3 rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+          className="mt-3 rounded px-2 py-1 text-body text-info hover:bg-hover"
           onClick={() => void records.fetchNextPage()}
           disabled={records.isFetchingNextPage}
         >

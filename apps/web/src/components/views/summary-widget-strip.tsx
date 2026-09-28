@@ -219,7 +219,7 @@ function WidgetCard({
               <GripVertical className="h-3.5 w-3.5" />
             </button>
           )}
-          <span className="truncate text-[12px] font-medium text-muted">{title}</span>
+          <span className="truncate text-label font-medium text-muted">{title}</span>
         </span>
         {!readOnly && (
           <span className="flex shrink-0 items-center gap-0.5">
@@ -259,10 +259,10 @@ function WidgetCard({
 
       {editing && (
         <div className="mt-1 flex flex-col gap-1.5 border-t border-border-default pt-2">
-          <label className="flex items-center justify-between gap-2 text-[12px] text-muted">
+          <label className="flex items-center justify-between gap-2 text-label text-muted">
             Type
             <select
-              className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink"
+              className="h-7 rounded border border-border-default bg-card px-1.5 text-label text-ink"
               value={widget.type}
               onChange={(e) => {
                 const type = e.target.value as SummaryWidget['type'];
@@ -280,10 +280,10 @@ function WidgetCard({
               ))}
             </select>
           </label>
-          <label className="flex items-center justify-between gap-2 text-[12px] text-muted">
+          <label className="flex items-center justify-between gap-2 text-label text-muted">
             Aggregate
             <select
-              className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink"
+              className="h-7 rounded border border-border-default bg-card px-1.5 text-label text-ink"
               value={widget.op}
               onChange={(e) => {
                 const op = e.target.value as TileOp;
@@ -298,10 +298,10 @@ function WidgetCard({
             </select>
           </label>
           {opNeedsField(widget.op) && (
-            <label className="flex items-center justify-between gap-2 text-[12px] text-muted">
+            <label className="flex items-center justify-between gap-2 text-label text-muted">
               Field
               <select
-                className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1.5 text-label text-ink"
                 value={widget.field_api_name ?? ''}
                 onChange={(e) => onPatch({ field_api_name: e.target.value || undefined })}
               >
@@ -315,10 +315,10 @@ function WidgetCard({
             </label>
           )}
           {widget.type !== 'stat' && (
-            <label className="flex items-center justify-between gap-2 text-[12px] text-muted">
+            <label className="flex items-center justify-between gap-2 text-label text-muted">
               Group by
               <select
-                className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1.5 text-label text-ink"
                 value={widget.group_by_field_api_name ?? ''}
                 onChange={(e) => onPatch({ group_by_field_api_name: e.target.value || undefined })}
               >
@@ -464,7 +464,7 @@ export function AddSummaryWidgetButton({
           ],
         })
       }
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
       title="Add a summary widget over this view's rows"
     >
       <BarChart3 className="h-3.5 w-3.5" /> Add widget

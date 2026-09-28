@@ -137,7 +137,7 @@ export function FormView({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-hover"
+                className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-body font-medium text-ink hover:bg-hover"
                 onClick={() => setFieldsSidebarOpen(true)}
               >
                 <ListChecks className="h-3.5 w-3.5 text-muted" />
@@ -148,7 +148,7 @@ export function FormView({
           </div>
         )}
         <h1 className="text-2xl font-bold text-ink">{heading}</h1>
-        {config.form?.description && <p className="mt-1 text-[13px] text-muted">{config.form.description}</p>}
+        {config.form?.description && <p className="mt-1 text-body text-muted">{config.form.description}</p>}
 
         <form
           className="mt-6 flex flex-col gap-4"
@@ -192,7 +192,7 @@ export function FormView({
                 )}
                 {/* #669 — help text carries an affordance (it tells the person
                     filling the form what to do), not decoration. */}
-                {cfg?.help && <span className="mt-0.5 text-[11px] text-muted">{cfg.help}</span>}
+                {cfg?.help && <span className="mt-0.5 text-meta text-muted">{cfg.help}</span>}
               </Row>
             );
           })}
@@ -200,7 +200,7 @@ export function FormView({
           {/* #669 — an editor-facing instruction naming the exact next action,
               same category #665 promoted ("Empty — drop something here"). */}
           {fields.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-3 py-2 text-[12px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-3 py-2 text-label text-muted">
               Use the “Fields” panel to choose which fields appear on this form.
             </p>
           )}
@@ -209,11 +209,11 @@ export function FormView({
             <button
               type="submit"
               disabled={readOnly || createRecord.isPending}
-              className="rounded-[var(--radius-control)] bg-primary px-4 py-2 text-[13px] font-medium text-[var(--text-on-dark)] hover:brightness-110 disabled:opacity-50"
+              className="rounded-[var(--radius-control)] bg-primary px-4 py-2 text-body font-medium text-[var(--text-on-dark)] hover:brightness-110 disabled:opacity-50"
             >
               {config.form?.submit_text || 'Submit'}
             </button>
-            {justSubmitted && <span className="text-[13px] text-success">✓ Added</span>}
+            {justSubmitted && <span className="text-body text-success">✓ Added</span>}
           </div>
         </form>
       </div>
@@ -234,7 +234,7 @@ export function FormView({
 function Row({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[12px] font-medium text-ink-secondary">
+      <span className="text-label font-medium text-ink-secondary">
         {label}
         {required && <span className="ml-0.5 text-error">*</span>}
       </span>
@@ -348,9 +348,9 @@ function FieldInput({
       return (
         <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
           {/* #669 — explains an absence, same category as "No matches" below. */}
-          {members.length === 0 && <span className="text-[12px] text-muted">No members</span>}
+          {members.length === 0 && <span className="text-label text-muted">No members</span>}
           {members.map((m) => (
-            <label key={m.id} className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+            <label key={m.id} className="flex cursor-pointer items-center gap-2 text-body text-ink">
               <input
                 type={multi ? 'checkbox' : 'radio'}
                 name={field.id}
@@ -433,14 +433,14 @@ function RelationInput({
   if (!relation || !targetDb) {
     // #669 — names why the control is unusable right now, an affordance in the
     // same family as #429's "the panel says so in a sentence" rule.
-    return <span className="text-[12px] text-muted">Relation is not configured</span>;
+    return <span className="text-label text-muted">Relation is not configured</span>;
   }
 
   return (
     <div className="relative">
       <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5">
         {selectedIds.map((id) => (
-          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
+          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink">
             {titles.get(id) ?? id}
             {/* #669 — icon-only, deliberately out of scope (icon glyphs are
                 judged at the 3:1 threshold, not text's 4.5:1 — the ticket's
@@ -457,7 +457,7 @@ function RelationInput({
         <input
           // #669 — placeholder promoted to muted, matching #637's own input
           // primitive (a placeholder tells you what to type).
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-body text-ink outline-none placeholder:text-muted"
           placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
           value={search}
           onFocus={() => setOpen(true)}
@@ -473,15 +473,15 @@ function RelationInput({
             <button
               key={r.id}
               type="button"
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
               onClick={() => pick(r.id, r.title)}
             >
               <span className="truncate">{r.title || 'Untitled'}</span>
-              {selectedIds.includes(r.id) && <span className="text-[11px] text-muted">selected</span>}
+              {selectedIds.includes(r.id) && <span className="text-meta text-muted">selected</span>}
             </button>
           ))}
           {results.data?.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-muted">No matches</p>
+            <p className="px-2 py-1.5 text-label text-muted">No matches</p>
           )}
         </div>
       )}
@@ -529,25 +529,25 @@ function FormBuilder({
     <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-ink"
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-body font-medium text-ink"
         onClick={() => setOpen((v) => !v)}
       >
         <Share2 className="h-4 w-4 text-muted" />
         Configure &amp; share
         {token && access !== 'members' && (
-          <span className="ml-auto rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-accent">Live</span>
+          <span className="ml-auto rounded-full bg-accent-soft px-2 py-0.5 text-meta text-accent">Live</span>
         )}
       </button>
 
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border-default p-4 text-[13px]">
+        <div className="flex flex-col gap-4 border-t border-border-default p-4 text-body">
           {/* Sharing */}
           <section className="flex flex-col gap-2">
             {/* #669 — section headers promoted to muted throughout this file:
                 same category #665 already promoted for the sidebar (they
                 orient the editor, not decoration). Every other "…uppercase
                 tracking-wider text-muted" label below is the same call. */}
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Sharing</p>
+            <p className="text-meta font-medium uppercase tracking-wider text-muted">Sharing</p>
             <FreeGuestTip dismissKey={`form-share-${db}`} href={`/w/${ws}/settings/members?invite=guest`}>
               Sharing with one specific client or collaborator? Invite them as a guest instead —
               viewer and commenter access is free, always, not a trial.
@@ -555,7 +555,7 @@ function FormBuilder({
             {!token ? (
               <button
                 type="button"
-                className="self-start rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-[13px] font-medium text-[var(--text-on-dark)] hover:brightness-110"
+                className="self-start rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-body font-medium text-[var(--text-on-dark)] hover:brightness-110"
                 onClick={() => patchForm({ public_token: crypto.randomUUID().replace(/-/g, ''), access: 'link' })}
               >
                 Create a shareable link
@@ -581,7 +581,7 @@ function FormBuilder({
                 <CopyRow label="Embed" value={embed} onCopy={() => copy(embed, 'Embed snippet')} />
                 <button
                   type="button"
-                  className="self-start text-[12px] text-muted underline-offset-2 hover:text-error hover:underline"
+                  className="self-start text-label text-muted underline-offset-2 hover:text-error hover:underline"
                   onClick={() => patchForm({ public_token: undefined, access: 'members' })}
                 >
                   Stop sharing
@@ -592,7 +592,7 @@ function FormBuilder({
 
           {/* Form meta */}
           <section className="flex flex-col gap-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Form</p>
+            <p className="text-meta font-medium uppercase tracking-wider text-muted">Form</p>
             <MetaInput label="Title" value={form.title ?? ''} onChange={(v) => patchForm({ title: v || undefined })} />
             <MetaInput label="Description" value={form.description ?? ''} onChange={(v) => patchForm({ description: v || undefined })} />
             <MetaInput label="Submit button" value={form.submit_text ?? ''} placeholder="Submit" onChange={(v) => patchForm({ submit_text: v || undefined })} />
@@ -663,18 +663,18 @@ function FormFieldsSidebar({
       <div className="absolute inset-0 bg-[var(--scrim)]" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full w-80 flex-col gap-4 overflow-y-auto border-l border-border-default bg-card p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-semibold text-ink">Form fields</h2>
+          <h2 className="text-body font-semibold text-ink">Form fields</h2>
           <button type="button" onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <section className="flex flex-col gap-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted">On this form · drag to reorder</p>
+          <p className="text-meta font-medium uppercase tracking-wider text-muted">On this form · drag to reorder</p>
           {/* #669 — instructs the exact next action, same as the two other
               empty-state promotions in this file. */}
           {selected.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-[12px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-label text-muted">
               No fields yet — add one below.
             </p>
           )}
@@ -703,7 +703,7 @@ function FormFieldsSidebar({
 
         {available.length > 0 && (
           <section className="flex flex-col gap-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Add a field</p>
+            <p className="text-meta font-medium uppercase tracking-wider text-muted">Add a field</p>
             {available.map((field) => {
               // #724 — a second attachment field is refused here, at
               // configure time, rather than silently dropped by the server
@@ -717,14 +717,14 @@ function FormFieldsSidebar({
                   title={blocked ? 'A form can only have one attachment field.' : undefined}
                   onClick={() => toggle(field.id)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px]',
+                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body',
                     blocked
                       ? 'cursor-not-allowed text-faint'
                       : 'text-muted hover:bg-hover hover:text-ink',
                   )}
                 >
                   <Plus className="h-3.5 w-3.5" /> {field.displayName}
-                  {blocked && <span className="ml-auto text-[11px]">only one allowed</span>}
+                  {blocked && <span className="ml-auto text-meta">only one allowed</span>}
                 </button>
               );
             })}
@@ -765,11 +765,11 @@ function SortableFormField({
         <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-[13px] text-ink">
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-body text-ink">
           {field.displayName}
           {/* #669 — stays faint on purpose: a type annotation beside a name
               you can already read, the textbook decorative case (#665). */}
-          <span className="ml-1 text-[11px] text-faint">· {field.type}</span>
+          <span className="ml-1 text-meta text-faint">· {field.type}</span>
         </button>
         {/* #669 — icon-only, deliberately out of scope (see the drag handle above). */}
         <button type="button" onClick={onRemove} className="text-faint hover:text-error" title="Remove from form">
@@ -779,18 +779,18 @@ function SortableFormField({
       {expanded && (
         <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
           <input
-            className="h-7 rounded border border-border-default bg-card px-2 text-[12px] text-ink"
+            className="h-7 rounded border border-border-default bg-card px-2 text-label text-ink"
             value={cfg.label ?? ''}
             placeholder={field.displayName}
             onChange={(e) => onPatch({ label: e.target.value || undefined })}
           />
           <input
-            className="h-7 rounded border border-border-default bg-card px-2 text-[12px] text-ink"
+            className="h-7 rounded border border-border-default bg-card px-2 text-label text-ink"
             value={cfg.help ?? ''}
             placeholder="Help text (optional)"
             onChange={(e) => onPatch({ help: e.target.value || undefined })}
           />
-          <label className="flex items-center gap-1.5 text-[12px] text-muted">
+          <label className="flex items-center gap-1.5 text-label text-muted">
             <input
               type="checkbox"
               checked={cfg.required ?? false}
@@ -865,7 +865,7 @@ function RelationFilterRow({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+        className="flex items-center gap-1 text-label text-muted hover:text-ink"
       >
         <ListFilter className="h-3 w-3" />
         {nodes.length === 0 ? 'Filter candidates' : `${nodes.length} filter${nodes.length > 1 ? 's' : ''} on candidates`}
@@ -916,16 +916,16 @@ function VisibilityRuleRow({
     // #669 — explains why the control isn't offered here (no earlier field to
     // condition on), same "state, not decoration" category as the relation
     // "not configured" message above.
-    return <p className="text-[11px] text-muted">{emptyText}</p>;
+    return <p className="text-meta text-muted">{emptyText}</p>;
   }
   const controller = earlierFields.find((f) => f.id === rule?.field_id);
   const needsValue = rule ? rule.op === 'eq' || rule.op === 'neq' : false;
   const controlOptions = controller?.options ?? [];
-  const select = 'h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+  const select = 'h-7 rounded border border-border-default bg-card px-1 text-label text-ink';
 
   return (
     <div className="flex flex-col gap-1 rounded border border-border-default bg-card p-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</span>
+      <span className="text-meta font-medium uppercase tracking-wider text-muted">{label}</span>
       <select
         className={select}
         value={rule?.field_id ?? ''}
@@ -993,7 +993,7 @@ export function CopyRow({ label, value, onCopy }: { label: string; value: string
   return (
     <div className="flex items-center gap-2">
       <span className="w-12 shrink-0 text-muted">{label}</span>
-      <input readOnly value={value} onFocus={(e) => e.target.select()} className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-2 text-[12px] text-ink" />
+      <input readOnly value={value} onFocus={(e) => e.target.select()} className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-2 text-label text-ink" />
       <button type="button" onClick={onCopy} className="rounded-[var(--radius-control)] border border-border-default p-1.5 text-muted hover:text-ink" aria-label={`Copy ${label}`}>
         <Copy className="h-3.5 w-3.5" />
       </button>
