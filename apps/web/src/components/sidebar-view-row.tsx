@@ -84,7 +84,7 @@ export function SidebarViewRow({
   const label = (
     <>
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
-      <span className="truncate">{view.name}</span>
+      <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {view.personal && (
         // #291 — badge that it is private. Never say whose: the payload does
         // not carry an owner id, and this must not become the place it leaks.

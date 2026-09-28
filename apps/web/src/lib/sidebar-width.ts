@@ -5,10 +5,15 @@ import { useCallback, useEffect, useState } from 'react';
 /**
  * Draggable width for the main nav sidebar (`components/sidebar.tsx`, ticket
  * #742). The sidebar was a fixed `w-60` (240px) with no resize at all; the
- * design artifact's range (220–460px) is wide enough that dragging it out
- * stops long space names truncating — a real argument for a bigger default
- * than the artifact's own 284, which is why that number is kept as a default
- * rather than a floor.
+ * artifact's range is 220–460px, default 284px.
+ *
+ * 284 is NOT "the width at which nothing clips" — that question turned out
+ * to be the wrong one. Ievgen's ruling (ticket #742, 2026-09-28, with Fibery
+ * as the reference): truncation is acceptable, so the default is sized for
+ * the common case, not the longest name in the workspace — resize is the
+ * escape hatch for anyone who wants it, and labels hard-cut at the panel
+ * edge rather than ellipsizing (also his call — "cutting symbols behind the
+ * divider is acceptable").
  *
  * Deliberately simpler than `record-sidebar-width.ts`: that hook reserves a
  * minimum BODY width against its own measured flex container, because a

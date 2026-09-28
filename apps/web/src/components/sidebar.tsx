@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -51,7 +51,6 @@ import {
 } from '@/lib/sidebar-width';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
-import { openTyron } from '@/lib/tyron-panel';
 import { PersonalSection } from '@/components/personal-section';
 
 interface Favorite {
@@ -92,7 +91,7 @@ function FavoritesSection({ ws }: { ws: string }) {
             className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
           >
             <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
-            <span className="truncate">{f.title}</span>
+            <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
           </Link>
         ))}
       </div>
@@ -231,6 +230,26 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
   return (
     <div className="relative flex h-full shrink-0">
+    {/*
+     * #742 phase 6 — rail + panel (Direction B). Two axes, one rule each: the
+     * RAIL is StoryOS's own surfaces (Home, Inbox, My Work, Runs, Settings —
+     * fixed, five items, never grows with a workspace's spaces), the PANEL is
+     * this workspace's contents (Collections, Groups, Spaces). Search and Ask
+     * Tyron merge into the panel's one ⌘K box rather than each keeping a rail
+     * slot; Reviews and Business Packs become Collections rows in the panel
+     * rather than rail icons — see the artifact's own nav-IA mapping, ticket
+     * #742 comment 2026-09-28T15:33:58Z, restated there because it had lived
+     * only in an artifact before and cost a round trip.
+     */}
+    <SidebarRail
+      ws={ws}
+      workspaceName={workspace.data?.name}
+      isAdmin={isAdmin}
+      canEdit={canEdit}
+      onSignOut={signOut}
+      unreadCount={unread.data ?? 0}
+      onOpenInbox={() => setInboxOpen(true)}
+    />
     <aside
       style={{ width: sidebarWidth }}
       className="flex h-full shrink-0 flex-col border-r border-border-default bg-sidebar"
@@ -239,13 +258,6 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
-        {/* #570 — the 7-item admin/account block used to sit permanently between
-            the Spaces tree and the bottom of the sidebar, squeezing the thing
-            people actually navigate all day. Moved here, behind a single icon in
-            the header row, matching Linear/Notion/Slack's pattern of keeping
-            account-level actions out of the persistent nav — nothing removed,
-            everything one click further. */}
-        <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={signOut} />
         {onCloseMobile && (
           <button
             type="button"
@@ -258,77 +270,53 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         )}
       </div>
 
-      {/* Sticky top nav — stays put while the spaces tree scrolls (issue #34). */}
-      <div className="flex shrink-0 flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
-        <Link
-          href={`/w/${ws}`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <Home className="h-3.5 w-3.5" /> Home
-        </Link>
+      {/* #742 phase 6 — the merged search box: one affordance for both Search
+          and Ask Tyron (previously two separate top-nav rows). Ask Tyron still
+          has its own global ⌘J binding (lib/shortcuts.ts) even without its own
+          row here — this box's click always opens the command palette. */}
+      <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
+          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong"
           onClick={openPalette}
         >
-          <Search className="h-3.5 w-3.5" /> Search
-          {/* #254 — from the shared registry, so it can't drift from the binding.
-              #396 — and rendered for THIS reader's platform: `shortcutKeys` now
-              returns the raw "mod+K" token, so displaying it directly would show
-              a Windows user a shortcut that does not exist. */}
-          <span className="ml-auto text-micro text-muted">{paletteKeys}</span>
-        </button>
-        <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-          onClick={() => setInboxOpen(true)}
-        >
-          <Inbox className="h-3.5 w-3.5" /> Inbox
-          {(unread.data ?? 0) > 0 && (
-            <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-micro font-semibold text-[var(--text-on-dark)]">
-              {(unread.data ?? 0) > 99 ? '99+' : unread.data}
-            </span>
-          )}
-        </button>
-        <Link
-          href={`/w/${ws}/me`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <UserRound className="h-3.5 w-3.5" /> My Work
-        </Link>
-        <Link
-          href={`/w/${ws}/reviews`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <GitPullRequest className="h-3.5 w-3.5" /> Reviews
-        </Link>
-        <Link
-          href={`/w/${ws}/packs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <Package className="h-3.5 w-3.5" /> Business Packs
-        </Link>
-        <Link
-          href={`/w/${ws}/runs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <Activity className="h-3.5 w-3.5" /> Runs
-        </Link>
-        {/* #356 — the discoverability a keyboard shortcut can never give a
-            newcomer. A button, not a Link: Tyron is a panel beside the page, not
-            a place to navigate to, and making it a route would imply leaving
-            whatever you are looking at. */}
-        <button
-          type="button"
-          onClick={openTyron}
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-body text-ink-secondary hover:bg-hover"
-        >
-          <Sparkles className="h-3.5 w-3.5" /> Ask Tyron
-          <span className="ml-auto text-meta text-muted">⌘J</span>
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 text-left">Search or ask Tyron</span>
+          {/* #254 — from the shared registry, so it can't drift from the
+              binding. #396 — rendered for THIS reader's platform. */}
+          <span className="text-micro text-muted">{paletteKeys}</span>
         </button>
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
+        {/* #742 phase 6 — Collections tier: Reviews and Business Packs (both
+            without a count or an add button — this app has no count source for
+            either yet, and inventing one wasn't this ticket's job) plus
+            Personal. Personal's own section keeps its existing behaviour
+            (New doc/view, its own docs+views list) — the artifact's Collections
+            row for Personal shows no count or add button, which the design
+            comment reads as deliberate ("a destination, not a container you
+            add into from the sidebar"), but removing that capability entirely
+            would be a functional regression this ticket isn't scoped to make;
+            it stays, just grouped under this banner instead of its own. */}
+        <p className="mb-0.5 mt-1 px-2 text-meta font-semibold uppercase tracking-wider text-faint">
+          Collections
+        </p>
+        <Link
+          href={`/w/${ws}/reviews`}
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
+        >
+          <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
+        </Link>
+        <Link
+          href={`/w/${ws}/packs`}
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
+        >
+          <Package className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
+        </Link>
         {/* #292 — separate from the shared Spaces tree below: it can't be
             shared, moved into a folder, or deleted like a space can. */}
         <PersonalSection ws={ws} />
@@ -397,6 +385,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                         groups={sortedGroups}
                         onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
                         viewsOnly={viewsOnly}
+                        stickyTop={GROUP_BAND_H}
                       />
                     ))}
                   </div>
@@ -580,12 +569,13 @@ function AccountMenu({
         <button
           type="button"
           title="Settings & account"
-          className="flex h-11 w-11 shrink-0 items-center justify-center border-b border-l border-border-default text-faint hover:bg-hover hover:text-muted"
+          aria-label="Settings & account"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-[17px] w-[17px]" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="start" side="right" className="w-52">
         {isAdmin && (
           <>
             <DropdownMenuItem asChild>
@@ -629,6 +619,161 @@ function AccountMenu({
   );
 }
 
+/**
+ * #742 phase 6 — the rail: StoryOS's own surfaces, fixed at 52px and five
+ * items regardless of how many spaces a workspace has ("neither axis can
+ * crowd the other out" — the artifact's own load-bearing rule, ticket #742
+ * comment 2026-09-28T15:36:13Z). Icon-only with a native `title` tooltip on
+ * every button — the artifact's own cost note is explicit that icon-only nav
+ * is learned wrong without one, so this isn't optional polish.
+ */
+function SidebarRail({
+  ws,
+  workspaceName,
+  isAdmin,
+  canEdit,
+  onSignOut,
+  unreadCount,
+  onOpenInbox,
+}: {
+  ws: string;
+  workspaceName?: string;
+  isAdmin: boolean;
+  canEdit: boolean;
+  onSignOut: () => void | Promise<void>;
+  unreadCount: number;
+  onOpenInbox: () => void;
+}) {
+  const pathname = usePathname();
+  const isHome = pathname === `/w/${ws}`;
+  const isMyWork = pathname === `/w/${ws}/me`;
+  const isRuns = pathname === `/w/${ws}/runs` || pathname?.startsWith(`/w/${ws}/runs/`);
+
+  return (
+    <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border-default bg-hover/40 py-2">
+      <RailWorkspaceButton ws={ws} name={workspaceName} />
+      <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
+      <RailLink href={`/w/${ws}`} title="Home" active={isHome}>
+        <Home className="h-[17px] w-[17px]" />
+      </RailLink>
+      {/* #742 phase 6 — a real count only for Inbox (useUnreadCount already
+          exists). My Work has no count endpoint yet — /my-work paginates —
+          so it gets no badge rather than a guessed one; see Tyron's own
+          "never guess numbers" rule for why a confident wrong count is worse
+          than none. */}
+      <RailButton title="Inbox" onClick={onOpenInbox} badge={unreadCount > 0 ? (unreadCount > 99 ? '99+' : String(unreadCount)) : undefined}>
+        <Inbox className="h-[17px] w-[17px]" />
+      </RailButton>
+      <RailLink href={`/w/${ws}/me`} title="My Work" active={isMyWork}>
+        <UserRound className="h-[17px] w-[17px]" />
+      </RailLink>
+      <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
+      <RailLink href={`/w/${ws}/runs`} title="Runs" active={isRuns}>
+        <Activity className="h-[17px] w-[17px]" />
+      </RailLink>
+      <div className="flex-1" />
+      <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
+    </div>
+  );
+}
+
+function RailLink({
+  href,
+  title,
+  active,
+  children,
+}: {
+  href: string;
+  title: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      title={title}
+      aria-label={title}
+      className={cn(
+        'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink',
+        active && 'bg-active text-ink',
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function RailButton({
+  title,
+  onClick,
+  badge,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  badge?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+    >
+      {children}
+      {badge && (
+        <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** #742 phase 6 — the rail's own workspace avatar/switcher; shares the same
+ * ['workspaces'] query as the panel header's `WorkspaceSwitcher` (react-query
+ * dedupes identical keys, so this is one network call, not two). The panel
+ * header keeps its own full switcher too — the artifact's decision was to
+ * keep BOTH, not have the rail avatar replace it. */
+function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+  const router = useRouter();
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces');
+      if (error) throw error;
+      return data as unknown as Array<{ id: string; name: string }>;
+    },
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          title={name ?? 'Switch workspace'}
+          aria-label="Switch workspace"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90"
+        >
+          {name?.[0]?.toUpperCase() ?? 'S'}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        {(workspaces.data ?? []).map((w) => (
+          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
+            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
+          <Plus className="h-3.5 w-3.5" /> New workspace
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Workspace name is the switcher — lists every workspace plus creation (the old "Switch workspace" link only ever led back to the first one). */
 function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: string }) {
   const router = useRouter();
@@ -648,7 +793,7 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
           <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-meta font-bold text-[var(--text-on-dark)]">
             {currentName?.[0]?.toUpperCase() ?? 'S'}
           </div>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -657,7 +802,7 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
       <DropdownMenuContent align="start" className="w-52">
         {(workspaces.data ?? []).map((w) => (
           <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 truncate">{w.name}</span>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
             {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
           </DropdownMenuItem>
         ))}
@@ -727,9 +872,9 @@ function HiddenRow({
 }) {
   return (
     <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-body text-muted">
-      <span className="flex min-w-0 items-center gap-2 truncate">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
         <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
-        <span className="truncate">{name}</span>
+        <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
       <button
         onClick={onUnhide}
@@ -780,12 +925,27 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
   return (
     <div
       ref={setNodeRef}
-      className={cn('flex flex-col gap-1.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
+      // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
+      // rows deep you still read which group you're in" is the artifact's own
+      // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
+      // is the exact height a SpaceSection's own sticky header offsets against.
+      style={{ height: GROUP_BAND_H }}
+      className={cn(
+        'sticky top-0 z-30 flex flex-col justify-center gap-1.5 rounded bg-sidebar',
+        isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
+      )}
     >
       {children}
     </div>
   );
 }
+
+/** #742 phase 6 — the group band's fixed height, shared by `GroupDropZone`
+ * (which sticks at top:0) and every `SpaceSection` header inside a group
+ * (which stick at top:GROUP_BAND_H, right below it) — a magic-number
+ * mismatch between the two would either leave a gap or overlap. */
+const GROUP_BAND_H = 26;
 
 /** #742 phase 5 — the ungrouped list's own drop target, so dragging a space
  *  out of every group has somewhere to land even when the list is currently
@@ -816,6 +976,7 @@ function SpaceSection({
   groups,
   onMoveToGroup,
   viewsOnly,
+  stickyTop = 0,
 }: {
   ws: string;
   space: Space;
@@ -827,6 +988,10 @@ function SpaceSection({
   onMoveToGroup?: (groupId: string | null) => void;
   /** #742 finding 05 — hide every database row, keep their views. */
   viewsOnly?: boolean;
+  /** #742 phase 6 — where this space's own sticky header pins: 0 for an
+   * ungrouped space (nothing sticks above it), `GROUP_BAND_H` for a space
+   * inside a group (stacks right below that group's own sticky band). */
+  stickyTop?: number;
 }) {
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
@@ -1378,7 +1543,14 @@ function SpaceSection({
         // from the space-list's own gap-2 (added between siblings only, so
         // it doesn't also pad out the void above the FIRST space). This stays
         // small and close to its label rather than double-counting that gap.
-        className="group flex cursor-grab touch-none items-center justify-between px-2 pb-0.5 pt-1 active:cursor-grabbing"
+        //
+        // #742 phase 6 — sticky and opaque (bg-sidebar), pinned right below
+        // this space's own group band (stickyTop is 0 or GROUP_BAND_H — see
+        // the SpaceSection prop doc) so at real scale (52 nodes) you still
+        // read which space you're in. z-20, under the group band's z-30 so
+        // the two stack instead of one painting over the other.
+        style={{ top: stickyTop }}
+        className="group sticky z-20 flex h-6 cursor-grab touch-none items-center justify-between bg-sidebar px-2 active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
@@ -1430,7 +1602,7 @@ function SpaceSection({
                    a deliberate choice. */
                 <LetterMark name={space.name} color={space.color} />
               )}
-              <span className="truncate">{space.name}</span>
+              <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
               {collapsed && databases.length > 0 && (
                 <span className="ml-1 text-faint/70">{databases.length}</span>
               )}
@@ -1822,7 +1994,7 @@ function DocumentRow({
     >
       <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
         <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
-        <span className="truncate">{doc.title || 'Untitled'}</span>
+        <span className="overflow-hidden whitespace-nowrap">{doc.title || 'Untitled'}</span>
       </Link>
       {/*
         #389 — the document row moves onto the shared menu too.
@@ -2069,7 +2241,7 @@ function FolderSection({
           />
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
-            <span className="truncate">{folder.name}</span>
+            <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
           </span>
         </button>
         {contentCount > 0 && (
@@ -2463,7 +2635,7 @@ function DatabaseRow({
             color={db.color}
             fallback={<Database className="h-3.5 w-3.5 text-muted" />}
           />
-          <span className="truncate">{db.name}</span>
+          <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
         </Link>
         </>
       )}
@@ -2719,7 +2891,7 @@ function GroupHeaderRow({
       {renaming ? (
         <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
       ) : (
-        <span className="min-w-0 flex-1 truncate text-meta font-semibold uppercase tracking-wider text-muted">
+        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
           {group.name}
         </span>
       )}
