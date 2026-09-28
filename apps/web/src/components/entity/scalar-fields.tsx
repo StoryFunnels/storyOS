@@ -87,7 +87,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
   // already renders created_at/updated_at as datetimes and created_by as a person.
   if (AUDIT_TYPES.has(field.type)) {
     return value === undefined || value === null ? (
-      <span className="text-[13px] text-faint">—</span>
+      <span className="text-body text-faint">—</span>
     ) : (
       <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
     );
@@ -105,7 +105,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
           // each other.
           <span
             key={chip.id}
-            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink hover:border-border-strong"
           >
             <Link
               href={recordHref(ws, field.relation!.target_database_id, chip)}
@@ -138,7 +138,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         ))}
         {!readOnly && (
           <button
-            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
             onClick={() => setEditing(true)}
           >
             <Plus className="h-3 w-3" /> {chips.length === 0 && 'Add'}
@@ -166,7 +166,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
           <span
             key={target.id}
             className={cn(
-              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px]',
+              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-label',
               target.missing
                 ? 'border-error/40 bg-error/5 text-error'
                 : 'border-border-default bg-hover text-ink',
@@ -192,11 +192,11 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         ))}
         {/* #669 — "Empty" is the only text telling you a read-only relation has
             nothing in it; an em dash would be decorative, a WORD is not. */}
-        {targets.length === 0 && readOnly && <span className="text-[13px] text-muted">Empty</span>}
+        {targets.length === 0 && readOnly && <span className="text-body text-muted">Empty</span>}
         {!readOnly && (
           <button
             type="button"
-            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
             onClick={() => setEditing(true)}
           >
             <Plus className="h-3 w-3" /> {targets.length === 0 && 'Add'}
@@ -334,7 +334,7 @@ function DatabasePicker({
           autoFocus
           value={query}
           placeholder="Search databases…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="max-h-60 overflow-y-auto">
@@ -344,7 +344,7 @@ function DatabasePicker({
               <button
                 key={option.id}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
                 onClick={() => toggle(option.id)}
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -356,7 +356,7 @@ function DatabasePicker({
             );
           })}
           {options.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-muted">No databases</p>
+            <p className="px-2 py-1.5 text-label text-muted">No databases</p>
           )}
         </div>
       </PopoverContent>
@@ -388,7 +388,7 @@ function ClampedValue({ children }: { children: ReactNode }) {
       {(overflows || expanded) && (
         <button
           type="button"
-          className="mt-0.5 text-[11px] text-muted hover:text-ink"
+          className="mt-0.5 text-meta text-muted hover:text-ink"
           onClick={(e) => {
             e.stopPropagation();
             setExpanded((v) => !v);
@@ -413,7 +413,7 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
   const fill = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[13px] tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
+      <span className="text-body tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
       <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
         <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${fill}%` }} />
       </div>
@@ -427,7 +427,7 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
  * (h-3.5), same gap, same label style. Single source so the three placements
  * can't drift apart. The #176 type icon lives here.
  */
-const FIELD_LABEL_CLS = 'text-[12px] font-medium text-muted';
+const FIELD_LABEL_CLS = 'text-label font-medium text-muted';
 
 function FieldTypeGlyph({ type, className }: { type: string; className?: string }) {
   const Icon = fieldTypeIcon(type);

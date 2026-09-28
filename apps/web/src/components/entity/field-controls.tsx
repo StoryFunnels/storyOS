@@ -82,7 +82,7 @@ export function TopStripAdd({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-default px-2 py-1.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-default px-2 py-1.5 text-label text-muted hover:border-border-strong hover:text-ink"
           title="Pin a field to the top strip"
         >
           <Pin className="h-3 w-3" /> {empty ? 'Pin a field' : 'Pin'}
@@ -90,7 +90,7 @@ export function TopStripAdd({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
         {candidates.length === 0 ? (
-          <p className="px-2 py-1.5 text-[12px] text-faint">All fields already pinned.</p>
+          <p className="px-2 py-1.5 text-label text-faint">All fields already pinned.</p>
         ) : (
           candidates.map((f) => (
             <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>

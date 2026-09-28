@@ -111,7 +111,7 @@ function EditorInner({
   return (
     <div className="flex flex-col gap-2">
       {conflict && (
-        <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-warning bg-accent-soft px-3 py-2 text-[13px] text-ink">
+        <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-warning bg-accent-soft px-3 py-2 text-body text-ink">
           <span>This description was edited elsewhere. Your latest change was not saved.</span>
           <span className="flex gap-2">
             <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
@@ -176,7 +176,7 @@ function EditorInner({
           </BlockNoteView>
         </MentionScope>
       </div>
-      <p className="text-right text-[11px] text-faint">{saving ? 'Saving…' : 'Saved'}</p>
+      <p className="text-right text-meta text-faint">{saving ? 'Saving…' : 'Saved'}</p>
     </div>
   );
 }
