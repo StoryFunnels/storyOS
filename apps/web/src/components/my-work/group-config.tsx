@@ -165,7 +165,7 @@ export function MyWorkGroupToolbar({
   const currentVisible = new Set(visibleFields(fields, config).map((f) => f.id));
 
   return (
-    <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[12px]">
+    <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-label">
       {/* Group by */}
       <div className="flex items-center gap-1 rounded px-1.5 py-1 text-muted">
         <Group className="h-3.5 w-3.5" />
@@ -196,7 +196,7 @@ export function MyWorkGroupToolbar({
             return (
               <button
                 key={f.id}
-                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
                 onClick={() => {
                   const base = fields.filter((x) => currentVisible.has(x.id)).map((x) => x.id);
                   const nextVisible = on ? base.filter((id) => id !== f.id) : [...base, f.id];
@@ -243,7 +243,7 @@ export function MyWorkGroupToolbar({
 /** A sub-group header inside a database group (label + count + optional colour dot). */
 export function GroupHeader({ label, color, count }: { label: string; color: string | null; count: number }) {
   return (
-    <div className="flex items-center gap-1.5 border-b border-border-default bg-hover/40 px-4 py-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">
+    <div className="flex items-center gap-1.5 border-b border-border-default bg-hover/40 px-4 py-1.5 text-meta font-medium uppercase tracking-wider text-faint">
       {color && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />}
       <span className={cn(!color && 'text-faint')}>{label}</span>
       <span>{count}</span>

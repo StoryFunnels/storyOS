@@ -169,7 +169,7 @@ export function WorkspaceBuild({
   if (build.isPending || created.length > 0 || build.isError) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-        <p className="flex items-center gap-2 text-[13px] text-ink">
+        <p className="flex items-center gap-2 text-body text-ink">
           {build.isPending ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-muted" aria-hidden />
@@ -185,7 +185,7 @@ export function WorkspaceBuild({
         {created.length > 0 && (
           <ul className="mt-3 flex flex-col gap-1.5" aria-label="What exists so far">
             {created.map((d) => (
-              <li key={d.id} className="flex items-center gap-2 text-[13px] text-muted">
+              <li key={d.id} className="flex items-center gap-2 text-body text-muted">
                 <Check className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
                 <span className="truncate">{d.name}</span>
               </li>
@@ -193,13 +193,13 @@ export function WorkspaceBuild({
           </ul>
         )}
         {build.isPending && (
-          <p className="mt-3 text-[12px] text-faint">
+          <p className="mt-3 text-label text-faint">
             This takes half a minute or so. You can correct anything afterwards just by asking.
           </p>
         )}
         {build.isError && (
           <>
-            <p className="mt-3 text-[12px] text-error">
+            <p className="mt-3 text-label text-error">
               {/*
                 #357's stop-and-report: a part-way failure leaves a COHERENT
                 workspace, and the tick-list above is exactly what did get made —
@@ -211,7 +211,7 @@ export function WorkspaceBuild({
             <button
               type="button"
               onClick={() => build.reset()}
-              className="mt-2 text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+              className="mt-2 text-label text-muted underline-offset-2 hover:text-ink hover:underline"
             >
               Try again
             </button>
@@ -223,8 +223,8 @@ export function WorkspaceBuild({
 
   return (
     <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-      <p className="text-[13px] font-medium text-ink">Tell me what you do.</p>
-      <p className="mt-1 text-[12px] text-muted">
+      <p className="text-body font-medium text-ink">Tell me what you do.</p>
+      <p className="mt-1 text-label text-muted">
         One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add the views worth having.
       </p>
       <Textarea
@@ -246,7 +246,7 @@ export function WorkspaceBuild({
         type="button"
         disabled={!description.trim()}
         onClick={() => build.mutate(description.trim())}
-        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
       >
         Build my workspace
       </button>

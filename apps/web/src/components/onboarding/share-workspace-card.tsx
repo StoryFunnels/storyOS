@@ -81,8 +81,8 @@ export function ShareWorkspaceCard({ ws, onDone }: { ws: string; onDone: () => v
 
   return (
     <div className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-      <p className="text-[13px] font-medium text-ink">Share this with your team.</p>
-      <p className="mt-1 text-[12px] text-muted">
+      <p className="text-body font-medium text-ink">Share this with your team.</p>
+      <p className="mt-1 text-label text-muted">
         Invite the people who&rsquo;ll actually use this. You can always do this later from Settings →
         Members.
       </p>
@@ -113,12 +113,12 @@ export function ShareWorkspaceCard({ ws, onDone }: { ws: string; onDone: () => v
                 </button>
               )}
               {result?.status === 'sent' && (
-                <span className="flex shrink-0 items-center gap-1 text-[12px] text-success">
+                <span className="flex shrink-0 items-center gap-1 text-label text-success">
                   <Check className="h-3.5 w-3.5" /> Sent
                 </span>
               )}
               {result?.status === 'error' && (
-                <span className="shrink-0 text-[12px] text-error">{result.error}</span>
+                <span className="shrink-0 text-label text-error">{result.error}</span>
               )}
             </div>
           );
@@ -129,7 +129,7 @@ export function ShareWorkspaceCard({ ws, onDone }: { ws: string; onDone: () => v
         type="button"
         disabled={sending}
         onClick={() => setRows((prev) => [...prev, ''])}
-        className="mt-2 flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+        className="mt-2 flex items-center gap-1 text-label text-muted hover:text-ink"
       >
         <Plus className="h-3.5 w-3.5" /> Add another
       </button>
@@ -137,7 +137,7 @@ export function ShareWorkspaceCard({ ws, onDone }: { ws: string; onDone: () => v
       {sentEntries.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5" aria-label="Invite links">
           {sentEntries.map(([email, r]) => (
-            <li key={email} className="flex items-center gap-2 text-[12px] text-muted">
+            <li key={email} className="flex items-center gap-2 text-label text-muted">
               <span className="truncate">{email}</span>
               <button
                 type="button"
@@ -163,7 +163,7 @@ export function ShareWorkspaceCard({ ws, onDone }: { ws: string; onDone: () => v
         >
           {sending ? 'Sending…' : 'Send invites'}
         </Button>
-        <button type="button" onClick={onDone} className="text-[12px] text-muted hover:text-ink">
+        <button type="button" onClick={onDone} className="text-label text-muted hover:text-ink">
           {sentEntries.length > 0 ? 'Done' : 'Skip for now'}
         </button>
       </div>
