@@ -94,7 +94,14 @@ export class DatabasesController {
     @Body() body: DeleteDatabaseDto,
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'creator');
-    return this.databases.remove(req.membership, databaseId, body.confirm, body.sever_relations);
+    return this.databases.remove(
+      req.membership,
+      databaseId,
+      body.confirm,
+      body.sever_relations,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
   }
 
   // #37 — admin-only: the bug this ticket fixes is literally "an admin

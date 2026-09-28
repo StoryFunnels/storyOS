@@ -14,6 +14,9 @@ import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import { presentFieldConfig } from '../common/webhook-headers';
 import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
+import type { ChangeSource } from '../db/schema';
+import type { PendingApprovalResult } from '../records/records.service';
 
 /** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -104,6 +107,7 @@ export class DatabasesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly actionGates: ActionGatesService,
   ) {}
 
   /**
@@ -567,7 +571,9 @@ export class DatabasesService {
     databaseId: string,
     confirm: string,
     severRelations = false,
-  ) {
+    actorId: string,
+    source: ChangeSource,
+  ): Promise<{ deleted: true; severed_relations: number } | PendingApprovalResult> {
     const database = await this.get(membership, databaseId);
     if (confirm !== database.name) {
       throw new ConflictException(`Confirmation mismatch: type the database name "${database.name}"`);
@@ -582,6 +588,60 @@ export class DatabasesService {
       );
     }
 
+    // #542 — deleting the DATABASE cascades a delete onto every one of its
+    // live records (softDeleteDatabaseCascade below), which used to bypass
+    // any declared `delete_records` gate entirely: that check previously
+    // lived only inside RecordsService.softDelete/batchDelete, and this path
+    // never called either. Held for the WHOLE database (never partial),
+    // exactly like a record batch-delete — see ActionGatesService's own doc
+    // on `scope: 'database_cascade'` for what happens on approval.
+    const liveRecordIds = (
+      await this.db.query.records.findMany({
+        where: and(eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+        columns: { id: true },
+      })
+    ).map((r) => r.id);
+    if (liveRecordIds.length > 0) {
+      const held = await this.actionGates.check({
+        workspaceId: membership.workspaceId,
+        databaseId,
+        actionClass: DELETE_RECORDS_ACTION_CLASS,
+        source,
+        requesterActorId: actorId,
+        recordIds: liveRecordIds,
+        previewText: `Delete database "${database.name}" and its ${liveRecordIds.length} record(s)`,
+        scope: 'database_cascade',
+      });
+      if (held.held) {
+        return {
+          pending_approval: true,
+          approval_id: held.approvalId,
+          message: 'This database delete is held for approval by a workspace-declared gate — it has not happened yet.',
+        };
+      }
+    }
+
+    return this.applyRemove(databaseId, touching);
+  }
+
+  /**
+   * #542 — the actual database-delete transaction, extracted so both the
+   * ungated path above and ApprovalsService's approved-gate executor can
+   * reach it. Public (not private) so the executor — which only has the
+   * approved `database_id`, no request context — can call it directly by
+   * re-fetching `touching` fresh rather than trusting a stale snapshot from
+   * whenever the original request was made. Safe to unconditionally sever
+   * any relations found: `remove()` above already refused the request
+   * unless `severRelations` was true or none existed, before the gate was
+   * ever checked, so reaching here at all means that's settled.
+   */
+  async applyRemove(
+    databaseId: string,
+    touching?: Array<{ id: string; fieldAId: string; fieldBId: string }>,
+  ): Promise<{ deleted: true; severed_relations: number }> {
+    touching ??= await this.db.query.relations.findMany({
+      where: or(eq(relations.databaseAId, databaseId), eq(relations.databaseBId, databaseId)),
+    });
     await this.db.transaction(async (tx) => {
       if (touching.length > 0) {
         // Remove the paired fields living on OTHER databases (this db's own

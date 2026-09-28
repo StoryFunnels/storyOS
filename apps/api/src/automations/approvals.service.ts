@@ -8,6 +8,7 @@ import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
+import { DatabasesService } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import type { AgentPrincipal } from '../agents/agent-principal';
 import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
@@ -92,11 +93,11 @@ export interface TyronToolCallSnapshot {
 
 /**
  * #542 Phase 2 — a workspace-declared action-class gate's held action, the
- * fifth producer. Unlike the other four, this one is never approved by
- * enqueueing a JobRunnerService executor: the actual delete is applied
- * directly below in `resolve()`, since `ApprovalsService` already has a safe
- * dependency on `RecordsService` (via AutomationsModule's existing import of
- * RecordsModule) — no new executor plumbing needed for a single call.
+ * fifth producer. Approved via a registered JobRunnerService executor (see
+ * `onModuleInit` below), same as the other producers — `ApprovalsService`
+ * already has a safe dependency on `RecordsService` and (as of #542's
+ * cascade-delete-bypass fix) `DatabasesService` too, both via
+ * AutomationsModule's existing imports of RecordsModule/DatabasesModule.
  *
  * `record_ids` is always an array (length 1 for a single-record delete) so
  * approve/reject/preview code has one shape regardless of which entry point
@@ -108,6 +109,12 @@ export interface ActionClassGateSnapshot {
   database_id: string;
   record_ids: string[];
   requester_source: string;
+  /** #542 — absent (the default) means an ordinary record delete/batch-delete,
+   * applied via RecordsService.batchDelete on approval. `'database_cascade'`
+   * means the WHOLE database (records, fields, views) was held together —
+   * `softDeleteDatabaseCascade` bypassed the gate entirely before this fix —
+   * and is applied via DatabasesService.applyRemove on approval instead. */
+  scope?: 'database_cascade';
 }
 
 /** The FROZEN payload a gated action carries between "queued for approval"
@@ -188,6 +195,10 @@ export class ApprovalsService implements OnModuleInit {
     // dependency-free ActionGatesService that RecordsService itself calls,
     // which is what keeps that direction from becoming a cycle.
     private readonly records: RecordsService,
+    // #542 — same reasoning as `records` above: AutomationsModule already
+    // imports DatabasesModule one-way, so this is a free edge, not a new
+    // cycle. Applies an approved 'database_cascade' gate (see onModuleInit).
+    private readonly databases: DatabasesService,
   ) {}
 
   /** Registers the executor JobRunnerService.enqueue() looks up by `kind`
@@ -196,6 +207,14 @@ export class ApprovalsService implements OnModuleInit {
   onModuleInit(): void {
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      // #542 — a database-cascade delete was held whole (records, fields,
+      // views together); applying it is DatabasesService's own cascade, not
+      // a plain record batch-delete, or the database/fields/views would
+      // never actually get marked deleted once approved.
+      if (action.scope === 'database_cascade') {
+        await this.databases.applyRemove(action.database_id);
+        return;
+      }
       // Preserve the TRUE original source (agent/automation/mcp) rather than
       // guessing — the whole point of #357's ChangeSource work is that this
       // stays attributable through an approval detour, not collapsed to one

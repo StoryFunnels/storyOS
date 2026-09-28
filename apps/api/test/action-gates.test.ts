@@ -244,3 +244,143 @@ describe('#542 Phase 2 — action-class gate: delete_records', () => {
     }
   });
 });
+
+/**
+ * #542 — `softDeleteDatabaseCascade()` (DatabasesService.remove,
+ * SpacesService.remove) bypassed the gate above entirely: it never called
+ * RecordsService.softDelete/batchDelete, so a database-scoped `delete_records`
+ * policy was decorative against "delete the database instead of its records".
+ * Each test below gets its own scratch space/database — these tests actually
+ * delete them, unlike the record-level tests above which share `dbId`.
+ */
+describe('#542 — the cascade-delete bypass: deleting the DATABASE (or its SPACE) instead of its records', () => {
+  async function scratchDatabase(name: string): Promise<{ spaceId: string; dbId: string }> {
+    const spaceId = (await inject('POST', `/workspaces/${wsId}/spaces`, { name: `Scratch ${randomUUID()}` })).json().id;
+    const scratchDbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name })).json().id;
+    return { spaceId, dbId: scratchDbId };
+  }
+
+  async function databaseStillExists(databaseId: string): Promise<boolean> {
+    const res = await inject('GET', `/workspaces/${wsId}/databases/${databaseId}`);
+    return res.statusCode === 200;
+  }
+
+  it('an agent-sourced DATABASE delete is held for approval — the whole database, not just performed then notified', async () => {
+    const { dbId: scratchDbId } = await scratchDatabase('Gated Database');
+    const policy = await createDeletePolicy({ databaseId: scratchDbId });
+    const policyId = policy.json().id as string;
+    try {
+      const recordId = (
+        await inject('POST', `/workspaces/${wsId}/databases/${scratchDbId}/records`, { values: { name: 'Should survive' } })
+      ).json().id;
+      const token = await agentToken();
+      const res = await inject('DELETE', `/workspaces/${wsId}/databases/${scratchDbId}`, { confirm: 'Gated Database' }, token);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().pending_approval).toBe(true);
+      expect(await databaseStillExists(scratchDbId)).toBe(true); // NOT deleted — held
+      const recordRes = await inject('GET', `/workspaces/${wsId}/databases/${scratchDbId}/records/${recordId}`);
+      expect(recordRes.statusCode).toBe(200); // its records aren't gone either
+
+      const approval = await db.query.approvals.findFirst({
+        where: eq(approvals.workspaceId, wsId),
+        orderBy: (a, { desc }) => [desc(a.createdAt)],
+      });
+      const snapshot = approval!.actionSnapshot as { action: { scope?: string; database_id: string } };
+      expect(snapshot.action.scope).toBe('database_cascade');
+      expect(snapshot.action.database_id).toBe(scratchDbId);
+    } finally {
+      await inject('DELETE', `/workspaces/${wsId}/action-gates/${policyId}`);
+    }
+  });
+
+  it('approving a held DATABASE delete actually deletes the database and its records', async () => {
+    const { dbId: scratchDbId } = await scratchDatabase('Approve This Database');
+    const recordId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${scratchDbId}/records`, { values: { name: 'Goes with it' } })
+    ).json().id;
+    const policy = await createDeletePolicy({ databaseId: scratchDbId });
+    const policyId = policy.json().id as string;
+    try {
+      const token = await agentToken();
+      const held = await inject('DELETE', `/workspaces/${wsId}/databases/${scratchDbId}`, { confirm: 'Approve This Database' }, token);
+      const approvalId = held.json().approval_id as string;
+      expect(approvalId).toBeTruthy();
+
+      const approveRes = await inject('POST', `/workspaces/${wsId}/approvals/${approvalId}/approve`);
+      expect(approveRes.statusCode).toBeLessThan(300);
+      await jobs.tick();
+
+      expect(await databaseStillExists(scratchDbId)).toBe(false);
+      const recordRes = await inject('GET', `/workspaces/${wsId}/databases/${scratchDbId}/records/${recordId}`);
+      expect(recordRes.statusCode).toBe(404); // its record is gone too, not left dangling under a gone database
+    } finally {
+      await inject('DELETE', `/workspaces/${wsId}/action-gates/${policyId}`);
+    }
+  });
+
+  it('rejecting a held DATABASE delete leaves the database alone', async () => {
+    const { dbId: scratchDbId } = await scratchDatabase('Reject This Database');
+    await inject('POST', `/workspaces/${wsId}/databases/${scratchDbId}/records`, { values: { name: 'Stays put' } });
+    const policy = await createDeletePolicy({ databaseId: scratchDbId });
+    const policyId = policy.json().id as string;
+    try {
+      const token = await agentToken();
+      const held = await inject('DELETE', `/workspaces/${wsId}/databases/${scratchDbId}`, { confirm: 'Reject This Database' }, token);
+      const approvalId = held.json().approval_id as string;
+      expect(approvalId).toBeTruthy();
+
+      const rejectRes = await inject('POST', `/workspaces/${wsId}/approvals/${approvalId}/reject`, { reason: 'not now' });
+      expect(rejectRes.statusCode).toBeLessThan(300);
+      await jobs.tick();
+
+      expect(await databaseStillExists(scratchDbId)).toBe(true);
+    } finally {
+      await inject('DELETE', `/workspaces/${wsId}/action-gates/${policyId}`);
+    }
+  });
+
+  it('a human at the keyboard deleting a database is never held, even with an active gate', async () => {
+    const { dbId: scratchDbId } = await scratchDatabase('Human Deletes Database');
+    const policy = await createDeletePolicy({ databaseId: scratchDbId });
+    try {
+      const res = await inject('DELETE', `/workspaces/${wsId}/databases/${scratchDbId}`, { confirm: 'Human Deletes Database' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ deleted: true, severed_relations: 0 });
+    } finally {
+      await inject('DELETE', `/workspaces/${wsId}/action-gates/${policy.json().id}`).catch(() => undefined);
+    }
+  });
+
+  it('ADVERSARIAL: an agent-sourced SPACE delete is refused whole when ANY contained database is gated — never a partial delete', async () => {
+    const spaceId = (await inject('POST', `/workspaces/${wsId}/spaces`, { name: `SpaceScratch ${randomUUID()}` })).json().id;
+    const gatedDbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Gated' })).json().id;
+    const ungatedDbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Ungated' })).json().id;
+    const policy = await createDeletePolicy({ databaseId: gatedDbId });
+    const policyId = policy.json().id as string;
+    try {
+      const spaceName = (await inject('GET', `/workspaces/${wsId}/spaces`)).json().find((s: { id: string }) => s.id === spaceId).name;
+      const token = await agentToken();
+      const res = await inject('DELETE', `/workspaces/${wsId}/spaces/${spaceId}`, { confirm: spaceName }, token);
+
+      expect(res.statusCode).toBe(422);
+      // NEITHER database was deleted — not even the ungated one. A partial
+      // delete (ungated database gone, gated one refused) would itself be a
+      // silent, surprising side effect of a call that returned an error.
+      expect(await databaseStillExists(gatedDbId)).toBe(true);
+      expect(await databaseStillExists(ungatedDbId)).toBe(true);
+    } finally {
+      await inject('DELETE', `/workspaces/${wsId}/action-gates/${policyId}`);
+    }
+  });
+
+  it('MUST KEEP WORKING: an ungated space delete proceeds exactly as before', async () => {
+    const spaceId = (await inject('POST', `/workspaces/${wsId}/spaces`, { name: `PlainSpace ${randomUUID()}` })).json().id;
+    const plainDbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Plain' })).json().id;
+    const spaceName = (await inject('GET', `/workspaces/${wsId}/spaces`)).json().find((s: { id: string }) => s.id === spaceId).name;
+    const token = await agentToken();
+    const res = await inject('DELETE', `/workspaces/${wsId}/spaces/${spaceId}`, { confirm: spaceName }, token);
+    expect(res.statusCode).toBeLessThan(300);
+    expect(await databaseStillExists(plainDbId)).toBe(false);
+  });
+});

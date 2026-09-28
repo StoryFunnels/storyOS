@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ActionGatesModule } from '../action-gates/action-gates.module';
 import { BillingModule } from '../billing/billing.module';
 import { FoldersController } from '../spaces/folders.controller';
 import { FoldersService } from '../spaces/folders.service';
@@ -18,7 +19,9 @@ import {
 import { WorkspacesService } from './workspaces.service';
 
 @Module({
-  imports: [BillingModule],
+  // #542 — ActionGatesModule imports nothing itself, so this and
+  // DatabasesModule can both import it directly with no cycle risk.
+  imports: [BillingModule, ActionGatesModule],
   controllers: [
     WorkspacesController,
     WorkspaceController,
