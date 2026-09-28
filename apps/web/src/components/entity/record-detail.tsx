@@ -413,6 +413,8 @@ export function RecordDetail({
             db={db}
             dbName={database.data?.name ?? ''}
             rec={recordId}
+            recTitle={record.data?.title}
+            recNumber={record.data?.number}
             fields={allFields}
             readOnly={readOnly}
             canCreate={schemaEditable}
@@ -517,7 +519,7 @@ export function RecordDetail({
             )}
             {/* One-click share (#197): always visible next to the title, copies the
                 same record URL as the … menu's Copy link. */}
-            <CopyLinkButton />
+            <CopyLinkButton ws={ws} db={db} rec={record.data ?? { id: recordId }} />
           </div>
 
           {/* Top strip — a few pinned essentials; shown (with an add affordance) so it's discoverable */}

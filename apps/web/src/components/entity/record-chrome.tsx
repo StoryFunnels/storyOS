@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Copy, CopyPlus, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -36,11 +37,27 @@ import { useSetFieldConfig } from './field-controls';
 export const HEADER_ICON_BTN =
   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-hover hover:text-ink';
 
-/** Copy the current record's URL — the single source of truth reused by the
- * always-visible header chain button and the "Copy link" menu item (#197). */
-async function copyRecordLink() {
+/** A record identity as `recordHref` needs it — the fields `CopyLinkButton`/
+ *  `RecordActions` already have in scope, never a second fetch. */
+type RecordIdentity = { id: string; title?: string | null; number?: number | null };
+
+/**
+ * Copy the current record's URL — the single source of truth reused by the
+ * always-visible header chain button and the "Copy link" menu item (#197).
+ *
+ * #772 — this used to be `navigator.clipboard.writeText(window.location.href)`,
+ * which copies the ADDRESS BAR rather than a link built from the record. That
+ * is only correct when the address bar already names the record, and it does
+ * not always: split-screen-host.tsx renders a record in a pane beside a LIST
+ * (a database view, My Work, search results) without ever pushing a record
+ * URL, so copying from a record opened that way copied the LIST's link
+ * instead. Building the URL from `recordHref` — the same pretty-URL helper
+ * every other record link in the app already uses (MN-087) — is correct
+ * regardless of which URL happens to be in the address bar.
+ */
+async function copyRecordLink(ws: string, db: string, rec: RecordIdentity) {
   try {
-    await navigator.clipboard.writeText(window.location.href);
+    await navigator.clipboard.writeText(`${window.location.origin}${recordHref(ws, db, rec)}`);
     toast.success('Link copied');
   } catch {
     toast.error('Could not copy link');
@@ -49,13 +66,13 @@ async function copyRecordLink() {
 
 /** Always-visible copy-link (chain) button sitting by the record title (#197) —
  * one click puts the shareable record URL on the clipboard. */
-export function CopyLinkButton() {
+export function CopyLinkButton({ ws, db, rec }: { ws: string; db: string; rec: RecordIdentity }) {
   return (
     <button
       type="button"
       title="Copy link"
       aria-label="Copy link to this item"
-      onClick={() => void copyRecordLink()}
+      onClick={() => void copyRecordLink(ws, db, rec)}
       className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
     >
       <Link2 className="h-4 w-4" />
@@ -139,6 +156,8 @@ export function RecordActions({
   db,
   dbName,
   rec,
+  recTitle,
+  recNumber,
   fields,
   readOnly,
   canCreate,
@@ -148,6 +167,10 @@ export function RecordActions({
   db: string;
   dbName: string;
   rec: string;
+  /** #772 — for the pretty record URL (recordHref); undefined only while the
+   *  record is still loading, in which case the id alone still resolves. */
+  recTitle?: string | null;
+  recNumber?: number | null;
   fields: Field[];
   readOnly: boolean;
   canCreate: boolean;
@@ -206,7 +229,7 @@ export function RecordActions({
         <DropdownMenuContent align="end">
           {/* This record — everyday, non-destructive actions (#197). */}
           <DropdownMenuLabel>This item</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => void copyRecordLink()}>
+          <DropdownMenuItem onSelect={() => void copyRecordLink(ws, db, { id: rec, title: recTitle, number: recNumber })}>
             <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
           </DropdownMenuItem>
           {canCreate && (
