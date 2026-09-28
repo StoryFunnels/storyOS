@@ -287,8 +287,35 @@ monorepo (`/Users/ievgen/Documents/storyos-website`). Do not go looking for
 
 ## Merging
 
-Open the PR, wait for green, then `gh pr merge --squash --auto` — the merge
-queue handles rebase + re-test + landing. Don't hand-drive rebase trains.
+**Builders do not merge.** Open the PR, wait for green, record on the ticket
+what you did and what you did **not** verify, set `agents = Vera`, and move on.
+Vera verifies against the ticket's acceptance criteria — in a browser where the
+criterion describes something a person sees — and then merges, sends it back,
+or escalates. **Nothing reaches main without her.** Don't hand-drive rebase
+trains; the merge queue still does rebase + re-test + landing when she merges.
+
+**This section said the opposite until 2026-09-28, and it was followed.** It
+read: *"Open the PR, wait for green, then `gh pr merge --squash --auto`."* That
+is the flow the gate **abolished** on 2026-08-30, after auto-merge cost
+seventeen documentation PRs merged in one evening with nothing checking them,
+#251 merged having shipped half its written scope with the dropped half filed
+nowhere, and **two permission leaks reaching main** — one of which let a guest
+export record titles out of a database that returned 404 to her own session.
+The text outlived the mechanism by a month, and on 2026-09-28 four PRs merged
+unchecked because a session read this file and did what it said. So: `--auto`
+is not the normal path, and re-adding it here would re-abolish the gate by
+accident.
+
+**The gate's own home is `bin/agent-house-rules.md`, which is NOT in this
+repository** — it sits outside every worktree. That is why this section exists
+at all: a rule you cannot reach from the checkout cannot govern work done in
+the checkout. If the two ever disagree, the house rules win and this section is
+the stale one.
+
+**An exception is Ievgen's to give, never a builder's to take.** He may say a
+specific PR is yours to land — he did for #905 on 2026-09-28 — and that is a
+visible override on the record. "It was green and I was confident" is not one,
+and neither is a peer agent saying to go ahead.
 
 ## When a check is wrong about what it checks
 
