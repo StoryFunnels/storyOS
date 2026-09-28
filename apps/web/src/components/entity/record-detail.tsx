@@ -373,7 +373,7 @@ export function RecordDetail({
             space route yet). Route-back is preserved by the Close control. */}
         <nav
           aria-label="Breadcrumb"
-          className="flex min-w-0 items-center gap-0.5 text-[13px] text-muted"
+          className="flex min-w-0 items-center gap-0.5 text-body text-muted"
         >
           {spaceName && (
             <>
@@ -509,7 +509,7 @@ export function RecordDetail({
             />
             {titleComputed && (
               <span
-                className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] text-muted"
+                className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-meta text-muted"
                 title="This name is computed from a template — edit the template in the Name field’s settings."
               >
                 Computed
@@ -607,7 +607,7 @@ export function RecordDetail({
             </SortableContext>
             <DragPreview>
               {propDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink shadow-[var(--shadow-lifted)]">
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink shadow-[var(--shadow-lifted)]">
                   {fieldLabel(propDrag.activeId) ?? ''}
                 </div>
               )}
@@ -642,7 +642,7 @@ export function RecordDetail({
               <ActivityPanel ws={ws} db={db} rec={recordId} />
             ) : tab === 'comments' ? (
               !canComment ? (
-                <p className="text-[13px] text-muted">You can view this item but not comment on it.</p>
+                <p className="text-body text-muted">You can view this item but not comment on it.</p>
               ) : (
                 <CommentsPanel
                   ws={ws}
@@ -688,7 +688,7 @@ export function RecordDetail({
         >
           <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Properties</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Properties</span>
               {schemaEditable && (
                 <FieldPicker
                   label="Add a property"
@@ -701,7 +701,7 @@ export function RecordDetail({
                 Shown only when this database actually has its own arrangement, so
                 the default case stays quiet. */}
             {schemaEditable && hasOwnRecordOrder(allFields, descriptionOrder) && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-default px-3 py-2 text-[11px] text-muted">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-default px-3 py-2 text-meta text-muted">
                 <span>Arranged for items, so it no longer follows the database order.</span>
                 <button
                   type="button"
@@ -722,7 +722,7 @@ export function RecordDetail({
               <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-0.5 p-1.5">
                   {sidebarFields.length === 0 && (
-                    <p className="px-1.5 py-2 text-[12px] text-muted">No sidebar properties.</p>
+                    <p className="px-1.5 py-2 text-label text-muted">No sidebar properties.</p>
                   )}
                   {/* #179: mark the first system/audit field that trails a user
                       field so SidebarField can draw a subtle group divider. */}
@@ -741,7 +741,7 @@ export function RecordDetail({
             {schemaEditable && (hiddenFields.length > 0 || descriptionHidden) && (
               <div className="border-t border-border-default px-3 py-1.5">
                 <button
-                  className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+                  className="flex items-center gap-1 text-label text-muted hover:text-ink"
                   onClick={() => setShowHidden((s) => !s)}
                 >
                   {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -753,11 +753,11 @@ export function RecordDetail({
                         comes back from the same place every hidden field does. Its
                         CONTENT was never deleted, only the block. */}
                     {descriptionHidden && (
-                      <div className="flex items-center justify-between py-1 text-[13px] text-muted">
+                      <div className="flex items-center justify-between py-1 text-body text-muted">
                         <span>Description</span>
                         <button
                           type="button"
-                          className="rounded px-1.5 py-0.5 text-[12px] text-info hover:bg-hover"
+                          className="rounded px-1.5 py-0.5 text-label text-info hover:bg-hover"
                           onClick={() => updateDescription.mutate({ description_hidden: false })}
                         >
                           Show
@@ -972,7 +972,7 @@ function DescriptionSection({
     <div>
       <div className="mb-2 flex items-center gap-1">
         <CollapseToggle collapsed={collapsed} onToggle={toggle} label="Description" />
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">Description</h2>
+        <h2 className="text-label font-medium uppercase tracking-wider text-muted">Description</h2>
         {onHide && (
           <button
             type="button"

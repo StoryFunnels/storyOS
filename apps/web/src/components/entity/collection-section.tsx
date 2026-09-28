@@ -215,8 +215,8 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           collapsed={collapsed}
           onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
         />
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
-        <span className="text-[11px] text-faint">{total}</span>
+        <h2 className="text-label font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
+        <span className="text-meta text-faint">{total}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={ws} db={db} collection />}
         {schemaEditable && !collapsed && targetDb.data && (
           <span className="flex flex-wrap items-center gap-1">
@@ -275,7 +275,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
              */}
             {hasPersonalOverride && (
               <span
-                className="flex items-center gap-1 rounded-full border border-border-default bg-hover px-2 py-0.5 text-[11px] text-muted"
+                className="flex items-center gap-1 rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-muted"
                 title="This view of the collection is set for you only — other members see the database's shared default."
               >
                 Personal
@@ -307,7 +307,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                  the panel's only explanation of why it is empty, and "No
                  matches." in particular is the sole signal that a FILTER is
                  hiding rows rather than there being none. */
-              <p className="px-3 py-2.5 text-[13px] text-muted">
+              <p className="px-3 py-2.5 text-body text-muted">
                 {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
               </p>
             )}
@@ -318,7 +318,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 // editors and must never live inside the anchor (MN-206 pt 2).
                 <div
                   key={row.id}
-                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
+                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-body text-ink last:border-b-0 hover:bg-hover"
                 >
                   <Link
                     href={recordHref(ws, targetDbId, row)}
@@ -352,7 +352,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                       <span
                         key={col.id}
                         className={cn(
-                          'relative flex max-w-[9rem] shrink-0 items-center text-[12px]',
+                          'relative flex max-w-[9rem] shrink-0 items-center text-label',
                           editable && 'cursor-pointer rounded px-0.5 hover:bg-active',
                         )}
                         onClick={
@@ -382,7 +382,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                           // #187: empty editable column cell invites a fill
                           // ("Add/Set <field>") instead of a bare dash; the row's
                           // own onClick (above) opens the same CellEditor.
-                          <EmptyFieldAffordance field={col} editable={editable} className="text-[12px]" />
+                          <EmptyFieldAffordance field={col} editable={editable} className="text-label" />
                         )}
                         {isEditing && (
                           // CellEditor self-positions (MN-230d, viewport-collision-aware);
@@ -415,7 +415,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             })}
             {rows.length > COLLECTION_CAP && (
               <button
-                className="flex w-full items-center gap-1 px-3 py-2 text-[12px] text-info hover:bg-hover"
+                className="flex w-full items-center gap-1 px-3 py-2 text-label text-info hover:bg-hover"
                 onClick={() => setShowAll((s) => !s)}
               >
                 {showAll ? 'Show less' : `Show all ${rows.length}`}
@@ -426,14 +426,14 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           {!readOnly && (
             <div className="relative mt-1 flex items-center gap-3 px-1">
               <button
-                className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                className="inline-flex items-center gap-1 text-body text-muted hover:text-ink"
                 onClick={() => setAdding(true)}
               >
                 <Plus className="h-3.5 w-3.5" /> Add
               </button>
               {canEditTargets && !creating && (
                 <button
-                  className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                  className="inline-flex items-center gap-1 text-body text-muted hover:text-ink"
                   // MN-144: computed-title target has no name to type — create straight away.
                   onClick={() => (targetTitleComputed ? createLinked.mutate('') : setCreating(true))}
                   disabled={createLinked.isPending}
@@ -537,7 +537,7 @@ function ColorByButton({
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover hover:text-ink',
             value ? 'text-ink' : 'text-muted',
           )}
         >

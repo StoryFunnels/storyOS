@@ -321,7 +321,7 @@ export function CommentsPanel({
           )}
         >
           <div className="mb-1 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+            <span className="flex items-center gap-1.5 text-label font-medium text-ink">
               <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
               {comment.author.name}
               {/* #762 — same SourceBadge ActivityPanel already uses (line ~451
@@ -330,7 +330,7 @@ export function CommentsPanel({
                   rendering byte-identical. */}
               <SourceBadge source={comment.source} />
             </span>
-            <span className="flex items-center gap-2 text-[11px] text-muted">
+            <span className="flex items-center gap-2 text-meta text-muted">
               {fmt.dateTime(comment.created_at)}
               {(comment.author.id === currentUserId || isAdmin) && (
                 <button
@@ -410,7 +410,7 @@ function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
     return (
       <span
         title="Source not recorded for this event"
-        className="inline-flex items-center gap-1 rounded-full border border-border-default px-1.5 py-0.5 text-[10px] text-faint"
+        className="inline-flex items-center gap-1 rounded-full border border-border-default px-1.5 py-0.5 text-micro text-faint"
       >
         <HelpCircle className="h-3 w-3" />
         unknown source
@@ -426,7 +426,7 @@ function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
   return (
     <span
       title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
-      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
+      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-micro font-medium text-accent"
     >
       <Icon className="h-3 w-3" />
       {label}
@@ -457,7 +457,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
   return (
     <div className="flex flex-col gap-2">
       {(activity.data ?? []).map((event) => (
-        <div key={event.id} className="flex items-baseline gap-2 text-[12px]">
+        <div key={event.id} className="flex items-baseline gap-2 text-label">
           <span className="whitespace-nowrap text-muted">
             {dates.dateTime(event.created_at)}
           </span>
@@ -488,7 +488,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
         </div>
       ))}
-      {(activity.data ?? []).length === 0 && <p className="text-[13px] text-muted">No activity yet.</p>}
+      {(activity.data ?? []).length === 0 && <p className="text-body text-muted">No activity yet.</p>}
     </div>
   );
 }
@@ -564,7 +564,7 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
 
   return (
     <div className="mt-6">
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
+      <h2 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">
         Mentioned in{' '}
         {/* #513 — the TRUE total from the server, not items.length (which is
             only how many pages have been loaded so far). */}
@@ -578,7 +578,7 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
       <div className="flex flex-col gap-3">
         {groups.map((group) => (
           <div key={group.databaseId}>
-            <p className="mb-1 text-[11px] font-medium text-muted">
+            <p className="mb-1 text-meta font-medium text-muted">
               {group.databaseName} <span className="text-faint">({group.items.length})</span>
             </p>
             <ul className="flex flex-col gap-1">
@@ -586,10 +586,10 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
                 <li key={b.id}>
                   <Link
                     href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
-                    className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
+                    className="flex items-baseline gap-2 rounded px-2 py-1 text-body hover:bg-hover"
                   >
                     <span className="truncate text-ink">{b.title || 'Untitled'}</span>
-                    <span className="shrink-0 text-[11px] text-muted">{b.database_name}</span>
+                    <span className="shrink-0 text-meta text-muted">{b.database_name}</span>
                   </Link>
                 </li>
               ))}
@@ -602,7 +602,7 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
           type="button"
           onClick={() => backlinks.fetchNextPage()}
           disabled={backlinks.isFetchingNextPage}
-          className="w-full py-2 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+          className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
         >
           {backlinks.isFetchingNextPage ? 'Loading…' : 'Load more'}
         </button>
@@ -690,25 +690,25 @@ export function AboutPanel({
     <div className="flex flex-col gap-5">
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[12px] font-medium uppercase tracking-wider text-muted">Watchers</h3>
+          <h3 className="text-label font-medium uppercase tracking-wider text-muted">Watchers</h3>
           <button
             type="button"
             onClick={() => toggle.mutate(!watching)}
             disabled={toggle.isPending}
-            className="flex items-center gap-1 text-[12px] text-info hover:underline disabled:opacity-50"
+            className="flex items-center gap-1 text-label text-info hover:underline disabled:opacity-50"
           >
             {watching ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
             {watching ? 'Stop watching' : 'Watch'}
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {watcherIds.length === 0 && <p className="text-[13px] text-muted">Nobody is watching this item.</p>}
+          {watcherIds.length === 0 && <p className="text-body text-muted">Nobody is watching this item.</p>}
           {watcherIds.map((id) => {
             const m = memberById.get(id);
             return (
               <span
                 key={id}
-                className="flex items-center gap-1.5 rounded-full border border-border-default px-2 py-1 text-[12px] text-ink"
+                className="flex items-center gap-1.5 rounded-full border border-border-default px-2 py-1 text-label text-ink"
               >
                 <Avatar userId={id} name={m?.name ?? 'Unknown'} image={m?.image ?? null} size={16} />
                 {m?.name ?? 'Unknown'}
@@ -721,8 +721,8 @@ export function AboutPanel({
       <MentionedIn ws={ws} db={db} rec={rec} />
 
       <section>
-        <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">Details</h3>
-        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-[13px]">
+        <h3 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">Details</h3>
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-body">
           <dt className="text-muted">Database</dt>
           <dd className="text-ink">{databaseName}</dd>
           {spaceName && (
@@ -853,11 +853,11 @@ export function AttachmentsStrip({
       }}
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted">
+        <span className="flex items-center gap-1.5 text-label font-medium text-muted">
           <Paperclip className="h-3.5 w-3.5" /> Attachments
         </span>
         {!readOnly && (
-          <label className="cursor-pointer text-[12px] text-info underline">
+          <label className="cursor-pointer text-label text-info underline">
             {upload.isPending ? 'Uploading…' : 'Upload'}
             <input
               type="file"
@@ -886,16 +886,16 @@ export function AttachmentsStrip({
                   className="mb-1 h-20 w-full rounded object-cover"
                 />
               ) : (
-                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-muted">
+                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-meta uppercase text-muted">
                   {att.filename.split('.').pop()}
                 </div>
               )}
-              <span className="truncate text-[12px] text-ink">{att.filename}</span>
+              <span className="truncate text-label text-ink">{att.filename}</span>
               {/* #669 — file SIZE stays faint: metadata beside a filename you can already
                 read. The extension placeholder above it moved, because when no
                 thumbnail renders that is the only thing telling you what the
                 file IS. */}
-              <span className="text-[11px] text-faint">{(att.size / 1024).toFixed(0)} KB</span>
+              <span className="text-meta text-faint">{(att.size / 1024).toFixed(0)} KB</span>
             </a>
             {!readOnly && (
               <button
@@ -918,7 +918,7 @@ export function AttachmentsStrip({
              not-decorative, and the last of them to still be faint. It is the
              only instruction telling you how to attach a file; if you cannot
              read it the panel offers no other clue. */
-          <p className="text-[12px] text-muted">Drop files here or use Upload.</p>
+          <p className="text-label text-muted">Drop files here or use Upload.</p>
         )}
       </div>
     </div>

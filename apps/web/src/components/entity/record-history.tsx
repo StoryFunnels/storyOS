@@ -64,7 +64,7 @@ function SourceBadge({ source }: { source: string }) {
   return (
     <span
       className={cn(
-        'rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+        'rounded-[var(--radius-chip)] px-1.5 py-0.5 text-micro font-medium uppercase tracking-wide',
         source === 'human' ? 'bg-hover text-ink-secondary' : 'bg-accent-soft text-[var(--accent)]',
       )}
     >
@@ -210,7 +210,7 @@ export function RecordHistoryDialog({
                 type="button"
                 onClick={() => setTab(t)}
                 className={cn(
-                  'rounded px-2.5 py-1 text-[13px] capitalize',
+                  'rounded px-2.5 py-1 text-body capitalize',
                   tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
                 )}
               >
@@ -223,7 +223,7 @@ export function RecordHistoryDialog({
             <div className="flex flex-col gap-2 overflow-y-auto">
               {/* #669 — names the exact next state: nothing has happened here yet. */}
               {changeItems.length === 0 && !changes.isLoading && (
-                <p className="py-4 text-center text-[13px] text-muted">No changes recorded yet.</p>
+                <p className="py-4 text-center text-body text-muted">No changes recorded yet.</p>
               )}
               {changeItems.map((c) => {
                 // #305/#39 — a field the change refers to may since have been
@@ -234,12 +234,12 @@ export function RecordHistoryDialog({
                 const canRevert = !readOnly && c.field_id !== null && field !== undefined && field !== null;
                 return (
                   <div key={c.id} className="rounded-[var(--radius-card)] border border-border-default p-2.5">
-                    <div className="flex items-center gap-1.5 text-[12px] text-muted">
+                    <div className="flex items-center gap-1.5 text-label text-muted">
                       <span className="font-medium text-ink">{actorName(c.actor_id)}</span>
                       <SourceBadge source={c.source} />
                       <span className="ml-auto shrink-0">{dateFormat.dateTime(c.created_at)}</span>
                     </div>
-                    <p className="mt-1 text-[13px] text-ink">
+                    <p className="mt-1 text-body text-ink">
                       <span className="font-medium">{c.field_name}</span>:{' '}
                       <span className="text-muted line-through">{c.old_display || '—'}</span>{' '}
                       <span aria-hidden>→</span> <span>{c.new_display || '—'}</span>
@@ -249,7 +249,7 @@ export function RecordHistoryDialog({
                         type="button"
                         onClick={() => revertField.mutate({ apiName: field.apiName, value: c.old_value })}
                         disabled={revertField.isPending}
-                        className="mt-1 text-[11px] text-muted underline hover:text-ink disabled:opacity-50"
+                        className="mt-1 text-meta text-muted underline hover:text-ink disabled:opacity-50"
                       >
                         Revert this field
                       </button>
@@ -262,7 +262,7 @@ export function RecordHistoryDialog({
                   type="button"
                   onClick={() => changes.fetchNextPage()}
                   disabled={changes.isFetchingNextPage}
-                  className="w-full py-2 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+                  className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
                 >
                   {changes.isFetchingNextPage ? 'Loading…' : 'Load more'}
                 </button>
@@ -273,16 +273,16 @@ export function RecordHistoryDialog({
           {tab === 'versions' && (
             <div className="flex flex-col gap-2 overflow-y-auto">
               {versionItems.length === 0 && !versions.isLoading && (
-                <p className="py-4 text-center text-[13px] text-muted">No earlier versions yet.</p>
+                <p className="py-4 text-center text-body text-muted">No earlier versions yet.</p>
               )}
               {versionItems.map((v) => (
                 <div
                   key={v.id}
                   className="flex items-center justify-between gap-2 rounded-[var(--radius-card)] border border-border-default p-2.5"
                 >
-                  <div className="min-w-0 text-[13px]">
+                  <div className="min-w-0 text-body">
                     <p className="truncate font-medium text-ink">{v.title || 'Untitled'}</p>
-                    <p className="text-[12px] text-muted">
+                    <p className="text-label text-muted">
                       {actorName(v.actor_id)} · {dateFormat.dateTime(v.created_at)}
                     </p>
                   </div>
@@ -298,7 +298,7 @@ export function RecordHistoryDialog({
                   type="button"
                   onClick={() => versions.fetchNextPage()}
                   disabled={versions.isFetchingNextPage}
-                  className="w-full py-2 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+                  className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
                 >
                   {versions.isFetchingNextPage ? 'Loading…' : 'Load more'}
                 </button>
@@ -315,7 +315,7 @@ export function RecordHistoryDialog({
               PR #838 review: text-muted, not text-faint — this is informative
               prose someone needs to actually read, not decoration (globals.css
               reserves faint for decorative/non-text content). */}
-          <p className="text-[11px] text-muted">
+          <p className="text-meta text-muted">
             History is retained for a window set by your workspace's plan — older changes are pruned automatically.
           </p>
 
@@ -337,17 +337,17 @@ export function RecordHistoryDialog({
         {confirmVersionId && (
           <DialogContent title="Restore this version?" className="max-w-md">
             <div className="flex flex-col gap-3">
-              {preview.isLoading && <p className="text-[13px] text-muted">Loading preview…</p>}
+              {preview.isLoading && <p className="text-body text-muted">Loading preview…</p>}
               {!preview.isLoading && preview.data && preview.data.preview.length === 0 && (
-                <p className="text-[13px] text-muted">
+                <p className="text-body text-muted">
                   This version is identical to the current record — nothing to restore.
                 </p>
               )}
               {!preview.isLoading && preview.data && preview.data.preview.length > 0 && (
                 <div className="flex flex-col gap-1.5">
-                  <p className="text-[13px] text-muted">This will change:</p>
+                  <p className="text-body text-muted">This will change:</p>
                   {preview.data.preview.map((p, i) => (
-                    <p key={i} className="text-[13px] text-ink">
+                    <p key={i} className="text-body text-ink">
                       <span className="font-medium">{p.field_name}</span>:{' '}
                       <span className="text-muted line-through">{p.current_display || '—'}</span>{' '}
                       <span aria-hidden>→</span> <span>{p.restored_display || '—'}</span>
@@ -358,7 +358,7 @@ export function RecordHistoryDialog({
               {/* PR #838 review: text-muted, not text-faint — a reassurance
                   before a destructive-looking action is exactly the kind of
                   prose the reader needs, not decoration. */}
-              <p className="text-[12px] text-muted">
+              <p className="text-label text-muted">
                 Restoring is itself reversible — it saves the current state as a new version first.
               </p>
               <div className="flex justify-end gap-2">

@@ -205,14 +205,14 @@ export function CopyToDialog({
         <div className="flex max-h-[75vh] flex-col gap-4">
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
             {error && (
-              <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-[13px]">
+              <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-body">
                 <p className="font-medium text-error">{error}</p>
               </div>
             )}
 
             {!result && (
               <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium text-ink-secondary">Copy into</label>
+                <label className="text-label font-medium text-ink-secondary">Copy into</label>
                 <Select
                   size="sm"
                   value={target}
@@ -241,7 +241,7 @@ export function CopyToDialog({
 
             {!result && target && preview && (
               <>
-                <p className="text-[13px] text-muted">
+                <p className="text-body text-muted">
                   {preview.will_create} will create
                   {preview.warnings_total > 0 && ` · ${preview.warnings_total} warnings`}
                   {blocking.length > 0 && ` · ${blocking.length} blocking`}
@@ -255,8 +255,8 @@ export function CopyToDialog({
                       className="box-border flex h-[52px] items-center gap-3 border-b border-border-default px-3 last:border-b-0"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-ink">{p.label}</p>
-                        <p className="truncate text-[11px] text-faint">
+                        <p className="truncate text-body font-medium text-ink">{p.label}</p>
+                        <p className="truncate text-meta text-faint">
                           {sourceTypeByApiName.get(p.sourceKey) ?? ''}
                           {p.state === 'blocking' && (
                             <span className="text-error"> · {p.reason ?? 'no matching field'}</span>
@@ -266,7 +266,7 @@ export function CopyToDialog({
                           )}
                         </p>
                       </div>
-                      <label className="flex shrink-0 items-center gap-1.5 text-[12px] text-ink-secondary">
+                      <label className="flex shrink-0 items-center gap-1.5 text-label text-ink-secondary">
                         <input
                           // Client-side truth, not p.state === 'skipped': the server also
                           // reports 'skipped' for a field with no value on this copy at all
@@ -285,7 +285,7 @@ export function CopyToDialog({
                 {preview.warnings.length > 0 && (
                   <div className="max-h-24 overflow-y-auto">
                     {preview.warnings.map((w, i) => (
-                      <p key={i} className="text-[12px] text-muted">
+                      <p key={i} className="text-label text-muted">
                         {w.message}
                       </p>
                     ))}
@@ -300,7 +300,7 @@ export function CopyToDialog({
                   {single ? 'Record copied 🎉' : `${result.created.length} records copied 🎉`}
                 </p>
                 {result.warnings.length > 0 && (
-                  <p className="mt-1 text-[12px] text-muted">{result.warnings.join(' ')}</p>
+                  <p className="mt-1 text-label text-muted">{result.warnings.join(' ')}</p>
                 )}
               </div>
             )}

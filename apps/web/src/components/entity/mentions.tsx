@@ -412,7 +412,7 @@ function DbFilterControl({ filter }: { filter: PickerFilterState }) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[11px] font-medium text-muted hover:text-ink"
+        className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-meta font-medium text-muted hover:text-ink"
       >
         <span className="max-w-24 truncate">{label}</span>
         <ChevronDown className="h-3 w-3" />
@@ -462,7 +462,7 @@ function FilterOption({
         onPick();
       }}
       className={cn(
-        'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-[12px] text-ink transition-colors hover:bg-hover',
+        'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-label text-ink transition-colors hover:bg-hover',
         active && 'bg-accent-soft',
       )}
     >
@@ -508,7 +508,7 @@ function makePickerMenu(opts: {
       <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-overlay)]">
         {(showFilter || (isEmptyQuery && hasItems)) && (
           <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">
+            <p className="text-meta font-medium uppercase tracking-wider text-muted">
               {isEmptyQuery && hasItems ? opts.emptyHeader : ''}
             </p>
             {showFilter && filter && <DbFilterControl filter={filter} />}
@@ -528,7 +528,7 @@ function makePickerMenu(opts: {
               />
             ))
           ) : (
-            <p className="px-2.5 py-6 text-center text-[12px] text-muted">
+            <p className="px-2.5 py-6 text-center text-label text-muted">
               {loadingState === 'loading-initial'
                 ? 'Searching…'
                 : isEmptyQuery
@@ -537,7 +537,7 @@ function makePickerMenu(opts: {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-meta text-muted">
           <span className="flex items-center gap-1">
             <Hint>↑↓</Hint> navigate
           </span>

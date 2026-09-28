@@ -30,7 +30,7 @@ export function TrashSection<T extends { id: string; deleted_at: string }>({
   const fmt = useDateFormat();
   return (
     <div>
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">{title}</h2>
+      <h2 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">{title}</h2>
       {items.length === 0 ? (
         <p className="text-sm text-muted">{emptyText}</p>
       ) : (
@@ -43,9 +43,9 @@ export function TrashSection<T extends { id: string; deleted_at: string }>({
               <div>
                 <p className="text-sm text-ink">
                   {label(item) || 'Untitled'}
-                  {meta?.(item) && <span className="ml-1.5 text-[13px] text-muted">{meta(item)}</span>}
+                  {meta?.(item) && <span className="ml-1.5 text-body text-muted">{meta(item)}</span>}
                 </p>
-                <p className="text-[13px] text-muted">Deleted {fmt.dateTime(item.deleted_at)}</p>
+                <p className="text-body text-muted">Deleted {fmt.dateTime(item.deleted_at)}</p>
               </div>
               <Button
                 variant="secondary"

@@ -424,7 +424,7 @@ export function ListSurface({
 function ListPaneChrome({ label, controls }: { label: string; controls: PrimaryPaneControls }) {
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-border-default px-3 py-1.5">
-      <span className="truncate text-[13px] font-medium text-muted">{label}</span>
+      <span className="truncate text-body font-medium text-muted">{label}</span>
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
@@ -596,9 +596,9 @@ function Rail({
         className="group flex min-h-0 flex-1 flex-col items-center gap-2 overflow-hidden rounded py-1 hover:bg-hover hover:text-ink"
       >
         {icon}
-        <span className="min-h-0 flex-1 truncate text-[12px] [writing-mode:vertical-rl]">{label}</span>
+        <span className="min-h-0 flex-1 truncate text-label [writing-mode:vertical-rl]">{label}</span>
       </button>
-      {number != null && <span className="shrink-0 text-[10px] tabular-nums text-faint">#{number}</span>}
+      {number != null && <span className="shrink-0 text-micro tabular-nums text-faint">#{number}</span>}
     </div>
   );
 }

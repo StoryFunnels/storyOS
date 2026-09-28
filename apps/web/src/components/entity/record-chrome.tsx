@@ -73,11 +73,11 @@ export function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; fiel
     field.config?.['entity_hidden'] === true || AUDIT_TYPES.has(field.type) ? '' : ' (empty)';
   return (
     <div className="flex min-h-7 items-center justify-between py-0.5">
-      <span className="truncate text-[12px] text-faint">
+      <span className="truncate text-label text-faint">
         {field.displayName}
         {reason}
       </span>
-      <button className="text-[12px] text-info underline-offset-2 hover:underline" onClick={reveal}>
+      <button className="text-label text-info underline-offset-2 hover:underline" onClick={reveal}>
         Show
       </button>
     </div>
@@ -90,7 +90,7 @@ export function AddFieldRow({ ws, db }: { ws: string; db: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-1.5 py-1 text-[12px] text-faint hover:text-ink">
+        <button className="flex items-center gap-1.5 py-1 text-label text-faint hover:text-ink">
           <Plus className="h-3.5 w-3.5" /> New field
         </button>
       </DialogTrigger>
@@ -333,12 +333,12 @@ function DelegateToAgentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Delegate to agent">
         <div className="flex flex-col gap-4">
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             The agent runs with this record as its context, through the same tool catalog a manual run uses, and
             posts its outcome back here as a comment.
           </p>
           {!pack.data?.exists ? (
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               Agents aren&apos;t enabled yet — enable them from{' '}
               <a href={`/w/${ws}/settings/integrations/delegate-agent`} className="text-accent hover:underline">
                 Integrations → Delegate to agent
@@ -346,7 +346,7 @@ function DelegateToAgentDialog({
               , then create at least one enabled agent record.
             </p>
           ) : (agents.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               No enabled agents yet — create one in the Agents database, or enable an existing one.
             </p>
           ) : (
