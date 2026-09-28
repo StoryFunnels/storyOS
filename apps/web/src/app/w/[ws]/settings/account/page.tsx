@@ -26,12 +26,12 @@ async function resizeTo256(file: File): Promise<Blob> {
 export default function AccountPage() {
   const { data: session, refetch } = useSession();
 
-  if (!session) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
+  if (!session) return <div className="p-4 text-body text-muted sm:p-8">Loading…</div>;
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Account</h1>
-      <p className="mb-6 text-[13px] text-muted">Manage your profile and sign-in details.</p>
+      <p className="mb-6 text-body text-muted">Manage your profile and sign-in details.</p>
 
       <div className="flex flex-col gap-8">
         <PhotoSection
@@ -53,7 +53,7 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="border-b border-border-default pb-8 last:border-b-0 last:pb-0">
       <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-[13px] text-muted">{description}</p>}
+      {description && <p className="mb-3 text-body text-muted">{description}</p>}
       {children}
     </section>
   );
@@ -168,7 +168,7 @@ function EmailSection({ email, verified }: { email: string; verified: boolean })
       <div className="flex items-center gap-2 text-sm text-ink">
         {email}
         <span
-          className={`rounded-[var(--radius-pill,9999px)] px-2 py-0.5 text-[11px] font-medium ${
+          className={`rounded-[var(--radius-pill,9999px)] px-2 py-0.5 text-meta font-medium ${
             verified ? 'bg-accent-soft text-warning' : 'bg-hover text-muted'
           }`}
         >
@@ -222,7 +222,7 @@ function PasswordSection() {
             minLength={8}
             required
           />
-          <p className="mt-1 text-[12px] text-faint">At least 8 characters.</p>
+          <p className="mt-1 text-label text-faint">At least 8 characters.</p>
         </div>
         <div>
           <Button type="submit" disabled={change.isPending || !current || next.length < 8}>
@@ -267,7 +267,7 @@ function SessionsSection({ currentToken }: { currentToken: string }) {
   return (
     <Section title="Active sessions" description="Devices where you're signed in.">
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {rows.length === 0 && <p className="px-4 py-6 text-[13px] text-muted">No other sessions.</p>}
+        {rows.length === 0 && <p className="px-4 py-6 text-body text-muted">No other sessions.</p>}
         {rows.map((s) => {
           const isCurrent = s.token === currentToken;
           return (
@@ -278,9 +278,9 @@ function SessionsSection({ currentToken }: { currentToken: string }) {
               <div className="min-w-0">
                 <p className="truncate text-sm text-ink">
                   {describeAgent(s.userAgent)}
-                  {isCurrent && <span className="ml-2 text-[12px] text-success">This device</span>}
+                  {isCurrent && <span className="ml-2 text-label text-success">This device</span>}
                 </p>
-                <p className="text-[12px] text-muted">
+                <p className="text-label text-muted">
                   {s.ipAddress || 'unknown IP'} · signed in {fmt.dateTime(s.createdAt)}
                 </p>
               </div>

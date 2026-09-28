@@ -89,7 +89,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-[13px] ${
+                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-body ${
                   active
                     ? 'bg-active font-medium text-ink'
                     : 'text-ink-secondary hover:bg-hover'
@@ -123,7 +123,7 @@ function SettingsNavGroup({
 }) {
   return (
     <div className="mb-4">
-      <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+      <p className="px-2 pb-1 text-meta font-semibold uppercase tracking-wider text-faint">
         {title}
       </p>
       {links.map((link) => {
@@ -132,7 +132,7 @@ function SettingsNavGroup({
           <Link
             key={link.href}
             href={link.href}
-            className={`block rounded px-2 py-1 text-[13px] ${
+            className={`block rounded px-2 py-1 text-body ${
               active
                 ? 'bg-active font-medium text-ink'
                 : 'text-ink-secondary hover:bg-hover'

@@ -93,7 +93,7 @@ export default function BillingPage() {
     onError: () => toast.error('Could not start the trial'),
   });
 
-  if (billing.isLoading) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
+  if (billing.isLoading) return <div className="p-4 text-body text-muted sm:p-8">Loading…</div>;
   if (!billing.data) return null;
   const b = billing.data;
 
@@ -110,7 +110,7 @@ export default function BillingPage() {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
         <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Billing is a cloud feature and isn’t available on this self-hosted instance.
         </p>
       </div>
@@ -126,11 +126,11 @@ export default function BillingPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
-      <p className="mb-6 text-[13px] text-muted">Plan, usage, and payment for this workspace.</p>
+      <p className="mb-6 text-body text-muted">Plan, usage, and payment for this workspace.</p>
 
       <div className="flex flex-col gap-8">
         {isTrialing && (
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-[13px]">
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
             <p className="font-medium text-ink">
               {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} left of your Pro trial
             </p>
@@ -145,9 +145,9 @@ export default function BillingPage() {
           <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-ink">{PLAN_LABEL[b.plan]}</p>
-              <p className="text-[13px] text-muted">{PLAN_PRICE[b.plan]}</p>
+              <p className="text-body text-muted">{PLAN_PRICE[b.plan]}</p>
               {b.currentPeriodEnd && (
-                <p className="mt-1 text-[12px] text-faint">
+                <p className="mt-1 text-label text-faint">
                   {b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {new Date(b.currentPeriodEnd).toLocaleDateString()}
                 </p>
               )}
@@ -204,7 +204,7 @@ export default function BillingPage() {
         </Section>
 
         <Section title="Your own AI" description="Connect your own Claude or ChatGPT over MCP.">
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-[13px]">
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
             <p className="font-medium text-ink">Unlimited, and never metered</p>
             <p className="mt-1 text-muted">
               Runs driven by your own AI provider never count against any allowance on any plan and
@@ -222,7 +222,7 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="border-b border-border-default pb-8 last:border-b-0 last:pb-0">
       <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-[13px] text-muted">{description}</p>}
+      {description && <p className="mb-3 text-body text-muted">{description}</p>}
       {children}
     </section>
   );
@@ -249,7 +249,7 @@ function UsageRow({
   const over80 = limit !== null && pct >= 80;
   return (
     <div className="mb-3 last:mb-0">
-      <div className="flex items-baseline justify-between text-[13px]">
+      <div className="flex items-baseline justify-between text-body">
         <span className="text-ink-secondary">{label}</span>
         <span className={over80 ? 'font-medium text-warning' : 'text-muted'}>
           {used} {limit !== null ? `/ ${limit}` : '(unlimited)'} {suffix && <span className="text-faint">{suffix}</span>}
@@ -263,7 +263,7 @@ function UsageRow({
           />
         </div>
       )}
-      {caption && <p className="mt-1 text-[12px] text-faint">{caption}</p>}
+      {caption && <p className="mt-1 text-label text-faint">{caption}</p>}
     </div>
   );
 }

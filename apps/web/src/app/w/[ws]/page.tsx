@@ -113,7 +113,7 @@ export default function WorkspaceHome() {
     <div className="max-w-6xl p-4 sm:p-10">
       {sampleCount > 0 && (
         <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
-          <span className="text-[13px] text-ink">
+          <span className="text-body text-ink">
             This workspace contains {sampleCount} sample records to explore.
           </span>
           <Button size="sm" variant="secondary" onClick={() => removeSamples.mutate()}>
@@ -135,7 +135,7 @@ export default function WorkspaceHome() {
       {showChecklist && (
         <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
+            <p className="text-label font-medium uppercase tracking-wider text-faint">
               Getting started · {completedCount(steps)}/{steps.length}
             </p>
             <button
@@ -157,11 +157,11 @@ export default function WorkspaceHome() {
                   <Circle className="h-4 w-4 text-faint" />
                 )}
                 {step.href && !step.done ? (
-                  <Link href={step.href} className="text-[13px] text-ink underline-offset-2 hover:underline">
+                  <Link href={step.href} className="text-body text-ink underline-offset-2 hover:underline">
                     {step.label}
                   </Link>
                 ) : (
-                  <span className="text-[13px] text-ink-secondary">{step.label}</span>
+                  <span className="text-body text-ink-secondary">{step.label}</span>
                 )}
               </div>
             ))}
@@ -179,7 +179,7 @@ export default function WorkspaceHome() {
         <div className="mt-6">
           <button
             type="button"
-            className="text-[13px] text-ink underline-offset-2 hover:underline"
+            className="text-body text-ink underline-offset-2 hover:underline"
             onClick={() => {
               setGallerySlug(undefined);
               setGalleryOpen(true);
@@ -203,7 +203,7 @@ export default function WorkspaceHome() {
       {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} />}
 
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
-        <p className="mt-6 text-[13px] text-muted">
+        <p className="mt-6 text-body text-muted">
           Create your first database from the sidebar — hover a space and hit “+”.
         </p>
       )}

@@ -187,7 +187,7 @@ export default function ConnectionsSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Connections</h1>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Connect an external account once, then use it from any automation, action or source.
         Credentials are encrypted at rest and never shown again after saving.
       </p>
@@ -218,7 +218,7 @@ export default function ConnectionsSettingsPage() {
       <h2 className="mb-2 text-sm font-semibold text-ink">Connected</h2>
       <div className="mb-8 overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(connections.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">No connections yet — add one below.</p>
+          <p className="px-4 py-6 text-body text-muted">No connections yet — add one below.</p>
         )}
         {(connections.data ?? []).map((c) => (
           <div
@@ -228,11 +228,11 @@ export default function ConnectionsSettingsPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
                 {connectionName(c)}{' '}
-                <span className="text-[12px] font-normal text-muted">
+                <span className="text-label font-normal text-muted">
                   · {providerLabel(c.provider)}
                 </span>
               </p>
-              <p className="mt-0.5 text-[12px] text-muted">
+              <p className="mt-0.5 text-label text-muted">
                 <StatusPill status={c.status} />
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
@@ -246,12 +246,12 @@ export default function ConnectionsSettingsPage() {
                 c.breaker_open_until ||
                 (c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')))) && (
                 <details className="mt-1.5 rounded-[var(--radius-card)] border border-border-default bg-card px-2 py-1">
-                  <summary className="cursor-pointer select-none text-[11px] font-medium text-muted">
+                  <summary className="cursor-pointer select-none text-meta font-medium text-muted">
                     Advanced / IT settings
                   </summary>
                   <div className="mt-1.5 flex flex-col gap-1">
                     {(c.error_count_24h > 0 || c.breaker_open_until) && (
-                      <p className="text-[12px] text-muted">
+                      <p className="text-label text-muted">
                         {c.error_count_24h > 0 && (
                           <span
                             className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}
@@ -261,14 +261,14 @@ export default function ConnectionsSettingsPage() {
                           </span>
                         )}
                         {c.breaker_open_until && (
-                          <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-[11px] text-error">
+                          <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-meta text-error">
                             circuit open until {fmt.dateTime(c.breaker_open_until)}
                           </span>
                         )}
                       </p>
                     )}
                     {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
-                      <p className="truncate text-[11px] text-muted">
+                      <p className="truncate text-meta text-muted">
                         Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
                       </p>
                     )}
@@ -351,7 +351,7 @@ export default function ConnectionsSettingsPage() {
                 <p className="text-sm font-semibold text-ink">{p.label}</p>
                 {present.actionable ? (
                   <>
-                    <p className="mt-0.5 text-[12px] text-muted">
+                    <p className="mt-0.5 text-label text-muted">
                       {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
                     </p>
                     <p className="mt-2 text-[11px] leading-4 text-muted">
@@ -427,7 +427,7 @@ function StatusPill({ status }: { status: Connection['status'] }) {
   return (
     <span
       className={cn(
-        'rounded px-1.5 py-0.5 text-[11px]',
+        'rounded px-1.5 py-0.5 text-meta',
         ok ? 'bg-accent-soft text-ink' : 'bg-hover text-error',
       )}
     >
@@ -448,13 +448,13 @@ function AvailabilityNote({ present }: { present: AvailabilityPresentation }) {
     <div className="mt-1">
       <span
         className={cn(
-          'inline-block rounded px-1.5 py-0.5 text-[11px]',
+          'inline-block rounded px-1.5 py-0.5 text-meta',
           upsell ? 'bg-accent-soft text-ink' : 'bg-hover text-muted',
         )}
       >
         {present.label}
       </span>
-      <p className="mt-1 text-[12px] text-muted">{present.description}</p>
+      <p className="mt-1 text-label text-muted">{present.description}</p>
     </div>
   );
 }
@@ -575,7 +575,7 @@ function ApiKeyConnectDialog({
             create.mutate();
           }}
         >
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             {isSmtp
               ? 'We test the connection before saving, then encrypt it at rest.'
               : `The key is verified against ${provider.label} before saving, then encrypted at rest — it is never shown again.`}
@@ -597,7 +597,7 @@ function ApiKeyConnectDialog({
                   value={smtpFrom}
                   onChange={(e) => setSmtpFrom(e.target.value)}
                 />
-                <p className="text-[11px] text-muted">
+                <p className="text-meta text-muted">
                   Fixed at connect time — an email action can never override it.
                 </p>
               </div>
@@ -605,10 +605,10 @@ function ApiKeyConnectDialog({
                   keep them present and required, just behind a disclosure so the
                   form leads with the one field most people care about. */}
               <details className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-                <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+                <summary className="cursor-pointer select-none text-body font-medium text-ink">
                   Advanced / IT settings
                 </summary>
-                <p className="mt-2 text-[11px] text-muted">
+                <p className="mt-2 text-meta text-muted">
                   Your mail server&apos;s connection details — usually from your IT team or email
                   provider.
                 </p>
@@ -664,7 +664,7 @@ function ApiKeyConnectDialog({
                   value={shopDomain}
                   onChange={(e) => setShopDomain(e.target.value)}
                 />
-                <p className="text-[11px] text-muted">Your store&apos;s .myshopify.com host.</p>
+                <p className="text-meta text-muted">Your store&apos;s .myshopify.com host.</p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="shopify-token">Admin API access token</Label>
@@ -676,7 +676,7 @@ function ApiKeyConnectDialog({
                   value={accessToken}
                   onChange={(e) => setAccessToken(e.target.value)}
                 />
-                <p className="text-[11px] text-muted">
+                <p className="text-meta text-muted">
                   From a custom app in your Shopify admin, with read_products scope.
                 </p>
               </div>
@@ -705,10 +705,10 @@ function ApiKeyConnectDialog({
                       value={fromAddress}
                       onChange={(e) => setFromAddress(e.target.value)}
                     />
-                    <p className="text-[11px] text-muted">
+                    <p className="text-meta text-muted">
                       Must be on a domain already verified on this Resend key.
                     </p>
-                    <details className="text-[11px]">
+                    <details className="text-meta">
                       <summary className="cursor-pointer select-none text-muted">
                         Why do I need a verified domain?
                       </summary>
@@ -723,7 +723,7 @@ function ApiKeyConnectDialog({
                       optional deliverability nicety, not part of first setup —
                       keep it under a disclosure. */}
                   <details className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-                    <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+                    <summary className="cursor-pointer select-none text-body font-medium text-ink">
                       Advanced / IT settings
                     </summary>
                     <div className="mt-3 flex flex-col gap-1.5">
@@ -735,7 +735,7 @@ function ApiKeyConnectDialog({
                         value={webhookSecret}
                         onChange={(e) => setWebhookSecret(e.target.value)}
                       />
-                      <p className="text-[11px] text-muted">
+                      <p className="text-meta text-muted">
                         From a Resend webhook pointed at this connection&apos;s own URL (shown after
                         saving) — enables bounce/complaint status degradation.
                       </p>
@@ -858,7 +858,7 @@ function HttpConnectDialog({
             create.mutate();
           }}
         >
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Used only by the http_request automation action — auth is merged into each request at
             send time and never stored in the rule config.
           </p>
@@ -873,7 +873,7 @@ function HttpConnectDialog({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="http-conn-style">Auth style</Label>
-            {/* #717 — was h-9 with a mismatched text-[13px] (default's own
+            {/* #717 — was h-9 with a mismatched text-body (default's own
                 text-sm is 14px); migrating to `default` to match the h-9
                 Name field directly above rather than shrinking this one to
                 `sm`'s h-8, which would misalign the two fields' heights.

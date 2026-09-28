@@ -45,11 +45,11 @@ export default function PreferencesPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Preferences</h1>
-      <p className="mb-6 text-[13px] text-muted">Personal settings for how the app looks and reads.</p>
+      <p className="mb-6 text-body text-muted">Personal settings for how the app looks and reads.</p>
 
       <section className="border-b border-border-default pb-8">
         <h2 className="mb-1 text-sm font-medium text-ink">Appearance</h2>
-        <p className="mb-3 text-[13px] text-muted">
+        <p className="mb-3 text-body text-muted">
           Choose a theme. System follows your device setting. Applies on this browser.
         </p>
         <div
@@ -65,7 +65,7 @@ export default function PreferencesPage() {
                 role="radio"
                 aria-checked={active}
                 onClick={() => setPreference(value)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[13px] transition-colors ${
+                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-body transition-colors ${
                   active ? 'bg-active font-medium text-ink' : 'text-ink-secondary hover:bg-hover'
                 }`}
               >
@@ -78,7 +78,7 @@ export default function PreferencesPage() {
 
       <section className="pt-8">
         <h2 className="mb-1 text-sm font-medium text-ink">Date &amp; time</h2>
-        <p className="mb-4 text-[13px] text-muted">
+        <p className="mb-4 text-body text-muted">
           How dates and times display across the app. Preview:{' '}
           <span className="font-medium text-ink">{formatDateTime(new Date(), regional)}</span>
         </p>
@@ -128,15 +128,15 @@ function SelectRow<T extends string>({
 }) {
   return (
     <label className="flex items-center justify-between gap-4">
-      <span className="text-[13px] text-ink-secondary">
+      <span className="text-body text-ink-secondary">
         {label}
-        {preview && <span className="ml-2 text-[12px] text-faint">{preview}</span>}
+        {preview && <span className="ml-2 text-label text-faint">{preview}</span>}
       </span>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as T)}
-        className="min-w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink disabled:opacity-50"
+        className="min-w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-body text-ink disabled:opacity-50"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

@@ -99,7 +99,7 @@ export default function ShopifyIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link className="text-[12px] text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
+      <Link className="text-label text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
         ← Integrations
       </Link>
       <div className="mt-6 flex items-center gap-3">
@@ -108,7 +108,7 @@ export default function ShopifyIntegrationPage() {
         </span>
         <div>
           <h1 className="text-lg font-semibold text-ink">Shopify</h1>
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Bring your product catalogue into StoryOS, with navigable relations.
           </p>
         </div>
@@ -140,7 +140,7 @@ export default function ShopifyIntegrationPage() {
         <h2 className="text-sm font-semibold text-ink">
           {connected ? 'Shopify is connected' : 'Connect your Shopify store'}
         </h2>
-        <p className="mt-1 text-[13px] text-muted">
+        <p className="mt-1 text-body text-muted">
           {connected
             ? 'You can now create the product catalogue below, or add individual Shopify sources from any database.'
             : 'StoryOS uses a custom app Admin API access token (read-only scopes). It never modifies your store.'}
@@ -160,7 +160,7 @@ export default function ShopifyIntegrationPage() {
       {connected && (
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
           <h2 className="text-sm font-semibold text-ink">Create the product catalogue</h2>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-body text-muted">
             Creates three databases — <strong>Products</strong>, <strong>Variants</strong> and{' '}
             <strong>Collections</strong> — attaches the matching Shopify sources with fields pre-mapped,
             and links variants and collections to their products.
@@ -172,13 +172,13 @@ export default function ShopifyIntegrationPage() {
           </div>
           {created && (
             <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3">
-              <p className="text-[13px] text-ink">
+              <p className="text-body text-ink">
                 Your catalogue is ready. Open <strong>Products</strong> and press <strong>Sync now</strong>{' '}
                 (or wait for the daily schedule). Variants and collections link back to products as they
                 sync.
               </p>
               {created.notes.length > 0 && (
-                <ul className="list-disc pl-5 text-[12px] text-muted">
+                <ul className="list-disc pl-5 text-label text-muted">
                   {created.notes.map((note) => (
                     <li key={note}>{note}</li>
                   ))}
@@ -206,7 +206,7 @@ export default function ShopifyIntegrationPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent title="Create Shopify product catalogue">
-          <p className="mb-4 text-[13px] text-muted">
+          <p className="mb-4 text-body text-muted">
             Three databases are created in the chosen space, each with its Shopify source attached and
             pre-mapped.
           </p>
@@ -214,7 +214,7 @@ export default function ShopifyIntegrationPage() {
             <div className="flex flex-col gap-1.5">
               <Label>Space</Label>
               <select
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-[13px] text-ink"
+                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-body text-ink"
                 value={spaceId}
                 onChange={(event) => setSpaceId(event.target.value)}
               >
@@ -235,7 +235,7 @@ export default function ShopifyIntegrationPage() {
                 placeholder="e.g. Shopify"
                 onChange={(event) => setNamePrefix(event.target.value)}
               />
-              <p className="text-[11px] text-faint">
+              <p className="text-meta text-faint">
                 Prefixes each database name (e.g. &quot;Shopify Products&quot;) so a second store doesn&apos;t
                 collide.
               </p>

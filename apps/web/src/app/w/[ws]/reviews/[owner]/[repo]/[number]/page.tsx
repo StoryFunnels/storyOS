@@ -174,7 +174,7 @@ export default function PullRequestReviewPage() {
   if (pull.isLoading) return <div className="p-8 text-sm text-muted">Loading…</div>;
   if (pull.isError) {
     return (
-      <div className="p-8 text-[13px] text-error">{apiErrorMessage(pull.error, 'Could not load this pull request')}</div>
+      <div className="p-8 text-body text-error">{apiErrorMessage(pull.error, 'Could not load this pull request')}</div>
     );
   }
   const pr = pull.data!;
@@ -182,25 +182,25 @@ export default function PullRequestReviewPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border-default p-4">
-        <Link href={`/w/${ws}/reviews`} className="mb-2 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+        <Link href={`/w/${ws}/reviews`} className="mb-2 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
           <ArrowLeft className="h-3.5 w-3.5" /> Reviews
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="truncate text-[16px] font-semibold text-ink">
+            <h1 className="truncate text-title font-semibold text-ink">
               {pr.title} <span className="font-normal text-faint">#{pr.number}</span>
             </h1>
-            <p className="mt-0.5 text-[12px] text-muted">
+            <p className="mt-0.5 text-label text-muted">
               {pr.repo} · {pr.author_login} wants to merge into{' '}
               <code className="text-ink">{pr.base_ref}</code> from <code className="text-ink">{pr.head_ref}</code>
-              {pr.draft && <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">Draft</span>}
+              {pr.draft && <span className="ml-1.5 rounded bg-surface px-1.5 py-0.5 text-micro text-muted">Draft</span>}
             </p>
           </div>
           <a
             href={pr.html_url}
             target="_blank"
             rel="noreferrer"
-            className="flex shrink-0 items-center gap-1 text-[12px] text-info hover:underline"
+            className="flex shrink-0 items-center gap-1 text-label text-info hover:underline"
           >
             View on GitHub <ExternalLink className="h-3 w-3" />
           </a>
@@ -208,7 +208,7 @@ export default function PullRequestReviewPage() {
         {pr.checks.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {pr.checks.map((c) => (
-              <span key={c.name} className="flex items-center gap-1 rounded-full bg-surface px-2 py-0.5 text-[11px] text-ink-secondary">
+              <span key={c.name} className="flex items-center gap-1 rounded-full bg-surface px-2 py-0.5 text-meta text-ink-secondary">
                 <CheckIcon conclusion={c.conclusion} status={c.status} />
                 {c.name}
               </span>
@@ -224,13 +224,13 @@ export default function PullRequestReviewPage() {
               key={f.filename}
               onClick={() => setSelectedFile(f.filename)}
               className={cn(
-                'flex w-full items-center gap-1.5 border-b border-border-default px-3 py-2 text-left text-[12px] hover:bg-hover',
+                'flex w-full items-center gap-1.5 border-b border-border-default px-3 py-2 text-left text-label hover:bg-hover',
                 active?.filename === f.filename ? 'bg-active text-ink' : 'text-ink-secondary',
               )}
             >
               <FileText className="h-3.5 w-3.5 shrink-0 text-faint" />
               <span className="min-w-0 flex-1 truncate">{f.filename}</span>
-              <span className="shrink-0 text-[10px]">
+              <span className="shrink-0 text-micro">
                 <span className="text-success">+{f.additions}</span> <span className="text-error">-{f.deletions}</span>
               </span>
             </button>
@@ -239,12 +239,12 @@ export default function PullRequestReviewPage() {
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex shrink-0 items-center justify-between border-b border-border-default px-3 py-1.5">
-            <span className="truncate text-[12px] font-medium text-ink">{active?.filename}</span>
+            <span className="truncate text-label font-medium text-ink">{active?.filename}</span>
             <div className="flex shrink-0 items-center gap-2">
               <Button size="sm" variant="ghost" onClick={() => sync.mutate()} disabled={sync.isPending}>
                 <RefreshCw className={cn('h-3.5 w-3.5', sync.isPending && 'animate-spin')} />
               </Button>
-              <div className="flex rounded-[var(--radius-control)] border border-border-default text-[11px]">
+              <div className="flex rounded-[var(--radius-control)] border border-border-default text-meta">
                 {(['unified', 'split'] as const).map((m) => (
                   <button
                     key={m}
@@ -276,7 +276,7 @@ export default function PullRequestReviewPage() {
 
           {composing && (
             <div className="shrink-0 border-t border-border-default bg-card p-3">
-              <p className="mb-1.5 text-[11px] text-muted">
+              <p className="mb-1.5 text-meta text-muted">
                 Commenting on <code className="text-ink">{composing.path}</code>:{composing.line} ({composing.side})
               </p>
               <Textarea
@@ -309,14 +309,14 @@ export default function PullRequestReviewPage() {
                 <div key={thread[0]!.comment_id} className="border-b border-border-default p-3 last:border-b-0">
                   {thread.map((c) => (
                     <div key={c.id} className={cn('mb-2 last:mb-0', c.in_reply_to_id && 'ml-4')}>
-                      <div className="flex items-center gap-2 text-[11px] text-faint">
+                      <div className="flex items-center gap-2 text-meta text-faint">
                         <span className="font-medium text-ink-secondary">{c.author_login ?? 'unknown'}</span>
                         line {c.line}
                       </div>
-                      <p className="whitespace-pre-wrap text-[13px] text-ink">{c.body}</p>
+                      <p className="whitespace-pre-wrap text-body text-ink">{c.body}</p>
                       <div className="mt-1 flex items-center gap-2">
                         <button
-                          className="text-[11px] text-muted hover:text-ink"
+                          className="text-meta text-muted hover:text-ink"
                           onClick={() => react.mutate({ commentId: c.comment_id, content: '+1' })}
                         >
                           👍 {c.reactions['+1'] ?? ''}
@@ -387,7 +387,7 @@ function ReplyButton({ onReply }: { onReply: (body: string) => void }) {
   const [value, setValue] = useState('');
   if (!open) {
     return (
-      <button className="text-[11px] text-muted hover:text-ink" onClick={() => setOpen(true)}>
+      <button className="text-meta text-muted hover:text-ink" onClick={() => setOpen(true)}>
         Reply
       </button>
     );
@@ -406,7 +406,7 @@ function ReplyButton({ onReply }: { onReply: (body: string) => void }) {
           }
         }}
         placeholder="Reply…"
-        className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-[11px] text-ink outline-none"
+        className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-meta text-ink outline-none"
       />
     </span>
   );

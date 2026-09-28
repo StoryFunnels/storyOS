@@ -44,6 +44,13 @@ import { cn } from '@/lib/utils';
  *    every future migration a visual change. If we want one, that is its own
  *    ticket with its own before/after.
  *
+ * THE LITERALS BELOW ARE NOW TOKENS, and the site counts were a measurement
+ * taken once. #744 moved every raw `text-[Npx]` in the app onto the role scale,
+ * so `text-[13px]` reads `text-body` and `text-[12px]` reads `text-label` at
+ * those call sites today; the sizes are identical, only the spelling moved.
+ * The counts are left as filed rather than refreshed, because a number written
+ * into prose is asserted forever and re-measuring is the only way to trust one.
+ *
  * WHICH EXISTING SIZES HAVE NO VARIANT, and what migrating them will cost:
  *
  *   h-7 / text-[12px]  (10 sites)  → no variant. Nearest is `sm` (h-8/13px):

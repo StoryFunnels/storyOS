@@ -35,27 +35,27 @@ export default function WorkspaceError({
           <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
           This view couldn’t be shown
         </div>
-        <p className="mt-1.5 text-[13px] text-muted">
+        <p className="mt-1.5 text-body text-muted">
           The rest of your workspace is still open — you can pick another database in the sidebar.
           This has been reported.
         </p>
         {/* The digest is the only handle a user can quote that ties their
             report to ours, so it is shown rather than hidden. */}
         {error.digest ? (
-          <p className="mt-2 font-mono text-[11px] text-faint">Reference: {error.digest}</p>
+          <p className="mt-2 font-mono text-meta text-faint">Reference: {error.digest}</p>
         ) : null}
         <div className="mt-3 flex gap-2">
           <button
             type="button"
             onClick={reset}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink hover:bg-hover"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink hover:bg-hover"
           >
             <RotateCw className="h-3.5 w-3.5" /> Try again
           </button>
           <button
             type="button"
             onClick={() => window.history.back()}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-muted hover:bg-hover hover:text-ink"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Go back
           </button>

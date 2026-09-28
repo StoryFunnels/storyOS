@@ -102,11 +102,11 @@ export function PublicViewClient({
           )}
           <div>
             <h1 className="text-lg font-semibold text-neutral-900">{def.view.name}</h1>
-            <p className="text-[12px] text-neutral-400">{def.database.name}</p>
+            <p className="text-label text-neutral-400">{def.database.name}</p>
           </div>
         </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-200">
-          <table className="w-full min-w-max border-collapse text-[13px]">
+          <table className="w-full min-w-max border-collapse text-body">
             <thead>
               <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-neutral-500">
                 <th className="whitespace-nowrap px-3 py-2 font-medium">Name</th>
@@ -144,12 +144,12 @@ export function PublicViewClient({
             onClick={loadMore}
             disabled={loadingMore}
             style={accent ? { borderColor: accent, color: accent } : undefined}
-            className="self-center rounded-lg border border-neutral-300 px-4 py-1.5 text-[13px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+            className="self-center rounded-lg border border-neutral-300 px-4 py-1.5 text-body text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>
         )}
-        {!def.hide_branding && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
+        {!def.hide_branding && <p className="text-center text-meta text-neutral-400">Powered by StoryOS</p>}
       </div>
     </div>
   );

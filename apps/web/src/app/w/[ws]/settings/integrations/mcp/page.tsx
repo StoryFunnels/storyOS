@@ -122,7 +122,7 @@ export default function McpIntegrationPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <Link
-        className="text-[12px] text-muted hover:text-ink"
+        className="text-label text-muted hover:text-ink"
         href={`/w/${ws}/settings/integrations`}
       >
         ← Integrations
@@ -134,7 +134,7 @@ export default function McpIntegrationPage() {
         </span>
         <div>
           <h1 className="text-lg font-semibold text-ink">Connect Claude or ChatGPT</h1>
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Give your AI client access to StoryOS tools through MCP.
           </p>
         </div>
@@ -167,7 +167,7 @@ export default function McpIntegrationPage() {
           <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
           <div>
             <h2 className="text-sm font-semibold text-ink">Hosted StoryOS — use OAuth</h2>
-            <p className="mt-1 text-[13px] text-muted">
+            <p className="mt-1 text-body text-muted">
               Recommended for app.storyos.dev. You paste one endpoint, then sign in to StoryOS.
               There is no API token to create or copy.
             </p>
@@ -200,11 +200,11 @@ export default function McpIntegrationPage() {
           ))}
         </div>
 
-        <p className="mt-4 text-[12px] text-faint">{selected.availability}</p>
+        <p className="mt-4 text-label text-faint">{selected.availability}</p>
         <ol className="mt-3 space-y-3">
           {selected.steps.map((step, index) => (
-            <li key={step} className="flex gap-3 text-[13px] text-muted">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hover text-[11px] font-semibold text-ink">
+            <li key={step} className="flex gap-3 text-body text-muted">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hover text-meta font-semibold text-ink">
                 {index + 1}
               </span>
               <span>{step}</span>
@@ -213,11 +213,11 @@ export default function McpIntegrationPage() {
         </ol>
 
         <div className="mt-5 rounded-[var(--radius-control)] border border-border-default bg-page p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">
+          <p className="text-meta font-semibold uppercase tracking-wide text-faint">
             MCP endpoint
           </p>
           <div className="mt-1 flex items-center gap-2">
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[13px] text-ink">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-body text-ink">
               {MCP_ENDPOINT}
             </code>
             <Button
@@ -240,15 +240,15 @@ export default function McpIntegrationPage() {
 
         {client === 'claude' && (
           <div className="mt-3 rounded-[var(--radius-control)] border border-border-strong bg-accent-soft p-3">
-            <p className="text-[12px] font-semibold text-ink">
+            <p className="text-label font-semibold text-ink">
               If Claude says it couldn&apos;t register with StoryOS
             </p>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="mt-1 text-label text-muted">
               Remove the draft connector, add it again, open <strong>Advanced settings</strong>,
               paste this public OAuth Client ID, and leave Client Secret empty.
             </p>
             <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-ink">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-label text-ink">
                 {CLAUDE_OAUTH_CLIENT_ID}
               </code>
               <Button
@@ -282,7 +282,7 @@ export default function McpIntegrationPage() {
             Check hosted service
           </Button>
           <a
-            className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+            className="inline-flex items-center gap-1 text-label text-muted hover:text-ink"
             href={selected.reference}
             target="_blank"
             rel="noreferrer"
@@ -295,7 +295,7 @@ export default function McpIntegrationPage() {
         {checkState !== 'idle' && checkState !== 'checking' && (
           <div
             className={cn(
-              'mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-[12px]',
+              'mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-label',
               checkState === 'ready'
                 ? 'border-green-600/25 bg-green-600/5 text-ink'
                 : 'border-red-600/25 bg-red-600/5 text-ink',
@@ -317,13 +317,13 @@ export default function McpIntegrationPage() {
           <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
           <div>
             <h2 className="text-sm font-semibold text-ink">Self-managed or advanced client</h2>
-            <p className="mt-1 text-[13px] text-muted">
+            <p className="mt-1 text-body text-muted">
               Keep the PAT path for your own StoryOS deployment, scripts, n8n, or a client that
               supports custom Authorization headers. Do not paste a PAT into the hosted OAuth flow.
             </p>
           </div>
         </div>
-        <ol className="mt-4 space-y-2 text-[13px] text-muted">
+        <ol className="mt-4 space-y-2 text-body text-muted">
           <li className="flex gap-2">
             <Check className="mt-0.5 h-4 w-4 shrink-0 text-ink" />
             Create a workspace-scoped personal access token. It is shown only once.
@@ -353,7 +353,7 @@ export default function McpIntegrationPage() {
 
       <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
         <h2 className="text-sm font-semibold text-ink">Troubleshooting</h2>
-        <dl className="mt-3 space-y-3 text-[13px]">
+        <dl className="mt-3 space-y-3 text-body">
           <div>
             <dt className="font-medium text-ink">
               Claude says it couldn&apos;t register with StoryOS

@@ -33,7 +33,7 @@ export default function ResetPage() {
           <Button type="submit">Send reset link</Button>
         </form>
       )}
-      <p className="mt-4 text-[13px] text-muted">
+      <p className="mt-4 text-body text-muted">
         <Link className="text-ink underline" href="/login">
           Back to sign in
         </Link>

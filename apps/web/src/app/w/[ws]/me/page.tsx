@@ -253,7 +253,7 @@ function MyWorkInner() {
             key={t.id}
             onClick={() => setTab(t.id)}
             className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+              '-mb-px border-b-2 px-3 py-2 text-body font-medium transition-colors',
               tab === t.id ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink',
             )}
           >
@@ -264,7 +264,7 @@ function MyWorkInner() {
 
       {loading && <p className="text-sm text-muted">Loading…</p>}
       {empty && (
-        <p className="max-w-3xl rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
+        <p className="max-w-3xl rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
           {tab === 'assigned' && 'Nothing assigned to you yet. When someone sets you in a Person field, it shows up here.'}
           {tab === 'created' && "You haven't created any items yet."}
           {tab === 'activity' && 'No recent activity yet.'}
@@ -276,7 +276,7 @@ function MyWorkInner() {
           const isCollapsed = collapsed.has(group.database.id);
           return (
             <div key={group.database.id} className="mb-6 max-w-4xl">
-              <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-faint">
+              <div className="mb-2 flex items-center gap-1.5 text-label font-medium uppercase tracking-wider text-faint">
                 <button
                   className="flex items-center gap-1 hover:text-ink"
                   onClick={() =>
@@ -343,13 +343,13 @@ function MyWorkInner() {
                               aria-current={record.id === activeId ? 'true' : undefined}
                               style={tint ? { boxShadow: `inset 3px 0 0 ${tint}` } : undefined}
                             >
-                              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                              <span className="min-w-0 flex-1 truncate text-body font-medium text-ink">
                                 {record.title || 'Untitled'}
                               </span>
                               <span className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
                                 {chips.map((f) =>
                                   record.values[f.api_name] != null ? (
-                                    <span key={f.id} className="flex max-w-[10rem] items-center text-[12px]">
+                                    <span key={f.id} className="flex max-w-[10rem] items-center text-label">
                                       <CellDisplay
                                         field={toField(f)}
                                         value={record.values[f.api_name]}
@@ -359,7 +359,7 @@ function MyWorkInner() {
                                     </span>
                                   ) : null,
                                 )}
-                                <span className="w-16 shrink-0 text-right text-[11px] text-faint">
+                                <span className="w-16 shrink-0 text-right text-meta text-faint">
                                   {fmt.date(record.updated_at)}
                                 </span>
                               </span>
@@ -385,9 +385,9 @@ function MyWorkInner() {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <EntityIcon icon={r.database_icon} color={null} fallback={<Database className="h-3.5 w-3.5" />} />
-                <span className="truncate text-[13px] font-medium text-ink">{r.title || 'Untitled'}</span>
+                <span className="truncate text-body font-medium text-ink">{r.title || 'Untitled'}</span>
               </span>
-              <span className="shrink-0 text-[11px] text-faint">{r.database_name}</span>
+              <span className="shrink-0 text-meta text-faint">{r.database_name}</span>
             </Link>
           ))}
         </div>

@@ -52,18 +52,25 @@ import { cva } from 'class-variance-authority';
  * `text-[13px]` literals these two call sites carried. text-meta is 11px and
  * text-body is 13px, so the FONT SIZE is unchanged.
  *
- * THE LEADING IS NOT, and I nearly shipped this claiming it was. `text-[11px]`
- * sets no line-height, so it inherited `normal` (~13.5px at 11px); `text-meta`
- * applies the scale's 1.5 ratio (16.5px). Measured in a real table: the filled
- * chip's own box grows 17.50px -> 20.50px. The table ROW does not move — it is
- * fixed at 32px and the cell at 31px, so nothing reflows and no row height
- * changes; the visible delta is a slightly taller tint behind the label.
+ * NEITHER IS THE LEADING, and the paragraph that used to sit here said the
+ * opposite. It claimed `text-[11px]` inherited `line-height: normal` (~13.5px),
+ * that `text-meta` therefore grew the chip's box from 17.50px to 20.50px, and
+ * it argued at length for keeping that growth. Re-measured in the browser
+ * against this exact shape — inline-flex, py-0.5, inside a `<td>` — on #744:
  *
- * Kept rather than pinned back, on the grounds that `line-height: normal` on an
- * 11px pill was itself off-scale — every other text step in the app is 1.5, and
- * a chip opting out of that is the kind of exception that has to earn itself. It
- * does not: 20.5px inside a 31px cell still has room, and a slightly larger tint
- * is easier to read at 11px, not harder.
+ *   text-[11px]  computed line-height 16.5px, box 20.50px
+ *   text-meta    computed line-height 16.5px, box 20.50px   (delta 0)
+ *
+ * The "after" number was right and the "before" was not. Tailwind's preflight
+ * sets `html { line-height: 1.5 }`, and a unitless 1.5 inherits and re-multiplies
+ * by each element's own font-size, so an 11px span with no leading of its own
+ * was ALREADY at 16.5px. There was never anything to grow.
+ *
+ * Left as a correction rather than a deletion because of how the wrong version
+ * read: it opened "I nearly shipped this claiming it was [unchanged]", carried
+ * two decimal places, and reasoned carefully from its own false premise. A
+ * confident measurement is the hardest kind of claim to doubt, which is exactly
+ * why it needs re-measuring rather than re-reading.
  */
 export const chipVariants = cva(
   'inline-flex items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5',

@@ -157,7 +157,7 @@ function MembersPageContent() {
               <Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={32} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink">{member.user.name}</p>
-                <p className="truncate text-[13px] text-muted">{member.user.email}</p>
+                <p className="truncate text-body text-muted">{member.user.email}</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -196,7 +196,7 @@ function MembersPageContent() {
                   <EraseMemberDialog ws={ws} member={member} onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })} />
                 </>
               ) : (
-                <span className="text-[13px] capitalize text-muted">{member.role}</span>
+                <span className="text-body capitalize text-muted">{member.role}</span>
               )}
             </div>
           </div>
@@ -261,11 +261,11 @@ function PendingInviteRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm text-ink">{invite.email}</p>
-          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-meta font-medium text-warning">
             Pending
           </span>
         </div>
-        <p className="text-[13px] capitalize text-muted">{invite.role}</p>
+        <p className="text-body capitalize text-muted">{invite.role}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {link && (
@@ -346,7 +346,7 @@ function EraseMemberDialog({
       </DialogTrigger>
       <DialogContent title="Erase this member (GDPR)">
         <div className="flex flex-col gap-4">
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             This fulfils a data-subject erasure. It permanently wipes{' '}
             <span className="font-medium text-ink">{member.user.name}</span>&rsquo;s
             identity to an anonymous tombstone, destroys their sessions, sign-in
@@ -463,7 +463,7 @@ function InviteDialog({
       <DialogContent title="Invite to workspace">
         {acceptUrl ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               Invite created. Share this link (also emailed when SMTP is configured):
             </p>
             <div className="flex gap-2">
@@ -547,7 +547,7 @@ function InviteDialog({
                 <Label>Spaces they can access</Label>
                 <div className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
                   {spaces.map((space) => (
-                    <label key={space.id} className="flex items-center gap-2 text-[13px] text-ink">
+                    <label key={space.id} className="flex items-center gap-2 text-body text-ink">
                       <input
                         type="checkbox"
                         checked={spaceIds.includes(space.id)}

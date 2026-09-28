@@ -73,12 +73,12 @@ function SignupForm() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        {error && <p className="text-[13px] text-error">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         <Button type="submit" disabled={busy} className="h-11">
           {busy ? 'Creating…' : 'Create account'}
         </Button>
       </form>
-      <p className="mt-4 text-[13px] text-muted">
+      <p className="mt-4 text-body text-muted">
         Already have an account?{' '}
         {/* #707 — a plain inline link's tap target is just its text's line box
             (measured at 16px tall). py-3 pads it toward the 44px guideline;

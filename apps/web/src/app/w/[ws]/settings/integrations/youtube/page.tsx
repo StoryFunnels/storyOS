@@ -227,7 +227,7 @@ export default function YouTubeIntegrationPage() {
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link
-        className="text-[12px] text-muted hover:text-ink"
+        className="text-label text-muted hover:text-ink"
         href={`/w/${ws}/settings/integrations`}
       >
         ← Integrations
@@ -238,7 +238,7 @@ export default function YouTubeIntegrationPage() {
         </span>
         <div>
           <h1 className="text-lg font-semibold text-ink">YouTube</h1>
-          <p className="text-[13px] text-muted">Bring videos, comments and metrics into StoryOS.</p>
+          <p className="text-body text-muted">Bring videos, comments and metrics into StoryOS.</p>
         </div>
       </div>
 
@@ -268,7 +268,7 @@ export default function YouTubeIntegrationPage() {
         <h2 className="text-sm font-semibold text-ink">
           {connected ? 'YouTube is connected' : 'Connect your YouTube account'}
         </h2>
-        <p className="mt-1 text-[13px] text-muted">
+        <p className="mt-1 text-body text-muted">
           {connected
             ? 'Add a YouTube source from the database where you want videos, comments or metrics to appear.'
             : 'StoryOS requests read-only YouTube access. It cannot publish or modify videos with this connection.'}
@@ -292,7 +292,7 @@ export default function YouTubeIntegrationPage() {
       {connected && (
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
           <h2 className="text-sm font-semibold text-ink">Start with a YouTube database</h2>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-body text-muted">
             Choose one of the three YouTube-specific templates. It is created here — you never have
             to search the general template gallery.
           </p>
@@ -303,7 +303,7 @@ export default function YouTubeIntegrationPage() {
                 className="flex flex-col rounded-[var(--radius-control)] border border-border-default p-3"
               >
                 <template.Icon className="h-5 w-5 text-ink" />
-                <h3 className="mt-2 text-[13px] font-semibold text-ink">{template.name}</h3>
+                <h3 className="mt-2 text-body font-semibold text-ink">{template.name}</h3>
                 <p className="mt-1 flex-1 text-[12px] leading-4 text-muted">
                   {template.description}
                 </p>
@@ -320,7 +320,7 @@ export default function YouTubeIntegrationPage() {
           </div>
           {created && (
             <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3 sm:flex-row sm:items-center">
-              <p className="flex-1 text-[13px] text-ink">
+              <p className="flex-1 text-body text-ink">
                 {created.sourceAttached ? (
                   <>
                     <strong>{created.name}</strong> is ready and the <strong>{created.source}</strong>{' '}
@@ -349,14 +349,14 @@ export default function YouTubeIntegrationPage() {
         onOpenChange={(open) => !open && setSelectedTemplate(null)}
       >
         <DialogContent title={`Create ${selectedTemplate?.name ?? 'YouTube database'}`}>
-          <p className="mb-4 text-[13px] text-muted">
+          <p className="mb-4 text-body text-muted">
             Installs only the fields and views maintained for {selectedTemplate?.source}.
           </p>
           <div className="space-y-4">
             <div className="flex flex-col gap-1.5">
               <Label>Space</Label>
               <select
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-[13px] text-ink"
+                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-body text-ink"
                 value={spaceId}
                 onChange={(event) => setSpaceId(event.target.value)}
               >
