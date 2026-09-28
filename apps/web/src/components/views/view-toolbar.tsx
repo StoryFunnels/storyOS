@@ -540,12 +540,12 @@ export function ViewToolbar({
           an empty picker offering nothing is a worse answer than no picker,
           the same reasoning #391's cover-image control below already uses. */}
       {viewType === 'table' && fields.some((f) => databaseId && isHierarchyField(f, databaseId)) && (
-        <label className="flex items-center gap-1 text-[12px] text-muted">
+        <label className="flex items-center gap-1 text-label text-muted">
           Nest by
           <select
             value={config.hierarchy_field_id ?? ''}
             onChange={(e) => onPatch({ hierarchy_field_id: e.target.value || undefined })}
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-[12px]"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
           >
             <option value="">Flat</option>
             {fields
@@ -563,12 +563,12 @@ export function ViewToolbar({
           the database actually has an attachment field: an empty picker offering
           nothing is a worse answer than no picker. */}
       {viewType === 'gallery' && fields.some((f) => f.type === 'attachment') && (
-        <label className="flex items-center gap-1 text-[12px] text-muted">
+        <label className="flex items-center gap-1 text-label text-muted">
           Cover
           <select
             value={config.cover_field_id ?? ''}
             onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-[12px]"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
           >
             <option value="">None</option>
             {fields
@@ -587,7 +587,7 @@ export function ViewToolbar({
       {viewType === 'board' &&
         augmented.find((f) => f.id === config.group_by_field_id)?.type === 'date' && (
           <select
-            className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+            className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
             value={config.group_by_granularity ?? 'month'}
             onChange={(e) =>
               onPatch({ group_by_granularity: e.target.value as ViewConfig['group_by_granularity'] })
@@ -603,7 +603,7 @@ export function ViewToolbar({
 
       {viewType === 'calendar' && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={config.date_field_id ?? ''}
           onChange={(e) => onPatch({ date_field_id: e.target.value })}
           title="Date field"
@@ -623,7 +623,7 @@ export function ViewToolbar({
           capability the current mode can't use. */}
       {viewType === 'calendar' && (config.calendar_mode === 'day' || config.calendar_mode === 'week') && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={config.calendar_end_date_field_id ?? ''}
           onChange={(e) => onPatch({ calendar_end_date_field_id: e.target.value || undefined })}
           title="End date field (optional — sets event height)"
@@ -702,7 +702,7 @@ export function ExportCsvButton({
   return (
     <a
       href={href}
-      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
       title={scopedToView ? "Download this view's rows as CSV" : 'Download every record as CSV'}
     >
       <Download className="h-3.5 w-3.5" /> CSV
@@ -724,13 +724,13 @@ export function ColorByButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink">
           <Palette className="h-3.5 w-3.5" /> {active ? `Color: ${active.displayName}` : 'Color'}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="min-w-44">
         <button
-          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
           onClick={() => onChange(undefined)}
         >
           None {!value && <Check className="h-3.5 w-3.5 text-accent" />}
@@ -738,7 +738,7 @@ export function ColorByButton({
         {fields.map((field) => (
           <button
             key={field.id}
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
@@ -847,7 +847,7 @@ export function AddFilterButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink">
           <ListFilter className="h-3.5 w-3.5" /> {label}
         </button>
       </DropdownMenuTrigger>
@@ -857,7 +857,7 @@ export function AddFilterButton({
           return (
             <button
               key={field.id}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
               onClick={() => onAdd(field)}
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -2885,7 +2885,7 @@ function CardFieldsButton({
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
             shown.length ? 'text-ink' : 'text-muted',
           )}
         >
@@ -2896,14 +2896,14 @@ function CardFieldsButton({
       <DropdownMenuContent className="max-h-72 w-56 overflow-y-auto">
         {size && (
           <div className="px-2 pb-1.5 pt-1">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Card size</div>
+            <div className="mb-1 text-meta font-semibold uppercase tracking-wider text-muted">Card size</div>
             <div className="flex gap-1">
               {(['small', 'medium', 'large'] as const).map((opt) => (
                 <button
                   key={opt}
                   onClick={() => onSizeChange(opt)}
                   className={cn(
-                    'flex-1 rounded border px-1.5 py-1 text-[12px] capitalize',
+                    'flex-1 rounded border px-1.5 py-1 text-label capitalize',
                     size === opt
                       ? 'border-[var(--accent)] bg-accent-soft text-ink'
                       : 'border-border-default text-muted hover:bg-hover',
@@ -2945,7 +2945,7 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
     <>
       {shownFields.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
             Shown · drag to reorder
           </div>
           <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
@@ -2960,7 +2960,7 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
             </SortableContext>
             <DragPreview>
               {cardFieldDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
                   {cardFieldLabel(cardFieldDrag.activeId) ?? ''}
                 </div>
               )}
@@ -2970,12 +2970,12 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Add</div>
+          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">Add</div>
           {available.map((field) => (
             <button
               key={field.id}
               onClick={() => onChange([...shown, field.id])}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[13px] text-muted hover:bg-hover hover:text-ink"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body text-muted hover:bg-hover hover:text-ink"
             >
               <Plus className="h-3.5 w-3.5" /> {field.displayName}
             </button>
@@ -2996,7 +2996,7 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
       // all; it now gets the same floating-preview + vacated-slot treatment as
       // the other three.
       className={cn(
-        'group flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover',
+        'group flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover',
         vacatedSlotClass(isDragging),
       )}
     >
@@ -3081,13 +3081,13 @@ function HiddenFieldsButton({
 function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
   return (
     <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Row gutter</p>
+      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">Row gutter</p>
       <button
         type="button"
         role="switch"
         aria-checked={shown}
         onClick={() => onChange(!shown)}
-        className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+        className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-body text-ink hover:bg-hover"
       >
         <span
           className={cn(

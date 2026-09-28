@@ -88,45 +88,45 @@ export function ShareViewDialog({
           {token ? (
             <>
               <div className="flex items-center gap-2">
-                <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-on-dark)]">
+                <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-meta font-medium text-[var(--text-on-dark)]">
                   Live
                 </span>
-                <span className="text-[12px] text-muted">This view is public</span>
+                <span className="text-label text-muted">This view is public</span>
               </div>
               <CopyRow label="Link" value={publicUrl} onCopy={() => copy(publicUrl, 'Link')} />
               <CopyRow label="Embed" value={embedCode} onCopy={() => copy(embedCode, 'Embed code')} />
             </>
           ) : (
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Not published. Choose which columns a visitor sees, then publish.
             </p>
           )}
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-faint">Visible columns</span>
+            <span className="text-meta font-medium uppercase tracking-wider text-faint">Visible columns</span>
             {plainFields.map((f) => (
-              <label key={f.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+              <label key={f.id} className="flex items-center gap-1.5 text-body text-ink">
                 <input
                   type="checkbox"
                   checked={visible.has(f.apiName)}
                   onChange={(e) => toggle(visible, setVisible, f.apiName, e.target.checked)}
                 />
                 {f.displayName}
-                {COMPUTED_TYPES.has(f.type) && <span className="text-[11px] text-faint">(computed)</span>}
+                {COMPUTED_TYPES.has(f.type) && <span className="text-meta text-faint">(computed)</span>}
               </label>
             ))}
           </div>
 
           {relationFields.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-faint">
+              <span className="text-meta font-medium uppercase tracking-wider text-faint">
                 Related records to include
               </span>
-              <p className="text-[11px] text-faint">
+              <p className="text-meta text-faint">
                 Off by default — a related record is its own data, not this view&apos;s.
               </p>
               {relationFields.map((f) => (
-                <label key={f.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+                <label key={f.id} className="flex items-center gap-1.5 text-body text-ink">
                   <input
                     type="checkbox"
                     checked={relationNames.has(f.apiName)}
@@ -138,7 +138,7 @@ export function ShareViewDialog({
             </div>
           )}
 
-          <label className="flex items-center gap-1.5 text-[13px] text-ink">
+          <label className="flex items-center gap-1.5 text-body text-ink">
             <input type="checkbox" checked={indexable} onChange={(e) => setIndexable(e.target.checked)} />
             Allow search engines to index this page
           </label>

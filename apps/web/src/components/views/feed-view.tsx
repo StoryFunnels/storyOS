@@ -129,7 +129,7 @@ export function FeedView({
               className="cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-4 hover:border-border-strong"
             >
               <p className="text-[15px] font-semibold text-ink">{row.title || 'Untitled'}</p>
-              {preview && <p className="mt-1.5 line-clamp-4 text-[13px] text-ink-secondary">{preview}</p>}
+              {preview && <p className="mt-1.5 line-clamp-4 text-body text-ink-secondary">{preview}</p>}
               {cardFields.length > 0 && (
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   {cardFields.map((field) => {
@@ -145,7 +145,7 @@ export function FeedView({
                   wrote it and when. globals.css reserves faint for "genuinely
                   decorative text"; a name and a date are prose. Measured on a white
                   card: faint 3.44:1 (fails AA), muted 5.73:1 (passes). */}
-              <div className="mt-3 border-t border-border-default pt-2 text-[11px] text-muted">
+              <div className="mt-3 border-t border-border-default pt-2 text-meta text-muted">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {author && <Avatar userId={author} name={memberNames.get(author) ?? '?'} image={memberImages?.get(author)} size={16} />}
                   {author && <span>{memberNames.get(author) ?? 'Someone'}</span>}
@@ -207,7 +207,7 @@ export function FeedView({
         })}
         {records.hasNextPage && (
           <button
-            className="self-center rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            className="self-center rounded px-2 py-1 text-body text-info hover:bg-hover"
             onClick={() => void records.fetchNextPage()}
             disabled={records.isFetchingNextPage}
           >

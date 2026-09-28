@@ -36,9 +36,9 @@ export function EmptyState({
         <Inbox className="h-5 w-5" />
       </div>
       {description && (
-        <p className="max-w-sm text-[13px] text-ink-secondary">{description}</p>
+        <p className="max-w-sm text-body text-ink-secondary">{description}</p>
       )}
-      <p className="max-w-sm text-[13px] text-muted">
+      <p className="max-w-sm text-body text-muted">
         {onAdd
           ? `Nothing here yet. Add your first ${noun} to get started.`
           : `Nothing here yet. New ${noun}s will show up here.`}

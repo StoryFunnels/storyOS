@@ -106,7 +106,7 @@ export function ViewTab({
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
       className={cn(
-        'group/tab flex items-center gap-1 rounded px-2 py-1 text-[13px]',
+        'group/tab flex items-center gap-1 rounded px-2 py-1 text-body',
         isActive ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
         sortable.isDragging && 'z-10 opacity-70',
       )}
@@ -133,7 +133,7 @@ export function ViewTab({
               }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="h-5 w-28 px-1 py-0 text-[13px]"
+            className="h-5 w-28 px-1 py-0 text-body"
           />
         </span>
       ) : (

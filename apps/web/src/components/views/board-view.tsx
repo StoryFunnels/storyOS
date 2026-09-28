@@ -539,7 +539,7 @@ export function BoardView({
       {records.hasNextPage && (
         <div className="shrink-0 border-t border-border-default px-4 py-2">
           <button
-            className="rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            className="rounded px-2 py-1 text-body text-info hover:bg-hover"
             onClick={() => void records.fetchNextPage()}
             disabled={records.isFetchingNextPage}
           >
@@ -599,7 +599,7 @@ function BoardColumn({
       )}
     >
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+        <span className="flex items-center gap-1.5 text-label font-medium text-ink">
           {/* #215: the option's icon where it has one, the colour dot otherwise.
               Not both — two markers for one option reads as two things. The icon
               is tinted with the option's colour so the header still carries the
@@ -672,9 +672,9 @@ function DraggableCard({
 }
 
 const SIZE_STYLES: Record<CardSize, { pad: string; title: string; clamp: string; gap: string }> = {
-  small: { pad: 'p-2', title: 'text-[12px]', clamp: 'line-clamp-1', gap: 'gap-1' },
-  medium: { pad: 'p-2.5', title: 'text-[13px]', clamp: 'line-clamp-2', gap: 'gap-1.5' },
-  large: { pad: 'p-3', title: 'text-[13px]', clamp: 'line-clamp-3', gap: 'gap-2' },
+  small: { pad: 'p-2', title: 'text-label', clamp: 'line-clamp-1', gap: 'gap-1' },
+  medium: { pad: 'p-2.5', title: 'text-body', clamp: 'line-clamp-2', gap: 'gap-1.5' },
+  large: { pad: 'p-3', title: 'text-body', clamp: 'line-clamp-3', gap: 'gap-2' },
 };
 
 /** The warm palette (option colors), used to give each card field its own stable hue. */
@@ -817,7 +817,7 @@ export function CardFieldChip({
         {ids.map((id) => (
           <span
             key={id}
-            className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary"
+            className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary"
           >
             <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
             <span className="max-w-24 truncate">{memberNames.get(id) ?? '—'}</span>
@@ -828,7 +828,7 @@ export function CardFieldChip({
   }
   if (field.type === 'checkbox') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary">
+      <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
         <input type="checkbox" checked={value === true} readOnly className="pointer-events-none h-3 w-3" />
         {field.displayName}
       </span>
@@ -855,7 +855,7 @@ export function CardFieldChip({
   }
 
   const color = fieldColor(field.id);
-  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary';
+  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary';
   return (
     <span className={pill}>
       <Triangle color={color} />

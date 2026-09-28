@@ -284,7 +284,7 @@ export function DashboardView({
               {/* #387 — `title` carries the full text: tiles are 220px and a
                   database name longer than a few words truncates, at which
                   point hover is the only way to read it. */}
-              <span className="truncate text-[13px] font-medium text-muted" title={heading}>
+              <span className="truncate text-body font-medium text-muted" title={heading}>
                 {heading}
               </span>
               {/* #385 — a permanently visible destructive control on a page you
@@ -317,7 +317,7 @@ export function DashboardView({
                 magnitude, which is the difference between a number you trust
                 and one you go and verify. */}
             {!showEditor && srcId && (
-              <span className="flex items-center gap-1 text-[11px] text-muted">
+              <span className="flex items-center gap-1 text-meta text-muted">
                 <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
                 {tile.filter != null && (
                   <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
@@ -425,7 +425,7 @@ export function DashboardView({
                   )}
                 </div>
                 {opNeedsField(tile.op) && numberFields.length === 0 && (
-                  <span className="text-[11px] text-muted">This database has no number fields to aggregate.</span>
+                  <span className="text-meta text-muted">This database has no number fields to aggregate.</span>
                 )}
 
                 {/* #388 — a target, so the number supports a decision.
@@ -502,7 +502,7 @@ export function DashboardView({
             type="button"
             onClick={() => setEditing((e) => !e)}
             aria-pressed={editing}
-            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-body text-ink-secondary hover:bg-hover"
           >
             {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
             {editing ? 'Done' : 'Edit'}
@@ -514,7 +514,7 @@ export function DashboardView({
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
           {!readOnly && (
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               Add a metric tile (count, sum, average) or a chart grouped by a field.
             </p>
           )}
@@ -593,7 +593,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addTile}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add tile
@@ -601,7 +601,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addWidget}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add chart
@@ -684,7 +684,7 @@ function TileValue({
     !unconfigured,
   );
   if (unconfigured) {
-    return <span className="text-[13px] font-normal text-muted">Pick a database</span>;
+    return <span className="text-body font-normal text-muted">Pick a database</span>;
   }
   if (aggregate.isLoading) return <span className="text-muted">…</span>;
   /**
@@ -696,7 +696,7 @@ function TileValue({
    */
   if (aggregate.isError) {
     return (
-      <span className="text-[13px] font-normal text-muted" title="You don't have access to this tile's database">
+      <span className="text-body font-normal text-muted" title="You don't have access to this tile's database">
         No access
       </span>
     );
@@ -716,7 +716,7 @@ function TileValue({
         {formatTileValue(value)}
         <span
           className={cn(
-            'text-[12px] font-medium',
+            'text-label font-medium',
             /* Semantic, NOT the brand accent: good/bad/neutral is a different
                scale from "this is interactive", and #388 requires it legible in
                both themes. These three tokens are already theme-aware. */
@@ -740,7 +740,7 @@ function TileValue({
             style={{ width: `${progress.ratio * 100}%` }}
           />
         </span>
-        <span className="shrink-0 text-[11px] font-normal text-muted">{progress.label}</span>
+        <span className="shrink-0 text-meta font-normal text-muted">{progress.label}</span>
       </span>
     </span>
   );

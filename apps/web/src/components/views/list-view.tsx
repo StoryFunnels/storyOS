@@ -140,12 +140,12 @@ export function ListView({
                     <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
                   </button>
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
-                  <span className="text-[12px] font-medium text-ink">{group.label}</span>
+                  <span className="text-label font-medium text-ink">{group.label}</span>
                   {/* #755 — while more pages remain unloaded (records.hasNextPage),
                       this group's row count is only a lower bound: Will Not Do read
                       4 and held 63 on storyos/issues (740 records, page size 100).
                       Same shared rule list-view.tsx and board-view.tsx both read. */}
-                  <span className="text-[11px] text-faint">
+                  <span className="text-meta text-faint">
                     {groupCountLabel(group.rows.length, Boolean(records.hasNextPage))}
                   </span>
                 </div>
@@ -167,8 +167,8 @@ export function ListView({
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-                      {row.number !== null && !numberHidden && <span className="w-8 shrink-0 text-[11px] tabular-nums text-faint">{row.number}</span>}
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title || 'Untitled'}</span>
+                      {row.number !== null && !numberHidden && <span className="w-8 shrink-0 text-meta tabular-nums text-faint">{row.number}</span>}
+                      <span className="min-w-0 flex-1 truncate text-body text-ink">{row.title || 'Untitled'}</span>
                       <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                         {cardFields.map((field) => {
                           const value = row.values[field.apiName];
@@ -184,7 +184,7 @@ export function ListView({
                   {!readOnly && (
                     <button
                       onClick={() => addIn(group.id)}
-                      className="flex w-full items-center gap-1.5 px-3 py-2 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-label text-muted hover:bg-hover hover:text-ink"
                     >
                       <Plus className="h-3.5 w-3.5" /> New
                     </button>
@@ -196,7 +196,7 @@ export function ListView({
         })}
         {records.hasNextPage && (
           <button
-            className="rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            className="rounded px-2 py-1 text-body text-info hover:bg-hover"
             onClick={() => void records.fetchNextPage()}
             disabled={records.isFetchingNextPage}
           >

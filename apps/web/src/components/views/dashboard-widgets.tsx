@@ -273,7 +273,7 @@ export function DashboardWidgetCard({
        the card does not, so a short chart left a gap under itself. */
     <div className="flex h-full flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-medium text-muted">{heading}</span>
+        <span className="text-body font-medium text-muted">{heading}</span>
         {showConfig && (
           <button
             type="button"
@@ -290,7 +290,7 @@ export function DashboardWidgetCard({
           this chart is filtered. Both were visible only while the editor was
           permanently open. */}
       {!showConfig && sourceLabel && (
-        <span className="-mt-2 flex items-center gap-1 text-[11px] text-faint">
+        <span className="-mt-2 flex items-center gap-1 text-meta text-faint">
           <span className="truncate" title={sourceLabel}>{sourceLabel}</span>
           {widget.filter != null && (
             <span className="flex shrink-0 items-center gap-0.5" title="This chart has its own filter">
@@ -464,7 +464,7 @@ export function DashboardWidgetCard({
             )}
           </div>
           {groupableFields.length === 0 && (
-            <span className="text-[11px] text-faint">
+            <span className="text-meta text-faint">
               This database has no select, date, or checkbox fields to group by.
             </span>
           )}
@@ -517,7 +517,7 @@ function WidgetBody({
 
 function CenterNote({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-[220px] items-center justify-center text-[13px] text-faint">{children}</div>
+    <div className="flex h-[220px] items-center justify-center text-body text-faint">{children}</div>
   );
 }
 
@@ -596,7 +596,7 @@ function PieWidget({ series }: { series: SeriesPoint[] }) {
 function GroupedTable({ series }: { series: SeriesPoint[] }) {
   return (
     <div className="overflow-auto">
-      <table className="w-full text-[13px]">
+      <table className="w-full text-body">
         <thead>
           <tr className="border-b border-border-default text-left text-muted">
             <th className="py-1.5 pr-2 font-medium">Group</th>
