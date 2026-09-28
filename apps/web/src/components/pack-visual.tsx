@@ -72,17 +72,17 @@ export function PackVisual({ pack }: { pack: PackPreviewCounts }) {
       <div className="relative grid h-full grid-cols-2 gap-2">
         <div className="rounded border border-border-default bg-card/90 p-2 shadow-sm">
           <Database className="h-3.5 w-3.5 text-ink" />
-          <p className="mt-2 text-[16px] font-semibold text-ink">{pack.preview.databases}</p>
-          <p className="text-[10px] text-muted">{pack.preview.databases === 1 ? 'database' : 'databases'}</p>
+          <p className="mt-2 text-title font-semibold text-ink">{pack.preview.databases}</p>
+          <p className="text-micro text-muted">{pack.preview.databases === 1 ? 'database' : 'databases'}</p>
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex flex-1 items-center gap-2 rounded border border-border-default bg-card/90 px-2 shadow-sm">
             <Workflow className="h-3.5 w-3.5 text-ink" />
-            <span className="text-[10px] text-muted">{plural(pack.preview.automations, 'automation')}</span>
+            <span className="text-micro text-muted">{plural(pack.preview.automations, 'automation')}</span>
           </div>
           <div className="flex flex-1 items-center gap-2 rounded border border-border-default bg-card/90 px-2 shadow-sm">
             <Bot className="h-3.5 w-3.5 text-ink" />
-            <span className="text-[10px] text-muted">{plural(pack.preview.agents, 'agent')}</span>
+            <span className="text-micro text-muted">{plural(pack.preview.agents, 'agent')}</span>
           </div>
         </div>
       </div>

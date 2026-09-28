@@ -115,7 +115,7 @@ export function SidebarRowMenu({
           <Fragment key={action.label}>
             {action.separatorBefore && i > 0 && <DropdownMenuSeparator />}
             {action.sectionLabel && (
-              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+              <div className="px-2 py-1 text-meta font-semibold uppercase tracking-wider text-faint">
                 {action.sectionLabel}
               </div>
             )}

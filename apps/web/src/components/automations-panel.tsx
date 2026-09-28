@@ -179,7 +179,7 @@ export function AutomationsPanel({
             <button
               key={t}
               className={cn(
-                'flex items-center gap-1.5 rounded px-2.5 py-1 text-[13px] capitalize',
+                'flex items-center gap-1.5 rounded px-2.5 py-1 text-body capitalize',
                 tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
               )}
               onClick={() => setTab(t)}
@@ -197,7 +197,7 @@ export function AutomationsPanel({
         {tab === 'buttons' && (
           <div className="flex flex-col gap-1.5">
             {buttons.length === 0 && (
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 No buttons yet — add a <strong>Button</strong> field from the table's "New field".
               </p>
             )}
@@ -206,8 +206,8 @@ export function AutomationsPanel({
                 key={b.id}
                 className="rounded-[var(--radius-card)] border border-border-default p-3"
               >
-                <p className="text-[13px] font-medium text-ink">{b.displayName}</p>
-                <p className="text-[12px] text-muted">
+                <p className="text-body font-medium text-ink">{b.displayName}</p>
+                <p className="text-label text-muted">
                   {((b.config['actions'] as ButtonAction[]) ?? [])
                     .map((a) => a.type.replace('_', ' '))
                     .join(' → ')}
@@ -241,7 +241,7 @@ export function AutomationsPanel({
               />
             ))}
             {(rules.data ?? []).length === 0 && (
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 No rules yet. Rules run actions when records change or on a schedule.
               </p>
             )}
@@ -330,30 +330,30 @@ function RuleRow({
           title="Enabled"
         />
         <button className="min-w-0 flex-1 text-left" onClick={onEdit}>
-          <p className="truncate text-[13px] font-medium text-ink">{rule.name}</p>
-          <p className="truncate text-[12px] text-muted">
+          <p className="truncate text-body font-medium text-ink">{rule.name}</p>
+          <p className="truncate text-label text-muted">
             {triggerSentence(rule, fields)} →{' '}
             {rule.actions.map((a) => a.type.replace('_', ' ')).join(', ')}
           </p>
         </button>
         <button
-          className="text-[12px] text-muted hover:text-ink"
+          className="text-label text-muted hover:text-ink"
           onClick={() => setShowDiagram((s) => !s)}
         >
           Diagram
         </button>
         <button
-          className="text-[12px] text-muted hover:text-ink"
+          className="text-label text-muted hover:text-ink"
           onClick={() => setShowRuns((s) => !s)}
         >
           Runs
         </button>
-        <button className="text-[12px] text-error hover:underline" onClick={onDelete}>
+        <button className="text-label text-error hover:underline" onClick={onDelete}>
           Delete
         </button>
       </div>
       {!rule.enabled && rule.failureStreak >= 10 && (
-        <p className="mt-1 text-[12px] text-warning">
+        <p className="mt-1 text-label text-warning">
           Auto-disabled after repeated failures — fix the actions and re-enable.
         </p>
       )}
@@ -361,7 +361,7 @@ function RuleRow({
         <div className="mt-2 border-t border-border-default pt-2">
           <FlowDiagram rule={rule as DiagramRule} fields={fields} />
           <button
-            className="mt-2 text-[12px] text-muted hover:text-ink hover:underline"
+            className="mt-2 text-label text-muted hover:text-ink hover:underline"
             onClick={onEdit}
           >
             Edit in form
@@ -370,9 +370,9 @@ function RuleRow({
       )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
-          {(runs.data ?? []).length === 0 && <p className="text-[12px] text-muted">No runs yet.</p>}
+          {(runs.data ?? []).length === 0 && <p className="text-label text-muted">No runs yet.</p>}
           {(runs.data ?? []).slice(0, 10).map((run) => (
-            <p key={run.id} className="text-[12px] text-muted">
+            <p key={run.id} className="text-label text-muted">
               <span
                 className={cn(
                   'mr-1.5 inline-block h-1.5 w-1.5 rounded-full',
@@ -647,8 +647,8 @@ function RuleEditor({
     return (
       <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default p-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">Start from a recipe</p>
-          <p className="text-[12px] text-muted">
+          <p className="text-body font-medium text-ink">Start from a recipe</p>
+          <p className="text-label text-muted">
             Pick one and edit it — every recipe fills in the same form you'd build by hand.
           </p>
         </div>
@@ -660,12 +660,12 @@ function RuleEditor({
               className="rounded-[var(--radius-card)] border border-border-default p-2 text-left hover:bg-hover"
               onClick={() => applyRecipe(fill)}
             >
-              <p className="text-[13px] text-ink">{recipe.title}</p>
-              <p className="text-[11px] text-muted">{recipe.description}</p>
+              <p className="text-body text-ink">{recipe.title}</p>
+              <p className="text-meta text-muted">{recipe.description}</p>
             </button>
           ))}
           {recipes.length === 0 && (
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               No recipes fit this database yet — build a rule from scratch below.
             </p>
           )}
@@ -711,7 +711,7 @@ function RuleEditor({
           </Select>
           {triggerType === 'record_linked' &&
             (relationFields.length === 0 ? (
-              <p className="text-[12px] text-muted">
+              <p className="text-label text-muted">
                 This database has no relation fields yet — add one first.
               </p>
             ) : (
@@ -779,7 +779,7 @@ function RuleEditor({
             rules get a short explanation instead of a silently absent control. */}
         {triggerType === 'schedule' ? (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-muted">Select</span>
+            <span className="text-label text-muted">Select</span>
             <SortButton
               fields={fields}
               sorts={sort}
@@ -796,12 +796,12 @@ function RuleEditor({
               value={limit}
               onChange={(e) => setLimit(e.target.value)}
             />
-            <span className="text-[12px] text-muted">
+            <span className="text-label text-muted">
               records (up to {AUTOMATION_TOP_N_LIMIT_CEILING}) — leave blank for no cap
             </span>
           </div>
         ) : (
-          <p className="text-[12px] text-muted">
+          <p className="text-label text-muted">
             Top-N selection (sort + a record cap) is only available on a schedule trigger — a
             single triggering record has no "top N" to pick from.
           </p>
@@ -812,7 +812,7 @@ function RuleEditor({
         <div className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default bg-card/50 p-2.5">
           <Label>Webhook endpoint</Label>
           {!rule ? (
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Save this rule once to mint its URL and secret.
             </p>
           ) : (
@@ -820,7 +820,7 @@ function RuleEditor({
               <div className="flex items-center gap-1.5">
                 <Input
                   readOnly
-                  className="h-7 font-mono text-[12px]"
+                  className="h-7 font-mono text-label"
                   value={
                     hookToken && workspaceQuery.data
                       ? hookUrl(workspaceQuery.data.slug, hookToken)
@@ -843,7 +843,7 @@ function RuleEditor({
                 </Button>
               </div>
               <div className="flex items-center gap-1.5">
-                <Input readOnly className="h-7 font-mono text-[12px]" value={hookSecret ?? ''} />
+                <Input readOnly className="h-7 font-mono text-label" value={hookSecret ?? ''} />
                 <Button
                   variant="secondary"
                   size="sm"
@@ -861,18 +861,18 @@ function RuleEditor({
               {/* #158 — lead with what a non-technical user actually does: paste the
                   URL into the tool that will call it. Signing/tokens/raw payload are
                   developer concerns and move behind Advanced. */}
-              <p className="text-[11px] text-muted">
+              <p className="text-meta text-muted">
                 Paste this URL into the tool that should trigger this rule — in Typeform:
                 <em> Connect → Webhooks → Add a webhook</em>; in Zapier or Make: choose a
                 “Webhooks” action and paste it as the destination URL. Nothing else is
                 required — send a test from that tool and this rule runs.
               </p>
               <details className="rounded border border-border-default">
-                <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+                <summary className="cursor-pointer select-none px-2 py-1 text-meta text-muted hover:text-ink">
                   Advanced — signing, payload tokens &amp; last delivery
                 </summary>
                 <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
-                  <p className="text-[11px] text-muted">
+                  <p className="text-meta text-muted">
                     Sign requests with the secret above (X-StoryOS-Signature: sha256=…,
                     X-StoryOS-Timestamp) to have them verified; unsigned requests are accepted
                     if no signature is sent.{' '}
@@ -881,13 +881,13 @@ function RuleEditor({
                   </p>
                   <button
                     type="button"
-                    className="self-start text-[12px] text-muted hover:text-ink"
+                    className="self-start text-label text-muted hover:text-ink"
                     onClick={() => setShowLastPayload((s) => !s)}
                   >
                     {showLastPayload ? 'Hide' : 'Show'} last received payload
                   </button>
                   {showLastPayload && (
-                    <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-[11px] text-muted">
+                    <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-meta text-muted">
                       {lastPayloadQuery.isLoading
                         ? 'Loading…'
                         : lastPayloadQuery.data?.last_hook_payload

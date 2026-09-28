@@ -313,7 +313,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
         {failure && (
           /* #373 — the specifics the server sent, shown instead of discarded.
              `select-text` because these get pasted into support threads. */
-          <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-[13px]">
+          <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-body">
             <p className="font-medium text-error">{failure.message}</p>
             {/* Whether ANYTHING landed was previously unstated, and it is the
                 first thing you want to know before retrying. */}
@@ -321,7 +321,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
               {step === 4 ? 'Some rows may have been imported — check the summary.' : 'Nothing was imported.'}
             </p>
             {failure.details.length > 0 && (
-              <ul className="mt-2 max-h-40 select-text space-y-1 overflow-y-auto font-mono text-[12px] text-ink-secondary">
+              <ul className="mt-2 max-h-40 select-text space-y-1 overflow-y-auto font-mono text-label text-ink-secondary">
                 {failure.details.map((d, i) => (
                   <li key={i}>
                     {d.path ? <span className="text-faint">{d.path}: </span> : null}
@@ -333,7 +333,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
           </div>
         )}
         {step === 1 && (
-          <label className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-border-strong text-[13px] text-muted hover:bg-hover">
+          <label className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-border-strong text-body text-muted hover:bg-hover">
             {busy ? 'Parsing…' : 'Click to choose a .csv file (≤10MB)'}
             <input
               type="file"
@@ -349,7 +349,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
 
         {step === 2 && (
           <>
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               {/* #376 — with 22 columns there was no sense of scale: no count, and
                   no way to tell how far down you had got. */}
               Map each column — <span className="text-ink">{inferred.length} columns</span>. Exactly one must be
@@ -359,7 +359,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
             {/* #378 — opt-in key matching. Absent by default: the overwhelming
                 majority of imports are still plain create-only, and this must
                 render identically to before when no key column is chosen. */}
-            <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px]">
+            <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-body">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-ink-secondary">Match existing items by</span>
                 <Select
@@ -427,7 +427,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       before-image, so a failed import cannot undo it the way a
                       failed create-only import can. */}
                   {onMatch === 'update' && (
-                    <p className="text-[12px] text-warning">
+                    <p className="text-label text-warning">
                       If this import fails partway through, newly created records are automatically
                       removed — but any records already updated stay updated. Only creates roll back.
                     </p>
@@ -475,8 +475,8 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                     className="box-border flex h-[52px] items-center gap-3 border-b border-border-default px-3 last:border-b-0"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{c.column}</p>
-                      <p className="truncate text-[11px] text-faint">
+                      <p className="truncate text-body font-medium text-ink">{c.column}</p>
+                      <p className="truncate text-meta text-faint">
                         {/* #379 — say when the choice was made automatically. */}
                         {autoMatched.has(c.column) && to.kind === 'existing' ? (
                           <span className="text-accent">matched to an existing field · </span>
@@ -593,7 +593,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
         {step === 3 && dryRun && (
           <>
             <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4">
-              <p className="text-[14px] font-medium text-ink">
+              <p className="text-prose font-medium text-ink">
                 {/* #378 — a create-only run (no key column) shows the original
                     sentence unchanged; update/skip counts only appear once
                     they mean something. */}
@@ -606,7 +606,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
               {dryRun.warnings.length > 0 && (
                 <div className="mt-2 max-h-40 overflow-y-auto">
                   {dryRun.warnings.map((w, i) => (
-                    <p key={i} className="text-[12px] text-muted">
+                    <p key={i} className="text-label text-muted">
                       Row {w.row} · {w.column}: {w.message}
                     </p>
                   ))}
@@ -624,7 +624,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                 : `Imported ${result.created} records 🎉`}
             </p>
             {result.warnings_total > 0 && (
-              <p className="mt-1 text-[12px] text-muted">{result.warnings_total} cells were dropped with warnings.</p>
+              <p className="mt-1 text-label text-muted">{result.warnings_total} cells were dropped with warnings.</p>
             )}
           </div>
         )}

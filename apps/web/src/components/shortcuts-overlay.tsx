@@ -30,9 +30,9 @@ export function ShortcutsOverlay() {
         <h2 className="mb-3 text-sm font-semibold text-ink">Keyboard shortcuts</h2>
         <div className="flex flex-col gap-1.5">
           {SHORTCUTS.map((s) => (
-            <div key={s.id} className="flex items-center justify-between text-[13px]">
+            <div key={s.id} className="flex items-center justify-between text-body">
               <span className="text-ink-secondary">{s.label}</span>
-              <kbd className="rounded border border-border-default bg-canvas px-1.5 py-0.5 text-[11px] text-muted">
+              <kbd className="rounded border border-border-default bg-canvas px-1.5 py-0.5 text-meta text-muted">
                 {formatShortcut(s.keys, isMac)}
               </kbd>
             </div>

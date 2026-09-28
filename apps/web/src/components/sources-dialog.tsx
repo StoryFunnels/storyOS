@@ -556,9 +556,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     return (
       <DialogContent title={`Runs — "${runsFor.name}"`} className="max-w-xl">
         <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto pr-1">
-          {(runs.data ?? []).length === 0 && <p className="text-[13px] text-muted">No syncs yet.</p>}
+          {(runs.data ?? []).length === 0 && <p className="text-body text-muted">No syncs yet.</p>}
           {(runs.data ?? []).map((r) => (
-            <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-[13px]">
+            <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-body">
               <div className="flex items-center justify-between">
                 <span className={cn('font-medium', r.status === 'ok' ? 'text-ink' : 'text-error')}>
                   {r.status === 'skipped_quota'
@@ -567,13 +567,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       ? 'skipped (monthly cap)'
                       : r.status}
                 </span>
-                <span className="text-[11px] text-muted">{fmt.dateTime(r.started_at)}</span>
+                <span className="text-meta text-muted">{fmt.dateTime(r.started_at)}</span>
               </div>
-              <p className="mt-0.5 text-[12px] text-muted">
+              <p className="mt-0.5 text-label text-muted">
                 fetched {r.fetched} · created {r.created} · updated {r.updated}
                 {typeof r.stats?.['compute_units'] === 'number' && ` · ${r.stats['compute_units']} compute units`}
               </p>
-              {r.error && <p className="mt-0.5 text-[12px] text-error">{r.error}</p>}
+              {r.error && <p className="mt-0.5 text-label text-error">{r.error}</p>}
             </div>
           ))}
         </div>
@@ -598,7 +598,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     return (
       <DialogContent title={`Edit mapping — "${editingSource.name}"`} className="max-w-2xl">
         <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Direction controls whether this source only reads a field, only writes it back, or both. The external
             key and each field&apos;s destination are set when the source is created and aren&apos;t changed here.
           </p>
@@ -612,11 +612,11 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               return (
                 <div key={key} className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium text-ink">
+                    <p className="truncate text-body font-medium text-ink">
                       {label}
-                      {isKey && <span className="ml-1.5 text-[11px] font-normal text-muted">(external key)</span>}
+                      {isKey && <span className="ml-1.5 text-meta font-normal text-muted">(external key)</span>}
                     </p>
-                    <p className="truncate text-[11px] text-muted">→ {fieldName}</p>
+                    <p className="truncate text-meta text-muted">→ {fieldName}</p>
                   </div>
                   <span className="inline-flex shrink-0 overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
                     {(['in', 'out', 'both'] as const).map((d) => (
@@ -711,7 +711,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
               <div className="flex items-start gap-2">
                 <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
-                <p className="text-[13px] text-ink">
+                <p className="text-body text-ink">
                   Google Calendar syncs two ways — StoryOS records ↔ calendar events — so it&apos;s set
                   up in the Calendar integration, where you pick the calendar and map your date fields.
                 </p>
@@ -719,13 +719,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               {calendarPresent.actionable ? (
                 <Link
                   href={`/w/${ws}/settings/integrations/google-calendar`}
-                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
                   onClick={onDone}
                 >
                   Open Calendar integration →
                 </Link>
               ) : (
-                <p className="text-[12px] text-muted">{calendarPresent.description}</p>
+                <p className="text-label text-muted">{calendarPresent.description}</p>
               )}
             </div>
           )}
@@ -740,7 +740,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               return (
                 <p
                   className={cn(
-                    'rounded-[var(--radius-card)] border px-3 py-2 text-[12px]',
+                    'rounded-[var(--radius-card)] border px-3 py-2 text-label',
                     present.state === 'cloud_only'
                       ? 'border-border-default bg-accent-soft text-ink'
                       : 'border-border-default bg-card text-muted',
@@ -752,7 +752,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             })()}
 
           {provider?.description && (
-            <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-label text-muted">
               {provider.description}
             </p>
           )}
@@ -761,7 +761,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-1.5">
               <Label>Connection</Label>
               {eligibleConnections.length === 0 ? (
-                <p className="text-[12px] text-error">
+                <p className="text-label text-error">
                   No {provider?.connection_provider} connection yet — add one under Settings → Connections first.
                 </p>
               ) : (
@@ -831,7 +831,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                           value={config['channel_id'] ?? ''}
                           onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
                         />
-                        <p className="text-[11px] text-muted">
+                        <p className="text-meta text-muted">
                           {channels.isError
                             ? "Couldn't list this account's channels — enter a channel id manually."
                             : 'This account has no channels — enter a channel id manually.'}
@@ -854,14 +854,14 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                     )}
                   </>
                 ) : spec.kind === 'boolean' ? (
-                  <label className="flex items-center gap-2 text-[13px] text-ink">
+                  <label className="flex items-center gap-2 text-body text-ink">
                     <input
                       type="checkbox"
                       checked={config[key] === 'true'}
                       onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
                     />
                     {configFieldLabel(key)}
-                    {spec.description ? <span className="text-[11px] text-muted">— {spec.description}</span> : null}
+                    {spec.description ? <span className="text-meta text-muted">— {spec.description}</span> : null}
                   </label>
                 ) : (
                   <>
@@ -905,10 +905,10 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         error when the current value is malformed. */}
                     {(() => {
                       const err = validateConfigField(providerId, key, config[key] ?? '');
-                      if (err) return <p className="text-[11px] text-error">{err}</p>;
+                      if (err) return <p className="text-meta text-error">{err}</p>;
                       if (spec.kind === 'array' || (spec.description && spec.kind !== 'json'))
                         return spec.description ? (
-                          <p className="text-[11px] text-muted">{spec.description}</p>
+                          <p className="text-meta text-muted">{spec.description}</p>
                         ) : null;
                       return null;
                     })()}
@@ -928,7 +928,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               >
                 {discoverFields.isPending ? 'Discovering…' : 'Discover fields'}
               </Button>
-              <p className="text-[11px] text-muted">
+              <p className="text-meta text-muted">
                 Runs the actor once (or reads its last successful run) to read a sample item's keys, so mapping is
                 point-and-click instead of reading the actor's docs.
               </p>
@@ -973,7 +973,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 )}
 
                 {(recurrenceForm.kind === 'daily' || recurrenceForm.kind === 'weekly') && (
-                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                  <label className="flex items-center gap-1.5 text-label text-muted">
                     at
                     <Input
                       type="time"
@@ -989,7 +989,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 )}
 
                 {recurrenceForm.kind === 'hourly' && (
-                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                  <label className="flex items-center gap-1.5 text-label text-muted">
                     at minute
                     <Input
                       type="number"
@@ -1006,7 +1006,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   </label>
                 )}
               </div>
-              <p className="text-[11px] text-muted">
+              <p className="text-meta text-muted">
                 Runs once per slot at the chosen wall-clock time — daily keeps well under API quotas.
               </p>
             </div>
@@ -1014,14 +1014,14 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
 
           {providerId && catalog.length > 0 && (
             <>
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 Map each field this source will write. Pick which one is the external key (used to update the
                 same record instead of duplicating it).
               </p>
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {catalog.map((item) => (
                   <div key={item.key} className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
-                    <label className="flex items-center gap-1.5 text-[12px] text-muted" title="External key">
+                    <label className="flex items-center gap-1.5 text-label text-muted" title="External key">
                       <input
                         type="radio"
                         name="external-key"
@@ -1032,8 +1032,8 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       key
                     </label>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{item.label}</p>
-                      <p className="truncate text-[11px] text-muted">{item.key}</p>
+                      <p className="truncate text-body font-medium text-ink">{item.label}</p>
+                      <p className="truncate text-meta text-muted">{item.key}</p>
                     </div>
                     <Select
                       size="sm"
@@ -1099,18 +1099,18 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   return (
     <DialogContent title={`Sync from… "${database.data?.name ?? ''}"`} className="max-w-2xl">
       <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           A source is a scheduled sync — external items land as ordinary records, upserted by an external key.
         </p>
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
           {(sources.data ?? []).length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-muted">No sources yet — add one below.</p>
+            <p className="px-4 py-6 text-body text-muted">No sources yet — add one below.</p>
           )}
           {(sources.data ?? []).map((s) => (
             <div key={s.id} className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-ink">{s.name}</p>
-                <p className="mt-0.5 truncate text-[11px] text-muted">
+                <p className="truncate text-body font-medium text-ink">{s.name}</p>
+                <p className="mt-0.5 truncate text-meta text-muted">
                   {s.provider_source} · {describeRecurrence(s.recurrence, s.schedule)} ·{' '}
                   <span className={s.status === 'error' ? 'text-error' : undefined}>{STATUS_LABEL[s.status]}</span>
                   {s.last_sync_at ? ` · last synced ${fmt.dateTime(s.last_sync_at)}` : ' · never synced'}
