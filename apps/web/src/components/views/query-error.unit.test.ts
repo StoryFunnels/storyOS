@@ -91,9 +91,13 @@ describe('ViewQueryError renders an error, never an empty view (#346)', () => {
   it('never uses empty-state wording — that conflation IS the bug', async () => {
     const html = await render({ error: { message: 'op "has_none" on "status" expects a non-empty array of ids' } });
     expect(html.toLowerCase()).not.toContain('no records');
-    // #149 renamed the empty state to "No items yet." The guard above only knew
-    // the old noun, so it would have passed on the exact wording it exists to
-    // reject. Both are checked now, and a future rename must add its own.
+    // Vera caught the comment that used to sit here: it said #149 renamed the
+    // empty state to "No items yet.", a string that exists nowhere. The real
+    // empty state reads "Nothing here yet. Add your first {noun}." — checked in
+    // empty-state.tsx during that same session, and then written up wrongly
+    // anyway. The guard below is still right, for a plainer reason: "no items"
+    // is the wording this error state must never drift into as the product's
+    // noun changes, so it is rejected alongside the old one.
     expect(html.toLowerCase()).not.toContain('no items');
     expect(html.toLowerCase()).not.toContain('nothing here');
     // And it says the data is fine, because "empty grid" taught users otherwise.

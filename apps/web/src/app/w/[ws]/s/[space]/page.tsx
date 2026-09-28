@@ -127,12 +127,12 @@ export default function SpacePage() {
   // nothing about WHY. Loading first; only once the list has actually returned
   // do we say the space cannot be seen.
   if (spaces.isLoading) {
-    return <div className="p-4 sm:p-8 text-[13px] text-muted">Loading…</div>;
+    return <div className="p-4 sm:p-8 text-body text-muted">Loading…</div>;
   }
   if (!space) {
     return (
       <div className="p-4 sm:p-8">
-        <p className="max-w-md rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
+        <p className="max-w-md rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
           Nothing here you can access, or this space does not exist.
         </p>
       </div>
@@ -215,7 +215,7 @@ export default function SpacePage() {
           />
           <div className="flex items-center gap-2">
             <span
-              className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-muted')}
+              className={cn('text-label tabular-nums', draft.over ? 'text-error' : 'text-muted')}
             >
               {draft.hint}
             </span>
@@ -244,7 +244,7 @@ export default function SpacePage() {
         <button
           type="button"
           onClick={() => setEditingDesc(true)}
-          className="mb-6 block max-w-xl text-left text-[13px] text-muted hover:text-ink"
+          className="mb-6 block max-w-xl text-left text-body text-muted hover:text-ink"
         >
           {space.description || 'Add a description…'}
         </button>
@@ -267,7 +267,7 @@ export default function SpacePage() {
           )}
         </div>
         {canSeeAccessList ? (
-          <div className="flex flex-col gap-3 text-[13px]">
+          <div className="flex flex-col gap-3 text-body">
             <AccessGroup
               label="Workspace members"
               hint="admin or member — access to every non-personal space"
@@ -291,7 +291,7 @@ export default function SpacePage() {
             />
           </div>
         ) : (
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Only workspace admins and members can see who else has access.
           </p>
         )}
@@ -300,7 +300,7 @@ export default function SpacePage() {
       {/* Ontology */}
       <section className="mb-8">
         <h2 className="mb-1 text-sm font-medium text-ink">Ontology</h2>
-        <p className="mb-3 text-[13px] text-muted">
+        <p className="mb-3 text-body text-muted">
           {/* #636 — there is only ONE rendering now, so this caption no longer
               has to describe which of two the component picked (#509's
               question, which the redesign made moot along with
@@ -331,14 +331,14 @@ export default function SpacePage() {
       <section>
         <h2 className="mb-2 text-sm font-medium text-ink">Contents</h2>
         {spaceDatabases.length === 0 ? (
-          <p className="text-[13px] text-muted">No databases here that you can access.</p>
+          <p className="text-body text-muted">No databases here that you can access.</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {spaceDatabases.map((d) => (
               <li key={d.id}>
                 <a
                   href={`/w/${ws}/d/${d.id}`}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink hover:bg-hover"
+                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
                 >
                   <EntityIcon icon={d.icon} color={d.color} fallback={null} />
                   <span className="truncate">{d.name}</span>
@@ -380,7 +380,7 @@ function AccessGroup({
   if (rows.length === 0) return null;
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted" title={hint}>
+      <p className="mb-1 text-meta font-medium uppercase tracking-wider text-muted" title={hint}>
         {label}
       </p>
       <ul className="flex flex-col gap-0.5">

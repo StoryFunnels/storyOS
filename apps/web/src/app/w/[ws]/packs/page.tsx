@@ -223,7 +223,7 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
         : 'bg-hover text-muted';
   const label = action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{label}</span>
+    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${style}`}>{label}</span>
   );
 }
 
@@ -231,10 +231,10 @@ function PreviewSection({ title, items }: { title: string; items: PreviewItem[] 
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted">{title}</p>
+      <p className="mb-1.5 text-meta font-medium uppercase tracking-wider text-muted">{title}</p>
       <div className="flex flex-col gap-1">
         {items.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-2 text-[13px]">
+          <div key={item.name} className="flex items-center justify-between gap-2 text-body">
             <span className="text-ink-secondary">{item.name}</span>
             <ActionBadge action={item.action} />
           </div>
@@ -256,7 +256,7 @@ function CollisionResolver({
   if (entries.length === 0) return null;
   return (
     <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-      <p className="mb-2 text-[12px] font-semibold text-ink">
+      <p className="mb-2 text-label font-semibold text-ink">
         {entries.length} name{entries.length > 1 ? 's' : ''} already exist in this workspace
       </p>
       <div className="flex flex-col gap-2">
@@ -264,12 +264,12 @@ function CollisionResolver({
           const resolution = resolutions[label] ?? { action: 'reuse' };
           return (
             <div key={label} className="flex flex-col gap-1.5 rounded-[var(--radius-control)] bg-card p-2">
-              <p className="text-[13px] text-ink">{label}</p>
+              <p className="text-body text-ink">{label}</p>
               {/* #569 — a database collision only ever accepts "reuse" server-side
                   (renaming would desync the manifest's symbolic $db refs); no
                   select is offered rather than one that 422s at submit. */}
               {reuseOnly ? (
-                <p className="text-[12px] text-muted">
+                <p className="text-label text-muted">
                   Will reuse the existing database — rename/skip aren't supported for a database
                   name collision yet.
                 </p>
@@ -390,15 +390,15 @@ function InstallDialog({
       <DialogContent title={entry.data?.name ?? 'Install pack'} className="max-w-xl">
         {result ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               {result.name} v{result.version} is installed. Here’s what you got:
             </p>
             <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
               {created(result).length === 0 ? (
-                <p className="text-[13px] text-muted">Everything already existed — nothing new was created.</p>
+                <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
               ) : (
                 created(result).map((item) => (
-                  <div key={`${item.name}-${item.id}`} className="flex items-center gap-2 text-[13px]">
+                  <div key={`${item.name}-${item.id}`} className="flex items-center gap-2 text-body">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
                     <span className="text-ink-secondary">{item.name}</span>
                   </div>
@@ -407,10 +407,10 @@ function InstallDialog({
             </div>
             {result.unmet.length > 0 && (
               <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-                <p className="mb-1.5 text-[12px] font-semibold text-ink">Still to connect</p>
+                <p className="mb-1.5 text-label font-semibold text-ink">Still to connect</p>
                 <div className="flex flex-col gap-1">
                   {result.unmet.map((u) => (
-                    <p key={u.name} className="text-[12px] text-muted">
+                    <p key={u.name} className="text-label text-muted">
                       {u.detail}{' '}
                       {u.kind === 'connection' && (
                         <Link href={`/w/${ws}/settings/connections`} className="underline underline-offset-2">
@@ -436,12 +436,12 @@ function InstallDialog({
         ) : (
           <div className="flex flex-col gap-4">
             {entry.isLoading || preview.isLoading ? (
-              <div className="flex items-center gap-2 py-8 text-[13px] text-muted">
+              <div className="flex items-center gap-2 py-8 text-body text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> Looking at what this would create…
               </div>
             ) : preview.data ? (
               <>
-                <p className="text-[13px] text-ink-secondary">{entry.data?.summary}</p>
+                <p className="text-body text-ink-secondary">{entry.data?.summary}</p>
                 {entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] && (
                   <img
                     src={entry.data.screenshots[0]}
@@ -450,7 +450,7 @@ function InstallDialog({
                   />
                 )}
                 {entry.data && 'highlights' in entry.data && entry.data.highlights.length > 0 && (
-                  <ul className="grid gap-1 rounded-[var(--radius-control)] bg-hover p-3 text-[12px] text-muted sm:grid-cols-2">
+                  <ul className="grid gap-1 rounded-[var(--radius-control)] bg-hover p-3 text-label text-muted sm:grid-cols-2">
                     {entry.data.highlights.map((highlight) => (
                       <li key={highlight}>• {highlight}</li>
                     ))}
@@ -464,9 +464,9 @@ function InstallDialog({
                 </div>
                 {preview.data.unmet.length > 0 && (
                   <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-                    <p className="mb-1 text-[12px] font-semibold text-ink">You’ll need to connect</p>
+                    <p className="mb-1 text-label font-semibold text-ink">You’ll need to connect</p>
                     {preview.data.unmet.map((u) => (
-                      <p key={u.name} className="text-[12px] text-muted">
+                      <p key={u.name} className="text-label text-muted">
                         {u.detail}
                       </p>
                     ))}
@@ -499,7 +499,7 @@ function InstallDialog({
                 </div>
               </>
             ) : (
-              <p className="py-8 text-center text-[13px] text-muted">Could not load this pack.</p>
+              <p className="py-8 text-center text-body text-muted">Could not load this pack.</p>
             )}
           </div>
         )}
@@ -544,8 +544,8 @@ function InstalledRow({
   return (
     <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-card p-3">
       <div>
-        <p className="text-[13px] font-medium text-ink">{pack.name}</p>
-        <p className="text-[12px] text-muted">
+        <p className="text-body font-medium text-ink">{pack.name}</p>
+        <p className="text-label text-muted">
           v{pack.version} · installed {new Date(pack.installed_at).toLocaleDateString()}
         </p>
       </div>
@@ -611,7 +611,7 @@ export default function PacksPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-10">
-      <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-[12px] text-muted hover:text-ink">
+      <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-label text-muted hover:text-ink">
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
       <div className="mb-1 flex items-center justify-between">
@@ -621,7 +621,7 @@ export default function PacksPage() {
         {canInstall && (
           <Link
             href={`/w/${ws}/packs/submit`}
-            className="flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
+            className="flex items-center gap-1.5 text-label text-muted hover:text-ink"
           >
             <Upload className="h-3.5 w-3.5" /> Submit a pack
           </Link>
@@ -633,7 +633,7 @@ export default function PacksPage() {
 
       {(installed.data?.length ?? 0) > 0 && (
         <div className="mb-8">
-          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">Installed</p>
+          <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">Installed</p>
           <div className="flex flex-col gap-2">
             {installed.data!.map((pack) => (
               <InstalledRow
@@ -667,7 +667,7 @@ export default function PacksPage() {
             <button
               key={filter.value}
               type="button"
-              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${
+              className={`shrink-0 rounded-full px-2.5 py-1 text-meta ${
                 vertical === filter.value
                   ? 'bg-primary text-[var(--text-on-dark)]'
                   : 'bg-hover text-muted hover:text-ink'
@@ -680,7 +680,7 @@ export default function PacksPage() {
         </div>
       </div>
 
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">Gallery</p>
+      <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">Gallery</p>
       <div className="mb-8 grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3">
         {visibleRegistry.map((pack) => {
           const installState = installedBySlug.get(pack.slug);
@@ -691,14 +691,14 @@ export default function PacksPage() {
             >
               <PackVisual pack={pack} />
               <div className="flex items-start justify-between gap-2">
-                <p className="text-[14px] font-medium text-ink">{pack.name}</p>
+                <p className="text-prose font-medium text-ink">{pack.name}</p>
                 {installState && (
-                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-ink">
+                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
                     {installState.update_available ? 'Update available' : 'Installed'}
                   </span>
                 )}
               </div>
-              <p className="line-clamp-3 text-[13px] text-muted">{pack.summary}</p>
+              <p className="line-clamp-3 text-body text-muted">{pack.summary}</p>
               <Button
                 type="button"
                 className="mt-auto self-start"
@@ -718,17 +718,17 @@ export default function PacksPage() {
           );
         })}
         {registry.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-[13px] text-muted">No packs in the gallery yet.</p>
+          <p className="text-body text-muted">No packs in the gallery yet.</p>
         )}
       </div>
 
       <p
         id="community-marketplace"
-        className="mb-1 scroll-mt-6 text-[12px] font-semibold uppercase tracking-wider text-muted"
+        className="mb-1 scroll-mt-6 text-label font-semibold uppercase tracking-wider text-muted"
       >
         Community Marketplace
       </p>
-      <p className="mb-2 text-[12px] text-muted">
+      <p className="mb-2 text-label text-muted">
         Curated packs published by other builders — reviewed before they&rsquo;re listed here.
       </p>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3">
@@ -751,20 +751,20 @@ export default function PacksPage() {
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <p className="text-[14px] font-medium text-ink">{pack.name}</p>
+                <p className="text-prose font-medium text-ink">{pack.name}</p>
                 <div className="flex items-center gap-1">
                   {installState && (
-                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-ink">
+                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
                       {installState.update_available ? 'Update' : 'Installed'}
                     </span>
                   )}
-                  <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-ink-secondary">
+                  <span className="rounded-full bg-hover px-2 py-0.5 text-meta text-ink-secondary">
                     {pack.vertical}
                   </span>
                 </div>
               </div>
-              <p className="line-clamp-3 text-[13px] text-muted">{pack.summary}</p>
-              <p className="text-[11px] text-muted">
+              <p className="line-clamp-3 text-body text-muted">{pack.summary}</p>
+              <p className="text-meta text-muted">
                 v{pack.latest_version} · {pack.license}
                 {pack.attribution ? ` · by ${pack.attribution}` : ''}
               </p>
@@ -786,16 +786,16 @@ export default function PacksPage() {
           );
         })}
         {marketplace.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-[13px] text-muted">No community packs published yet.</p>
+          <p className="text-body text-muted">No community packs published yet.</p>
         )}
       </div>
 
       {noMatches && (
         <div className="mt-4 rounded-[var(--radius-card)] border border-dashed border-border-default p-8 text-center">
-          <p className="text-[13px] font-medium text-ink">No packs match this search</p>
+          <p className="text-body font-medium text-ink">No packs match this search</p>
           <button
             type="button"
-            className="mt-1 text-[12px] text-muted underline underline-offset-2"
+            className="mt-1 text-label text-muted underline underline-offset-2"
             onClick={() => {
               setQuery('');
               setVertical('all');

@@ -138,7 +138,7 @@ export default function SlackIntegrationPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link
         href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
@@ -146,12 +146,12 @@ export default function SlackIntegrationPage() {
         <MessageSquare className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Slack</h1>
         {connected && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
             connected
           </span>
         )}
       </div>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 text-body text-muted">
         Post messages to Slack from automations — add a &quot;Send Slack message&quot; action to any
         button or automation once this is connected.
       </p>
@@ -195,14 +195,14 @@ export default function SlackIntegrationPage() {
         }}
         options={SLACK_METHOD_OPTIONS}
       />
-      <p className="mb-4 text-[13px] text-muted">
+      <p className="mb-4 text-body text-muted">
         {method === 'bot'
           ? 'A bot token can post to any channel — recommended if you want different automations posting to different channels.'
           : 'An incoming webhook always posts to one fixed channel, chosen when you create it in Slack — simplest if one channel is all you need.'}
       </p>
 
       {/* 2. Doable instruction inline, per method */}
-      <ol className="mb-2 flex list-decimal flex-col gap-1.5 pl-5 text-[13px] text-ink-secondary">
+      <ol className="mb-2 flex list-decimal flex-col gap-1.5 pl-5 text-body text-ink-secondary">
         {method === 'bot' ? (
           <>
             <li>
@@ -231,7 +231,7 @@ export default function SlackIntegrationPage() {
           </>
         )}
       </ol>
-      <p className="mb-5 text-[13px]">
+      <p className="mb-5 text-body">
         <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-accent hover:underline">
           Full setup guide with screenshots →
         </a>
@@ -250,11 +250,11 @@ export default function SlackIntegrationPage() {
               value={botToken}
               onChange={(e) => setBotToken(e.target.value)}
             />
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Paste the Bot User OAuth Token from your Slack app. Starts with xoxb-.
             </p>
             {botToken.trim() && !botTokenValid && (
-              <p className="text-[12px] text-error">
+              <p className="text-label text-error">
                 That doesn&apos;t look like a bot token — it should start with xoxb-.
               </p>
             )}
@@ -271,12 +271,12 @@ export default function SlackIntegrationPage() {
               value={webhookUrl}
               onChange={(e) => setWebhookUrl(e.target.value)}
             />
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Paste the Incoming Webhook URL from your Slack app. Starts with
               hooks.slack.com/services/.
             </p>
             {webhookUrl.trim() && !webhookValid && (
-              <p className="text-[12px] text-error">
+              <p className="text-label text-error">
                 That doesn&apos;t look like a Slack webhook URL — it should start with
                 hooks.slack.com/services/.
               </p>
@@ -293,13 +293,13 @@ export default function SlackIntegrationPage() {
               value={defaultChannel}
               onChange={(e) => setDefaultChannel(e.target.value)}
             />
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Where messages go if an action doesn&apos;t specify a channel. Use #channel-name.
             </p>
           </div>
         )}
 
-        <p className="text-[12px] text-muted">
+        <p className="text-label text-muted">
           Credentials stay on your server and are never shown again once saved.
         </p>
 
@@ -325,7 +325,7 @@ export default function SlackIntegrationPage() {
         {testResult && (
           <div
             className={cn(
-              'flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-[13px]',
+              'flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-body',
               testResult.ok
                 ? 'border-border-default bg-accent-soft text-ink'
                 : 'border-error/40 bg-error/5 text-error',

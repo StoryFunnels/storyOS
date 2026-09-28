@@ -39,7 +39,7 @@ function ConfirmForm() {
           onChange={(e) => setPassword(e.target.value)}
         />
       </div>
-      {error && <p className="text-[13px] text-error">{error}</p>}
+      {error && <p className="text-body text-error">{error}</p>}
       <Button type="submit">Set new password</Button>
     </form>
   );

@@ -87,7 +87,7 @@ export default function TrashPage() {
     <div className="mx-auto max-w-3xl p-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-ink">Trash</h1>
-        <Link href={`/w/${ws}/d/${db}`} className="text-[13px] text-muted hover:text-ink">
+        <Link href={`/w/${ws}/d/${db}`} className="text-body text-muted hover:text-ink">
           Back to database
         </Link>
       </div>

@@ -97,13 +97,13 @@ export default function WorkspaceTrashPage() {
     onError: () => toast.error('Could not restore'),
   });
 
-  if (workspace.isLoading) return <p className="p-8 text-[13px] text-muted">Loading…</p>;
+  if (workspace.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
 
   if (!isAdmin) {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
         <h1 className="mb-1 text-lg font-semibold text-ink">Trash</h1>
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Only workspace admins can restore a deleted space or database. Deleted records and
           views inside a database you can still open are in that database's own trash.
         </p>
@@ -116,7 +116,7 @@ export default function WorkspaceTrashPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Trash</h1>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Deleted spaces and databases for the whole workspace. Deleted records and views live in
         each database's own Trash — open the database and look for it there instead.
       </p>

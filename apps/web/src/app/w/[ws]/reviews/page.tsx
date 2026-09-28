@@ -68,7 +68,7 @@ export default function ReviewsPage() {
                 key={t.id}
                 onClick={() => setBucket(t.id)}
                 className={cn(
-                  '-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+                  '-mb-px border-b-2 px-3 py-2 text-body font-medium transition-colors',
                   bucket === t.id ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink',
                 )}
               >
@@ -79,12 +79,12 @@ export default function ReviewsPage() {
 
           {reviews.isLoading && <p className="text-sm text-muted">Loading…</p>}
           {reviews.isError && (
-            <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body text-error">
               {apiErrorMessage(reviews.error, 'Could not load reviews')}
             </p>
           )}
           {reviews.data && reviews.data.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
               Nothing here right now.
             </p>
           )}
@@ -105,8 +105,8 @@ export default function ReviewsPage() {
                       <GitPullRequest className="h-4 w-4 shrink-0 text-success" />
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-ink">{pr.title}</span>
-                      <span className="flex items-center gap-1.5 text-[11px] text-faint">
+                      <span className="block truncate text-body font-medium text-ink">{pr.title}</span>
+                      <span className="flex items-center gap-1.5 text-meta text-faint">
                         {pr.repo}#{pr.number}
                         {pr.author_login && <> · {pr.author_login}</>}
                       </span>
@@ -140,8 +140,8 @@ function GithubLoginPrompt({ ws }: { ws: string }) {
 
   return (
     <div className="max-w-md rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-      <h2 className="mb-1 text-[14px] font-semibold text-ink">What&apos;s your GitHub username?</h2>
-      <p className="mb-3 text-[13px] text-muted">
+      <h2 className="mb-1 text-prose font-semibold text-ink">What&apos;s your GitHub username?</h2>
+      <p className="mb-3 text-body text-muted">
         StoryOS connects to GitHub as an App installation, not as you personally — your username is how we tell
         &quot;needs my review&quot; apart from &quot;authored by me&quot;.
       </p>
@@ -164,7 +164,7 @@ function GithubLoginPrompt({ ws }: { ws: string }) {
       </form>
       <Link
         href={`/w/${ws}/settings/integrations/github`}
-        className="mt-3 inline-flex items-center gap-1 text-[12px] text-info hover:underline"
+        className="mt-3 inline-flex items-center gap-1 text-label text-info hover:underline"
       >
         GitHub not connected yet? <ExternalLink className="h-3 w-3" />
       </Link>

@@ -70,7 +70,7 @@ function LoginForm() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        {error && <p className="text-[13px] text-error">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         <Button type="submit" disabled={busy} className="h-11">
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
@@ -91,7 +91,7 @@ function LoginForm() {
       </form>
       {/* #707 — same tap-target fix as signup's "Sign in" link; py-3 pads each
           toward the 44px guideline without redesigning this line. */}
-      <p className="mt-4 text-[13px] text-muted">
+      <p className="mt-4 text-body text-muted">
         No account?{' '}
         <Link className="inline-block px-1 py-3 text-ink underline" href="/signup">
           Sign up

@@ -234,7 +234,7 @@ function DatabasePageInner() {
               <button
                 type="button"
                 title="Edit description"
-                className="shrink-0 cursor-pointer border-b border-border-default px-3 py-1.5 text-left text-[12px] text-muted hover:bg-hover hover:text-ink"
+                className="shrink-0 cursor-pointer border-b border-border-default px-3 py-1.5 text-left text-label text-muted hover:bg-hover hover:text-ink"
               >
                 {database.data.description}
               </button>
@@ -254,7 +254,7 @@ function DatabasePageInner() {
         ) : (
           /* Without `creator` this is exactly what it was: a read-only line.
              No hover, no cursor, nothing implying an edit that would be refused. */
-          <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+          <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-label text-muted">
             {database.data.description}
           </p>
         ))}
@@ -444,7 +444,7 @@ function NewViewDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-ink">
+        <button className="flex items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink">
           <Plus className="h-3.5 w-3.5" />
         </button>
       </DialogTrigger>
@@ -470,13 +470,13 @@ function NewViewDialog({
               title={need ?? undefined}
               onClick={() => createView(kind)}
               className={cn(
-                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px] border-border-default text-muted hover:border-[var(--accent)] hover:bg-accent-soft hover:text-ink',
+                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-body border-border-default text-muted hover:border-[var(--accent)] hover:bg-accent-soft hover:text-ink',
                 need && 'cursor-not-allowed opacity-50 hover:border-border-default hover:bg-transparent hover:text-muted',
               )}
             >
               <Icon className="h-4 w-4" />
               <span>{label}</span>
-              {need && <span className="text-[10px] text-faint">{need}</span>}
+              {need && <span className="text-micro text-faint">{need}</span>}
             </button>
           ))}
         </div>

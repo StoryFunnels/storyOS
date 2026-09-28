@@ -49,16 +49,16 @@ export default function ApiSettingsPage() {
         <h1 className="text-lg font-semibold text-ink">API tokens</h1>
         <CreateTokenDialog ws={ws} />
       </div>
-      <p className="mb-4 text-[13px] text-muted">
+      <p className="mb-4 text-body text-muted">
         Create a token to let an outside tool or script work in this workspace on your behalf —
         for example a scheduled job or a script you wrote. Most people never need one.
       </p>
 
       <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+        <summary className="cursor-pointer select-none text-body font-medium text-ink">
           Advanced / Developer
         </summary>
-        <p className="mt-2 text-[13px] text-muted">
+        <p className="mt-2 text-body text-muted">
           A personal access token acts as you — anything you can do in the app, the token can do
           through the API. Send it as{' '}
           <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
@@ -71,7 +71,7 @@ export default function ApiSettingsPage() {
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(tokens.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">No tokens yet.</p>
+          <p className="px-4 py-6 text-body text-muted">No tokens yet.</p>
         )}
         {(tokens.data ?? []).map((token) => (
           <div
@@ -80,7 +80,7 @@ export default function ApiSettingsPage() {
           >
             <div>
               <p className="text-sm font-medium text-ink">{token.name}</p>
-              <p className="text-[12px] text-muted">
+              <p className="text-label text-muted">
                 <code>{token.token_prefix}</code> · created{' '}
                 {fmt.date(token.created_at)} ·{' '}
                 {token.last_used_at
@@ -135,7 +135,7 @@ function CreateTokenDialog({ ws }: { ws: string }) {
       <DialogContent title="Create API token">
         {created ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-warning">
+            <p className="text-body text-warning">
               Copy it now — this token is shown only once.
             </p>
             <div className="flex gap-2">

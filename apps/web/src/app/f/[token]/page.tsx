@@ -219,7 +219,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
               />
             );
           const labelText = (
-            <span className="text-[13px] font-medium text-ink-secondary">
+            <span className="text-body font-medium text-ink-secondary">
               {f.label}
               {requiredNow && <span className="ml-0.5 text-error">*</span>}
             </span>
@@ -235,7 +235,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
                   {control}
                   {labelText}
                 </span>
-                {f.help && <span className="text-[12px] text-muted">{f.help}</span>}
+                {f.help && <span className="text-label text-muted">{f.help}</span>}
               </label>
             );
           }
@@ -243,7 +243,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
             <label key={f.field_id} className="flex flex-col gap-1.5">
               {labelText}
               {control}
-              {f.help && <span className="text-[12px] text-muted">{f.help}</span>}
+              {f.help && <span className="text-label text-muted">{f.help}</span>}
             </label>
           );
         })}
@@ -257,7 +257,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           className="absolute left-[-9999px] h-0 w-0 opacity-0"
           aria-hidden
         />
-        {error && <p className="text-[13px] text-error">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
@@ -270,7 +270,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
             it is already suppressible via hide_branding. Measures 3.44:1 on
             card in light, which clears the 3:1 incidental floor #326 cites for
             genuinely decorative text. */}
-        {!def!.hide_branding && <p className="text-center text-[11px] text-faint">Powered by StoryOS</p>}
+        {!def!.hide_branding && <p className="text-center text-meta text-faint">Powered by StoryOS</p>}
       </form>
     </div>
   );
@@ -372,9 +372,9 @@ function Input({
     const ids = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
     return (
       <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card p-2.5">
-        {members.length === 0 && <span className="text-[12px] text-muted">No one to pick from</span>}
+        {members.length === 0 && <span className="text-label text-muted">No one to pick from</span>}
         {members.map((m) => (
-          <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+          <label key={m.id} className="flex items-center gap-1.5 text-body text-ink">
             <input
               type={multi ? 'checkbox' : 'radio'}
               name={field.field_id}
@@ -457,7 +457,7 @@ function RelationInput({
     return () => clearTimeout(timer);
   }, [open, search, token, field.field_id]);
 
-  if (!relation) return <span className="text-[12px] text-muted">This field isn&rsquo;t available</span>;
+  if (!relation) return <span className="text-label text-muted">This field isn&rsquo;t available</span>;
 
   function pick(id: string, title: string) {
     setTitles((m) => ({ ...m, [id]: title }));
@@ -496,7 +496,7 @@ function RelationInput({
     <div className="relative">
       <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card px-2.5 py-1.5">
         {selectedIds.map((id) => (
-          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
+          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink">
             {titles[id] ?? id}
             <button
               type="button"
@@ -534,25 +534,25 @@ function RelationInput({
             <button
               key={r.id}
               type="button"
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
               onClick={() => pick(r.id, r.title)}
             >
               <span className="truncate">{r.title || 'Untitled'}</span>
-              {selectedIds.includes(r.id) && <span className="text-[11px] text-muted">selected</span>}
+              {selectedIds.includes(r.id) && <span className="text-meta text-muted">selected</span>}
             </button>
           ))}
           {search.trim() && !exactMatch && (
             <button
               type="button"
               disabled={creating}
-              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-ink-secondary hover:bg-hover disabled:opacity-50"
               onClick={createNew}
             >
               + Create “{search.trim()}”
             </button>
           )}
           {!search.trim() && results.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-muted">Type to search…</p>
+            <p className="px-2 py-1.5 text-label text-muted">Type to search…</p>
           )}
         </div>
       )}

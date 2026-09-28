@@ -112,23 +112,23 @@ export default function WebhooksSettingsPage() {
         <h1 className="text-lg font-semibold text-ink">Webhooks</h1>
         <CreateWebhookDialog ws={ws} databases={databases.data ?? []} />
       </div>
-      <p className="mb-2 text-[13px] text-muted">
+      <p className="mb-2 text-body text-muted">
         A webhook is a message StoryOS sends to a URL of your choice whenever something
         happens here — a record gets created, updated, or changed. It&apos;s how you push
         those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
         <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>,
         or into your own app.
       </p>
-      <p className="mb-4 text-[13px] text-muted">
+      <p className="mb-4 text-body text-muted">
         Add one below with the URL your tool gives you, and choose which changes should
         trigger it. Failed deliveries are retried automatically for about 15 minutes.
       </p>
 
       <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+        <summary className="cursor-pointer select-none text-body font-medium text-ink">
           Advanced — for developers
         </summary>
-        <p className="mt-2 text-[13px] text-muted">
+        <p className="mt-2 text-body text-muted">
           Each payload is signed so you can verify it really came from StoryOS: check the{' '}
           <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
           <code className="rounded bg-hover px-1">
@@ -150,7 +150,7 @@ export default function WebhooksSettingsPage() {
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(webhooks.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">
+          <p className="px-4 py-6 text-body text-muted">
             No webhooks yet. Add one to push changes into another tool.
           </p>
         )}
@@ -159,14 +159,14 @@ export default function WebhooksSettingsPage() {
             <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink">{hook.url}</p>
-                <p className="mt-0.5 text-[12px] text-muted">
+                <p className="mt-0.5 text-label text-muted">
                   {dbName(hook.database_id)} · {hook.events.length} event
                   {hook.events.length === 1 ? '' : 's'} · added {fmt.date(hook.created_at)}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <StatusPill hook={hook} fmt={fmt} />
                   {!hook.enabled && (
-                    <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] text-muted">
+                    <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-muted">
                       Disabled
                     </span>
                   )}
@@ -217,13 +217,13 @@ export default function WebhooksSettingsPage() {
 
 function StatusPill({ hook, fmt }: { hook: Webhook; fmt: ReturnType<typeof useDateFormat> }) {
   if (!hook.last_status) {
-    return <span className="text-[12px] text-faint">No deliveries yet</span>;
+    return <span className="text-label text-faint">No deliveries yet</span>;
   }
   const ok = hook.last_status === 'ok';
   return (
     <span
       className={cn(
-        'rounded px-1.5 py-0.5 text-[11px]',
+        'rounded px-1.5 py-0.5 text-meta',
         ok ? 'bg-accent-soft text-ink' : 'bg-hover text-error',
       )}
       title={hook.last_error ?? undefined}
@@ -247,15 +247,15 @@ function Deliveries({ ws, id }: { ws: string; id: string }) {
     },
   });
 
-  if (deliveries.isLoading) return <p className="px-4 pb-3 text-[12px] text-muted">Loading…</p>;
+  if (deliveries.isLoading) return <p className="px-4 pb-3 text-label text-muted">Loading…</p>;
   if ((deliveries.data ?? []).length === 0) {
-    return <p className="px-4 pb-3 text-[12px] text-muted">No deliveries yet.</p>;
+    return <p className="px-4 pb-3 text-label text-muted">No deliveries yet.</p>;
   }
 
   return (
     <div className="border-t border-border-default bg-app px-4 py-2">
       {(deliveries.data ?? []).map((d) => (
-        <div key={d.id} className="flex items-center justify-between gap-3 py-1 text-[12px]">
+        <div key={d.id} className="flex items-center justify-between gap-3 py-1 text-label">
           <span className="truncate text-muted">
             <code>{d.event_type}</code> · {fmt.dateTime(d.created_at)}
           </span>
@@ -332,7 +332,7 @@ function CreateWebhookDialog({
         {secret ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-1.5">
-              <p className="text-[13px] font-medium text-ink">Your signing secret</p>
+              <p className="text-body font-medium text-ink">Your signing secret</p>
               <span
                 className="inline-flex cursor-help text-faint hover:text-ink"
                 title="A signing secret lets the tool receiving this webhook confirm the request really came from StoryOS and wasn't forged or altered in transit. StoryOS uses it to compute a signature sent with every delivery, which your endpoint can check before trusting the data. Most no-code tools (n8n, Make, Zapier) don't need it at all — it's only for verifying authenticity yourself."
@@ -340,11 +340,11 @@ function CreateWebhookDialog({
                 <CircleHelp className="h-3.5 w-3.5" />
               </span>
             </div>
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               This is shown to you only once, right now — copy it somewhere safe. If you lose
               it, delete this webhook and create a new one instead.
             </p>
-            <code className="break-all rounded-[var(--radius-control)] border border-border-default bg-app p-2 text-[12px] text-ink">
+            <code className="break-all rounded-[var(--radius-control)] border border-border-default bg-app p-2 text-label text-ink">
               {secret}
             </code>
             <div className="flex justify-end gap-2">
@@ -382,7 +382,7 @@ function CreateWebhookDialog({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
-              <p className="text-[12px] text-faint">
+              <p className="text-label text-faint">
                 Must be https on a public host.
               </p>
             </div>
@@ -410,7 +410,7 @@ function CreateWebhookDialog({
                 {EVENTS.map((event) => (
                   <label
                     key={event.id}
-                    className="flex items-center gap-2 text-[13px] text-ink"
+                    className="flex items-center gap-2 text-body text-ink"
                   >
                     <input
                       type="checkbox"

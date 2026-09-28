@@ -357,7 +357,7 @@ export default function GoogleCalendarIntegrationPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <Link
-        className="text-[12px] text-muted hover:text-ink"
+        className="text-label text-muted hover:text-ink"
         href={`/w/${ws}/settings/integrations`}
       >
         ← Integrations
@@ -368,7 +368,7 @@ export default function GoogleCalendarIntegrationPage() {
         </span>
         <div>
           <h1 className="text-lg font-semibold text-ink">Google Calendar</h1>
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             Two-way sync between dated StoryOS records and a Google calendar — push, pull, or both.
           </p>
         </div>
@@ -376,7 +376,7 @@ export default function GoogleCalendarIntegrationPage() {
 
       <IntegrationSetupGuide className="mt-6" steps={setupSteps} />
 
-      <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-[12px] text-muted">
+      <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-label text-muted">
         Choose one-way push, one-way pull, or two-way sync. Pull and two-way mappings poll Google
         every five minutes; simultaneous edits use last-write-wins and are reported after sync.
       </div>
@@ -384,7 +384,7 @@ export default function GoogleCalendarIntegrationPage() {
       {activeConnections.length === 0 ? (
         <div className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
           <p className="text-sm font-medium text-ink">Connect your Google account</p>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-body text-muted">
             Calendar access is requested separately from Google sign-in and YouTube.
           </p>
           <Button
@@ -401,13 +401,13 @@ export default function GoogleCalendarIntegrationPage() {
           <section className="mt-6 rounded-[var(--radius-card)] border border-border-strong bg-accent-soft p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <p className="text-meta font-semibold uppercase tracking-wide text-muted">
                   Recommended
                 </p>
                 <h2 className="mt-1 text-sm font-semibold text-ink">
                   Create a ready-to-sync Calendar database
                 </h2>
-                <p className="mt-1 text-[12px] text-muted">
+                <p className="mt-1 text-label text-muted">
                   Installs Start, End, Description, Status and Location plus Calendar and Upcoming
                   views. Start, End and Description are selected automatically below.
                 </p>
@@ -420,7 +420,7 @@ export default function GoogleCalendarIntegrationPage() {
 
           <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
             <h2 className="text-sm font-semibold text-ink">Or map an existing database</h2>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="mt-1 text-label text-muted">
               New and edited records with a start date sync automatically. Clearing the date or
               deleting the record removes its event.
             </p>
@@ -533,7 +533,7 @@ export default function GoogleCalendarIntegrationPage() {
               />
             </div>
             {databaseId && fields.isSuccess && dateFields.length === 0 && (
-              <p className="mt-3 rounded-[var(--radius-control)] bg-hover px-3 py-2 text-[12px] text-ink">
+              <p className="mt-3 rounded-[var(--radius-control)] bg-hover px-3 py-2 text-label text-ink">
                 This database has no date fields. Add one, or create the Calendar database above.
               </p>
             )}
@@ -556,7 +556,7 @@ export default function GoogleCalendarIntegrationPage() {
             <h2 className="mb-2 text-sm font-semibold text-ink">Active mappings</h2>
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
               {(bindings.data ?? []).length === 0 && (
-                <p className="px-4 py-6 text-[13px] text-muted">
+                <p className="px-4 py-6 text-body text-muted">
                   No mappings yet. Complete the fields above; dated records will become Google
                   events after the first sync.
                 </p>
@@ -571,7 +571,7 @@ export default function GoogleCalendarIntegrationPage() {
                       {binding.database_space_name} / {binding.database_name} →{' '}
                       {binding.calendar_name}
                     </p>
-                    <p className="text-[12px] text-muted">
+                    <p className="text-label text-muted">
                       Start: {binding.start_field_name}
                       {' · '}
                       {DIRECTION_LABELS[binding.direction]}
@@ -580,13 +580,13 @@ export default function GoogleCalendarIntegrationPage() {
                         : ''}
                     </p>
                     <Link
-                      className="mt-1 inline-block text-[12px] text-primary hover:underline"
+                      className="mt-1 inline-block text-label text-primary hover:underline"
                       href={`/w/${ws}/d/${binding.database_id}`}
                     >
                       Open mapped database →
                     </Link>
                     {binding.last_error && (
-                      <p className="mt-1 text-[12px] text-error">{binding.last_error}</p>
+                      <p className="mt-1 text-label text-error">{binding.last_error}</p>
                     )}
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -612,7 +612,7 @@ export default function GoogleCalendarIntegrationPage() {
             </div>
           </section>
           {syncSummary && (
-            <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-4 py-3 text-[12px] text-ink">
+            <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-4 py-3 text-label text-ink">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               {syncSummary}
             </div>
@@ -622,7 +622,7 @@ export default function GoogleCalendarIntegrationPage() {
 
       <Dialog open={fieldDialog !== null} onOpenChange={(open) => !open && setFieldDialog(null)}>
         <DialogContent title={`Create ${fieldDialog?.type === 'date' ? 'a date' : 'a text'} field`}>
-          <p className="mb-4 text-[13px] text-muted">
+          <p className="mb-4 text-body text-muted">
             Adds a new {fieldDialog?.type === 'date' ? 'date' : 'text'} field to the selected
             database and maps it here — no need to leave this page.
           </p>
@@ -654,7 +654,7 @@ export default function GoogleCalendarIntegrationPage() {
 
       <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
         <DialogContent title="Create a Calendar database">
-          <p className="mb-4 text-[13px] text-muted">
+          <p className="mb-4 text-body text-muted">
             StoryOS will install a maintained event schema and pre-map it for Google Calendar.
           </p>
           <div className="space-y-4">

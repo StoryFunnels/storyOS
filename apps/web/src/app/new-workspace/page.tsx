@@ -97,7 +97,7 @@ function PackChoice({
           the result" was the complaint; four counts answer it at a glance. */}
       <PackVisual pack={pack} />
       <span className="min-w-0">
-        <span className="block truncate text-[13px] font-medium text-ink">{label ?? pack.name}</span>
+        <span className="block truncate text-body font-medium text-ink">{label ?? pack.name}</span>
         {/* #351 — the repeated "Includes databases, views, automations…" line is
             gone from every card. It was identical on all three, so it could not
             help anyone choose; it is said ONCE above the grid instead. The
@@ -108,7 +108,7 @@ function PackChoice({
             cascade, so the clamp silently never applied. Support Inbox's
             six-line summary then ate the card and squeezed the preview above
             from 112px to 43px. The class was present and doing nothing. */}
-        <span className="line-clamp-2 text-[12px] text-muted">{pack.summary}</span>
+        <span className="line-clamp-2 text-label text-muted">{pack.summary}</span>
       </span>
     </button>
   );
@@ -320,7 +320,7 @@ export default function NewWorkspacePage() {
               }}
             />
             {nameError && (
-              <p id="name-error" className="text-[12px] text-error">
+              <p id="name-error" className="text-label text-error">
                 {nameError}
               </p>
             )}
@@ -337,7 +337,7 @@ export default function NewWorkspacePage() {
            */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="description">What do you do?</Label>
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add
               the views worth having — you can reshape anything afterwards.
             </p>
@@ -357,13 +357,13 @@ export default function NewWorkspacePage() {
               className="min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
             />
             {descriptionError && (
-              <p id="description-error" className="text-[12px] text-error">
+              <p id="description-error" className="text-label text-error">
                 {descriptionError}
               </p>
             )}
           </div>
 
-          {error && <p className="text-[13px] text-error">{error}</p>}
+          {error && <p className="text-body text-error">{error}</p>}
 
           <div className="sticky bottom-0 -mx-1 bg-card px-1 pb-1 pt-2">
             <Button type="submit" className="w-full" disabled={busy}>
@@ -379,7 +379,7 @@ export default function NewWorkspacePage() {
           <button
             type="button"
             onClick={() => setMode('template')}
-            className="text-center text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+            className="text-center text-label text-muted underline-offset-2 hover:text-ink hover:underline"
           >
             Start from a template instead
           </button>
@@ -394,7 +394,7 @@ export default function NewWorkspacePage() {
         <button
           type="button"
           onClick={() => setMode('describe')}
-          className="self-start text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+          className="self-start text-label text-muted underline-offset-2 hover:text-ink hover:underline"
         >
           ← Back
         </button>
@@ -414,7 +414,7 @@ export default function NewWorkspacePage() {
             }}
           />
           {nameError && (
-            <p id="name-error" className="text-[12px] text-error">
+            <p id="name-error" className="text-label text-error">
               {nameError}
             </p>
           )}
@@ -427,7 +427,7 @@ export default function NewWorkspacePage() {
               three names for one thing a new user has never heard of. And the
               "includes databases, views, automations" line lived on every card,
               identical, so it differentiated nothing; it belongs here, once. */}
-          <p className="text-[12px] text-muted">
+          <p className="text-label text-muted">
             Pick a starting point. Each <span className="text-ink">Business Pack</span> is a
             ready-made set of databases, views and automations for one kind of work — you can change
             anything afterwards, or add more later.
@@ -442,7 +442,7 @@ export default function NewWorkspacePage() {
           {/* Exactly two rows: 2 × 196 + one 8px gap. */}
           <div className="grid max-h-[400px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
             {registry.isError ? (
-              <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
+              <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body text-error">
                 <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
                 <Button
                   type="button"
@@ -489,8 +489,8 @@ export default function NewWorkspacePage() {
             >
               <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
               <span>
-                <span className="block text-[13px] font-medium text-ink">Start empty</span>
-                <span className="block text-[12px] text-muted">
+                <span className="block text-body font-medium text-ink">Start empty</span>
+                <span className="block text-label text-muted">
                   No databases. Build your own from scratch.
                 </span>
               </span>
@@ -508,8 +508,8 @@ export default function NewWorkspacePage() {
             >
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
               <span>
-                <span className="block text-[13px] font-medium text-ink">Browse the marketplace</span>
-                <span className="block text-[12px] text-muted">
+                <span className="block text-body font-medium text-ink">Browse the marketplace</span>
+                <span className="block text-label text-muted">
                   Create the workspace first, then explore packs from other builders.
                 </span>
               </span>
@@ -529,7 +529,7 @@ export default function NewWorkspacePage() {
           </div>
         )}
 
-        {error && <p className="text-[13px] text-error">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         {/* #333: the primary action used to sit below four dense pack cards and
             a "browse all" link, so on a laptop viewport it needed a hunt. Pinned
             to the bottom of the card instead — the pack list above already
