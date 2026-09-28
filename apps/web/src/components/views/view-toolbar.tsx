@@ -98,7 +98,7 @@ import {
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
-import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
+import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
 import { Segmented } from '@/components/ui/segmented';
@@ -345,7 +345,9 @@ export function ViewToolbar({
   // surfaces: the Cards / Hide-fields / color / group sections keep the raw
   // `fields` (system columns aren't card/hideable toggles).
   const augmented = useMemo(() => withSystemFields(fields), [fields]);
-  const filterable = augmented.filter((f) => opsForField(f).length > 0);
+  // #743 — a deprecated system field (`number`) still resolves via `augmented`
+  // for an EXISTING chip's label, but must never be offered as a NEW pick.
+  const filterable = augmented.filter((f) => opsForField(f).length > 0 && isPickableField(f));
 
   /**
    * #289/#699/#702 — what the Hide-fields / Cards pickers may offer.
@@ -2559,7 +2561,11 @@ export function SortButton({
       // by; offering it here would just 422 at save time (validateSorts,
       // records.service.ts's identical `(user || relation) && config.multi` check —
       // #680 found this picker was still missing the `relation` half of it).
-      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true),
+      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true) &&
+      // #743 — a deprecated system field (`number`) must never be offered as a
+      // NEW sort key. `byApiName` above stays unfiltered so an EXISTING sort
+      // key still referencing it resolves its label correctly via `sortLabel`.
+      isPickableField(f),
   );
   // MN-267: rollup is sortable now (real recompute-on-related-record-change
   // plumbing exists, so it's in SORTABLE_FIELD_TYPES); `lookup` is the one
