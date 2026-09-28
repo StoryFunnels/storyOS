@@ -85,7 +85,7 @@ function ColorEditor({
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') onCancel();
             }}
-            className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-[13px] tabular-nums text-ink outline-none"
+            className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-body tabular-nums text-ink outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-1">
@@ -99,7 +99,7 @@ function ColorEditor({
             />
           ))}
         </div>
-        <div className="flex justify-end gap-1.5 text-[12px]">
+        <div className="flex justify-end gap-1.5 text-label">
           <button className="rounded px-1.5 py-0.5 text-muted hover:bg-hover" onClick={() => onCommit(null)}>
             Clear
           </button>
@@ -283,7 +283,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'rich_text': {
       const preview = richTextPreview(value);
       return preview ? (
-        <span className={cn('text-[13px] text-ink-secondary', prose)}>{preview}</span>
+        <span className={cn('text-body text-ink-secondary', prose)}>{preview}</span>
       ) : (
         <span className="text-faint"> </span>
       );
@@ -291,12 +291,12 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'formula': {
       const rt = field.config['result_type'] as string | undefined;
       if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
-      if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
+      if (rt === 'number') return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
       // A date-returning formula used to fall through to String(value) and render
       // the raw ISO ("2026-02-28T00:00:00.000Z"). #288's add_months/end_of_month/
       // to_date made that the common case rather than a curiosity.
-      if (rt === 'date') return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{formatDateValue(fmt, value)}</span>;
-      return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
+      if (rt === 'date') return <span className="truncate text-body tabular-nums text-ink-secondary">{formatDateValue(fmt, value)}</span>;
+      return <span className="truncate text-body text-ink-secondary">{String(value)}</span>;
     }
     case 'rollup': {
       if (value === null || value === undefined) return <span className="text-faint"> </span>;
@@ -316,15 +316,15 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       }
       if (typeof value !== 'number') {
         if (value === true || value === false) {
-          return <span className="truncate text-[13px] text-ink-secondary">{value === true ? '✓' : '—'}</span>;
+          return <span className="truncate text-body text-ink-secondary">{value === true ? '✓' : '—'}</span>;
         }
         // A first/last rollup over a date field returns an ISO string — same raw-ISO
         // problem as the formula branch above, so route it through the same formatter.
         const asDate = formatDateValue(fmt, value);
-        return <span className="truncate text-[13px] text-ink-secondary">{asDate ?? String(value)}</span>;
+        return <span className="truncate text-body text-ink-secondary">{asDate ?? String(value)}</span>;
       }
       const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
-      return <span className="w-full truncate text-right text-[13px] tabular-nums">{shown}</span>;
+      return <span className="w-full truncate text-right text-body tabular-nums">{shown}</span>;
     }
     case 'lookup': {
       // Server resolves values (select ids → labels); scalar or array by cardinality.
@@ -332,7 +332,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       const text = items
         .map((v) => (v === true ? '✓' : v === false ? '—' : String(v)))
         .join(', ');
-      return <span className="truncate text-[13px] text-ink-secondary">{text}</span>;
+      return <span className="truncate text-body text-ink-secondary">{text}</span>;
     }
     case 'relation':
       return (
@@ -371,7 +371,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       return (
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           {ids.map((id) => (
-            <span key={id} className="flex min-w-0 items-center gap-1 text-[13px]">
+            <span key={id} className="flex min-w-0 items-center gap-1 text-body">
               <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
               <span className="truncate">{memberNames.get(id) ?? '(unknown)'}</span>
             </span>
@@ -383,14 +383,14 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'created_at':
     case 'updated_at': {
       const d = new Date(String(value));
-      if (Number.isNaN(d.getTime())) return <span className="truncate text-[13px]">{String(value)}</span>;
+      if (Number.isNaN(d.getTime())) return <span className="truncate text-body">{String(value)}</span>;
       // System timestamps carry a time; plain date fields show the day only.
       const shown = field.type === 'date' ? fmt.date(d) : fmt.dateTime(d);
-      return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{shown}</span>;
+      return <span className="truncate text-body tabular-nums text-ink-secondary">{shown}</span>;
     }
     case 'color':
       return (
-        <span className="flex min-w-0 items-center gap-1.5 text-[13px] tabular-nums text-ink-secondary">
+        <span className="flex min-w-0 items-center gap-1.5 text-body tabular-nums text-ink-secondary">
           <span
             className="h-3.5 w-3.5 shrink-0 rounded-[3px] border border-border-default"
             style={{ backgroundColor: String(value) }}
@@ -404,7 +404,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
           href={String(value)}
           target="_blank"
           rel="noreferrer"
-          className={cn('block max-w-full text-[13px] text-info underline', wrap ? 'break-all' : 'truncate')}
+          className={cn('block max-w-full text-body text-info underline', wrap ? 'break-all' : 'truncate')}
           onClick={(e) => e.stopPropagation()}
         >
           {String(value).replace(/^https?:\/\//, '')}
@@ -426,7 +426,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
             <span
               key={f.id}
               title={`${f.filename} · ${formatBytes(f.size)}`}
-              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-[12px] text-muted"
+              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-label text-muted"
             >
               <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
               <span className="truncate">{f.filename}</span>
@@ -436,20 +436,20 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       );
     }
     case 'number':
-      return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
+      return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
     case 'id':
       // Public per-database sequential id (MN-087) — muted, monospace-ish.
       // #669 — STAYS faint. #326 names the record number as its FIRST example of
       // genuinely decorative text, and #741 kept `#{row.number}` on the same
       // grounds. Consistent by decision rather than by oversight.
-      return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;
+      return <span className="truncate text-label tabular-nums text-faint">{String(value)}</span>;
     case 'title':
-      return <span className={cn('text-[13px] font-medium text-ink', prose)}>{String(value)}</span>;
+      return <span className={cn('text-body font-medium text-ink', prose)}>{String(value)}</span>;
     case 'email':
-      return <span className={cn('text-[13px]', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
+      return <span className={cn('text-body', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
     default:
       // text and anything else prose-like.
-      return <span className={cn('text-[13px]', prose)}>{String(value)}</span>;
+      return <span className={cn('text-body', prose)}>{String(value)}</span>;
   }
 }
 
@@ -491,7 +491,7 @@ export function EmptyFieldAffordance({
 }) {
   // An em dash on a read-only/computed field is decoration, not a control —
   // nothing to click, so `faint` is the right weight for it.
-  if (!editable) return <span className={cn('text-[13px] text-faint', className)}>—</span>;
+  if (!editable) return <span className={cn('text-body text-faint', className)}>—</span>;
   /*
    * #326: `muted`, not `faint`. Measured on the record page, `faint` gave
    * 2.72:1 in dark and 2.02:1 in light — under WCAG AA (4.5:1) and under even
@@ -503,7 +503,7 @@ export function EmptyFieldAffordance({
    * than a filled value (`text-ink`), so the hierarchy survives.
    */
   return (
-    <span className={cn('truncate text-[13px] text-muted transition-colors hover:text-ink', className)}>
+    <span className={cn('truncate text-body text-muted transition-colors hover:text-ink', className)}>
       {emptyAffordanceVerb(field.type)} {field.displayName}
     </span>
   );
@@ -627,7 +627,7 @@ export function CellEditor({ ws, db, rec, field, value, members, onCommit, onTog
       // "set this file on 40 rows" is not a thing this can honestly offer.
       if (!rec) {
         return (
-          <div className="rounded-[var(--radius-control)] border border-border-strong bg-card p-2 text-[12px] text-muted">
+          <div className="rounded-[var(--radius-control)] border border-border-strong bg-card p-2 text-label text-muted">
             Files are added on a single record.
           </div>
         );
@@ -731,7 +731,7 @@ function TextEditor({
     <input
       autoFocus
       inputMode={inputMode}
-      className="h-full w-full bg-card px-2 text-[13px] text-ink outline-none"
+      className="h-full w-full bg-card px-2 text-body text-ink outline-none"
       value={val}
       onChange={(e) => setVal(e.target.value)}
       onFocus={(e) => e.target.select()}
@@ -815,7 +815,7 @@ function MultilineTextEditor({
 function ComputedTitleNotice({ value, onCancel }: { value: string; onCancel: () => void }) {
   return (
     <div
-      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-[13px] text-muted"
+      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-body text-muted"
       title="This name is computed from a template — edit the template in the Name field’s settings."
     >
       <Sigma className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -859,7 +859,7 @@ function NumberEditor({
       <input
         autoFocus
         inputMode="decimal"
-        className="h-full min-w-0 flex-1 bg-transparent px-2 text-[13px] text-ink outline-none"
+        className="h-full min-w-0 flex-1 bg-transparent px-2 text-body text-ink outline-none"
         value={val}
         onChange={(e) => setVal(e.target.value)}
         onFocus={(e) => e.target.select()}
@@ -1037,7 +1037,7 @@ function OptionList({
           autoFocus
           value={query}
           placeholder="Search…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
           onChange={(e) => {
             setQuery(e.target.value);
             setActive(0);
@@ -1063,7 +1063,7 @@ function OptionList({
               <button
                 key={option.id}
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
+                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body hover:bg-hover',
                   (isSelected || idx === active) && 'bg-hover',
                 )}
                 onMouseEnter={() => setActive(idx)}
@@ -1072,7 +1072,7 @@ function OptionList({
                 <span className="flex min-w-0 items-center gap-2">
                   {multi && <input type="checkbox" readOnly checked={isSelected} />}
                   {option.image !== undefined ? (
-                    <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                    <span className="flex items-center gap-1.5 text-body text-ink">
                       <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
                       {option.label}
                     </span>
@@ -1095,12 +1095,12 @@ function OptionList({
                  options at all) — narrower than "your search found nothing",
                  which is what I first wrote here and had to correct. Still the
                  only text explaining an empty list, hence muted. */
-            <p className="px-2 py-1.5 text-[12px] text-muted">No matches</p>
+            <p className="px-2 py-1.5 text-label text-muted">No matches</p>
           )}
           {showCreate && (
             <button
               className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover',
+                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-info hover:bg-hover',
                 active === filtered.length && 'bg-hover',
               )}
               onMouseEnter={() => setActive(filtered.length)}
@@ -1113,11 +1113,11 @@ function OptionList({
           )}
         </div>
         <div className="flex justify-between border-t border-border-default px-2 pt-1">
-          <button className="text-[12px] text-muted hover:text-ink" onClick={onClear}>
+          <button className="text-label text-muted hover:text-ink" onClick={onClear}>
             Clear
           </button>
           {multi && (
-            <button className="text-[12px] text-ink underline" onClick={() => onToggle?.(current)}>
+            <button className="text-label text-ink underline" onClick={() => onToggle?.(current)}>
               Done
             </button>
           )}
@@ -1186,7 +1186,7 @@ export function PressButton({
       type="button"
       title={disabled ? 'Requires editor access' : undefined}
       className={cn(
-        'rounded-full px-2.5 py-0.5 text-[12px] font-medium',
+        'rounded-full px-2.5 py-0.5 text-label font-medium',
         disabled ? 'cursor-not-allowed opacity-50' : 'hover:brightness-95',
       )}
       style={{ backgroundColor: `${color}26`, color }}

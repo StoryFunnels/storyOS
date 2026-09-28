@@ -314,7 +314,7 @@ export function BatchBar({
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2">
       <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-border-default bg-card px-4 py-2 shadow-[var(--shadow-panel)]">
-        <span className="text-[13px] font-medium text-ink">
+        <span className="text-body font-medium text-ink">
           {selected.length} selected
           {moreUnloaded && (
             <span className="ml-1 font-normal text-faint" title="Scroll to load more rows, then select again to include them.">
@@ -325,7 +325,7 @@ export function BatchBar({
         <span className="h-4 w-px bg-border-default" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="rounded px-1.5 py-0.5 text-[13px] text-ink-secondary hover:bg-hover" disabled={busy}>
+            <button className="rounded px-1.5 py-0.5 text-body text-ink-secondary hover:bg-hover" disabled={busy}>
               Set field ▾
             </button>
           </DropdownMenuTrigger>
@@ -340,7 +340,7 @@ export function BatchBar({
         {relationFields.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="rounded px-1.5 py-0.5 text-[13px] text-ink-secondary hover:bg-hover" disabled={busy}>
+              <button className="rounded px-1.5 py-0.5 text-body text-ink-secondary hover:bg-hover" disabled={busy}>
                 Link to ▾
               </button>
             </DropdownMenuTrigger>
@@ -355,7 +355,7 @@ export function BatchBar({
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="rounded px-1.5 py-0.5 text-[13px] text-ink-secondary hover:bg-hover" disabled={busy}>
+            <button className="rounded px-1.5 py-0.5 text-body text-ink-secondary hover:bg-hover" disabled={busy}>
               More ▾
             </button>
           </DropdownMenuTrigger>
@@ -372,21 +372,21 @@ export function BatchBar({
           </DropdownMenuContent>
         </DropdownMenu>
         {canDelete && (
-          <button className="rounded px-1.5 py-0.5 text-[13px] text-error hover:bg-hover" onClick={() => void trashAll()} disabled={busy}>
+          <button className="rounded px-1.5 py-0.5 text-body text-error hover:bg-hover" onClick={() => void trashAll()} disabled={busy}>
             Move to trash
           </button>
         )}
-        <button className="rounded px-1.5 py-0.5 text-[13px] text-muted hover:bg-hover" onClick={onClear}>
+        <button className="rounded px-1.5 py-0.5 text-body text-muted hover:bg-hover" onClick={onClear}>
           Clear
         </button>
 
         {settingField && (
           <div className="absolute bottom-full left-1/2 mb-2 w-64 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[var(--shadow-panel)]">
-            <p className="mb-1.5 text-[12px] font-medium text-muted">
+            <p className="mb-1.5 text-label font-medium text-muted">
               Set “{settingField.displayName}” on {selected.length} records
             </p>
             {overwriteCount > 0 && (
-              <p className="mb-1.5 text-[12px] text-warning">
+              <p className="mb-1.5 text-label text-warning">
                 {overwriteCount} of {selected.length} already have a value — applying overwrites them.
               </p>
             )}
@@ -463,7 +463,7 @@ function BulkLinkPicker({
 
   return (
     <div className="absolute bottom-full left-1/2 mb-2 w-72 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[var(--shadow-panel)]">
-      <p className="mb-1.5 text-[12px] font-medium text-muted">
+      <p className="mb-1.5 text-label font-medium text-muted">
         Link {count} record{count === 1 ? '' : 's'} via “{field.displayName}” — replaces existing links
       </p>
       <Input
@@ -481,13 +481,13 @@ function BulkLinkPicker({
         {(results.data ?? []).map((r) => (
           <button
             key={r.id}
-            className="block w-full truncate rounded px-2 py-1 text-left text-[13px] text-ink hover:bg-hover"
+            className="block w-full truncate rounded px-2 py-1 text-left text-body text-ink hover:bg-hover"
             onClick={() => onPick(r.id)}
           >
             {r.title || 'Untitled'}
           </button>
         ))}
-        {results.data?.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">No matches.</p>}
+        {results.data?.length === 0 && <p className="px-2 py-1 text-label text-faint">No matches.</p>}
       </div>
     </div>
   );

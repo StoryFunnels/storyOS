@@ -206,10 +206,10 @@ function TypeButtonGrid({
               {/* #321: a type with a plainLabel leads with the plain phrase and
                   shows its real name underneath, so the jargon stays findable
                   without being the first thing a newcomer has to decode. */}
-              <span className="block text-[13px] font-medium text-ink">
+              <span className="block text-body font-medium text-ink">
                 {t.plainLabel ?? t.label}
               </span>
-              <span className="block truncate text-[11px] text-muted">
+              <span className="block truncate text-meta text-muted">
                 {disabledReason ?? (t.plainLabel ? t.label : t.description)}
               </span>
             </span>
@@ -245,7 +245,7 @@ export function TypePicker({
       <TypeButtonGrid types={basic} value={value} onChange={onChange} disabledTypes={disabledTypes} />
       <button
         type="button"
-        className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+        className="flex w-fit items-center gap-1 text-label font-medium text-muted hover:text-ink"
         aria-expanded={showAdvanced}
         onClick={() => setShowAdvanced((s) => !s)}
       >
@@ -407,7 +407,7 @@ export function ConfigEditor({
 
   if (type === 'text') {
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.multiline)}
@@ -420,7 +420,7 @@ export function ConfigEditor({
   if (type === 'date') {
     return (
       <div className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-body text-ink">
           <input
             type="checkbox"
             checked={Boolean(config.include_time)}
@@ -433,7 +433,7 @@ export function ConfigEditor({
          * about a day and silently wrong after that; "today" is the only date
          * default that stays true, and it resolves server-side at insert.
          */}
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-body text-ink">
           <input
             type="checkbox"
             checked={Boolean(config.default_today)}
@@ -447,7 +447,7 @@ export function ConfigEditor({
   if (type === 'checkbox') {
     // #203 — two states, so a literal default is the whole story here.
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.default)}
@@ -459,7 +459,7 @@ export function ConfigEditor({
   }
   if (type === 'user') {
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.multi)}
@@ -560,7 +560,7 @@ export function ConfigEditor({
     // number, there's nothing to format.
     if (config.result_type !== 'number') return null;
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={config.format === 'percent'}
@@ -600,7 +600,7 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
     return (
       <div className="flex flex-col gap-1.5">
         <Label>Board grouping</Label>
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Not configured — a board can&rsquo;t group by this field until it has bins.
         </p>
         <button
@@ -678,9 +678,9 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
                 value={bin.label}
                 onChange={(e) => setLabel(i, e.target.value)}
               />
-              <span className="text-[12px] text-faint">up to</span>
+              <span className="text-label text-faint">up to</span>
               {isLast ? (
-                <span className="w-20 text-[13px] text-muted">everything else</span>
+                <span className="w-20 text-body text-muted">everything else</span>
               ) : (
                 <Input
                   className="w-20"
@@ -704,7 +704,7 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
       </div>
       <button
         type="button"
-        className="w-fit text-[13px] text-accent hover:underline"
+        className="w-fit text-body text-accent hover:underline"
         onClick={addBin}
       >
         + Add bin
@@ -758,7 +758,7 @@ function TitleNameConfig({
         options={NAME_MODE_OPTIONS}
       />
       {mode === 'freetext' ? (
-        <p className="text-[12px] text-faint">
+        <p className="text-label text-faint">
           Each record’s name is typed in by hand — the classic editable title.
         </p>
       ) : (
@@ -770,7 +770,7 @@ function TitleNameConfig({
             expression={source}
             onChange={(next) => onChange({ name_mode: 'computed', source: next })}
           />
-          <p className="text-[12px] text-faint">
+          <p className="text-label text-faint">
             The name is generated from this template on every save and can’t be edited
             directly. Records fall back to <code className="text-muted">#id</code> when the
             template is empty. References this record’s own fields only.

@@ -288,7 +288,7 @@ export function ButtonActionsEditor({
           {action.type === 'create_record' && (
             <div className="flex flex-col gap-1">
               <select
-                className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={action.database_id}
                 onChange={(e) =>
                   patch(i, {
@@ -353,7 +353,7 @@ export function ButtonActionsEditor({
           {action.type === 'send_webhook' && (
             <div className="flex flex-col gap-1">
               {!action.url.trim() && (
-                <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+                <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-meta text-muted">
                   <Info className="mt-0.5 h-3 w-3 shrink-0" />
                   <span>
                     This sends data to a URL you choose — paste in the webhook URL your
@@ -376,7 +376,7 @@ export function ButtonActionsEditor({
                 value={action.url}
                 onChange={(e) => patch(i, { ...action, url: e.target.value })}
               />
-              <p className="text-[11px] text-muted">
+              <p className="text-meta text-muted">
                 Sends the whole record, signed with the workspace webhook secret; failures
                 retry automatically.
               </p>
@@ -421,7 +421,7 @@ export function ButtonActionsEditor({
           {action.type === 'notify_user' && (
             <div className="flex flex-col gap-1">
               <select
-                className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={action.user}
                 onChange={(e) => patch(i, { ...action, user: e.target.value })}
               >
@@ -471,7 +471,7 @@ export function ButtonActionsEditor({
       ))}
       <button
         type="button"
-        className="flex items-center gap-1 self-start text-[13px] text-muted hover:text-ink"
+        className="flex items-center gap-1 self-start text-body text-muted hover:text-ink"
         onClick={() => onChange([...actions, defaultActionFor('add_comment', { db, relationFields })])}
       >
         <Plus className="h-3.5 w-3.5" /> Add action
@@ -543,7 +543,7 @@ function FieldValuesEditor({
   return (
     <div className="flex flex-col gap-1">
       <select
-        className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
+        className="h-7 self-start rounded border border-border-default bg-card px-1 text-label text-muted"
         value=""
         onChange={(e) => {
           const f = settable.find((x) => x.apiName === e.target.value);
@@ -561,7 +561,7 @@ function FieldValuesEditor({
       {Object.entries(values).map(([key, value]) => {
         const field = settable.find((f) => f.apiName === key);
         return (
-          <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
+          <div key={key} className="flex items-center gap-1.5 text-label text-ink">
             <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
             <SetValueEditor
               ws={ws}
@@ -608,7 +608,7 @@ function SetValueEditor({
   onChange: (value: unknown) => void;
 }) {
   const controlCls =
-    'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+    'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-label text-ink';
   if (!field) {
     return (
       <Input
@@ -638,7 +638,7 @@ function SetValueEditor({
       const ids = Array.isArray(value) ? (value as string[]) : [];
       const options = field.options ?? [];
       if (options.length === 0)
-        return <span className="flex-1 text-[11px] text-muted">No options</span>;
+        return <span className="flex-1 text-meta text-muted">No options</span>;
       return (
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {options.map((o) => {
@@ -649,7 +649,7 @@ function SetValueEditor({
                 type="button"
                 onClick={() => onChange(on ? ids.filter((x) => x !== o.id) : [...ids, o.id])}
                 className={cn(
-                  'rounded-full border px-2 py-0.5 text-[11px]',
+                  'rounded-full border px-2 py-0.5 text-meta',
                   on
                     ? 'border-[var(--accent)] bg-active text-ink'
                     : 'border-border-default text-muted',
@@ -671,7 +671,7 @@ function SetValueEditor({
           onChange={onChange}
         />
       ) : (
-        <span className="flex-1 text-[11px] text-muted">Relation config missing</span>
+        <span className="flex-1 text-meta text-muted">Relation config missing</span>
       );
     case 'user':
       return (
@@ -692,7 +692,7 @@ function SetValueEditor({
       return <DateValueEditor value={value} onChange={onChange} />;
     case 'checkbox':
       return (
-        <label className="flex flex-1 items-center gap-1.5 text-[12px] text-muted">
+        <label className="flex flex-1 items-center gap-1.5 text-label text-muted">
           <input
             type="checkbox"
             checked={value === true}
@@ -734,7 +734,7 @@ function DateValueEditor({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={isToken ? v : 'date'}
         onChange={(e) => {
           const next = e.target.value;
@@ -840,7 +840,7 @@ function RelationSetValuePicker({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-7 min-w-0 flex-1 flex-wrap items-center gap-1 truncate rounded border border-border-default bg-card px-1.5 text-left text-[12px] text-ink"
+        className="flex h-7 min-w-0 flex-1 flex-wrap items-center gap-1 truncate rounded border border-border-default bg-card px-1.5 text-left text-label text-ink"
       >
         {chips.length === 0 ? (
           <span className="text-muted">Choose {relation.target_database_name ?? 'record'}…</span>
@@ -883,7 +883,7 @@ function RelationSetValuePicker({
             <input
               autoFocus
               placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
-              className="mb-2 w-full rounded border border-border-default bg-card px-2 py-1.5 text-[12px] text-ink outline-none placeholder:text-muted"
+              className="mb-2 w-full rounded border border-border-default bg-card px-2 py-1.5 text-label text-ink outline-none placeholder:text-muted"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -906,14 +906,14 @@ function RelationSetValuePicker({
                 // PR #845 review: text-muted, not text-faint — this empty-state
                 // message is the only content shown at that moment and tells
                 // the user their search found nothing, not decoration.
-                <p className="px-2 py-1.5 text-[11px] text-muted">No matches</p>
+                <p className="px-2 py-1.5 text-meta text-muted">No matches</p>
               )}
             </div>
             <div className="mt-2 flex justify-between border-t border-border-default pt-2">
               {!single && ids.length > 0 ? (
                 <button
                   type="button"
-                  className="text-[12px] text-muted hover:text-ink"
+                  className="text-label text-muted hover:text-ink"
                   onClick={() => onChange([])}
                 >
                   Clear
@@ -923,7 +923,7 @@ function RelationSetValuePicker({
               )}
               <button
                 type="button"
-                className="text-[12px] text-ink underline"
+                className="text-label text-ink underline"
                 onClick={() => setOpen(false)}
               >
                 Done
@@ -957,7 +957,7 @@ function LinkBackPicker({
   if (candidates.length === 0) return null;
   return (
     <select
-      className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+      className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
     >
@@ -994,7 +994,7 @@ function SendEmailEditor({
   return (
     <div className="flex flex-col gap-1.5">
       {connections.length === 0 && (
-        <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+        <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-meta text-muted">
           <Info className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
             No Resend/SMTP connection yet.{' '}
@@ -1010,7 +1010,7 @@ function SendEmailEditor({
         </div>
       )}
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={action.connection_id}
         onChange={(e) => onChange({ ...action, connection_id: e.target.value })}
       >
@@ -1054,11 +1054,11 @@ function SendEmailEditor({
         value={action.body_markdown}
         onChange={(e) => onChange({ ...action, body_markdown: e.target.value })}
       />
-      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+      <div className="flex items-center gap-1.5 text-meta text-muted">
         <ShieldCheck className="h-3 w-3 shrink-0" />
         <span>Approval:</span>
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={approvalValue}
           onChange={(e) => {
             const v = e.target.value;
@@ -1133,7 +1133,7 @@ function HttpRequestEditor({
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-1.5">
         <select
-          className="h-7 w-24 shrink-0 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-7 w-24 shrink-0 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={action.method}
           onChange={(e) => onChange({ ...action, method: e.target.value as HttpRequestAction['method'] })}
         >
@@ -1161,12 +1161,12 @@ function HttpRequestEditor({
           return (
             <div key={name} className="flex items-center gap-1">
               <Input
-                className="h-6 w-32 shrink-0 text-[11px]"
+                className="h-6 w-32 shrink-0 text-meta"
                 value={name}
                 onChange={(e) => renameHeader(name, e.target.value)}
               />
               <Input
-                className="h-6 flex-1 text-[11px]"
+                className="h-6 flex-1 text-meta"
                 type={isSecret ? 'password' : 'text'}
                 placeholder={isSecret ? '(unchanged — type to replace)' : ''}
                 value={isSecret ? '' : value}
@@ -1180,7 +1180,7 @@ function HttpRequestEditor({
         })}
         <button
           type="button"
-          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          className="flex items-center gap-1 self-start text-meta text-muted hover:text-ink"
           onClick={addHeader}
         >
           <Plus className="h-3 w-3" /> Add header
@@ -1199,9 +1199,9 @@ function HttpRequestEditor({
       )}
 
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] font-medium text-muted">Auth (optional)</label>
+        <label className="text-meta font-medium text-muted">Auth (optional)</label>
         <select
-          className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={action.connection_id ?? ''}
           onChange={(e) => onChange({ ...action, connection_id: e.target.value || undefined })}
         >
@@ -1213,7 +1213,7 @@ function HttpRequestEditor({
           ))}
         </select>
         {(connections.data ?? []).length === 0 && (
-          <p className="text-[11px] text-muted">
+          <p className="text-meta text-muted">
             No HTTP connections yet —{' '}
             <Link href={`/w/${ws}/settings/connections`} target="_blank" className="underline underline-offset-2 hover:no-underline">
               add one
@@ -1231,7 +1231,7 @@ function HttpRequestEditor({
           capture={capture}
           onChange={(next) => onChange({ ...action, capture: next })}
         />
-        <p className="text-[11px] text-muted">
+        <p className="text-meta text-muted">
           Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
           fields above. Secrets from the connection are never shown in run results.
         </p>
@@ -1254,11 +1254,11 @@ function CaptureRowsEditor({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded border border-border-default p-1.5">
-      <p className="text-[11px] font-medium text-muted">Capture response into fields</p>
+      <p className="text-meta font-medium text-muted">Capture response into fields</p>
       {capture.map((row, i) => (
         <div key={i} className="flex items-center gap-1">
           <Input
-            className="h-6 w-32 shrink-0 font-mono text-[11px]"
+            className="h-6 w-32 shrink-0 font-mono text-meta"
             placeholder="json path, e.g. id"
             value={row.path}
             onChange={(e) =>
@@ -1268,9 +1268,9 @@ function CaptureRowsEditor({
           {/* #706 — KEEPS faint: a connector glyph between two selects, not
               text. Non-text graphic at 3:1, which faint clears; the selects
               either side carry the meaning. */}
-          <span className="text-[11px] text-faint">→</span>
+          <span className="text-meta text-faint">→</span>
           <select
-            className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+            className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-meta text-ink"
             value={row.target_field_id}
             onChange={(e) =>
               onChange(capture.map((r, j) => (j === i ? { ...r, target_field_id: e.target.value } : r)))
@@ -1295,7 +1295,7 @@ function CaptureRowsEditor({
       {capture.length < 10 && (
         <button
           type="button"
-          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          className="flex items-center gap-1 self-start text-meta text-muted hover:text-ink"
           onClick={() => onChange([...capture, { path: '', target_field_id: settable[0]?.id ?? '' }])}
         >
           <Plus className="h-3 w-3" /> Add capture
@@ -1351,7 +1351,7 @@ function SendTestRequestButton({
 
   return (
     <div className="flex flex-col gap-1.5 rounded border border-border-default p-1.5">
-      <p className="text-[11px] font-medium text-muted">Send test request</p>
+      <p className="text-meta font-medium text-muted">Send test request</p>
       <div className="flex items-center gap-1.5">
         <Input
           className="h-7 flex-1"
@@ -1363,13 +1363,13 @@ function SendTestRequestButton({
           {busy ? 'Sending…' : 'Send test request'}
         </Button>
       </div>
-      {error && <p className="text-[11px] text-error">{error}</p>}
+      {error && <p className="text-meta text-error">{error}</p>}
       {result && (
         <div className="flex flex-col gap-1">
-          <p className="text-[11px] text-muted">
+          <p className="text-meta text-muted">
             HTTP {result.status} {result.status >= 200 && result.status < 300 ? '✓' : ''}
           </p>
-          <pre className="max-h-32 overflow-auto rounded bg-card p-1.5 text-[11px] text-ink">
+          <pre className="max-h-32 overflow-auto rounded bg-card p-1.5 text-meta text-ink">
             {result.body}
           </pre>
         </div>
@@ -1398,13 +1398,13 @@ function UpdateLinkedEditor({
   const settable = settableFieldsForSetValues(target.data?.fields ?? []);
   if (relationFields.length === 0) {
     return (
-      <p className="text-[12px] text-muted">This database has no relations to update through.</p>
+      <p className="text-label text-muted">This database has no relations to update through.</p>
     );
   }
   return (
     <div className="flex flex-col gap-1">
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={action.relation_field_id}
         onChange={(e) => onChange({ ...action, relation_field_id: e.target.value, values: {} })}
       >
@@ -1472,9 +1472,9 @@ function ActionConditionRow({
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-t border-border-default pt-1.5">
-      <span className="text-[11px] text-muted">Only if</span>
+      <span className="text-meta text-muted">Only if</span>
       <select
-        className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+        className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
         value={condition?.field ?? ''}
         onChange={(e) => {
           const apiName = e.target.value;
@@ -1499,7 +1499,7 @@ function ActionConditionRow({
 
       {condition && ops.length > 0 && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={condition.op}
           onChange={(e) => {
             const nextOp = ops.find((o) => o.op === e.target.value);
@@ -1521,7 +1521,7 @@ function ActionConditionRow({
 
       {condition && needsValue && isOptionInput && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={valueAsText}
           onChange={(e) => setValue(e.target.value)}
         >
@@ -1536,7 +1536,7 @@ function ActionConditionRow({
 
       {condition && needsValue && op?.input === 'boolean' && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={valueAsText || 'true'}
           onChange={(e) => setValue(e.target.value)}
         >
@@ -1547,7 +1547,7 @@ function ActionConditionRow({
 
       {condition && needsValue && !isOptionInput && op?.input !== 'boolean' && (
         <Input
-          className="h-6 w-36 text-[11px]"
+          className="h-6 w-36 text-meta"
           type={op?.input === 'number' ? 'number' : 'text'}
           placeholder="value"
           value={valueAsText}
@@ -1567,7 +1567,7 @@ function ActionConditionRow({
 function AdvancedDetails({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <details className="rounded border border-border-default">
-      <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+      <summary className="cursor-pointer select-none px-2 py-1 text-meta text-muted hover:text-ink">
         {label}
       </summary>
       <div className="flex flex-col gap-1 border-t border-border-default p-2">{children}</div>

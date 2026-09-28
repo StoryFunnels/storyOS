@@ -210,7 +210,7 @@ export function HeaderCell({
       {...(reorderable ? sortable.listeners : {})}
       title={reorderable ? 'Drag to reorder' : undefined}
       className={cn(
-        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted',
+        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-label font-medium text-muted',
         // #413 — the cursor must cover exactly what responds, or the header
         // grows a region that looks draggable and is not (and vice versa).
         reorderable && 'cursor-grab touch-none active:cursor-grabbing',

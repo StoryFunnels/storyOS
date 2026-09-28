@@ -194,7 +194,7 @@ export function AddFieldDialog({
           <Label htmlFor="field-name">Name</Label>
           <Input id="field-name" autoFocus required value={name} onChange={(e) => setName(e.target.value)} />
           {duplicateName && (
-            <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
+            <p className="text-label text-error">A field named “{name.trim()}” already exists in this database.</p>
           )}
         </div>
         <div className="flex flex-col gap-1.5">
@@ -219,7 +219,7 @@ export function AddFieldDialog({
         )}
         {(type === 'lookup' || type === 'rollup') &&
           (relationFields.length === 0 ? (
-            <p className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-body text-muted">
               {type === 'rollup' ? 'Rollups aggregate related items' : "Lookups surface a related item's field"} — this
               database needs a relation first. Add a Relation field, then come back.
             </p>
@@ -250,7 +250,7 @@ export function AddFieldDialog({
                     </optgroup>
                   </select>
                   {pickOne && (
-                    <p className="text-[11px] text-muted">
+                    <p className="text-meta text-muted">
                       Orders the linked records by a field, then shows something from that single record — e.g. “Last
                       Ticket” or “Owner of the most recent Order”.
                     </p>
@@ -331,7 +331,7 @@ export function AddFieldDialog({
                 <div className="flex flex-col gap-1.5">
                   <button
                     type="button"
-                    className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+                    className="flex w-fit items-center gap-1 text-label font-medium text-muted hover:text-ink"
                     aria-expanded={showRollupFilter}
                     onClick={() => setShowRollupFilter((s) => !s)}
                   >
@@ -344,7 +344,7 @@ export function AddFieldDialog({
                   </button>
                   {showRollupFilter && (
                     <>
-                      <p className="text-[12px] text-faint">
+                      <p className="text-label text-faint">
                         Only count linked items matching this condition — e.g. State is not Done.
                       </p>
                       <div className="rounded-[var(--radius-card)] border border-border-default">
@@ -443,7 +443,7 @@ export function AddFieldDialog({
                     <button
                       key={a}
                       type="button"
-                      className="rounded-full border border-border-default px-2.5 py-1 text-[12px] text-ink hover:bg-hover"
+                      className="rounded-full border border-border-default px-2.5 py-1 text-label text-ink hover:bg-hover"
                       onClick={() => {
                         setName(a);
                         setInverseName(b);
@@ -456,24 +456,24 @@ export function AddFieldDialog({
                     </button>
                   ))}
                 </div>
-                <p className="text-[12px] text-faint">
+                <p className="text-label text-faint">
                   A self-relation puts both fields on this database — name each direction clearly.
                 </p>
               </div>
             )}
             <div className="flex flex-col gap-1.5">
               <Label>Each item links to…</Label>
-              <label className="flex items-center gap-2 text-[13px] text-ink">
+              <label className="flex items-center gap-2 text-body text-ink">
                 <input type="radio" checked={singleTarget} onChange={() => setSingleTarget(true)} />
                 one item{showRelationAdvanced && <span className="text-faint"> (one-to-many)</span>}
               </label>
-              <label className="flex items-center gap-2 text-[13px] text-ink">
+              <label className="flex items-center gap-2 text-body text-ink">
                 <input type="radio" checked={!singleTarget} onChange={() => setSingleTarget(false)} />
                 many items{showRelationAdvanced && <span className="text-faint"> (many-to-many)</span>}
               </label>
               <button
                 type="button"
-                className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+                className="flex w-fit items-center gap-1 text-label font-medium text-muted hover:text-ink"
                 aria-expanded={showRelationAdvanced}
                 onClick={() => setShowRelationAdvanced((s) => !s)}
               >
@@ -499,7 +499,7 @@ export function AddFieldDialog({
               {targetDb === db &&
                 name.trim() &&
                 name.trim().toLowerCase() === inverseName.trim().toLowerCase() && (
-                  <p className="text-[12px] text-error">
+                  <p className="text-label text-error">
                     The two sides of a self-relation need different names.
                   </p>
                 )}

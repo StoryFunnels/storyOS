@@ -98,10 +98,10 @@ export function EditFieldDialog({
           <Label htmlFor="rename">Name</Label>
           <Input id="rename" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           {duplicateName && (
-            <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
+            <p className="text-label text-error">A field named “{name.trim()}” already exists in this database.</p>
           )}
-          <p className="text-[12px] text-faint">{typeMeta?.label ?? field.type} field</p>
-          <details className="text-[12px] text-faint">
+          <p className="text-label text-faint">{typeMeta?.label ?? field.type} field</p>
+          <details className="text-label text-faint">
             <summary className="w-fit cursor-pointer font-medium text-muted hover:text-ink">
               Advanced
             </summary>
@@ -114,7 +114,7 @@ export function EditFieldDialog({
 
         {field.type === 'relation' && field.relation && (
           <>
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               Links to <span className="font-medium text-ink">{field.relation.target_database_name ?? 'a database'}</span>{' '}
               ({field.relation.cardinality === 'one_to_many' ? 'one-to-many' : 'many-to-many'}). Manage
               or remove the relation from either database's schema.
