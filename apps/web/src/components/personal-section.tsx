@@ -487,7 +487,7 @@ export function PersonalSection({ ws }: { ws: string }) {
           <SidebarRow key={doc.id} depth={1}>
             <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary">
               <FileText className="h-3.5 w-3.5 shrink-0 text-faint" />
-              <span className="truncate">{doc.title || 'Untitled'}</span>
+              <span className="overflow-hidden whitespace-nowrap">{doc.title || 'Untitled'}</span>
             </Link>
             <SidebarRowMenu
               label={doc.title || 'Untitled'}
@@ -537,8 +537,8 @@ export function PersonalSection({ ws }: { ws: string }) {
                 className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
-                <span className="truncate">{v.name}</span>
-                {v.database_name && <span className="shrink-0 truncate text-meta text-muted">· {v.database_name}</span>}
+                <span className="overflow-hidden whitespace-nowrap">{v.name}</span>
+                {v.database_name && <span className="shrink-0 overflow-hidden whitespace-nowrap text-meta text-muted">· {v.database_name}</span>}
               </Link>
               <SidebarRowMenu
                 label={v.name}
