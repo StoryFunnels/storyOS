@@ -4,10 +4,11 @@ import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, spaceDocuments, spaces, views } from '../db/schema';
+import { databases, spaceDocuments, spaces, type ChangeSource, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
 import { restoreDatabaseCascade, slugify, softDeleteDatabaseCascade } from '../databases/databases.service';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class SpacesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly actionGates: ActionGatesService,
   ) {}
 
   /** Guests see spaces they hold grants on — directly or via a database inside (ADR-0007). */
@@ -188,7 +190,12 @@ export class SpacesService {
    * database or space (that is #37's job), so nothing today lets anyone
    * actually get it back.
    */
-  async remove(workspaceId: string, spaceId: string, opts: { confirm?: string } = {}) {
+  async remove(
+    workspaceId: string,
+    spaceId: string,
+    opts: { confirm?: string } = {},
+    source: ChangeSource = 'human',
+  ) {
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
       columns: { id: true, name: true },
@@ -213,6 +220,27 @@ export class SpacesService {
         } (${names}) and every record in them. This cannot be undone and the trash cannot recover it. ` +
           `To proceed, pass confirm: "${space.name}".`,
       );
+    }
+
+    // #542 — this cascade used to reach `softDeleteDatabaseCascade` for every
+    // contained database with NO gate check at all, the same bypass fixed on
+    // the direct database-delete path (DatabasesService.remove). A space can
+    // contain several databases, each with its own DIFFERENT declared
+    // `delete_records` policy, and there's no atomic "hold N databases behind
+    // one approval" mechanism yet (ActionGatesService.check() stages one
+    // approval per call). Rather than gate some contained databases and
+    // silently delete the rest — a partial delete, which this ticket's own
+    // AC treats as worse than a refusal — refuse the WHOLE space delete up
+    // front when ANY contained database would be gated. The operator can
+    // still delete that database individually, where the real hold/approve/
+    // apply flow applies, then retry the space delete once it's clear.
+    for (const db of contained) {
+      if (await this.actionGates.wouldGate(workspaceId, db.id, DELETE_RECORDS_ACTION_CLASS, source)) {
+        throw new UnprocessableEntityException(
+          `"${db.name}" has a workspace-declared approval gate on deleting its records, and this space delete ` +
+            `would bypass it. Delete "${db.name}" on its own first (which respects the gate), then delete the space.`,
+        );
+      }
     }
 
     const gone = await this.db.transaction(async (tx) => {

@@ -150,7 +150,7 @@ export class WorkspaceController {
     await this.access.assertSpace(req.membership, spaceId, 'creator');
     // #417 — the typed-name guard is enforced in the service, so every caller
     // (HTTP, MCP, a script) meets it. See SpacesService.remove.
-    return this.spaces.remove(req.membership.workspaceId, spaceId, { confirm: body?.confirm });
+    return this.spaces.remove(req.membership.workspaceId, spaceId, { confirm: body?.confirm }, req.auth?.source ?? 'human');
   }
 
   // #37 — admin-only: a soft-deleted space has no live grants context to run

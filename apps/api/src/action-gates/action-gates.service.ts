@@ -24,6 +24,18 @@ export interface CheckGateInput {
   recordIds: string[];
   /** For the approval card and notification snippet. */
   previewText: string;
+  /**
+   * #542 — a raw `softDeleteDatabaseCascade()` call (DatabasesService.remove,
+   * SpacesService.remove) bypassed this gate entirely: it never went through
+   * RecordsService.softDelete/batchDelete, so a `delete_records` policy on a
+   * database was decorative against "delete the database instead". Absent
+   * (the default) means an ordinary record delete/batch-delete, applied via
+   * RecordsService.batchDelete on approval — unchanged. `'database_cascade'`
+   * means the WHOLE database (records, fields, views) is held together and,
+   * on approval, applied via DatabasesService's own cascade — see
+   * ApprovalsService's registered executor for the branch.
+   */
+  scope?: 'database_cascade';
 }
 
 export type CheckGateResult = { held: false } | { held: true; approvalId: string };
@@ -89,6 +101,7 @@ export class ActionGatesService {
         database_id: input.databaseId,
         record_ids: input.recordIds,
         requester_source: input.source,
+        ...(input.scope ? { scope: input.scope } : {}),
       },
       ctx: {
         workspaceId: input.workspaceId,
@@ -127,6 +140,24 @@ export class ActionGatesService {
       .catch((error: unknown) => this.logger.warn(`action-gate notify failed: ${String(error)}`));
 
     return { held: true, approvalId: created!.id };
+  }
+
+  /**
+   * #542 — read-only version of `check()`'s own policy resolution, for a
+   * caller that needs to know "would this be held" WITHOUT staging an
+   * approval (no row inserted, no notification sent). SpacesService.remove()
+   * uses this to pre-check every contained database before touching any of
+   * them: a space's cascade delete spans multiple databases that could each
+   * carry their own policy, and there is no atomic "hold N databases behind
+   * one approval" mechanism yet — so a space delete that would gate ANY
+   * contained database is refused whole, up front, rather than gating one
+   * database while quietly deleting the others (a partial delete would be
+   * worse than a refusal here, per this ticket's "never partial" rule).
+   */
+  async wouldGate(workspaceId: string, databaseId: string, actionClass: string, source: ChangeSource): Promise<boolean> {
+    if (source === 'human') return false;
+    const policy = await this.resolvePolicy(workspaceId, databaseId, actionClass);
+    return Boolean(policy?.enabled);
   }
 
   async list(workspaceId: string): Promise<PolicyRow[]> {
