@@ -188,7 +188,7 @@ function NewPersonalViewDialog({
                         disabled={Boolean(need)}
                         title={need ?? undefined}
                         onClick={() => setType(kind)}
-                        className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40 ${
+                        className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-body disabled:cursor-not-allowed disabled:opacity-40 ${
                           type === kind ? 'border-accent bg-accent-soft text-ink' : 'border-border-default text-ink-secondary hover:bg-hover'
                         }`}
                       >
@@ -445,7 +445,7 @@ export function PersonalSection({ ws }: { ws: string }) {
           className="flex items-center justify-between rounded px-2 py-[3px] hover:bg-hover"
           title="Only you can see this. If your account is removed, this content is deleted with it."
         >
-          <span className="flex items-center gap-2 text-[13px] text-ink-secondary">
+          <span className="flex items-center gap-2 text-body text-ink-secondary">
             <Lock className="h-3.5 w-3.5 text-faint" />
             Personal
           </span>
@@ -466,7 +466,7 @@ export function PersonalSection({ ws }: { ws: string }) {
             headers at different weights, which is worse than either choice
             applied uniformly. If the call is wrong it is wrong for ALL sidebar
             section headers and belongs in #665's terms, not diverging here. */}
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Personal</span>
+        <span className="text-meta font-semibold uppercase tracking-wider text-faint">Personal</span>
         {newMenu}
       </div>
       {/*
@@ -538,7 +538,7 @@ export function PersonalSection({ ws }: { ws: string }) {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
                 <span className="truncate">{v.name}</span>
-                {v.database_name && <span className="shrink-0 truncate text-[11px] text-muted">· {v.database_name}</span>}
+                {v.database_name && <span className="shrink-0 truncate text-meta text-muted">· {v.database_name}</span>}
               </Link>
               <SidebarRowMenu
                 label={v.name}

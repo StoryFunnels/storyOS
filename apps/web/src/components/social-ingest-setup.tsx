@@ -57,7 +57,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link className="text-[12px] text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
+      <Link className="text-label text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
         ← Integrations
       </Link>
       <div className="mt-6 flex items-center gap-3">
@@ -66,7 +66,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
         </span>
         <div>
           <h1 className="text-lg font-semibold text-ink">{cfg.label}</h1>
-          <p className="text-[13px] text-muted">{cfg.blurb}</p>
+          <p className="text-body text-muted">{cfg.blurb}</p>
         </div>
       </div>
 
@@ -95,7 +95,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
         <h2 className="text-sm font-semibold text-ink">
           {connected ? `${cfg.label} is connected` : `Connect ${cfg.label}`}
         </h2>
-        <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-[13px] text-muted">
+        <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-body text-muted">
           {cfg.tokenSteps.map((step) => (
             <li key={step}>{step}</li>
           ))}
@@ -119,12 +119,12 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
                 key={c.id}
                 className="flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-border-default px-3 py-2"
               >
-                <span className="truncate text-[13px] text-ink">{c.name}</span>
+                <span className="truncate text-body text-ink">{c.name}</span>
                 <span
                   className={
                     c.status === 'active'
-                      ? 'rounded bg-accent-soft px-1.5 py-0.5 text-[11px] text-ink'
-                      : 'rounded bg-hover px-1.5 py-0.5 text-[11px] text-error'
+                      ? 'rounded bg-accent-soft px-1.5 py-0.5 text-meta text-ink'
+                      : 'rounded bg-hover px-1.5 py-0.5 text-meta text-error'
                   }
                 >
                   {c.status}
@@ -137,7 +137,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
 
       <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-5">
         <h2 className="text-sm font-semibold text-ink">Where do items land?</h2>
-        <p className="mt-1 text-[13px] text-muted">
+        <p className="mt-1 text-body text-muted">
           Comments and mentions become ordinary records. Open any database, choose{' '}
           <strong>Sources</strong> in its menu, add the <strong>{cfg.label}</strong> source, pick the
           connection you named above, and map its fields — then run <strong>Sync now</strong>.

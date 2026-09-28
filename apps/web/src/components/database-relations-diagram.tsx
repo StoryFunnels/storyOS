@@ -43,7 +43,7 @@ export function DatabaseRelationsDiagram({
 
   if (relations.length === 0) {
     return (
-      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
+      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
         {center.name} has no relations to any other database yet.
       </p>
     );
@@ -105,7 +105,7 @@ export function DatabaseRelationsDiagram({
                 <EntityIcon icon={s.database.icon} color={s.database.color} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
               </div>
             </foreignObject>
-            <text x={s.x} y={s.y + NODE_R + 13} textAnchor="middle" className="fill-[var(--ink)] text-[11px] font-medium">
+            <text x={s.x} y={s.y + NODE_R + 13} textAnchor="middle" className="fill-[var(--ink)] text-meta font-medium">
               {s.database.name}
             </text>
           </g>
@@ -126,7 +126,7 @@ export function DatabaseRelationsDiagram({
               <EntityIcon icon={center.icon} color={center.color} fallback={<DatabaseIcon className="h-4 w-4" />} />
             </div>
           </foreignObject>
-          <text x={layout.cx} y={layout.cy + CENTER_R + 14} textAnchor="middle" className="fill-[var(--ink)] text-[12px] font-semibold">
+          <text x={layout.cx} y={layout.cy + CENTER_R + 14} textAnchor="middle" className="fill-[var(--ink)] text-label font-semibold">
             {center.name}
           </text>
         </g>

@@ -72,7 +72,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
       className={cn(
         // `relative` so #412's absolutely-positioned insertion marker anchors to
         // the row rather than escaping to the nearest positioned ancestor.
-        'group relative flex items-center justify-between rounded pr-2 py-[3px] text-[13px]',
+        'group relative flex items-center justify-between rounded pr-2 py-[3px] text-body',
         /**
          * #380 — BACKGROUND ONLY for the active row.
          *

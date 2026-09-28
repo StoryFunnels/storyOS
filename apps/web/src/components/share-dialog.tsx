@@ -126,7 +126,7 @@ export function ShareDialog({
           grant instead, and "I want them to contribute but not delete things"
           is exactly what Contributor is for — named here, not left implicit.
         */}
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Members and admins always have access — that&rsquo;s fixed, not something to restrict here. To
           give someone narrower access, invite them as a <span className="font-medium text-ink">guest</span> below
           instead. Want them to add and edit records but never delete anything?{' '}
@@ -141,24 +141,24 @@ export function ShareDialog({
         </FreeGuestTip>
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Members</span>
+          <span className="text-meta font-semibold uppercase tracking-wider text-faint">Members</span>
           <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
             {workspaceMembers.map((m) => (
               <div
                 key={m.id}
                 className="flex items-center justify-between border-b border-border-default px-3 py-2 last:border-b-0"
               >
-                <span className="truncate text-[13px] text-ink">{m.user.name}</span>
-                <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] capitalize text-muted">{m.role}</span>
+                <span className="truncate text-body text-ink">{m.user.name}</span>
+                <span className="rounded-full bg-hover px-2 py-0.5 text-meta capitalize text-muted">{m.role}</span>
               </div>
             ))}
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Guests</span>
+          <span className="text-meta font-semibold uppercase tracking-wider text-faint">Guests</span>
           {scopeGrants.length === 0 ? (
-            <p className="text-[13px] text-muted">No guests have access to this yet — add one below.</p>
+            <p className="text-body text-muted">No guests have access to this yet — add one below.</p>
           ) : (
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
               {scopeGrants.map((grant) => (
@@ -166,10 +166,10 @@ export function ShareDialog({
                   key={grant.id}
                   className="flex items-center justify-between border-b border-border-default px-3 py-2 last:border-b-0"
                 >
-                  <span className="truncate text-[13px] text-ink">{nameOf(grant.user_id)}</span>
+                  <span className="truncate text-body text-ink">{nameOf(grant.user_id)}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     <select
-                      className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                      className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
                       value={grant.role}
                       onChange={(e) => addGrant.mutate({ user_id: grant.user_id, role: e.target.value })}
                     >
@@ -230,7 +230,7 @@ export function ShareDialog({
             </div>
           </form>
         ) : (
-          <p className="text-[12px] text-muted">
+          <p className="text-label text-muted">
             No guests in this workspace yet — invite one from Settings → Members first.
           </p>
         )}

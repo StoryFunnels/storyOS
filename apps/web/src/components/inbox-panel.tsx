@@ -173,31 +173,31 @@ export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
   return (
     <div className="mt-3 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-app p-3">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Proposed action</p>
-        <p className="mt-1 text-[13px] text-ink">
-          <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] font-medium text-ink-secondary">
+        <p className="text-meta font-semibold uppercase tracking-wider text-muted">Proposed action</p>
+        <p className="mt-1 text-body text-ink">
+          <span className="rounded bg-hover px-1.5 py-0.5 text-meta font-medium text-ink-secondary">
             {staged.action.kind}
           </span>{' '}
           {staged.action.summary}
         </p>
         {staged.action.payload !== null && staged.action.payload !== undefined && (
-          <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-hover p-2 text-[11px] text-muted">
+          <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-hover p-2 text-meta text-muted">
             {JSON.stringify(staged.action.payload, null, 2)}
           </pre>
         )}
       </div>
       {staged.steps.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <p className="text-meta font-semibold uppercase tracking-wider text-muted">
             Steps ({staged.steps.length})
           </p>
           <ol className="mt-1 flex flex-col gap-1">
             {staged.steps.map((s, i) => (
-              <li key={i} className="text-[12px] text-ink-secondary">
+              <li key={i} className="text-label text-ink-secondary">
                 <span className="mr-1.5 text-muted">{i + 1}.</span>
-                <span className="rounded bg-hover px-1 py-0.5 text-[11px] font-medium text-muted">{s.tool}</span>{' '}
+                <span className="rounded bg-hover px-1 py-0.5 text-meta font-medium text-muted">{s.tool}</span>{' '}
                 {s.summary}
-                {s.detail && <span className="mt-0.5 block pl-5 text-[11px] text-muted">{s.detail}</span>}
+                {s.detail && <span className="mt-0.5 block pl-5 text-meta text-muted">{s.detail}</span>}
               </li>
             ))}
           </ol>
@@ -318,7 +318,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             <InboxIcon className="h-4 w-4" /> Inbox
           </span>
           <span className="flex items-center gap-2">
-            <button className="text-[12px] text-muted hover:text-ink" onClick={() => markAll.mutate()}>
+            <button className="text-label text-muted hover:text-ink" onClick={() => markAll.mutate()}>
               Mark all read
             </button>
             <button
@@ -345,7 +345,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                 key={key}
                 onClick={() => setUnreadOnly(key === 'unread')}
                 className={cn(
-                  'rounded px-2.5 py-1 text-[12px] font-medium transition-colors',
+                  'rounded px-2.5 py-1 text-label font-medium transition-colors',
                   active ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
                 )}
               >
@@ -357,7 +357,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
 
         <div className="flex-1 overflow-y-auto">
           {rows.length === 0 && !list.isLoading && (
-            <p className="p-6 text-center text-[13px] text-muted">
+            <p className="p-6 text-center text-body text-muted">
               {unreadOnly ? 'No unread notifications.' : "You're all caught up 🎉"}
             </p>
           )}
@@ -368,7 +368,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             return (
               <div key={n.id}>
                 {header && (
-                  <div className="bg-app px-4 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="bg-app px-4 py-1 text-meta font-semibold uppercase tracking-wider text-muted">
                     {header}
                   </div>
                 )}
@@ -406,7 +406,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     <span className="h-6 w-6 rounded-full bg-hover" />
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] text-ink">
+                    <span className="block text-body text-ink">
                       {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
                       <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
                       {VERBS[n.type]}
@@ -415,7 +415,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     {n.record && (
                       <span
                         className={cn(
-                          'block truncate text-[12px]',
+                          'block truncate text-label',
                           // #706 — a deleted record's title moves to muted while KEEPING
                           // line-through. The de-emphasis carried meaning, but the
                           // strikethrough carries it unambiguously and without relying on
@@ -429,7 +429,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                         {n.record.title || 'Untitled'} · {n.record.database_name}
                       </span>
                     )}
-                    {n.snippet && <span className="block truncate text-[12px] text-muted">{n.snippet}</span>}
+                    {n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>}
                     {/* The killer mobile flow (mobile-responsive-plan.md): approve or
                         reject a gated agent action in one tap, right from the Inbox.
                         min-h-11 (44px) keeps both a comfortable thumb target. */}
@@ -439,7 +439,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                           type="button"
                           disabled={resolveRun.isPending}
                           onClick={() => resolveRun.mutate({ runId: n.record!.id, verdict: 'reject' })}
-                          className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[13px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                          className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-body font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
                         >
                           Reject
                         </button>
@@ -447,7 +447,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                           type="button"
                           disabled={resolveRun.isPending}
                           onClick={() => resolveRun.mutate({ runId: n.record!.id, verdict: 'approve' })}
-                          className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                          className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
                         >
                           <Check className="h-3.5 w-3.5" /> Approve
                         </button>
@@ -474,7 +474,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                               <button
                                 type="button"
                                 onClick={() => setRejecting(null)}
-                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[12px] font-medium text-ink-secondary hover:bg-hover"
+                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-label font-medium text-ink-secondary hover:bg-hover"
                               >
                                 Cancel
                               </button>
@@ -489,7 +489,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                                   });
                                   setRejecting(null);
                                 }}
-                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[12px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-label font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
                               >
                                 Confirm reject
                               </button>
@@ -501,7 +501,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                               type="button"
                               disabled={resolveApproval.isPending}
                               onClick={() => setRejecting({ notificationId: n.id, reason: '' })}
-                              className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[13px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                              className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-body font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
                             >
                               Reject
                             </button>
@@ -509,7 +509,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                               type="button"
                               disabled={resolveApproval.isPending}
                               onClick={() => resolveApproval.mutate({ approvalId: n.ref_id!, verdict: 'approve' })}
-                              className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                              className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
                             >
                               <Check className="h-3.5 w-3.5" /> Approve
                             </button>
@@ -519,7 +519,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[11px] text-muted">{relativeTime(n.created_at)}</span>
+                    <span className="text-meta text-muted">{relativeTime(n.created_at)}</span>
                     {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
                   </span>
                 </div>
@@ -530,7 +530,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             <button
               onClick={() => list.fetchNextPage()}
               disabled={list.isFetchingNextPage}
-              className="w-full py-3 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+              className="w-full py-3 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
             >
               {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
             </button>

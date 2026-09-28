@@ -60,7 +60,7 @@ export function DescriptionDialogContent({
         }}
       >
         <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] text-muted">
+          <span className="text-body text-muted">
             One line saying what this {noun} is for. Shown to anyone who opens it.
           </span>
           <Textarea
@@ -77,7 +77,7 @@ export function DescriptionDialogContent({
           />
         </label>
         <div className="flex items-center gap-2">
-          <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
+          <span className={cn('text-label tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
             {draft.hint}
           </span>
           <div className="ml-auto flex gap-2">

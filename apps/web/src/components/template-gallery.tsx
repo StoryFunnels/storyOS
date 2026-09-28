@@ -155,17 +155,17 @@ export function TemplateCard({
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
       <span>
         <span className="flex items-baseline gap-1.5">
-          <span className="block text-[13px] font-medium text-ink">{template.name}</span>
+          <span className="block text-body font-medium text-ink">{template.name}</span>
           {/* #585 — a brand-new template with zero installs shows no badge at
               all rather than an embarrassing "0 installs"; the badge only
               ever appears once it has something real to say. */}
           {Boolean(template.install_count) && (
-            <span className="shrink-0 text-[11px] text-faint">
+            <span className="shrink-0 text-meta text-faint">
               {template.install_count} {template.install_count === 1 ? 'install' : 'installs'}
             </span>
           )}
         </span>
-        <span className="block text-[12px] text-muted">{template.description}</span>
+        <span className="block text-label text-muted">{template.description}</span>
       </span>
     </button>
   );
@@ -189,7 +189,7 @@ function GuideText({ markdown }: { markdown: string }) {
       {blocks.map((block, i) => {
         if (block.startsWith('## ')) {
           return (
-            <p key={i} className="text-[12px] font-semibold uppercase tracking-wider text-faint">
+            <p key={i} className="text-label font-semibold uppercase tracking-wider text-faint">
               {block.slice(3)}
             </p>
           );
@@ -197,7 +197,7 @@ function GuideText({ markdown }: { markdown: string }) {
         const lines = block.split('\n');
         if (lines.every((l) => l.startsWith('- '))) {
           return (
-            <ul key={i} className="flex list-disc flex-col gap-1 pl-4 text-[13px] text-ink-secondary">
+            <ul key={i} className="flex list-disc flex-col gap-1 pl-4 text-body text-ink-secondary">
               {lines.map((l, j) => (
                 <li key={j}>{inline(l.slice(2))}</li>
               ))}
@@ -294,7 +294,7 @@ export function TemplateGalleryDialog({
                   key={c.value}
                   type="button"
                   className={cn(
-                    'rounded-[var(--radius-control)] px-2.5 py-1 text-[12px]',
+                    'rounded-[var(--radius-control)] px-2.5 py-1 text-label',
                     category === c.value
                       ? 'bg-primary text-[var(--text-on-dark)]'
                       : 'text-muted hover:bg-hover',
@@ -315,12 +315,12 @@ export function TemplateGalleryDialog({
           <div className="flex flex-col gap-4">
             <button
               type="button"
-              className="flex items-center gap-1 self-start text-[12px] text-muted hover:text-ink"
+              className="flex items-center gap-1 self-start text-label text-muted hover:text-ink"
               onClick={() => setSlug(null)}
             >
               <ArrowLeft className="h-3 w-3" /> All templates
             </button>
-            <p className="-mt-2 text-[13px] text-ink-secondary">{selected.description}</p>
+            <p className="-mt-2 text-body text-ink-secondary">{selected.description}</p>
             {/* #663 — VISUAL FIRST. What you get, drawn, before a word of prose:
                 the views you would land in, then the databases behind them. The
                 guide is still here and still useful — it is just no longer the
@@ -398,7 +398,7 @@ export function TemplateGalleryDialog({
               </div>
             )}
 
-            <label className="flex items-center gap-2 text-[13px] text-ink">
+            <label className="flex items-center gap-2 text-body text-ink">
               <input
                 type="checkbox"
                 checked={includeSamples}

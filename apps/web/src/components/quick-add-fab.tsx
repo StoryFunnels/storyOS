@@ -84,9 +84,9 @@ export function QuickAddFab() {
             className="mb-3"
           />
           <div className="-mx-2 max-h-[50vh] overflow-y-auto">
-            {databases.isLoading && <p className="px-2 py-3 text-[13px] text-muted">Loading…</p>}
+            {databases.isLoading && <p className="px-2 py-3 text-body text-muted">Loading…</p>}
             {!databases.isLoading && filtered.length === 0 && (
-              <p className="px-2 py-3 text-[13px] text-muted">No databases match.</p>
+              <p className="px-2 py-3 text-body text-muted">No databases match.</p>
             )}
             {filtered.map((db) => (
               <button
@@ -94,7 +94,7 @@ export function QuickAddFab() {
                 type="button"
                 disabled={create.isPending}
                 onClick={() => create.mutate(db.id)}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded px-2 py-2 text-left text-[14px] text-ink hover:bg-hover disabled:opacity-50"
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded px-2 py-2 text-left text-prose text-ink hover:bg-hover disabled:opacity-50"
               >
                 <EntityIcon icon={db.icon} color={db.color} fallback={<Database className="h-4 w-4" />} />
                 {db.name}

@@ -82,13 +82,13 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Favorites</div>
+      <div className="px-2 pb-1 text-meta font-semibold uppercase tracking-wider text-muted">Favorites</div>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
           <Link
             key={`${f.target_type}:${f.target_id}`}
             href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-            className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+            className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
           >
             <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
             <span className="truncate">{f.title}</span>
@@ -212,12 +212,12 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
         <Link
           href={`/w/${ws}`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
         >
           <Home className="h-3.5 w-3.5" /> Home
         </Link>
         <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5" /> Search
@@ -225,40 +225,40 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               #396 — and rendered for THIS reader's platform: `shortcutKeys` now
               returns the raw "mod+K" token, so displaying it directly would show
               a Windows user a shortcut that does not exist. */}
-          <span className="ml-auto text-[10px] text-muted">{paletteKeys}</span>
+          <span className="ml-auto text-micro text-muted">{paletteKeys}</span>
         </button>
         <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
           onClick={() => setInboxOpen(true)}
         >
           <Inbox className="h-3.5 w-3.5" /> Inbox
           {(unread.data ?? 0) > 0 && (
-            <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-[var(--text-on-dark)]">
+            <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-micro font-semibold text-[var(--text-on-dark)]">
               {(unread.data ?? 0) > 99 ? '99+' : unread.data}
             </span>
           )}
         </button>
         <Link
           href={`/w/${ws}/me`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
         >
           <UserRound className="h-3.5 w-3.5" /> My Work
         </Link>
         <Link
           href={`/w/${ws}/reviews`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
         >
           <GitPullRequest className="h-3.5 w-3.5" /> Reviews
         </Link>
         <Link
           href={`/w/${ws}/packs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
         >
           <Package className="h-3.5 w-3.5" /> Business Packs
         </Link>
         <Link
           href={`/w/${ws}/runs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
         >
           <Activity className="h-3.5 w-3.5" /> Runs
         </Link>
@@ -269,10 +269,10 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <button
           type="button"
           onClick={openTyron}
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-body text-ink-secondary hover:bg-hover"
         >
           <Sparkles className="h-3.5 w-3.5" /> Ask Tyron
-          <span className="ml-auto text-[11px] text-muted">⌘J</span>
+          <span className="ml-auto text-meta text-muted">⌘J</span>
         </button>
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
@@ -286,7 +286,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
         <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Spaces</span>
+          <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
           <div className="flex items-center gap-0.5">
             {canEdit && (
               <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
@@ -361,7 +361,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </div>
           <DragPreview>
             {spaceDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-meta font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
                 {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ?? ''}
               </div>
             )}
@@ -372,7 +372,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         {canEdit && (
           <>
             <button
-              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover"
               onClick={() => setGalleryOpen(true)}
             >
               <LayoutTemplate className="h-3.5 w-3.5" /> From template
@@ -556,7 +556,7 @@ function AccountMenu({
         )}
         <DropdownMenuItem onSelect={openShortcuts}>
           <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
-          <span className="ml-auto text-[10px] text-muted">?</span>
+          <span className="ml-auto text-micro text-muted">?</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void onSignOut()}>Sign out</DropdownMenuItem>
@@ -581,7 +581,7 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-bold text-[var(--text-on-dark)]">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-meta font-bold text-[var(--text-on-dark)]">
             {currentName?.[0]?.toUpperCase() ?? 'S'}
           </div>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
@@ -623,7 +623,7 @@ function HiddenSection({
     <div className="mt-2 border-t border-border-default pt-2">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary"
+        className="flex w-full items-center gap-1 px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary"
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
         Hidden{' '}
@@ -662,7 +662,7 @@ function HiddenRow({
   onUnhide: () => void;
 }) {
   return (
-    <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-[13px] text-muted">
+    <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-body text-muted">
       <span className="flex min-w-0 items-center gap-2 truncate">
         <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
         <span className="truncate">{name}</span>
@@ -1314,10 +1314,10 @@ function SpaceSection({
             </button>
             <Link
               href={`/w/${ws}/s/${space.id}`}
-              className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
+              className="flex min-w-0 flex-1 items-center gap-1 text-left text-meta font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
               onPointerDown={(e) => e.stopPropagation()}
             >
-              {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
+              {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />}
               <span className="truncate">{space.name}</span>
               {collapsed && databases.length > 0 && (
                 <span className="ml-1 text-faint/70">{databases.length}</span>
@@ -1404,7 +1404,7 @@ function SpaceSection({
                 {groups && groups.length > 0 && onMoveToGroup && (
                   <>
                     <DropdownMenuSeparator />
-                    <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                    <div className="px-2 py-1 text-meta font-semibold uppercase tracking-wider text-faint">
                       Move to group
                     </div>
                     {groups.map((g) => (
@@ -1636,7 +1636,7 @@ function SpaceSection({
           ))}
           <DragPreview>
             {itemDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[13px] text-ink shadow-[var(--shadow-lifted)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-body text-ink shadow-[var(--shadow-lifted)]">
                 {itemLabel(itemDrag.activeId) ?? ''}
               </div>
             )}
@@ -1707,7 +1707,7 @@ function DocumentRow({
       dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
     >
       <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
         <span className="truncate">{doc.title || 'Untitled'}</span>
       </Link>
       {/*
@@ -1804,16 +1804,16 @@ function PromptDialog({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirm();
               }}
-              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none focus:border-border-strong"
+              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none focus:border-border-strong"
             />
           )}
           <div className="flex justify-end gap-2">
-            <button className="rounded-[var(--radius-control)] px-3 py-1 text-[13px] text-muted hover:bg-hover" onClick={onClose}>
+            <button className="rounded-[var(--radius-control)] px-3 py-1 text-body text-muted hover:bg-hover" onClick={onClose}>
               Cancel
             </button>
             <button
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-1 text-[13px] font-medium text-white',
+                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium text-white',
                 state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
               )}
               onClick={confirm}
@@ -1937,7 +1937,7 @@ function FolderSection({
            an extra flex gap here put the folder icon 4px right of every other
            depth-1 icon. The icon→label gap is applied on the inner span so it
            matches the gap-2 the database/document rows use. */
-        className="group flex w-full items-center rounded py-[3px] pr-2 text-[13px] text-ink-secondary hover:bg-hover"
+        className="group flex w-full items-center rounded py-[3px] pr-2 text-body text-ink-secondary hover:bg-hover"
       >
         <button onClick={toggle} className="flex min-w-0 flex-1 items-center text-left">
           {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
@@ -1950,12 +1950,12 @@ function FolderSection({
             className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
           />
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
             <span className="truncate">{folder.name}</span>
           </span>
         </button>
         {contentCount > 0 && (
-          <span className="ml-1 shrink-0 text-[11px] text-faint">{contentCount}</span>
+          <span className="ml-1 shrink-0 text-meta text-faint">{contentCount}</span>
         )}
         {canEdit && (
           <SidebarRowMenu
@@ -2036,20 +2036,20 @@ function FolderSection({
                that with no way forward, and dragging is not a way forward if you
                have nothing to drag yet. */
             <div className="flex flex-col items-center gap-1.5 px-2 py-3 text-center">
-              <p className="text-[12px] text-muted">Empty — drop something here</p>
+              <p className="text-label text-muted">Empty — drop something here</p>
               {canEdit && (
                 <div className="flex flex-wrap items-center justify-center gap-1">
                   <button
                     type="button"
                     onClick={() => onNewDatabase(folder.id)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Database
                   </button>
                   <button
                     type="button"
                     onClick={() => onNewDocument(folder.id)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Document
                   </button>
@@ -2536,7 +2536,7 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
   return (
     <input
       autoFocus
-      className="w-full rounded border border-border-strong bg-card px-1 py-0.5 text-[13px] text-ink"
+      className="w-full rounded border border-border-strong bg-card px-1 py-0.5 text-body text-ink"
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => onDone(value.trim())}
@@ -2561,7 +2561,7 @@ function LetterMark({ name, color, className }: { name: string; color?: string |
   return (
     <span
       className={cn(
-        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold text-[var(--text-on-dark)]',
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-micro font-semibold text-[var(--text-on-dark)]',
         className,
       )}
       style={{ backgroundColor: color ?? 'var(--text-faint)' }}
@@ -2591,7 +2591,7 @@ function GroupHeaderRow({
       {renaming ? (
         <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
       ) : (
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted">
+        <span className="min-w-0 flex-1 truncate text-meta font-semibold uppercase tracking-wider text-muted">
           {group.name}
         </span>
       )}
@@ -2664,7 +2664,7 @@ function NewSpaceButton({ onCreate }: { onCreate: (name: string) => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover">
+        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover">
           <Plus className="h-3.5 w-3.5" /> New space
         </button>
       </DialogTrigger>
@@ -2746,7 +2746,7 @@ function DeleteDatabaseDialog({
           if (typed === name) onConfirm(typed); // gate Enter too, not just the button
         }}
       >
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           This deletes the database, its fields, records, views, and any relations linking it to
           other databases. A workspace admin can restore it from Settings → Trash for 30 days.
           {/* #618 — was "This permanently deletes...", written before #37

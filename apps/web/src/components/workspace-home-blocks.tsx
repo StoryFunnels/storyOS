@@ -50,7 +50,7 @@ interface FavoriteRow {
   database_id?: string;
 }
 
-const SECTION = 'text-[11px] font-semibold uppercase tracking-wider text-muted';
+const SECTION = 'text-meta font-semibold uppercase tracking-wider text-muted';
 const CARD = 'rounded-[var(--radius-card)] border border-border-default bg-card';
 const ROW = 'flex items-start gap-2 p-3';
 
@@ -114,7 +114,7 @@ export function WorkspaceHomeBlocks({
         <div className="flex items-center justify-between">
           <p className={SECTION}>Needs a decision{pending.length > 0 ? ` · ${pending.length}` : ''}</p>
           {pending.length > 0 && (
-            <Link href={`/w/${ws}/runs`} className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline">
+            <Link href={`/w/${ws}/runs`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
               Review
             </Link>
           )}
@@ -125,7 +125,7 @@ export function WorkspaceHomeBlocks({
             which a personal inbox structurally cannot show. */}
         <div className={`${CARD} divide-y divide-border-default`}>
           {pending.length === 0 ? (
-            <p className={`${ROW} text-[13px] text-muted`}>
+            <p className={`${ROW} text-body text-muted`}>
               <CheckCheck className="mt-0.5 h-4 w-4 shrink-0" />
               Nothing is waiting on a person.
             </p>
@@ -134,10 +134,10 @@ export function WorkspaceHomeBlocks({
               <div key={a.id} className={ROW}>
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">
+                  <span className="block truncate text-body text-ink">
                     {a.preview_text || actionKindLabel(a.action_snapshot?.kind)}
                   </span>
-                  <span className="block text-[12px] text-muted">waiting since {fmt.date(a.created_at)}</span>
+                  <span className="block text-label text-muted">waiting since {fmt.date(a.created_at)}</span>
                 </span>
               </div>
             ))
@@ -152,14 +152,14 @@ export function WorkspaceHomeBlocks({
               empty page is a dead end, and one block keeping its link while
               its neighbour loses it reads as a bug. */}
           {recent.length > 0 && (
-            <Link href={`/w/${ws}/runs`} className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline">
+            <Link href={`/w/${ws}/runs`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
               All runs
             </Link>
           )}
         </div>
         <div className={`${CARD} divide-y divide-border-default`}>
           {recent.length === 0 ? (
-            <p className={`${ROW} text-[13px] text-muted`}>
+            <p className={`${ROW} text-body text-muted`}>
               <Bot className="mt-0.5 h-4 w-4 shrink-0" />
               No agent runs yet.
             </p>
@@ -170,8 +170,8 @@ export function WorkspaceHomeBlocks({
                 <div key={r.id} className={ROW}>
                   <Bot className={`mt-0.5 h-4 w-4 shrink-0 ${bad ? 'text-error' : 'text-muted'}`} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] text-ink">{r.name || 'Automation'}</span>
-                    <span className={`block truncate text-[12px] ${bad ? 'text-error' : 'text-muted'}`}>
+                    <span className="block truncate text-body text-ink">{r.name || 'Automation'}</span>
+                    <span className={`block truncate text-label ${bad ? 'text-error' : 'text-muted'}`}>
                       {bad ? r.error || runStatusLabel(r.status) : runStatusLabel(r.status)} · {fmt.dateTime(r.started_at)}
                     </span>
                   </span>
@@ -190,7 +190,7 @@ export function WorkspaceHomeBlocks({
               <Link
                 key={`${f.target_type}:${f.target_id}`}
                 href={favoriteHref(ws, f)}
-                className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-border-default bg-card px-2 py-1 text-[12px] text-ink hover:bg-hover"
+                className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-border-default bg-card px-2 py-1 text-label text-ink hover:bg-hover"
               >
                 <Star className="h-3 w-3 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
                 <span className="max-w-[16rem] truncate">{f.title}</span>
@@ -203,7 +203,7 @@ export function WorkspaceHomeBlocks({
             <Link
               key={d.id}
               href={`/w/${ws}/d/${d.id}`}
-              className={`${CARD} flex items-center gap-2 p-3 text-[13px] text-ink hover:bg-hover`}
+              className={`${CARD} flex items-center gap-2 p-3 text-body text-ink hover:bg-hover`}
             >
               <DatabaseIcon className="h-4 w-4 shrink-0 text-muted" />
               <span className="min-w-0 flex-1 truncate">{d.name}</span>
