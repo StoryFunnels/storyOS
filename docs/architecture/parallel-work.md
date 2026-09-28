@@ -85,12 +85,23 @@ interacts with these lanes.
 ## Merging
 
 `main` is protected by the "protect main" ruleset (linear history, required
-`ci` check). With auto-merge enabled and the merge queue on, the flow is:
+`ci` check). **Builders do not merge** — see CLAUDE.md's Merging section. The
+flow is:
 
-1. Open the PR; when CI is green, click **Merge when ready** (or
-   `gh pr merge --squash --auto`).
-2. The queue rebases, re-runs `ci` against the queued merge result, and lands
-   it — no manual rebase train.
+1. Open the PR. When CI is green, record on the ticket what you did and what
+   you did **not** verify, set `agents = Vera`, and move on.
+2. Vera verifies against the ticket's acceptance criteria and merges. The queue
+   rebases, re-runs `ci` against the queued merge result, and lands it — no
+   manual rebase train.
+
+**This section used to say "click Merge when ready (or `gh pr merge --squash
+--auto`)".** That was the flow the gate **abolished** on 2026-08-30, after
+auto-merge cost seventeen documentation PRs merged in one evening unchecked,
+#251 shipping half its written scope, and two permission leaks reaching main.
+CLAUDE.md carried the same stale instruction until ticket #773 corrected it on
+2026-09-28 — a month late, and four unreviewed merges later. This copy was
+found by grepping for the abolished command rather than by anyone reading it,
+which is the argument for `git grep` over re-reading when a rule changes.
 
 The `ci` workflow runs on `merge_group` events for exactly this reason — do
 not remove that trigger, or queued PRs will stall waiting for a check that

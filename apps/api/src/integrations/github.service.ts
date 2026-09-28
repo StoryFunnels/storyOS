@@ -121,7 +121,10 @@ export type GithubReviewSettingsPatch = Partial<Omit<GithubReviewSettings, 'noti
 export const DEFAULT_REVIEW_SETTINGS: GithubReviewSettings = {
   enabled: true,
   auto_convert_draft: false,
-  // Matches this repo's own merge convention (CLAUDE.md: `gh pr merge --squash --auto`).
+  // Matches this repo's own merge convention: squash. The citation here used to
+  // read "CLAUDE.md: `gh pr merge --squash --auto`", quoting a line that no longer
+  // exists — auto-merge was abolished on 2026-08-30 and CLAUDE.md corrected on
+  // #773. The STRATEGY is unchanged and still right; only the source was stale.
   default_merge_strategy: 'squash',
   code_theme: 'auto',
   code_font: 'mono',
