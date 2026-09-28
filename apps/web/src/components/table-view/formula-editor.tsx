@@ -308,14 +308,14 @@ export function FormulaEditor({
         <div className="flex gap-1">
           <button
             type="button"
-            className={cn('rounded px-1.5 py-0.5 text-[11px]', panel === 'fields' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+            className={cn('rounded px-1.5 py-0.5 text-meta', panel === 'fields' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
             onClick={() => setPanel((p) => (p === 'fields' ? 'none' : 'fields'))}
           >
             {'{ } Field'}
           </button>
           <button
             type="button"
-            className={cn('rounded px-1.5 py-0.5 text-[11px]', panel === 'functions' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+            className={cn('rounded px-1.5 py-0.5 text-meta', panel === 'functions' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
             onClick={() => setPanel((p) => (p === 'functions' ? 'none' : 'functions'))}
           >
             ƒ Functions
@@ -351,8 +351,8 @@ export function FormulaEditor({
                   it.apply();
                 }}
               >
-                <span className="font-mono text-[12px] text-ink">{it.label}</span>
-                {it.hint && <span className="truncate text-[11px] text-muted">{it.hint}</span>}
+                <span className="font-mono text-label text-ink">{it.label}</span>
+                {it.hint && <span className="truncate text-meta text-muted">{it.hint}</span>}
               </button>
             ))}
           </div>
@@ -360,12 +360,12 @@ export function FormulaEditor({
       </div>
       {panel === 'fields' && (
         <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1.5">
-          {infos.length === 0 && <span className="px-1 text-[12px] text-muted">No referenceable fields yet.</span>}
+          {infos.length === 0 && <span className="px-1 text-label text-muted">No referenceable fields yet.</span>}
           {infos.map((f) => (
             <button
               key={f.api_name}
               type="button"
-              className="inline-flex items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:bg-active"
+              className="inline-flex items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-label text-ink hover:bg-active"
               onClick={() => {
                 // #299: a link is never a value on its own — inserting `{Link}`
                 // would hand the user an expression the typechecker rejects. Open
@@ -378,7 +378,7 @@ export function FormulaEditor({
             >
               {f.display_name}
               {/* #204: type badge so the author knows what a field evaluates to. */}
-              <span className="rounded bg-card px-1 text-[10px] font-medium text-muted">
+              <span className="rounded bg-card px-1 text-micro font-medium text-muted">
                 {f.formula_type === 'relation' ? 'link' : friendlyType(String(f.formula_type))}
               </span>
             </button>
@@ -395,7 +395,7 @@ export function FormulaEditor({
             onChange={(e) => setFuncQuery(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}
             placeholder="Search functions…"
-            className="mb-1 w-full rounded border border-border-default bg-card px-1.5 py-1 text-[12px] text-ink outline-none focus:border-border-strong"
+            className="mb-1 w-full rounded border border-border-default bg-card px-1.5 py-1 text-label text-ink outline-none focus:border-border-strong"
           />
           <div className="max-h-40 overflow-y-auto">
             {/* #299: the relation aggregates, written against the user's OWN link
@@ -415,7 +415,7 @@ export function FormulaEditor({
               if (matches.length === 0) return null;
               return (
                 <>
-                  <p className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                  <p className="px-2 pb-0.5 text-micro font-medium uppercase tracking-wide text-muted">
                     Across a link (your fields)
                   </p>
                   {matches.map((a) => (
@@ -429,11 +429,11 @@ export function FormulaEditor({
                         setFuncQuery('');
                       }}
                     >
-                      <span className="font-mono text-[12px] text-ink">{a.example}</span>
-                      <span className="text-[11px] text-muted">{a.doc}</span>
+                      <span className="font-mono text-label text-ink">{a.example}</span>
+                      <span className="text-meta text-muted">{a.doc}</span>
                     </button>
                   ))}
-                  <p className="px-2 pb-1 pt-0.5 text-[10px] uppercase tracking-wide text-muted">All functions</p>
+                  <p className="px-2 pb-1 pt-0.5 text-micro uppercase tracking-wide text-muted">All functions</p>
                 </>
               );
             })()}
@@ -466,7 +466,7 @@ export function FormulaEditor({
               );
               if (matches.length === 0) {
                 return opMatch || aggMatch ? null : (
-                  <p className="px-2 py-1 text-[12px] text-muted">No functions match “{funcQuery}”.</p>
+                  <p className="px-2 py-1 text-label text-muted">No functions match “{funcQuery}”.</p>
                 );
               }
               return matches.map(([name, spec]) => (
@@ -482,10 +482,10 @@ export function FormulaEditor({
                   }}
                 >
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="font-mono text-[12px] text-ink">{spec.example}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted">{fnArgHint(spec)}</span>
+                    <span className="font-mono text-label text-ink">{spec.example}</span>
+                    <span className="shrink-0 font-mono text-micro text-muted">{fnArgHint(spec)}</span>
                   </span>
-                  <span className="text-[11px] text-muted">{spec.doc}</span>
+                  <span className="text-meta text-muted">{spec.doc}</span>
                 </button>
               ));
             })()}
@@ -501,7 +501,7 @@ export function FormulaEditor({
               if (ops.length === 0) return null;
               return (
                 <>
-                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+                  <p className="px-2 pb-0.5 pt-2 text-micro font-medium uppercase tracking-wide text-muted">
                     Operators (written between values, not called)
                   </p>
                   {ops.map((o) => (
@@ -516,10 +516,10 @@ export function FormulaEditor({
                       }}
                     >
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="font-mono text-[12px] text-ink">{o.example}</span>
-                        <span className="shrink-0 font-mono text-[10px] text-muted">{o.op}</span>
+                        <span className="font-mono text-label text-ink">{o.example}</span>
+                        <span className="shrink-0 font-mono text-micro text-muted">{o.op}</span>
                       </span>
-                      <span className="text-[11px] text-muted">{o.doc}</span>
+                      <span className="text-meta text-muted">{o.doc}</span>
                     </button>
                   ))}
                 </>
@@ -528,7 +528,7 @@ export function FormulaEditor({
           </div>
         </div>
       )}
-      <p className={cn('text-[12px]', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
+      <p className={cn('text-label', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
         {feedback.text || 'Reference fields as {Field Name}. Use the buttons above to insert fields and functions.'}
       </p>
       {/* #299: a formula aggregate and a Rollup field compute the same number over
@@ -538,7 +538,7 @@ export function FormulaEditor({
           the choice is still cheap. Rollup is not deprecated and this is not a
           warning: it is the one tradeoff between two valid options. */}
       {aggregating && (
-        <p className="rounded-[var(--radius-card)] border border-border-default bg-hover px-2 py-1.5 text-[12px] text-muted">
+        <p className="rounded-[var(--radius-card)] border border-border-default bg-hover px-2 py-1.5 text-label text-muted">
           This counts across a link. A <span className="font-medium text-ink">Rollup</span> field computes the same
           thing and can also be sorted and filtered — a formula stays inline and updates as you type. Both are fine;
           pick Rollup if you need to sort or filter by this number.
@@ -547,7 +547,7 @@ export function FormulaEditor({
       {/* #190: only meaningful for a numeric result — a percent formula renders as
           a value + progress bar wherever the field is shown. */}
       {onFormatChange && numberResult && (
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-body text-ink">
           <input
             type="checkbox"
             checked={format === 'percent'}
@@ -560,7 +560,7 @@ export function FormulaEditor({
         href="https://github.com/StoryFunnels/storyOS/blob/main/docs/product/formulas.md"
         target="_blank"
         rel="noreferrer"
-        className="self-start text-[12px] text-info underline-offset-2 hover:underline"
+        className="self-start text-label text-info underline-offset-2 hover:underline"
       >
         Learn formulas →
       </a>

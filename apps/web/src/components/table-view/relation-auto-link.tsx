@@ -121,19 +121,19 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
     },
   });
 
-  if (detailQuery.isLoading) return <p className="text-[12px] text-muted">Loading auto-link…</p>;
+  if (detailQuery.isLoading) return <p className="text-label text-muted">Loading auto-link…</p>;
   if (!detail) return null;
 
   const selectCls =
-    'h-8 min-w-0 flex-1 rounded-md border border-border-default bg-surface px-2 text-[13px] text-ink';
+    'h-8 min-w-0 flex-1 rounded-md border border-border-default bg-surface px-2 text-body text-ink';
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border-default bg-surface-subtle/40 p-3">
       <div className="flex items-center gap-2">
         <Link2 className="h-3.5 w-3.5 text-faint" />
-        <span className="text-[13px] font-medium text-ink">Auto-link by matching fields</span>
+        <span className="text-body font-medium text-ink">Auto-link by matching fields</span>
       </div>
-      <p className="text-[12px] text-muted">
+      <p className="text-label text-muted">
         Link records automatically when every condition matches. Only text, email, url, number and date
         fields can be matched. {detail.cardinality === 'one_to_many' && 'Ambiguous matches (several targets) are skipped, never guessed.'}
       </p>
@@ -150,7 +150,7 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
               <option key={f.id} value={f.id}>{f.display_name}</option>
             ))}
           </select>
-          <span className="text-[12px] text-faint">=</span>
+          <span className="text-label text-faint">=</span>
           <select
             className={selectCls}
             value={row.otherId}
@@ -186,7 +186,7 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
         >
           <Plus className="mr-1 h-3.5 w-3.5" /> Add condition
         </Button>
-        <label className="flex items-center gap-1.5 text-[12px] text-muted">
+        <label className="flex items-center gap-1.5 text-label text-muted">
           <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} />
           Case-sensitive
         </label>
@@ -204,7 +204,7 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
         >
           {run.isPending ? 'Running…' : 'Run now'}
         </Button>
-        {summary && <span className="text-[12px] text-muted">{summary}</span>}
+        {summary && <span className="text-label text-muted">{summary}</span>}
       </div>
     </div>
   );
