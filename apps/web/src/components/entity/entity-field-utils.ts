@@ -12,7 +12,12 @@ import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 export const HIDDEN = new Set(['id', 'title']);
 /** System audit fields — read-only, opt-in, sourced from the record row not values (MN-126). */
 export const AUDIT_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
-export const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'created_at', 'updated_at', 'created_by']);
+// #776 — `ai` (#571: a field computed by an LLM call) was added after this set
+// was written and missed it: it's computed, never typed, same as formula/rollup/
+// lookup, but rendered with an ordinary click-to-edit affordance that would
+// error server-side on any write attempt (record-values.ts's coerce() has no
+// case for it).
+export const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'ai', 'created_at', 'updated_at', 'created_by']);
 
 export type Zone = 'top' | 'sidebar' | 'body';
 
