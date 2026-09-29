@@ -215,8 +215,10 @@ function relativeTime(iso: string): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-/** Bucket a timestamp into Today / Yesterday / Earlier for grouped headers. */
-function bucket(iso: string): 'Today' | 'Yesterday' | 'Earlier' {
+/** Bucket a timestamp into Today / Yesterday / Earlier for grouped headers.
+ * Exported (#790) — the feed view's day breaks need the exact same buckets;
+ * reused rather than re-cased a second time. */
+export function dayBucket(iso: string): 'Today' | 'Yesterday' | 'Earlier' {
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const t = new Date(iso).getTime();
@@ -362,7 +364,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             </p>
           )}
           {rows.map((n) => {
-            const b = bucket(n.created_at);
+            const b = dayBucket(n.created_at);
             const header = b !== lastBucket ? b : null;
             lastBucket = b;
             return (
