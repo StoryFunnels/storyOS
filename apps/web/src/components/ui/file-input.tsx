@@ -20,6 +20,17 @@ import { Button } from './button';
  * `ref.click()` proxy would need, and can silently block submission when
  * required, since the browser can't scroll a non-rendered element into view
  * to show its validation message.
+ *
+ * #726 AC3 (cross-platform check) — that same layering broke keyboard focus
+ * visibility: the real `<input>` legitimately receives `:focus-visible` (and
+ * globals.css's `*:focus-visible` rule fires on it), but the input itself is
+ * `opacity-0`, so its outline is invisible too. The decorative `Button` is
+ * `aria-hidden`/`tabIndex={-1}` and can never itself match `:focus-visible`.
+ * Net effect, confirmed live by tabbing to the control: a keyboard user
+ * landing here sees NO focus ring at all — an invisible focused control,
+ * which is a real accessibility regression, not a cosmetic gap. The
+ * `.file-input-root:has(> input:focus-visible)` rule in globals.css forwards
+ * the input's focus state onto the visible Button.
  */
 export function FileInput({
   file,
@@ -34,7 +45,7 @@ export function FileInput({
 }) {
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <div className="relative">
+      <div className="relative file-input-root">
         <Button type="button" variant="secondary" size="sm" tabIndex={-1} aria-hidden className="pointer-events-none">
           Choose file
         </Button>
