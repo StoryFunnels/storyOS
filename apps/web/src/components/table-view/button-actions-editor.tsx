@@ -436,10 +436,14 @@ export function ButtonActionsEditor({
                   ))}
                 {/* #730 AC4 — a specific named workspace member, not the rule owner
                     and not anyone on the record. The API already accepts and
-                    validates `@member:<id>` (#841); this is the picker built
-                    against it. Valid on a webhook rule too — unlike a person
-                    field, it needs no triggering record to resolve. */}
-                {members.length > 0 && (
+                    validates `@member:<id>` (#841). Gated on !restrictToWebhookSafe
+                    same as the person-field options above: actions.service.ts's
+                    webhook_received check is `user !== '@me'`, full stop — it
+                    rejects `@member:<id>` exactly like a person field, so this
+                    picker offering it on a webhook rule would let someone pick
+                    a value the API 422s on save. Found live (Vera, 2026-09-24):
+                    an earlier version of this comment claimed the opposite. */}
+                {!restrictToWebhookSafe && members.length > 0 && (
                   <optgroup label="Notify a specific member">
                     {members.map((m) => (
                       <option key={m.id} value={`@member:${m.id}`}>
