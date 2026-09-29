@@ -22,6 +22,7 @@ import {
   Maximize2,
   Minimize2,
   PanelLeftClose,
+  PanelRight,
   X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -391,6 +392,28 @@ export function RecordDetail({
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   /** #780 Rule 1 — which promoted prose blocks are expanded past their clip. */
   const [expandedProse, setExpandedProse] = useState<Set<string>>(new Set());
+  /**
+   * #780 — Ievgen's ruling: the side panel is collapsible by the user, open
+   * by default on the full record page, and auto-collapsed on mount when
+   * opened as a split-screen panel (a halved viewport shouldn't also lose
+   * 344px to a panel nobody asked to see). `onClose` is passed ONLY for the
+   * split-panel case (see this component's own prop doc above) — the same
+   * signal already used to distinguish "Close dismisses the panel" from
+   * "Close navigates back" — so it doubles as the panel-vs-primary check
+   * here rather than inventing a second one. Lazy initializer: this only
+   * needs to run once at mount, matching "auto-collapse on open", not on
+   * every render.
+   *
+   * Simple version, not persisted across remounts or sessions — a manual
+   * expand "sticks" only as long as this component instance stays mounted.
+   * Otto's own note allowed this: "if that's awkward given how split-
+   * screen-host mounts, do the simple version and note it on #780." Doing
+   * that: `RecordSurface`/the panel host key records by id, so navigating to
+   * a DIFFERENT record in the same panel does NOT remount this component in
+   * every case, which means the simple version mostly holds already; a full
+   * page reload resets it, which is the one gap.
+   */
+  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(() => Boolean(onClose));
   // #312 — retire the title draft only once the saved value has actually arrived, so
   // the input never falls back to a stale title mid-save. If the save fails the draft
   // stays, which is the right outcome: the user keeps what they typed.
@@ -517,6 +540,26 @@ export function RecordDetail({
             canCreate={schemaEditable}
             isAdmin={workspace.data?.role === 'admin'}
           />
+          {/* #780 — Ievgen's ruling: collapsible by the user, open by default
+              on the full page, auto-collapsed on mount in split view (see
+              sidePanelCollapsed's own lazy init above). Placement is Dara's
+              explicit call, not measured off any artifact (the artifact draws
+              no collapse control at all — a genuine addition): beside
+              split-view rather than an edge handle on the panel itself,
+              because split-view is the only OTHER header control that
+              changes layout rather than acting on content, and an edge
+              handle would imply a drag this panel doesn't support (the
+              sidebar's own resizable-edge convention would train the wrong
+              expectation here). */}
+          <button
+            type="button"
+            title={sidePanelCollapsed ? 'Show panel' : 'Hide panel'}
+            aria-label={sidePanelCollapsed ? 'Show the Activity/Comments/About panel' : 'Hide the Activity/Comments/About panel'}
+            className={HEADER_ICON_BTN}
+            onClick={() => setSidePanelCollapsed((c) => !c)}
+          >
+            <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
+          </button>
           {/* Split-panel chrome (#167): collapse to a peek-rail, and maximize /
               restore the split area. Only present when the host mounts this record
               as a panel. */}
@@ -934,6 +977,7 @@ export function RecordDetail({
             never requires scrolling back up. Activity/Comments/About moved
             here from the bottom of MAIN — same three panels, same content,
             just relocated per the design. */}
+        {!sidePanelCollapsed && (
         <aside className="hidden w-[344px] shrink-0 flex-col border-l border-border-default min-[900px]:flex">
           <div className="shrink-0 px-2 pt-[7px]">
             <Segmented
@@ -979,6 +1023,7 @@ export function RecordDetail({
             )}
           </div>
         </aside>
+        )}
 
         {/* #780 — the OLD resizable Properties sidebar: HIDDEN, not deleted,
             same SHOW_LEGACY_ZONING_UI flag as the top-strip block above.
