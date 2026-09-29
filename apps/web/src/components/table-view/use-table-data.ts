@@ -326,6 +326,44 @@ export function useRecordCount(ws: string, db: string, filter?: unknown, enabled
 }
 
 /**
+ * #750/#784 — ONE query for every column's true total, via `/aggregate/grouped`,
+ * rather than a board reading `column.rows.length` (however many pages have
+ * been scrolled into view so far — see `groupCountLabel`'s own comment on why
+ * that undercounts). Same grant-scoped filter AST as `useRecordAggregate`.
+ *
+ * Returns raw `{key, value}` groups exactly as the server does — a `key` of
+ * `null` is the ungrouped bucket, a date key is the bucket's START DATE (not
+ * the client's compact bucket key), so callers group by a date field must
+ * re-derive their own column id from it (`dateBucketKey`) rather than look
+ * the raw key up directly. Left to the caller rather than done here: this
+ * hook has no opinion on grouping semantics, only on fetching the numbers.
+ */
+export function useGroupedRecordCount(
+  ws: string,
+  db: string,
+  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...recordCountKey(ws, db), 'grouped', input],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+        params: { path: { ws, db } },
+        body: {
+          op: 'count',
+          group_by: input.group_by,
+          ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+        } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { groups: Array<{ key: string | null; value: number | null }> }).groups;
+    },
+    enabled: Boolean(ws && db) && enabled,
+  });
+}
+
+/**
  * #728 fix — true only for the `{ pages: [...] }` shape every `setAll`
  * updater below assumes. `recordsKey` used to also match `useRecordCount`'s
  * cache entry (a plain number) via prefix, and the updaters threw on the
