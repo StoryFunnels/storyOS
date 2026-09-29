@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Maximize2, UserPlus } from 'lucide-react';
@@ -11,11 +11,12 @@ import { useDateFormat } from '@/lib/preferences';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { CommentComposer } from '../entity/panels';
+import { dayBucket } from '../inbox-panel';
 import { CardFieldChip } from './board-view';
 import { CellEditor, OptionChip, richTextPreview, optionColor } from '../table-view/cells';
 import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
-import type { Field } from '../table-view/use-table-data';
+import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { feedActionFields } from './feed-actions';
@@ -87,6 +88,32 @@ export function FeedView({
     [database.data, config.card_field_ids],
   );
   const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
+  /*
+   * #790 (F1/F2) — the footer used to print row.created_at unconditionally,
+   * regardless of what the view actually sorts by: sort by Priority and the
+   * footer still shows creation dates in an order they don't explain. "The
+   * date is there to explain the position; any other date is decoration
+   * pretending to be an explanation."
+   *
+   * Resolves the ACTUAL sort field (falls back to created_at, matching the
+   * server's own unsorted default) and asks whether it's chronological. Day
+   * breaks (F2) are gated on this too, per the artifact's own constraint:
+   * "you cannot bucket by day when the order is Priority" — so grouping only
+   * ever applies when there is a real time axis to group by.
+   */
+  const sortField = database.data?.fields.find((f) => f.apiName === (config.sorts[0]?.field ?? 'created_at'));
+  const CHRONOLOGICAL = new Set(['date', 'created_at', 'updated_at']);
+  const isChronologicalSort = sortField ? CHRONOLOGICAL.has(sortField.type) : false;
+  // Only ever resolves a value for an ACTUALLY chronological sort field — a
+  // Priority/Name sort must fall through to plain created_at below, not print
+  // "Priority" beside whatever a select option's raw id happens to parse as.
+  const dateOf = (row: RecordRow): string | null => {
+    if (!isChronologicalSort || !sortField) return null;
+    if (sortField.type === 'created_at') return row.created_at;
+    if (sortField.type === 'updated_at') return row.updated_at;
+    const raw = row.values[sortField.apiName];
+    return typeof raw === 'string' ? raw : null;
+  };
   // Quick-actions row (#76): which select/checkbox/user field each action edits,
   // derived purely from the schema — omitted entirely when the database has none.
   const { statusField, checkboxField, userField } = useMemo(
@@ -111,13 +138,26 @@ export function FeedView({
   return (
     <div className="h-full overflow-auto">
       <div className="flex max-w-2xl flex-col gap-3 px-4 py-4">
-        {rows.map((row) => {
+        {rows.map((row, i) => {
           const preview = richField ? richTextPreview(row.values[richField.apiName], 280) : '';
           const author = row.created_by;
           const dot = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
+          // #790 (F2) — a day break header, only while sorted by a real
+          // chronological field (a non-time sort has nothing to bucket by).
+          const rowDate = dateOf(row);
+          const bucket = isChronologicalSort && rowDate ? dayBucket(rowDate) : null;
+          const prevDate = i > 0 ? dateOf(rows[i - 1]!) : null;
+          const prevBucket = isChronologicalSort && prevDate ? dayBucket(prevDate) : null;
+          const showDayBreak = bucket !== null && bucket !== prevBucket;
           return (
+            <Fragment key={row.id}>
+            {showDayBreak && (
+              <div className="mt-2 flex items-center gap-2 px-1 text-label font-semibold text-ink first:mt-0">
+                {bucket}
+                <span className="h-px flex-1 bg-border-default" />
+              </div>
+            )}
             <div
-              key={row.id}
               onClick={(e) =>
                 openRecord(
                   { db, rec: recordSegment(row), title: row.title, number: row.number },
@@ -150,7 +190,17 @@ export function FeedView({
                   {author && <Avatar userId={author} name={memberNames.get(author) ?? '?'} image={memberImages?.get(author)} size={16} />}
                   {author && <span>{memberNames.get(author) ?? 'Someone'}</span>}
                   <span>·</span>
-                  <span>{fmt.date(row.created_at)}</span>
+                  {/* #790 (F1) — prints the field actually being sorted by, not
+                      always created_at: labeled when it isn't the default
+                      ("Updated 3 Mar", "Due 14 Mar"), plain when it is (the
+                      common case, unchanged from before). A date shown here
+                      that isn't what the view is ordered by is decoration
+                      pretending to be an explanation. */}
+                  <span>
+                    {sortField && sortField.apiName !== 'created_at' && rowDate
+                      ? `${sortField.displayName} ${fmt.date(rowDate)}`
+                      : fmt.date(row.created_at)}
+                  </span>
                   {/* Quick-actions (#76): change status, complete, assign, open — all
                       optimistic writes via the records API, no navigation required. */}
                   <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -203,6 +253,7 @@ export function FeedView({
                 )}
               </div>
             </div>
+            </Fragment>
           );
         })}
         {records.hasNextPage && (
