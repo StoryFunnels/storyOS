@@ -311,7 +311,19 @@ export function SplitArea({
       )}
 
       {showStack && view.activePanel && (
-        <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 min-w-0 flex-1">
+          {/* #780 — was `overflow-y-auto`: RecordDetail now owns its own two
+              independent scroll regions (MAIN + the fixed side panel) instead
+              of relying on an ancestor to scroll it, the same reasoning
+              #462's comment already established for the PRIMARY pane just
+              above ("main is the scroller again"). This div's only child is
+              RecordDetail (confirmed — nothing else renders here), so giving
+              it a flex height instead of its own scroll lets RecordDetail's
+              `h-full` resolve against a real bounded height instead of
+              falling back to content height, which is what made the WHOLE
+              pane scroll as one here (verified live) instead of the top
+              chrome staying put and the side panel scrolling independently,
+              as it correctly does in the full-page case. */}
           {/* Each pane gets its OWN boundary: in split screen, one broken record
               must not cost the other one you were comparing it to. */}
           <ErrorBoundary label="This item">

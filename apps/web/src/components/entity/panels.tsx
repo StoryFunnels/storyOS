@@ -617,7 +617,10 @@ interface WatchersResponse {
   watchers: string[];
 }
 
-function useWatchers(ws: string, db: string, rec: string) {
+/** #780 — exported so the header's Watch button and the status strip's
+ * "N watching" chip can share this fetch/mutation rather than each
+ * defining their own; the About panel below was its only caller before. */
+export function useWatchers(ws: string, db: string, rec: string) {
   const qc = useQueryClient();
   const key = ['watchers', ws, db, rec];
   const query = useQuery({

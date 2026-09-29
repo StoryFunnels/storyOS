@@ -21,6 +21,43 @@ export const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'ai'
 
 export type Zone = 'top' | 'sidebar' | 'body';
 
+/** #780 — the four collapsible field-group headings on the record page's
+ * unified field area (Details/Links/Computed/System), replacing the old
+ * top/sidebar zone split now that field zoning is hidden. Matches the
+ * design artifact's own grouping exactly (its `FIELDS` array groups the
+ * same 25 field types this way) rather than inventing a new taxonomy. */
+export type FieldGroup = 'Details' | 'Links' | 'Computed' | 'System';
+const FIELD_GROUP: Record<string, FieldGroup> = {
+  title: 'Details',
+  text: 'Details',
+  number: 'Details',
+  checkbox: 'Details',
+  date: 'Details',
+  select: 'Details',
+  multi_select: 'Details',
+  workflow: 'Details',
+  user: 'Details',
+  relation: 'Links',
+  url: 'Links',
+  email: 'Links',
+  attachment: 'Links',
+  formula: 'Computed',
+  rollup: 'Computed',
+  lookup: 'Computed',
+  ai: 'Computed',
+  button: 'Computed',
+  color: 'Computed',
+  id: 'Computed',
+  created_by: 'System',
+  created_at: 'System',
+  updated_at: 'System',
+};
+/** Falls back to 'Details' for any type this map doesn't (yet) name — a new
+ * field type should be visible somewhere rather than silently unlisted. */
+export function fieldGroup(f: Field): FieldGroup {
+  return FIELD_GROUP[f.type] ?? 'Details';
+}
+
 /** A to-many relation is a collection — it belongs in the body as a list, never the top/sidebar. */
 export function isCollection(f: Field): boolean {
   return f.type === 'relation' && (f.relation?.cardinality === 'many_to_many' || f.relation?.side === 'b');

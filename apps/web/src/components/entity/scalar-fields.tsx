@@ -73,7 +73,11 @@ function useRemoveRelationLink(ws: string, db: string, recordId: string, field: 
  * wraps the editable value in a subtle bordered/hover cell (Fibery-parity
  * Properties panel, #176) so the value area reads as a clickable control.
  */
-function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
+/** #780 — exported so the record page's status strip (record-detail.tsx) can
+ * render a workflow/assignee/due chip using the SAME generic per-type
+ * rendering every other field surface already goes through, rather than a
+ * second formatter for just these three types. */
+export function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
   const [editing, setEditing] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
@@ -507,6 +511,39 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #780 — the record page's UNIFIED field row: replaces `SidebarField`'s 88px
+ * label (its own #640 comment: "the longest real label, 'Monthly Value',
+ * measures ~85px") now that every non-body field renders in one place at
+ * full main-column width instead of a narrow aside. 150px is the artifact's
+ * own measured `.frow` label column — fixed width is what makes every
+ * value start at one x regardless of label length, same reasoning #640
+ * already established, just re-measured for the wider column.
+ *
+ * No drag handle: reordering within the top/sidebar zones was part of the
+ * zoning feature being hidden (#780 ticket comment), and reordering a newly
+ * merged list is a separate, un-ruled-on capability — flagged there rather
+ * than assumed. Renders in `zonesOf`/`orderKey` sort order, read-only.
+ */
+export function UnifiedFieldRow({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
+  return (
+    <div className="group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] py-0.5 pr-1.5 hover:bg-hover/50">
+      <span className={cn('flex min-h-[24px] items-center gap-1.5 pt-0.5', FIELD_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} />
+        <span className="truncate">{field.displayName}</span>
+      </span>
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
+        </div>
+        {schemaEditable && (
+          <FieldMenu field={field} onToggleZone={onToggleZone} hideZoneToggle ws={vp.ws} db={vp.db} />
+        )}
       </div>
     </div>
   );
