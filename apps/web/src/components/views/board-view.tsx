@@ -893,6 +893,28 @@ function CardCover({
 
 /** One field value on a card: self-colored types render their own chip; everything
  * else gets a muted pill with the field's stable colored triangle (MN-089). */
+/**
+ * #765 — the permanent record number badge, shared by list and feed (the only
+ * two views that still render it inline — board/calendar/gallery never show
+ * it at all, per #702). Same "#" + `text-faint` treatment already established
+ * everywhere else this number appears as a standalone marker: `cells.tsx`'s
+ * own id-column cell, `mentions.tsx`, `collection-section.tsx`'s relation
+ * chips, and the record page header itself. List previously had no "#"
+ * prefix and feed had no size/color classes — this is the one definition of
+ * the glyph, not of the layout: callers still own their own sizing/position
+ * (`className`), since that genuinely differs (a fixed gutter slot vs. an
+ * inline footer item).
+ *
+ * `table-view.tsx`'s own gutter is deliberately NOT a third caller: since
+ * #739 it shows a different concept entirely — the view-relative row INDEX
+ * (1, 2, 3…), never stored, never hideable — while the permanent number lives
+ * in an ordinary "ID" column there instead. Unifying markup across a concept
+ * that split in two would be the wrong fix, not a missed case.
+ */
+export function RecordNumberBadge({ number, className }: { number: number; className?: string }) {
+  return <span className={cn('tabular-nums text-faint', className)}>#{number}</span>;
+}
+
 export function CardFieldChip({
   field,
   value,

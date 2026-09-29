@@ -10,7 +10,7 @@ import { OPTION_COLORS, optionColor } from '../table-view/cells';
 import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
-import { CardFieldChip } from './board-view';
+import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
 import { canGroupListBy } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
@@ -167,7 +167,7 @@ export function ListView({
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-                      {row.number !== null && !numberHidden && <span className="w-8 shrink-0 text-meta tabular-nums text-faint">{row.number}</span>}
+                      {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="w-8 shrink-0 text-meta" />}
                       {/* #787 (List artifact L3) — a floor the fields cannot push through.
                           The title is the reason a list exists; before this, an unbounded
                           shrink-0 chip row could squeeze it to near-nothing. */}
