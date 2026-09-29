@@ -421,6 +421,19 @@ html[data-embed] body {
   outline-offset: 0;
 }
 
+/* #726 AC3 — components/ui/file-input.tsx layers a real (but invisible,
+   opacity:0) <input type=file> over a decorative, aria-hidden Button, so
+   native keyboard focus/activation/validation all keep working. That means
+   the ELEMENT that legitimately gets :focus-visible is invisible, and the
+   visible Button (tabIndex={-1}) can never match :focus-visible itself —
+   so without this rule, tabbing to the control shows no focus ring at all.
+   Confirmed live: an un-forwarded focus state is exactly invisible, not
+   just subtle. */
+.file-input-root:has(> input:focus-visible) > button {
+  outline: var(--focus-ring);
+  outline-offset: 0;
+}
+
 /* Command palette (⌘K) indeterminate search bar */
 @keyframes cmdk-slide {
   0% {
