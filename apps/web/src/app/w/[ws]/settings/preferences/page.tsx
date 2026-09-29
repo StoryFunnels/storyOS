@@ -7,6 +7,7 @@ import type { ThemePreference } from '@/lib/theme';
 import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
 import type { UserPreferences } from '@/lib/preferences';
 import { formatDate, formatDateTime, DEFAULT_REGIONAL } from '@/lib/format';
+import { Select } from '@/components/ui/select';
 
 const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: 'System', icon: Monitor },
@@ -132,18 +133,21 @@ function SelectRow<T extends string>({
         {label}
         {preview && <span className="ml-2 text-label text-faint">{preview}</span>}
       </span>
-      <select
+      {/* #761 — the one native <select> #854 missed; this site's chrome was
+          already correct, so the migration overrides the primitive's own
+          h-9/px-2 defaults rather than adopting a variant, to stay pixel-identical. */}
+      <Select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as T)}
-        className="min-w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-body text-ink disabled:opacity-50"
+        className="h-auto min-w-40 px-2.5 py-1.5 text-body"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }
