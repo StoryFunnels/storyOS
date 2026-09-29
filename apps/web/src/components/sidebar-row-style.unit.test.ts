@@ -85,6 +85,18 @@ describe('#779 — every sidebar chevron goes through SidebarRow\'s caret slot',
     return false;
   }
 
+  /** The name of the nearest enclosing function/component declaration, so an
+   *  exception can be named by WHAT it is rather than by where it sits. */
+  function enclosingComponent(node: ts.Node): string | undefined {
+    let cur: ts.Node | undefined = node.parent;
+    while (cur) {
+      if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.getText();
+      if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.getText();
+      cur = cur.parent;
+    }
+    return undefined;
+  }
+
   function chevronsOutsideCaret(fileName: string): string[] {
     const path = `${SIDEBAR_DIR}${fileName}`;
     const text = readFileSync(path, 'utf8');
@@ -97,7 +109,7 @@ describe('#779 — every sidebar chevron goes through SidebarRow\'s caret slot',
         node.tagName.getText() === 'ChevronRight';
       if (isChevron && !isInsideCaretProp(node)) {
         const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-        offenders.push(`${fileName}:${line + 1}`);
+        offenders.push(`${enclosingComponent(node) ?? '<top level>'} (${fileName}:${line + 1})`);
       }
       ts.forEachChild(node, visit);
     }
@@ -110,8 +122,17 @@ describe('#779 — every sidebar chevron goes through SidebarRow\'s caret slot',
     // not a row in the space/database tree with siblings to misalign
     // against) is the one deliberate exception — named explicitly rather
     // than silently excluded, so widening this list is a visible decision.
-    const HIDDEN_SECTION_TOGGLE_LINE = 'sidebar.tsx:886';
-    const offenders = chevronsOutsideCaret('sidebar.tsx').filter((loc) => loc !== HIDDEN_SECTION_TOGGLE_LINE);
+    //
+    // KEYED ON THE COMPONENT, NOT A LINE NUMBER. This exception used to read
+    // 'sidebar.tsx:886'. Inserting a single blank line anywhere above it made
+    // the whole guard fail, reporting the toggle at its new line as an
+    // offender — verified by doing exactly that. A guard that cries wolf on
+    // an unrelated edit is a guard someone loosens, and the protection goes
+    // with it. A component name survives the file moving underneath it.
+    const EXEMPT_COMPONENTS = new Set(['HiddenSection']);
+    const offenders = chevronsOutsideCaret('sidebar.tsx').filter(
+      (loc) => !EXEMPT_COMPONENTS.has(loc.split(' (')[0]!),
+    );
     expect(offenders, 'a ChevronRight outside caret={} reserves its own gutter alongside SidebarRow\'s, pushing the row right of its own children').toEqual([]);
   });
 });
