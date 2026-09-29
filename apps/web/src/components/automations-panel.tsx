@@ -174,25 +174,34 @@ export function AutomationsPanel({
       className="max-w-2xl"
     >
       <div className="flex max-h-[75vh] flex-col gap-3 overflow-y-auto pr-1">
-        <div className="flex gap-1">
-          {(['rules', 'buttons'] as const).map((t) => (
-            <button
-              key={t}
-              className={cn(
-                'flex items-center gap-1.5 rounded px-2.5 py-1 text-body capitalize',
-                tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
-              )}
-              onClick={() => setTab(t)}
-            >
-              {t === 'rules' ? (
-                <Zap className="h-3.5 w-3.5" />
-              ) : (
-                <MousePointerClick className="h-3.5 w-3.5" />
-              )}
-              {t === 'rules' ? 'Automation rules' : 'Buttons'}
-            </button>
-          ))}
-        </div>
+        {/* #767 — the second hand-rolled switcher #738 left in this file; the
+            other one, `actionsView` below, already migrated to `Segmented`. */}
+        <Segmented
+          label="Buttons & automations view"
+          value={tab}
+          onChange={setTab}
+          size="default"
+          options={[
+            {
+              value: 'rules',
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" />
+                  Automation rules
+                </span>
+              ),
+            },
+            {
+              value: 'buttons',
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <MousePointerClick className="h-3.5 w-3.5" />
+                  Buttons
+                </span>
+              ),
+            },
+          ]}
+        />
 
         {tab === 'buttons' && (
           <div className="flex flex-col gap-1.5">
