@@ -302,6 +302,25 @@ const RELATIVE_RANGES = [
  */
 export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
 
+/**
+ * #754 (G1) — replaces the Cover picker when the database has no attachment
+ * field at all. #225's rule, reused verbatim for the gallery: "a picker that
+ * silently omits a field is indistinguishable from a bug" — this one omitted
+ * the whole picker. Names the fix rather than a bare "no attachment field"
+ * dead end. Text only, deliberately: an inline "+ Add field" dialog here
+ * would import `add-field-dialog.tsx`, which imports `button-actions-editor.tsx`,
+ * which imports THIS file — a real cycle the import-cycle guard (#315) catches
+ * for good reason. The existing "+ New field" affordance (record page, Hide
+ * Fields panel) is one click away without it.
+ */
+function GalleryNoCoverFieldNotice() {
+  return (
+    <span className="text-label italic text-faint">
+      No Cover control — this database has no attachment field. Add one to use this view.
+    </span>
+  );
+}
+
 export function ViewToolbar({
   fields,
   config,
@@ -561,28 +580,33 @@ export function ViewToolbar({
         </label>
       )}
 
-      {/* #391 — a gallery's card image. Shown only for galleries, and only once
-          the database actually has an attachment field: an empty picker offering
-          nothing is a worse answer than no picker. */}
-      {viewType === 'gallery' && fields.some((f) => f.type === 'attachment') && (
-        <label className="flex items-center gap-1 text-label text-muted">
-          Cover
-          <select
-            value={config.cover_field_id ?? ''}
-            onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
-          >
-            <option value="">None</option>
-            {fields
-              .filter((f) => f.type === 'attachment')
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.displayName}
-                </option>
-              ))}
-          </select>
-        </label>
-      )}
+      {/* #391 / #754 (G1) — a gallery's card image. With an attachment field,
+          the ordinary picker. Without one, the control used to disappear
+          entirely — a gallery of text-only cards with nothing on screen that
+          even mentions covers. Say so once, where the picker would have been,
+          and offer the actual fix. */}
+      {viewType === 'gallery' &&
+        (fields.some((f) => f.type === 'attachment') ? (
+          <label className="flex items-center gap-1 text-label text-muted">
+            Cover
+            <select
+              value={config.cover_field_id ?? ''}
+              onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
+            >
+              <option value="">None</option>
+              {fields
+                .filter((f) => f.type === 'attachment')
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.displayName}
+                  </option>
+                ))}
+            </select>
+          </label>
+        ) : (
+          <GalleryNoCoverFieldNotice />
+        ))}
 
       {/* #307 — period per column, shown only when a board is grouped by a DATE
           field (the one case where the columns come from data, not from options). */}
