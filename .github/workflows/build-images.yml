@@ -148,6 +148,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: merge
     timeout-minutes: 10
+    # Staging is NOT a gate on publishing images. In September this job failed
+    # 269 times out of 502 runs — 11 of the last 12 failures were this job's
+    # "Deploy over SSH" step, against a host whose disk is full (#522). Every
+    # one of those runs had already built and pushed all six images and merged
+    # their manifests (see `needs: merge`), so the publish succeeded and the
+    # run was marked failed anyway. That noise is what makes a REAL build
+    # failure invisible, which is the actual cost — not the minutes.
+    # Staging is also not used for verification: agents verify on isolated
+    # local instances, and production deploys from main by hand.
+    continue-on-error: true
     permissions:
       contents: read
     # One deploy at a time; a second push queues instead of racing the first.
