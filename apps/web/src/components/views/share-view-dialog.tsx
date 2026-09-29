@@ -55,6 +55,13 @@ export function ShareViewDialog({
   const plainFields = fields.filter((f) => f.type !== 'relation');
   const relationFields = fields.filter((f) => f.type === 'relation');
 
+  // #751 — charts/grouped tables (Phase 2 of the dashboard feature) are not
+  // exposed on the public page at all yet; getPublicView only ever builds
+  // `dashboard.tiles`. That's a static product-phase fact, not a redaction
+  // rule, so counting it here isn't the second-copy-of-a-rule AC2 warns
+  // against — it names something that isn't computed from field visibility.
+  const widgetCount = view.type === 'dashboard' ? (view.config.dashboard_widgets ?? []).length : 0;
+
   const publicUrl = token && typeof window !== 'undefined' ? `${window.location.origin}/v/${token}` : '';
   const embedCode = publicUrl
     ? `<iframe src="${publicUrl}?embed=1" width="100%" height="600" style="border:0"></iframe>`
@@ -142,6 +149,15 @@ export function ShareViewDialog({
             <input type="checkbox" checked={indexable} onChange={(e) => setIndexable(e.target.checked)} />
             Allow search engines to index this page
           </label>
+
+          {widgetCount > 0 && (
+            <p className="text-label text-faint">
+              {widgetCount === 1
+                ? 'This dashboard has 1 chart or grouped table — it'
+                : `This dashboard has ${widgetCount} charts or grouped tables — they`}{' '}
+              won&apos;t appear on the public page yet; only tiles are published.
+            </p>
+          )}
 
           <div className="flex items-center justify-between gap-2 border-t border-border-default pt-3">
             {token ? (
