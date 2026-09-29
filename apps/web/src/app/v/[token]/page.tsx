@@ -18,8 +18,9 @@ import type { PublicViewDef } from './public-view-client';
  * uniform NotFoundException for every "missing" reason) is untouched — this
  * only moves WHERE the resolve happens, never re-implements it.
  *
- * TABLE ONLY: see the interactive component's own note in public-view-client.tsx
- * for the board/dashboard scope decision (#555) unchanged from #527.
+ * #709 — table, board and dashboard all render from here now; see the
+ * interactive component's own notes in public-view-client.tsx for the
+ * per-type treatment.
  */
 
 async function getView(token: string, cursor?: string): Promise<PublicViewDef | null> {
