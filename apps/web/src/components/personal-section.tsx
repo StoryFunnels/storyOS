@@ -441,16 +441,21 @@ export function PersonalSection({ ws }: { ws: string }) {
       // most of a 72px void above the tree; mb-1 keeps a real section break
       // without the extra 4px neither side needed.
       <div className="mb-1">
-        <div
-          className="flex items-center justify-between rounded px-2 py-[3px] hover:bg-hover"
+        {/* #779 — through SidebarRow like Reviews/Business Packs: this is the
+            "Collections row (Personal)" Dara's spec measures against the
+            same icon/label offset as every other row, and a bare div with no
+            reserved gutter landed short of it, same as the other two. */}
+        <SidebarRow
+          depth={0}
+          className="hover:bg-hover"
           title="Only you can see this. If your account is removed, this content is deleted with it."
         >
-          <span className="flex items-center gap-2 text-body text-ink-secondary">
-            <Lock className="h-3.5 w-3.5 text-faint" />
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+            <Lock className="h-3.5 w-3.5 shrink-0 text-faint" />
             Personal
           </span>
           {newMenu}
-        </div>
+        </SidebarRow>
         {newViewDialog}
       </div>
     );
