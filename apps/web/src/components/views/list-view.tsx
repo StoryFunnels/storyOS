@@ -168,16 +168,31 @@ export function ListView({
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
                       {row.number !== null && !numberHidden && <span className="w-8 shrink-0 text-meta tabular-nums text-faint">{row.number}</span>}
-                      <span className="min-w-0 flex-1 truncate text-body text-ink">{row.title || 'Untitled'}</span>
-                      <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                        {cardFields.map((field) => {
-                          const value = row.values[field.apiName];
-                          if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) return null;
-                          return (
-                            <CardFieldChip key={field.id} field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
-                          );
-                        })}
-                      </span>
+                      {/* #787 (List artifact L3) — a floor the fields cannot push through.
+                          The title is the reason a list exists; before this, an unbounded
+                          shrink-0 chip row could squeeze it to near-nothing. */}
+                      <span className="min-w-[120px] flex-1 truncate text-body text-ink">{row.title || 'Untitled'}</span>
+                      {/* #787 (List artifact L2) — FIXED slots, not a wrapping row: each
+                          configured field gets the same width in the same order on every
+                          row, and an empty value leaves its slot empty rather than
+                          collapsing it. That's what makes the column scannable; before
+                          this, empty values were skipped entirely, so which field landed
+                          in which visual position drifted row to row. */}
+                      {cardFields.length > 0 && (
+                        <span className="flex shrink-0 flex-nowrap items-center gap-1">
+                          {cardFields.map((field) => {
+                            const value = row.values[field.apiName];
+                            const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
+                            return (
+                              <span key={field.id} className="flex w-[104px] shrink-0 justify-end overflow-hidden">
+                                {!empty && (
+                                  <CardFieldChip field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+                                )}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
                     </div>
                     );
                   })}
