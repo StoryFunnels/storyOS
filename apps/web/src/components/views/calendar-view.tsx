@@ -168,6 +168,25 @@ export function CalendarView({
   const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(dateField));
   const undatedCount = dateField ? (undatedCountQuery.data ?? 0) : 0;
 
+  /*
+   * #785 (Calendar artifact C2, "decided") — the undated tray. A bounded page
+   * (never the whole set — that's exactly the D3 shape #759/C1 already fixed
+   * elsewhere), only fetched when there's a real destination to drag INTO
+   * (`writable`) and something to show (`undatedCount > 0`); otherwise the
+   * plain "N undated records → table" link below is the whole affordance,
+   * same as before this ticket.
+   */
+  const undatedRowsQuery = useRecordsInfinite(
+    ws,
+    db,
+    { filter: undatedFilter, limit: 20 },
+    writable && undatedCount > 0,
+  );
+  const undatedRows = useMemo(
+    () => (undatedRowsQuery.data?.pages ?? []).flatMap((p) => p.data),
+    [undatedRowsQuery.data],
+  );
+
   const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -176,10 +195,18 @@ export function CalendarView({
     if (!dateField || !event.over || !writable) return;
     const day = String(event.over.id).replace('day:', '');
     const rec = String(event.active.id);
-    const row = rows.find((r) => r.id === rec);
+    // #785 — a dragged card is either already on the grid (has a date to shift
+    // FROM) or came from the undated tray (has none); the tray is the only new
+    // source, so it's the only place this second lookup is needed.
+    const row = rows.find((r) => r.id === rec) ?? undatedRows.find((r) => r.id === rec);
     if (!row) return;
     const raw = fieldValue(row, dateField);
-    if (typeof raw !== 'string') return;
+    if (typeof raw !== 'string') {
+      // Undated: nothing to preserve (no time component) and nothing to shift
+      // (no end date relative to a start that never existed) — just schedule it.
+      updateRecord.mutate({ rec, values: { [dateField.apiName]: day } });
+      return;
+    }
     // Preserve the time component for datetime fields.
     const time = raw.length > 10 ? raw.slice(10) : '';
     const values: Record<string, string> = { [dateField.apiName]: `${day}${time}` };
@@ -295,8 +322,13 @@ export function CalendarView({
         )}
         {/* #753 — was rendered unconditionally with no count (undatedCount was a
             literal `return 0`); now server-computed via the aggregate endpoint
-            and only shown when there's something to link to. */}
-        {undatedCount > 0 && (
+            and only shown when there's something to link to.
+            #785 — in month mode, writable, this link steps aside for the
+            actionable Undated tray below (artifact C2: "a tray, not a link" —
+            drag-to-schedule IS the affordance, a link out is only an exit).
+            Every other case (read-only, system-date, week/day mode, where
+            there's no tray) keeps exactly this link, unchanged. */}
+        {undatedCount > 0 && !(writable && mode === 'month') && (
           <Link
             href={`/w/${ws}/d/${db}`}
             className="ml-auto text-label text-muted underline-offset-2 hover:text-ink hover:underline"
@@ -353,6 +385,29 @@ export function CalendarView({
                 );
               })}
             </div>
+            {/* #785 (Calendar artifact C2) — the undated tray: draggable chips,
+                dropped on a day cell in the SAME DndContext above. Desktop only
+                (MN-230d already splits month-grid/agenda the same way; the
+                agenda's own per-day create/drag story is a separate surface,
+                not extended here). */}
+            {writable && undatedCount > 0 && (
+              <div className="hidden shrink-0 items-center gap-2 border-t border-border-default bg-app px-3 py-2 md:flex">
+                <span className="text-body font-medium text-ink">Undated</span>
+                <span className="text-label text-muted">
+                  {undatedCount} — drag onto a day to schedule
+                </span>
+                <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                  {undatedRows.slice(0, 8).map((row) => (
+                    <UndatedChip key={row.id} row={row} onOpen={() => router.push(`/w/${ws}/d/${db}/r/${row.id}`)} />
+                  ))}
+                  {undatedCount > 8 && (
+                    <Link href={`/w/${ws}/d/${db}`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
+                      +{undatedCount - 8} more
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
           </DndContext>
 
           <AgendaList
@@ -630,6 +685,33 @@ function DayCell({
           +{chips.length - 3} more
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * #785 — an undated tray chip. Deliberately NOT `CalendarChip`: that one is
+ * shaped for a day cell (multi-line, chipFields listed underneath) and this is
+ * the artifact's small pill (title only, one line) — genuinely different
+ * chrome around the same drag mechanics, not a style to share.
+ */
+function UndatedChip({ row, onOpen }: { row: RecordRow; onOpen: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn(
+        'max-w-[190px] cursor-grab truncate rounded-[var(--radius-chip)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink hover:border-border-strong',
+        isDragging && 'opacity-40',
+      )}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      {row.title || 'Untitled'}
     </div>
   );
 }

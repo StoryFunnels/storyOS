@@ -248,7 +248,16 @@ export const recordsKey = (ws: string, db: string) => ['records', ws, db];
 // network request and no real error message. Its own key, not a shared one.
 export const recordCountKey = (ws: string, db: string) => ['records-count', ws, db];
 
-export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<string, unknown>) {
+export function useRecordsInfinite(
+  ws: string,
+  db: string,
+  queryBody?: Record<string, unknown>,
+  /** #785 — a small, purpose-scoped query (e.g. the calendar's undated tray)
+   * needs to skip entirely rather than fire with a default/empty body when its
+   * own precondition (a configured date field) isn't met yet. Defaults to true
+   * so every existing caller is unaffected. */
+  enabled = true,
+) {
   const body = queryBody ?? { limit: 100 };
   return useInfiniteQuery({
     queryKey: [...recordsKey(ws, db), body],
@@ -268,7 +277,7 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
     // #306 — a space-level dashboard has no database until a tile names one, so
     // `db` can legitimately be empty. useDatabase already guards this way; this
     // one did not, and an empty id would POST to /databases//records/query.
-    enabled: Boolean(ws && db),
+    enabled: Boolean(ws && db) && enabled,
   });
 }
 
