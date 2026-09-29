@@ -79,6 +79,7 @@ function useRemoveRelationLink(ws: string, db: string, recordId: string, field: 
  * second formatter for just these three types. */
 export function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
   const [editing, setEditing] = useState(false);
+  const [showAllChips, setShowAllChips] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
@@ -100,9 +101,17 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
   if (field.type === 'relation') {
     // Single reference (collections render as their own body section).
     const chips = (value as LinkChip[]) ?? [];
+    // #780 Rule 2 (the Ten Real Records artifact, M1NWWboSsyroxUqunyajSV) —
+    // Backlog in Stages linked 45 records as inline chips and pushed two
+    // OTHER fields off screen entirely. Real evidence, not a guess: cap at
+    // 6 chips + "+N more" (RELCAP in the artifact's own source). Fields
+    // dense enough to exceed 12 leave the grid entirely — see
+    // record-detail.tsx's promotedRelationFields, a separate concern from
+    // this cap (a field can be capped here without ever being promoted).
+    const shown = showAllChips ? chips : chips.slice(0, 6);
     return (
       <div className="relative flex flex-wrap items-center gap-1">
-        {chips.map((chip) => (
+        {shown.map((chip) => (
           // #176: consistent chip control — the title opens the target (split
           // panel / navigation), the × unlinks it (only when editable). The ×
           // is a sibling of the link, never nested, so their clicks can't reach
@@ -140,6 +149,15 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
             )}
           </span>
         ))}
+        {chips.length > 6 && (
+          <button
+            type="button"
+            className="text-label text-muted underline hover:text-ink"
+            onClick={() => setShowAllChips((s) => !s)}
+          >
+            {showAllChips ? 'Show fewer' : `+${chips.length - 6} more`}
+          </button>
+        )}
         {!readOnly && (
           <button
             className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"

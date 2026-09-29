@@ -217,13 +217,44 @@ export function RecordDetail({
     const seen = new Set<string>();
     return byOrder([...topFields, ...sidebarFields].filter((f) => (seen.has(f.id) ? false : (seen.add(f.id), true))));
   }, [topFields, sidebarFields, byOrder]);
+  /**
+   * #780 Rule 1/Rule 2 — real evidence from the Ten Real Records artifact
+   * (M1NWWboSsyroxUqunyajSV), not invented thresholds: `report` at 2,770
+   * chars on a three-field record was unreadable in a 148px-label grid row;
+   * Backlog in Stages linked 45 records, pushing two OTHER fields off
+   * screen. A field crossing these leaves the unified grid entirely and
+   * renders as its own titled block below it instead — the grid stays
+   * scannable, the outlier gets room. 180/12 are the artifact's own
+   * LONG/RELBLOCK constants, not eyeballed. Note: the 6-chip inline cap
+   * (a SEPARATE, smaller threshold — the artifact's own RELCAP) lives in
+   * `ScalarValue` itself (scalar-fields.tsx), since it applies to every
+   * relation-shaped chip list, not only ones dense enough to promote here.
+   */
+  const promotedProseFields = useMemo(() => {
+    if (!record.data) return [];
+    return unifiedFields.filter((f) => {
+      const v = record.data!.values[f.apiName];
+      return f.type === 'text' && typeof v === 'string' && v.length > 180;
+    });
+  }, [unifiedFields, record.data]);
+  const promotedRelationFields = useMemo(() => {
+    if (!record.data) return [];
+    return unifiedFields.filter((f) => {
+      const v = record.data!.values[f.apiName];
+      return f.type === 'relation' && Array.isArray(v) && v.length > 12;
+    });
+  }, [unifiedFields, record.data]);
+  const gridFields = useMemo(() => {
+    const promotedIds = new Set([...promotedProseFields, ...promotedRelationFields].map((f) => f.id));
+    return unifiedFields.filter((f) => !promotedIds.has(f.id));
+  }, [unifiedFields, promotedProseFields, promotedRelationFields]);
   /** #780 — the artifact's own four collapsible headings, in its own order. */
   const FIELD_GROUP_ORDER: FieldGroup[] = ['Details', 'Links', 'Computed', 'System'];
   const groupedFields = useMemo(() => {
     const groups = new Map<FieldGroup, Field[]>(FIELD_GROUP_ORDER.map((g) => [g, []]));
-    for (const f of unifiedFields) groups.get(fieldGroup(f))!.push(f);
+    for (const f of gridFields) groups.get(fieldGroup(f))!.push(f);
     return FIELD_GROUP_ORDER.map((g) => [g, groups.get(g)!] as const).filter(([, fs]) => fs.length > 0);
-  }, [unifiedFields]);
+  }, [gridFields]);
   /**
    * #780 — the status strip: a fixed, non-configurable summary row under the
    * title (workflow state, an assignee-shaped field, a due-date-shaped
@@ -358,6 +389,8 @@ export function RecordDetail({
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  /** #780 Rule 1 — which promoted prose blocks are expanded past their clip. */
+  const [expandedProse, setExpandedProse] = useState<Set<string>>(new Set());
   // #312 — retire the title draft only once the saved value has actually arrived, so
   // the input never falls back to a stale title mid-save. If the save fails the draft
   // stays, which is the right outcome: the user keeps what they typed.
@@ -732,6 +765,79 @@ export function RecordDetail({
               )}
             </div>
           )}
+
+          {/* #780 Rule 2 — a relation field with more than 12 links leaves the
+              grid and becomes its own titled block with a count, per the Ten
+              Real Records artifact (Backlog in Stages: 45 links). Still capped
+              at 6 inline chips + "+N more" (ScalarValue's own cap), same as
+              every relation chip list — this block only changes WHERE it
+              renders, not how the chips themselves render. */}
+          {promotedRelationFields.map((field) => {
+            const count = Array.isArray(record.data!.values[field.apiName])
+              ? (record.data!.values[field.apiName] as unknown[]).length
+              : 0;
+            return (
+              <div key={field.id} className="mt-6">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <h4 className="text-body font-semibold text-ink">{field.displayName}</h4>
+                  <span className="rounded border border-border-default px-1 font-mono text-micro text-muted">
+                    {count} linked
+                  </span>
+                </div>
+                <ScalarValue field={field} {...vp} />
+              </div>
+            );
+          })}
+
+          {/* #780 Rule 1 — a text field over 180 characters leaves the grid
+              and becomes a titled prose block, clipped with "Show all", per
+              the Ten Real Records artifact (a real incident `report` field
+              ran 2,770 characters on a three-field record — unreadable in a
+              148px-label grid row). The common case, not the exception: five
+              of the artifact's ten sampled records had a field long enough
+              to trigger this. */}
+          {promotedProseFields.map((field) => {
+            const text = String(record.data!.values[field.apiName] ?? '');
+            const expanded = expandedProse.has(field.id);
+            return (
+              <div key={field.id} className="mt-6 max-w-[74ch]">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <h4 className="text-body font-semibold text-ink">{field.displayName}</h4>
+                  <span className="rounded border border-border-default px-1 font-mono text-micro text-muted">
+                    {text.length.toLocaleString()} chars
+                  </span>
+                </div>
+                <div
+                  className={cn(
+                    'relative whitespace-pre-wrap border-l-2 border-border-default pl-3.5 text-body leading-relaxed text-ink-secondary',
+                    !expanded && 'max-h-[172px] overflow-hidden',
+                  )}
+                >
+                  {text}
+                  {!expanded && (
+                    <span
+                      aria-hidden
+                      className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-[var(--bg-app)] to-transparent"
+                    />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="mt-1 rounded px-1 text-label font-medium text-muted hover:bg-hover hover:text-ink"
+                  onClick={() =>
+                    setExpandedProse((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(field.id)) next.delete(field.id);
+                      else next.add(field.id);
+                      return next;
+                    })
+                  }
+                >
+                  {expanded ? 'Show less' : 'Show all'}
+                </button>
+              </div>
+            );
+          })}
 
           {/* Body fields: collections (lists), scalars-in-body, rich text — in order.
               All are drag-reorderable via a hover-revealed handle EXCEPT rich-text
