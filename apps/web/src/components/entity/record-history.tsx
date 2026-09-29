@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import type { BlockChange } from '@storyos/schemas/block-diff';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useDateFormat } from '@/lib/preferences';
@@ -32,6 +33,11 @@ interface VersionEntry {
   id: string;
   title: string;
   actor_id: string | null;
+  // #677 (Gap 1) — the API has sent these since PR #843; this UI never read
+  // them, which is the exact "visible-at-a-glance" gap #677's AC #3 names.
+  source: 'human' | 'agent' | 'automation' | 'mcp';
+  agent_id: string | null;
+  agent_name: string | null;
   created_at: string;
 }
 interface VersionsPage {
@@ -48,6 +54,51 @@ interface VersionPreviewEntry {
 interface VersionPreview {
   id: string;
   preview: VersionPreviewEntry[];
+}
+
+/** #677 (Gap 2) — one entry in the document's OWN version list, sibling to
+ * `VersionEntry` above but over `document_versions`, not `record_versions`. */
+interface DocVersionEntry {
+  id: string;
+  actor_id: string | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp';
+  agent_id: string | null;
+  agent_name: string | null;
+  created_at: string;
+}
+interface DocVersionsPage {
+  data: DocVersionEntry[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+interface DocVersionPreview {
+  id: string;
+  blocks: BlockChange[];
+}
+
+/**
+ * #677 (Gap 2) — "human-readable, not raw JSON" for a BlockNote block, the
+ * document-diff sibling of the field-diff `*_display` strings the API
+ * already computes for `record_field_changes`. Mirrors
+ * `documents.service.ts`'s own `extractText` (same recursive text-node walk)
+ * applied to ONE block instead of a whole document — that helper is
+ * API-internal (used for search-index text), so this is the client-side
+ * copy of the same shape rather than a new algorithm.
+ */
+export function blockPlainText(block: unknown): string {
+  const parts: string[] = [];
+  const walk = (node: unknown): void => {
+    if (node == null) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (typeof node === 'object') {
+      const obj = node as Record<string, unknown>;
+      if (typeof obj.text === 'string') parts.push(obj.text);
+      Object.values(obj).forEach(walk);
+    }
+  };
+  walk(block);
+  const text = parts.join(' ').trim();
+  return text || '(empty block)';
 }
 
 /** #39 — badges the record history / audit trail by #390's `source` enum.
@@ -98,8 +149,9 @@ export function RecordHistoryDialog({
   readOnly: boolean;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'changes' | 'versions'>('changes');
+  const [tab, setTab] = useState<'changes' | 'versions' | 'document'>('changes');
   const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
+  const [confirmDocVersionId, setConfirmDocVersionId] = useState<string | null>(null);
   const dateFormat = useDateFormat();
   const qc = useQueryClient();
   const members = useMembers(ws, true);
@@ -151,6 +203,61 @@ export function RecordHistoryDialog({
     enabled: confirmVersionId !== null,
   });
 
+  // #677 (Gap 2) — the document's own version list + restore, sibling to
+  // `versions`/`restore`/`preview` above but over `document_versions`.
+  const docVersions = useInfiniteQuery({
+    queryKey: ['document-versions', ws, db, rec],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = {};
+      if (pageParam) query.cursor = pageParam;
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions',
+        { params: { path: { ws, db, rec }, query } } as never,
+      );
+      if (error) throw error;
+      return data as unknown as DocVersionsPage;
+    },
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+
+  const docPreview = useQuery({
+    queryKey: ['document-version-preview', ws, db, rec, confirmDocVersionId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}',
+        { params: { path: { ws, db, rec, version: confirmDocVersionId! } } } as never,
+      );
+      if (error) throw error;
+      return data as unknown as DocVersionPreview;
+    },
+    enabled: confirmDocVersionId !== null,
+  });
+
+  const restoreDoc = useMutation({
+    mutationFn: async (versionId: string) => {
+      const { error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}/restore',
+        { params: { path: { ws, db, rec, version: versionId } } } as never,
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Document restored');
+      setConfirmDocVersionId(null);
+      // #677 — the description editor (BlockNote) is uncontrolled: it reads
+      // `initialContent` once at creation, so invalidating the query alone
+      // would not update what's on screen. A reload is exactly what this
+      // same file's OWN conflict banner already does for "content changed
+      // elsewhere" ("Reload theirs") — reusing that established pattern
+      // rather than building a live-patch path for an editor that doesn't
+      // support one.
+      void qc.invalidateQueries({ queryKey: ['document', ws, db, rec] });
+      window.location.reload();
+    },
+    onError: () => toast.error('Could not restore this document version'),
+  });
+
   const invalidateRecord = () => {
     // #39 — deliberately a 3-element key, not ['record', ws, db, rec]: the
     // record-detail panel's own useRecordQuery caches under whatever the URL
@@ -198,13 +305,14 @@ export function RecordHistoryDialog({
 
   const changeItems = (changes.data?.pages ?? []).flatMap((p) => p.data);
   const versionItems = (versions.data?.pages ?? []).flatMap((p) => p.data);
+  const docVersionItems = (docVersions.data?.pages ?? []).flatMap((p) => p.data);
 
   return (
     <>
       <DialogContent title="History" className="max-w-lg">
         <div className="flex max-h-[70vh] flex-col gap-3">
           <div className="flex gap-1">
-            {(['changes', 'versions'] as const).map((t) => (
+            {(['changes', 'versions', 'document'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -214,7 +322,7 @@ export function RecordHistoryDialog({
                   tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
                 )}
               >
-                {t === 'changes' ? 'Changes' : 'Versions'}
+                {t === 'changes' ? 'Changes' : t === 'versions' ? 'Versions' : 'Document'}
               </button>
             ))}
           </div>
@@ -282,8 +390,10 @@ export function RecordHistoryDialog({
                 >
                   <div className="min-w-0 text-body">
                     <p className="truncate font-medium text-ink">{v.title || 'Untitled'}</p>
-                    <p className="text-label text-muted">
-                      {actorName(v.actor_id)} · {dateFormat.dateTime(v.created_at)}
+                    <p className="flex items-center gap-1.5 text-label text-muted">
+                      <span>{actorName(v.actor_id)}</span>
+                      <SourceBadge source={v.source} />
+                      <span>· {dateFormat.dateTime(v.created_at)}</span>
                     </p>
                   </div>
                   {!readOnly && (
@@ -301,6 +411,43 @@ export function RecordHistoryDialog({
                   className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
                 >
                   {versions.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {tab === 'document' && (
+            <div className="flex flex-col gap-2 overflow-y-auto">
+              {docVersionItems.length === 0 && !docVersions.isLoading && (
+                <p className="py-4 text-center text-body text-muted">No earlier document versions yet.</p>
+              )}
+              {docVersionItems.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between gap-2 rounded-[var(--radius-card)] border border-border-default p-2.5"
+                >
+                  <div className="min-w-0 text-body">
+                    <p className="flex items-center gap-1.5 text-label text-muted">
+                      <span className="font-medium text-ink">{actorName(v.actor_id)}</span>
+                      <SourceBadge source={v.source} />
+                      <span>· {dateFormat.dateTime(v.created_at)}</span>
+                    </p>
+                  </div>
+                  {!readOnly && (
+                    <Button size="sm" variant="secondary" onClick={() => setConfirmDocVersionId(v.id)}>
+                      Restore
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {docVersions.hasNextPage && (
+                <button
+                  type="button"
+                  onClick={() => docVersions.fetchNextPage()}
+                  disabled={docVersions.isFetchingNextPage}
+                  className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
+                >
+                  {docVersions.isFetchingNextPage ? 'Loading…' : 'Load more'}
                 </button>
               )}
             </div>
@@ -376,6 +523,76 @@ export function RecordHistoryDialog({
                   disabled={restore.isPending || preview.isLoading}
                 >
                   {restore.isPending ? 'Restoring…' : 'Restore'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* #677 (Gap 2) — document restore's own confirm+preview dialog,
+          parallel to the record one above: a block-level diff (added /
+          removed / changed), human-readable via `blockPlainText`, never raw
+          JSON — and restore is itself reversible, same as the record path. */}
+      <Dialog open={confirmDocVersionId !== null} onOpenChange={(open) => !open && setConfirmDocVersionId(null)}>
+        {confirmDocVersionId && (
+          <DialogContent title="Restore this document version?" className="max-w-md">
+            <div className="flex flex-col gap-3">
+              {docPreview.isLoading && <p className="text-body text-muted">Loading preview…</p>}
+              {!docPreview.isLoading && docPreview.data && docPreview.data.blocks.length === 0 && (
+                <p className="text-body text-muted">
+                  This version is identical to the current document — nothing to restore.
+                </p>
+              )}
+              {!docPreview.isLoading && docPreview.data && docPreview.data.blocks.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-body text-muted">This will change:</p>
+                  {docPreview.data.blocks.map((b, i) => (
+                    // #677 — the API computes `diffBlocks(version.content,
+                    // current.content)`, i.e. before=the version being
+                    // restored, after=CURRENT. So `to` is what's on screen
+                    // NOW and `from` is what restoring will make it again —
+                    // the reverse of the naive reading. Caught live: an
+                    // earlier version of this rendered the diff backwards
+                    // (restored value struck through, current value shown as
+                    // the "new" one), which would have told a user
+                    // confirming a restore the opposite of what would
+                    // happen. 'added' (in current, not in the version) is
+                    // therefore what restore REMOVES; 'removed' (in the
+                    // version, not current) is what restore BRINGS BACK.
+                    <p key={i} className="text-body text-ink">
+                      {b.kind === 'added' && (
+                        <span className="text-muted line-through">− {blockPlainText(b.to)}</span>
+                      )}
+                      {b.kind === 'removed' && <span>+ {blockPlainText(b.from)}</span>}
+                      {b.kind === 'changed' && (
+                        <>
+                          <span className="text-muted line-through">{blockPlainText(b.to)}</span>{' '}
+                          <span aria-hidden>→</span> <span>{blockPlainText(b.from)}</span>
+                        </>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="text-label text-muted">
+                Restoring is itself reversible — it saves the current document as a new version first.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirmDocVersionId(null)}
+                  disabled={restoreDoc.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => restoreDoc.mutate(confirmDocVersionId)}
+                  disabled={restoreDoc.isPending || docPreview.isLoading}
+                >
+                  {restoreDoc.isPending ? 'Restoring…' : 'Restore'}
                 </Button>
               </div>
             </div>
