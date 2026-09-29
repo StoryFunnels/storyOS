@@ -9,8 +9,9 @@ import { Select } from '@/components/ui/select';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { CellDisplay, fieldValue, isDateField, isSystemDate, optionColor } from '../table-view/cells';
-import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
+import { activeFilterNode, andFilterNodes } from './filter-config';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import type { DragKind } from './timeline-math';
@@ -282,10 +283,28 @@ export function TimelineView({
     return out;
   }, [rows, startField, endField, baselineById]);
 
-  // #227 — narrowed to rows with NEITHER pair, now that a baseline-only row gets
-  // its own bar above; counting it here too would call real actual-completion
-  // data "undated", which it isn't.
-  const undated = rows.length - bars.length;
+  /*
+   * #791 (T2) — this notice's SHAPE was already right ("N records without a
+   * Due Date are hidden," only shown when N > 0 — exactly what #753 asks the
+   * calendar to copy). But the number was `rows.length - bars.length`: the
+   * LOADED page (`limit: 200` above), not the database. On a 740-record
+   * table this undercounts exactly the way #755 already fixed for the board
+   * and the list — being the good example on shape didn't exempt it on scope.
+   * Server-computed via the same is_empty aggregate #753/#754 use elsewhere:
+   * a record is undated when NEITHER the primary start NOR the baseline
+   * start is set (#227's "narrowed to rows with NEITHER pair" rule, unchanged
+   * — just counted correctly now).
+   */
+  const undatedFilter = useMemo(() => {
+    if (!startField) return undefined;
+    const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
+    const clauses: unknown[] = active ? [active] : [];
+    clauses.push({ field: startField.apiName, op: 'is_empty' });
+    if (baselineStartField) clauses.push({ field: baselineStartField.apiName, op: 'is_empty' });
+    return { and: clauses };
+  }, [startField, baselineStartField, config.filters, personalFilter]);
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(startField));
+  const undated = startField ? (undatedCountQuery.data ?? 0) : 0;
 
   const today = Math.floor(Date.now() / DAY);
   const range = useMemo(() => {
