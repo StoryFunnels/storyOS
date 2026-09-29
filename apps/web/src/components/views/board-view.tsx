@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
@@ -36,7 +36,9 @@ import type { DateGranularity } from './date-buckets';
 import { RelationChip } from '../table-view/relation-cell';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
+  recordCountKey,
   useDatabase,
+  useGroupedRecordCount,
   useMembers,
   useRecordMutations,
   useRecordsInfinite,
@@ -288,6 +290,34 @@ export function BoardView({
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
 
+  // #750/#784 — the board's real per-column totals, one query rather than
+  // reading however many pages have scrolled into view (see groupCountLabel's
+  // own comment on why that undercounts). Same filter AST as the board's own
+  // records query, so the two can never disagree about which rows count.
+  const groupedCounts = useGroupedRecordCount(
+    ws,
+    db,
+    {
+      group_by: groupField?.apiName ?? '',
+      ...(groupField?.type === 'date' ? { group_by_granularity: granularity } : {}),
+      ...(queryBody.filter ? { filter: queryBody.filter } : {}),
+    },
+    Boolean(groupField),
+  );
+  const trueCounts = useMemo(() => {
+    if (!groupField || !groupedCounts.data) return null;
+    const map = new Map<string, number>();
+    for (const g of groupedCounts.data) {
+      if (g.value == null) continue;
+      // A date group's key is the bucket's START DATE (server-side), not the
+      // client's compact bucket key — re-derive it with the same function
+      // that builds every OTHER date column id, so the two can't drift apart.
+      const key = g.key === null ? NO_VALUE : groupField.type === 'date' ? (dateBucketKey(g.key, granularity) ?? NO_VALUE) : g.key;
+      map.set(key, (map.get(key) ?? 0) + g.value);
+    }
+    return map;
+  }, [groupField, groupedCounts.data, granularity]);
+
   const router = useRouter();
   const [dragging, setDragging] = useState<RecordRow | null>(null);
   // A click that lands right after a drag is the drag's pointer-up, not intent to open.
@@ -396,6 +426,9 @@ export function BoardView({
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+      // #750/#784 — a move can change which column a card counts toward,
+      // so the aggregate counts are stale exactly when the row cache is.
+      void qc.invalidateQueries({ queryKey: recordCountKey(ws, db) });
       // A re-link changes the other side of the relation too.
       if (targetDb) {
         void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
@@ -464,6 +497,42 @@ export function BoardView({
           : { values: { [groupField.apiName]: value } }
         : {}),
     });
+
+    // Artifact Rule 5 — say what the drop wrote, in the card's own terms, with
+    // an undo. A drop that changes a date/number column writes a REPRESENTATIVE
+    // value (the bucket's first day, the bin's floor — see the comments above),
+    // never the value the user actually saw before dragging, so a silent write
+    // is the one board interaction most worth confirming.
+    if (changesColumn) {
+      const prevRaw = record.values[groupField.apiName];
+      const newLabel = columnLabels.get(targetColumn) ?? targetColumn;
+      const undo = async () => {
+        if (groupField.type === 'relation') {
+          const prevLink = (prevRaw as LinkChip[] | undefined)?.[0]?.id ?? null;
+          const { error } = await api.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+            params: { path: { ws, db, rec: recId, field: groupField.id } },
+            body: { record_ids: prevLink ? [prevLink] : [] },
+          });
+          if (error) throw error;
+        } else {
+          const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move', {
+            params: { path: { ws, db, rec: recId } },
+            body: { values: { [groupField.apiName]: (prevRaw as string | number | null) ?? null }, view_id: viewId } as never,
+          });
+          if (error) throw error;
+        }
+        void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+        void qc.invalidateQueries({ queryKey: recordCountKey(ws, db) });
+      };
+      toast.success(`${groupField.displayName} → ${newLabel}`, {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void undo().catch(() => toast.error('Could not undo'));
+          },
+        },
+      });
+    }
   }
 
   if (!groupField) {
@@ -481,6 +550,20 @@ export function BoardView({
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex h-full flex-col">
+      {/* Artifact's own flagged defect: "some groupings cannot be dragged, and
+          nothing says so" — #499's read-only grouping (text/lookup) disabled the
+          drag handle with no visible reason, so the only way to learn it was to
+          try. Same border-border-default/text-muted treatment as the rest of the
+          view's inline banners, not a bespoke color. */}
+      {groupIsReadOnly && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-sidebar px-3 py-2 text-body text-ink-secondary">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+          <span>
+            Grouped by <span className="font-medium text-ink">{groupField.displayName}</span> — a{' '}
+            {groupField.type} field can&apos;t be reordered by dragging between columns.
+          </span>
+        </div>
+      )}
       <div className="flex flex-1 gap-3 overflow-x-auto p-4">
         {shownColumns.map((column) => (
           /*
@@ -495,6 +578,7 @@ export function BoardView({
             key={column.id}
             column={column}
             hasMore={Boolean(records.hasNextPage)}
+            trueCount={trueCounts?.get(column.id)}
             cardFields={cardFields}
             size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
@@ -562,6 +646,7 @@ export type CardSize = 'small' | 'medium' | 'large';
 function BoardColumn({
   column,
   hasMore,
+  trueCount,
   cardFields,
   size,
   memberNames,
@@ -575,6 +660,10 @@ function BoardColumn({
   /** #755 — while more pages remain unloaded, this column's row count can only
    *  ever be a lower bound; the header must say so rather than read as final. */
   hasMore: boolean;
+  /** #750/#784 — the real total from the aggregate endpoint, when it has
+   * loaded; falls back to `groupCountLabel`'s loaded-count reading until then
+   * (or if the query errors), never a wrong number in place of a slow one. */
+  trueCount?: number;
   cardFields: Field[];
   size: CardSize;
   memberNames: Map<string, string>;
@@ -612,7 +701,9 @@ function BoardColumn({
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
           )}
           {column.label}
-          <span className="text-faint">{groupCountLabel(column.rows.length, hasMore)}</span>
+          <span className="text-faint">
+            {trueCount !== undefined ? trueCount : groupCountLabel(column.rows.length, hasMore)}
+          </span>
         </span>
         {!readOnly && (
           <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">
