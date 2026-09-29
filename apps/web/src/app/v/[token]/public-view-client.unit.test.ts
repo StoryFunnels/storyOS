@@ -303,7 +303,7 @@ describe('PublicViewClient — #709 board (AC1, B1–B3)', () => {
  * only, never an affordance (D3).
  */
 describe('PublicViewClient — #709 dashboard (AC2, D1–D3)', () => {
-  function dashboardDef(tiles: Array<{ id: string; label: string; op: string; field_api_name: string | null; value: number | null; layout: unknown; comparison: string | null }>): PublicViewDef {
+  function dashboardDef(tiles: Array<{ id: string; label: string; op: string; field_api_name: string | null; value: number | null; layout: unknown; comparison: { target?: number; direction: 'up' | 'down' } | null }>): PublicViewDef {
     return {
       view: { id: 'v1', name: 'Overview', type: 'dashboard' },
       database: { name: 'Issues' },
@@ -347,15 +347,52 @@ describe('PublicViewClient — #709 dashboard (AC2, D1–D3)', () => {
   });
 
   it('D3: renders a comparison as plain text, never as a clickable/arrow affordance', () => {
+    // #917 send-back — the REAL payload shape (`TileComparison`), not a
+    // preformatted string. A fixture typed as `string | null` proved the
+    // component handles a string, not that the integration handles what
+    // `public-views.service.ts` actually sends — see the ticket comment.
     const html = renderToStaticMarkup(
       createElement(PublicViewClient, {
         token: 't1',
-        initialDef: dashboardDef([{ id: 't1', label: 'Done this week', op: 'count', field_api_name: null, value: 12, layout: null, comparison: '+4 vs last week' }]),
+        initialDef: dashboardDef([
+          { id: 't1', label: 'Done this week', op: 'count', field_api_name: null, value: 12, layout: null, comparison: { target: 10, direction: 'up' } },
+        ]),
         embed: false,
       }),
     );
-    expect(html).toContain('+4 vs last week');
+    expect(html).toContain('% of 10');
     expect(html).not.toContain('<button');
     expect(html).not.toContain('<a ');
+    // D3 explicitly forbids the colour-coded tone treatment `targetProgress`
+    // also computes for the authenticated dashboard — this is text only.
+    expect(html).not.toContain('text-success');
+    expect(html).not.toContain('text-error');
+  });
+
+  it('#917: a real {target, direction} comparison object does not crash the page (was "Objects are not valid as a React child")', () => {
+    expect(() =>
+      renderToStaticMarkup(
+        createElement(PublicViewClient, {
+          token: 't1',
+          initialDef: dashboardDef([
+            { id: 't1', label: 'Urgent', op: 'count', field_api_name: null, value: 3, layout: null, comparison: { target: 10, direction: 'down' } },
+          ]),
+          embed: false,
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('a comparison with no target (or a value/target that yields no honest percent) renders no comparison line at all', () => {
+    const html = renderToStaticMarkup(
+      createElement(PublicViewClient, {
+        token: 't1',
+        initialDef: dashboardDef([
+          { id: 't1', label: 'Avg. days to close', op: 'avg', field_api_name: 'age', value: null, layout: null, comparison: { direction: 'up' } },
+        ]),
+        embed: false,
+      }),
+    );
+    expect(html).not.toContain('% of');
   });
 });

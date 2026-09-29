@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import type { TileComparison } from '@storyos/schemas';
 import { OPTION_COLORS, OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
+import { targetProgress } from '@/components/views/dashboard-tiles';
 
 export interface PublicViewField {
   api_name: string;
@@ -45,7 +47,12 @@ interface PublicViewDashboardTile {
   field_api_name: string | null;
   value: number | null;
   layout: unknown;
-  comparison: string | null;
+  /** #917 send-back — this is the REAL `TileComparison` shape
+   * (`{target?, direction}`) `public-views.service.ts` passes straight
+   * through, never a preformatted string. Rendering it directly as a React
+   * child is exactly the crash the send-back found; see `DashboardTiles`'
+   * own note on how it's turned into text. */
+  comparison: TileComparison | null;
 }
 export interface PublicViewDef {
   view: { id: string; name: string; type: string };
@@ -352,6 +359,14 @@ function BoardColumn({
  * because stripping it entirely would drop information the payload actually
  * carries.
  *
+ * #917 send-back — `comparison` is the real `{target?, direction}` object
+ * (`TileComparison`), not a preformatted string; the authenticated dashboard
+ * already turns that shape into a percent-of-target reading via
+ * `targetProgress` (`dashboard-tiles.ts`), so this reuses that SAME
+ * derivation rather than re-deriving the math a second time — it only
+ * discards `targetProgress`'s `tone`/`ratio` (the colour/bar half of D3's
+ * "no colour-coded treatment" rule), keeping just the plain-text percent.
+ *
  * D4 — a tile that was cross-database or referenced a non-allowlisted field
  * is already dropped SERVER-SIDE (`public-views.service.ts`) and never
  * reaches `tiles` here; there is deliberately no placeholder or "N tiles
@@ -372,7 +387,12 @@ function DashboardTiles({ tiles }: { tiles: PublicViewDashboardTile[] }) {
           ) : (
             <p className="text-xl font-bold tabular-nums text-neutral-900">{tile.value.toLocaleString()}</p>
           )}
-          {tile.comparison && <p className="text-meta text-neutral-500">{tile.comparison}</p>}
+          {(() => {
+            const progress = tile.comparison
+              ? targetProgress(tile.value, tile.comparison.target, tile.comparison.direction)
+              : null;
+            return progress && <p className="text-meta text-neutral-500">{Math.round(progress.percent)}% {progress.label}</p>;
+          })()}
         </div>
       ))}
     </div>
