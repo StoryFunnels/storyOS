@@ -878,7 +878,13 @@ function CardCover({
          server — the image 404s and the card shows an empty box. Matches how
          AttachmentsStrip builds its thumbnail URLs. */
       src={`${API_URL}/api/v1/workspaces/${cover.ws}/databases/${cover.db}/records/${row.id}/attachments/${first.id}/thumbnail`}
-      alt=""
+      /* #754 — was alt="", correct for a DECORATIVE image but not here: on a
+         gallery card the picture is the content (that's the reason to choose
+         the view), so a screen-reader user got nothing from the card's main
+         element. Simplest defensible choice per #754 AC2: both board and
+         gallery cards get the title, rather than the component taking a
+         per-caller distinction neither ticket asked for. */
+      alt={row.title || 'Untitled'}
       loading="lazy"
       className="mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover"
     />
