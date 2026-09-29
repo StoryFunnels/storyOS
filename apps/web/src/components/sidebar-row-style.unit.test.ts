@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { SIDEBAR_INDENT_PX, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
 
@@ -48,5 +51,67 @@ describe('sidebar row geometry (#380, model replaced by #742)', () => {
     expect(active).not.toEqual(idle);
     expect(idle).toContain('hover:bg-hover');
     expect(active, 'the active row must not also apply a hover background').not.toContain('hover:bg-hover');
+  });
+});
+
+/**
+ * #779 — the fourth occurrence of #380's own predicted failure: a component
+ * that renders a disclosure chevron OUTSIDE `SidebarRow`'s reserved `caret`
+ * slot ends up reserving its OWN gutter alongside a sibling's, so the two
+ * stack and the row lands further right than its children — exactly what
+ * shipped on the space header (measured live: its icon landed 2px LEFT of,
+ * not 20px right of, its own child database's icon).
+ *
+ * A pixel-measurement test can't live here — jsdom never computes real
+ * layout (`getBoundingClientRect` is always zero), which is why AC1's
+ * measurement had to happen in a real browser, not a unit test. What CAN be
+ * asserted in CI is the STRUCTURAL half of the contract: every `ChevronRight`
+ * rendered by a sidebar row component is a value passed to `caret`, never a
+ * plain JSX child — so the next row type either does this by construction or
+ * fails the build, instead of shipping a fifth quietly-misaligned row.
+ */
+describe('#779 — every sidebar chevron goes through SidebarRow\'s caret slot', () => {
+  const SIDEBAR_DIR = fileURLToPath(new URL('.', import.meta.url));
+
+  /** True if `node` (a JSX element/self-closing element) sits inside the
+   *  VALUE of some ancestor `caret={...}` attribute, without crossing back
+   *  out through a different JSX element's own attribute list first. */
+  function isInsideCaretProp(node: ts.Node): boolean {
+    let cur: ts.Node | undefined = node.parent;
+    while (cur) {
+      if (ts.isJsxAttribute(cur) && cur.name.getText() === 'caret') return true;
+      cur = cur.parent;
+    }
+    return false;
+  }
+
+  function chevronsOutsideCaret(fileName: string): string[] {
+    const path = `${SIDEBAR_DIR}${fileName}`;
+    const text = readFileSync(path, 'utf8');
+    const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const offenders: string[] = [];
+
+    function visit(node: ts.Node) {
+      const isChevron =
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        node.tagName.getText() === 'ChevronRight';
+      if (isChevron && !isInsideCaretProp(node)) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        offenders.push(`${fileName}:${line + 1}`);
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+    return offenders;
+  }
+
+  it('sidebar.tsx: every tree-row ChevronRight (space/group/folder headers) is inside caret={...}', () => {
+    // HiddenSection's own collapse toggle (an unrelated standalone section,
+    // not a row in the space/database tree with siblings to misalign
+    // against) is the one deliberate exception — named explicitly rather
+    // than silently excluded, so widening this list is a visible decision.
+    const HIDDEN_SECTION_TOGGLE_LINE = 'sidebar.tsx:886';
+    const offenders = chevronsOutsideCaret('sidebar.tsx').filter((loc) => loc !== HIDDEN_SECTION_TOGGLE_LINE);
+    expect(offenders, 'a ChevronRight outside caret={} reserves its own gutter alongside SidebarRow\'s, pushing the row right of its own children').toEqual([]);
   });
 });

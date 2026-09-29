@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -340,20 +340,23 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <p className="mb-0.5 mt-1 px-2 text-meta font-semibold uppercase tracking-wider text-faint">
           Collections
         </p>
-        <Link
-          href={`/w/${ws}/reviews`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
-        </Link>
-        <Link
-          href={`/w/${ws}/packs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-        >
-          <Package className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
-        </Link>
+        {/* #779 — through SidebarRow like every other row, rather than a bare
+            `<Link>`: neither of these has a chevron, but the reserved gutter
+            still applies (Dara's spec: Collections rows measure the SAME
+            icon/label offset as every other row type), so a bare link with
+            no gutter landed 6px left of where it should. */}
+        <SidebarRow depth={0} className="hover:bg-hover">
+          <Link href={`/w/${ws}/reviews`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+            <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
+          </Link>
+        </SidebarRow>
+        <SidebarRow depth={0} className="hover:bg-hover">
+          <Link href={`/w/${ws}/packs`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+            <Package className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
+          </Link>
+        </SidebarRow>
         {/* #292 — separate from the shared Spaces tree below: it can't be
             shared, moved into a folder, or deleted like a space can. */}
         <PersonalSection ws={ws} />
@@ -979,7 +982,8 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `group:${groupId}` });
   const { attributes, listeners, setNodeRef: setSortRef, transform, transition } = useSortable({ id: groupId });
   return (
-    <div
+    <SidebarRow
+      depth={0}
       ref={(node) => {
         setDropRef(node);
         setSortRef(node);
@@ -993,16 +997,24 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       // group-reorder drag still moves this element; sticky positioning only
       // matters while NOT dragging (transform is `none` then), and mid-drag a
       // portalled DragPreview represents it instead.
+      //
+      // #779 — this row now goes through `SidebarRow` too: it previously
+      // reserved no gutter at all (its `LetterMark` sat directly at `px-2`),
+      // which is a NARROWER version of the same bug the space header had —
+      // draggable, no caret, so the gutter shows the same hover-grip
+      // `DatabaseRow` already uses for a plain (non-expandable) reorderable
+      // row; there is no group-collapse feature to put in `caret` here.
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 flex cursor-grab touch-none flex-col justify-center gap-1.5 rounded bg-sidebar active:cursor-grabbing',
+        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-sidebar active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
+      draggable
       {...attributes}
       {...listeners}
     >
       {children}
-    </div>
+    </SidebarRow>
   );
 }
 
@@ -1586,11 +1598,7 @@ function SpaceSection({
   const itemDrag = useDragPresentation(itemLabel, { onDragEnd: onSpaceDragEnd });
 
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="mb-1"
-    >
+    <div className="mb-1">
       {/*
        * #322: the drag was wired here all along but had NO affordance — computed
        * cursor was `auto`, no grip, nothing in the context menu — so the founder
@@ -1602,8 +1610,20 @@ function SpaceSection({
        * the grip is only a hint. That file's comment records why — a 12px
        * opacity-0 grip "was too hard to grab, so reorder felt broken".
        * The PointerSensor's `distance: 6` keeps a plain click navigating.
+       *
+       * #779 — this row now goes THROUGH `SidebarRow` instead of being its own
+       * bespoke flex row. It never was: it kept its own grip, its own chevron
+       * as a sibling of the icon rather than inside the reserved gutter, and
+       * its own manual padding, entirely outside sidebar-row.tsx's mechanism —
+       * exactly the failure #380's own comment predicts for a component that
+       * bypasses it (measured live: the child DATABASE row, which DOES go
+       * through SidebarRow, landed 2px LEFT of this space header's icon,
+       * instead of 20px right, because this row was reserving a grip AND a
+       * chevron side by side where SidebarRow reserves exactly one).
        */}
-      <div
+      <SidebarRow
+        depth={0}
+        ref={setNodeRef}
         // #641 — was py-1 (4/4); the inter-space breathing room now comes
         // from the space-list's own gap-2 (added between siblings only, so
         // it doesn't also pad out the void above the FIRST space). This stays
@@ -1614,35 +1634,21 @@ function SpaceSection({
         // the SpaceSection prop doc) so at real scale (52 nodes) you still
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
-        style={{ top: stickyTop }}
-        className="group sticky z-20 flex h-6 cursor-grab touch-none items-center justify-between bg-sidebar px-2 active:cursor-grabbing"
+        style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
+        className="group sticky z-20 h-6 cursor-grab touch-none bg-sidebar active:cursor-grabbing"
+        draggable
         {...attributes}
         {...listeners}
-      >
-        <GripVertical
-          className="-ml-1.5 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden
-        />
-        {renaming ? (
-          <RenameInline
-            initial={space.name}
-            onDone={(name) => {
-              setRenaming(false);
-              if (name && name !== space.name) mutations.updateSpace.mutate({ id: space.id, name });
-            }}
-          />
-        ) : (
-          <>
-            {/* #449 — the caret is a SEPARATE control from the link, per #382's
-                precedent on database rows: "the caret is a separate control from
-                the link. Clicking the [row] name must still open it... expanding
-                is a different intent and gets its own hit target." The space
-                header used to be one <button> doing both; now the caret alone
-                toggles collapse and the name navigates to the space's own page,
-                which did not exist before #449. */}
+        /* #449 — the caret is a SEPARATE control from the link: clicking the
+           row name must still open it, expanding is a different intent and
+           gets its own hit target. Falls back to SidebarRow's own grip
+           (draggable, no caret) while renaming, since there's nothing to
+           collapse-toggle in that state. */
+        caret={
+          renaming ? undefined : (
             <button
               type="button"
-              className="flex shrink-0 items-center text-faint hover:text-muted"
+              className="text-faint hover:text-muted"
               onClick={toggleCollapsed}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
@@ -1652,27 +1658,38 @@ function SpaceSection({
                 className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
               />
             </button>
-            <Link
-              href={`/w/${ws}/s/${space.id}`}
-              className="flex min-w-0 flex-1 items-center gap-1 text-left text-meta font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              {space.icon ? (
-                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
-              ) : (
-                /* #742 finding 08 — glyph vocabulary: a space with no custom
-                   icon gets a coloured letter mark, same primitive Groups
-                   already use, rather than rendering nothing at all. A
-                   space WITH a custom icon keeps it — this never overrides
-                   a deliberate choice. */
-                <LetterMark name={space.name} color={space.color} />
-              )}
-              <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
-              {collapsed && databases.length > 0 && (
-                <span className="ml-1 text-faint/70">{databases.length}</span>
-              )}
-            </Link>
-          </>
+          )
+        }
+      >
+        {renaming ? (
+          <RenameInline
+            initial={space.name}
+            onDone={(name) => {
+              setRenaming(false);
+              if (name && name !== space.name) mutations.updateSpace.mutate({ id: space.id, name });
+            }}
+          />
+        ) : (
+          <Link
+            href={`/w/${ws}/s/${space.id}`}
+            className="flex min-w-0 flex-1 items-center gap-1 text-left text-meta font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {space.icon ? (
+              <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
+            ) : (
+              /* #742 finding 08 — glyph vocabulary: a space with no custom
+                 icon gets a coloured letter mark, same primitive Groups
+                 already use, rather than rendering nothing at all. A
+                 space WITH a custom icon keeps it — this never overrides
+                 a deliberate choice. */
+              <LetterMark name={space.name} color={space.color} />
+            )}
+            <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
+            {collapsed && databases.length > 0 && (
+              <span className="ml-1 text-faint/70">{databases.length}</span>
+            )}
+          </Link>
         )}
         {canEdit && (
           <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
@@ -1840,7 +1857,7 @@ function SpaceSection({
             </DropdownMenu>
           </span>
         )}
-      </div>
+      </SidebarRow>
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
       </Dialog>
@@ -2283,31 +2300,27 @@ function FolderSection({
           the button and the menu is its sibling, so the folder gets the rename
           and delete every database row has had all along.
 
-          Geometry is unchanged: paddingLeft moved from the button to this row,
-          and the caret is still the first thing inside, so #380's measured
-          alignment holds. */}
-      <div
-        style={{ paddingLeft: SIDEBAR_INDENT_PX[0] }}
-        /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
-           an extra flex gap here put the folder icon 4px right of every other
-           depth-1 icon. The icon→label gap is applied on the inner span so it
-           matches the gap-2 the database/document rows use. */
-        className="group flex w-full items-center rounded py-[3px] pr-2 text-body text-ink-secondary hover:bg-hover"
-      >
-        <button onClick={toggle} className="flex min-w-0 flex-1 items-center text-left">
-          {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
-              A database shows a drag grip there; a folder shows its disclosure
-              caret. Same 12px + 2px margin either way, so the icon and label line
-              up exactly with the databases beside it. Giving the folder both a
-              gutter and a caret pushed its label 17px right — measured, not
-              guessed. */}
-          <ChevronRight
-            className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
-          />
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
-            <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
-          </span>
+          #779 — this used to hand-replicate SidebarRow's gutter math (12px
+          chevron + 2px margin) with a comment claiming it was "measured, not
+          guessed." Re-measured live for this ticket: it WAS correct — but a
+          second component whose alignment rests on a comment matching a
+          constant it never references is the same risk one level down as
+          the space header's bug, just not yet triggered. Migrated onto
+          SidebarRow itself so the match is structural, not by agreement. */}
+      <SidebarRow depth={0} className="text-ink-secondary hover:bg-hover" caret={
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+          aria-expanded={!collapsed}
+          className="text-faint hover:text-muted"
+        >
+          <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+        </button>
+      }>
+        <button onClick={toggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+          <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
         {contentCount > 0 && (
           <span className="ml-1 shrink-0 text-meta text-faint">{contentCount}</span>
@@ -2371,7 +2384,7 @@ function FolderSection({
             ]}
           />
         )}
-      </div>
+      </SidebarRow>
       {!collapsed && (
         /* #380 — same guide line, same offset as a database's nested views.
            #641 — gap-0.5 added: same zero-gap-between-rows issue as the
@@ -2951,15 +2964,21 @@ function GroupHeaderRow({
   const [renaming, setRenaming] = useState(false);
   const confirmDialog = useConfirm();
   return (
-    <div className="group flex items-center gap-1.5 px-2">
-      <LetterMark name={group.name} color={group.color} />
-      {renaming ? (
-        <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
-      ) : (
-        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
-          {group.name}
-        </span>
-      )}
+    <>
+      {/* #779 — the icon+label pair, gap-2 to match every other row's leaf
+          content (DatabaseRow's Link uses the same gap) now that the
+          surrounding row (`GroupDropZone`) owns the gutter/padding via
+          SidebarRow instead of this component reserving its own. */}
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <LetterMark name={group.name} color={group.color} />
+        {renaming ? (
+          <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
+        ) : (
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
+            {group.name}
+          </span>
+        )}
+      </span>
       {canEdit && (
         <SidebarRowMenu
           label={group.name}
@@ -2983,7 +3002,7 @@ function GroupHeaderRow({
           ]}
         />
       )}
-    </div>
+    </>
   );
 }
 
