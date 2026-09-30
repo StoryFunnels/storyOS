@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Segmented } from '@/components/ui/segmented';
 import { useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 
@@ -311,21 +312,18 @@ export function RecordHistoryDialog({
     <>
       <DialogContent title="History" className="max-w-lg">
         <div className="flex max-h-[70vh] flex-col gap-3">
-          <div className="flex gap-1">
-            {(['changes', 'versions', 'document'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={cn(
-                  'rounded px-2.5 py-1 text-body capitalize',
-                  tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
-                )}
-              >
-                {t === 'changes' ? 'Changes' : t === 'versions' ? 'Versions' : 'Document'}
-              </button>
-            ))}
-          </div>
+          {/* #767 — the other hand-rolled switcher #738 left behind. */}
+          <Segmented
+            label="History view"
+            value={tab}
+            onChange={setTab}
+            size="default"
+            options={[
+              { value: 'changes', label: 'Changes' },
+              { value: 'versions', label: 'Versions' },
+              { value: 'document', label: 'Document' },
+            ]}
+          />
 
           {tab === 'changes' && (
             <div className="flex flex-col gap-2 overflow-y-auto">
