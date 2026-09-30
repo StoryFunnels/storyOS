@@ -21,7 +21,7 @@ import { vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
-import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
+import { AUDIT_TYPES, NOT_INLINE, auditValue, computedBadgeLabel } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu } from './field-controls';
 import { useOpenInSplit } from './split-panel-context';
@@ -91,10 +91,19 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
   // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
   // already renders created_at/updated_at as datetimes and created_by as a person.
   if (AUDIT_TYPES.has(field.type)) {
-    return value === undefined || value === null ? (
-      <span className="text-body text-faint">—</span>
-    ) : (
-      <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+    // #780 — this early return bypasses the generic value-wrapper below
+    // (and its badge) entirely, the same way the `button` branch further
+    // down does — both needed their own `<ComputedBadge>` rather than one
+    // shared placement covering every computed field.
+    return (
+      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+        {value === undefined || value === null ? (
+          <span className="text-body text-faint">—</span>
+        ) : (
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+        )}
+        <ComputedBadge type={field.type} />
+      </div>
     );
   }
 
@@ -236,7 +245,14 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
       </div>
     );
   }
-  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
+  if (field.type === 'button') {
+    return (
+      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+        <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />
+        <ComputedBadge type={field.type} />
+      </div>
+    );
+  }
   if (editing) {
     // relative anchor so absolute-positioned option lists / pickers drop under the field
     return (
@@ -263,10 +279,15 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
   const empty = value === undefined || value === null || value === '';
   // Inline-editable when not read-only and not a computed/audit type (NOT_INLINE).
   const editableInline = !readOnly && !NOT_INLINE.has(field.type);
+  // #780 — the artifact badges the VALUE, not just the row, so this stays
+  // regardless of `empty`: an em-dash placeholder still needs the badge to
+  // explain why it isn't a fake "Add value" affordance.
+  const badge = computedBadgeLabel(field.type);
   return (
     <div
       className={cn(
         'min-h-6 min-w-0',
+        badge && 'flex flex-wrap items-center gap-1.5',
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
@@ -306,6 +327,7 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
       ) : (
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
+      {badge && <ComputedBadge type={field.type} />}
     </div>
   );
 }
@@ -454,6 +476,23 @@ const FIELD_LABEL_CLS = 'text-label font-medium text-muted';
 function FieldTypeGlyph({ type, className }: { type: string; className?: string }) {
   const Icon = fieldTypeIcon(type);
   return <Icon className={cn('h-3.5 w-3.5 shrink-0 text-faint', className)} aria-hidden />;
+}
+
+/** #780 — the artifact's `.computed` badge. `text-micro`/`--radius-chip` are
+ * the nearest role-scale/radius-token steps to the artifact's raw 9px/3px —
+ * type and radius come from main's established scale, not the artifact's
+ * literal pixels (matching those would revert #900). `font-mono` is the
+ * project's existing monospace utility (no bespoke `--font-mono` token; every
+ * other monospace usage in this codebase already reaches for this same
+ * Tailwind default stack). */
+function ComputedBadge({ type }: { type: string }) {
+  const label = computedBadgeLabel(type);
+  if (!label) return null;
+  return (
+    <span className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1 font-mono text-micro tracking-wide text-muted">
+      {label}
+    </span>
+  );
 }
 
 /** Compact draggable property in the right sidebar (label above value). */
