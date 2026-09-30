@@ -298,7 +298,10 @@ export class RecordsService {
       // this path too. Missing it meant a database with no relation field
       // returned raw attachment ids and every card rendered a uuid, which is
       // exactly how the six tests below failed the first time.
-      return this.attachFormulas(this.attachAiFields(await this.attachFiles(projected, defs), defs), defs); // lookups need relations; formulas/ai fields don't
+      const withAi = this.attachAiFields(await this.attachFiles(projected, defs), defs);
+      const withFormulas = await this.attachFormulas(withAi, defs); // lookups need relations; formulas/ai fields don't
+      this.narrowComputedValues(withFormulas, defs);
+      return withFormulas;
     }
     const ids = projected.map((p) => p.id);
 
@@ -375,7 +378,43 @@ export class RecordsService {
     const withLookups = await this.attachLookups(withAttachments, defs);
     const withRollups = await this.attachRollups(withLookups, defs);
     const withAi = this.attachAiFields(withRollups, defs);
-    return this.attachFormulas(withAi, defs);
+    const withFormulas = await this.attachFormulas(withAi, defs);
+    this.narrowComputedValues(withFormulas, defs);
+    return withFormulas;
+  }
+
+  /**
+   * #778 — `project()` copies `row.computedValues` VERBATIM into
+   * `computed_values`, before any of the caller-aware narrowing above runs.
+   * For rollup/formula fields that narrowing already produces a correct,
+   * per-caller `values[api_name]` (attachRollups/attachFormulas both derive
+   * their result from the ALREADY-narrowed relation chips) — but nothing
+   * synced that back onto `computed_values`, so the pre-narrowing raw
+   * persisted value (the internal sort/filter shadow copy) rode along in the
+   * SAME response body a caller-aware `values` sat next to. Response
+   * serialization is the only thing this touches — the persisted column read
+   * by recomputeRollupsForRelationField/materializeFormulas is untouched.
+   *
+   * ai fields need no narrowing here: FieldsService.AI_DEPENDABLE_FIELD_TYPES
+   * excludes relation/rollup/lookup/formula from an ai field's own
+   * dependency_field_ids (enforced on both create and update), and
+   * changeType()'s CONVERTIBLE map never allows converting a field INTO one
+   * of those types either — so an ai field's prompt can only ever read the
+   * SAME record's own scalar fields. It has nothing cross-record to leak,
+   * and its `computed_values` entry already equals its `values` entry
+   * (attachAiFields sets one from the other), so this loop's sync is a no-op
+   * for it in practice — included for symmetry, not because a gap was found.
+   */
+  private narrowComputedValues(projected: ProjectedRecord[], defs: FieldDef[]): void {
+    const narrowedTypes = new Set(['rollup', 'formula', 'ai']);
+    for (const record of projected) {
+      record.computed_values ??= {};
+      for (const def of defs) {
+        if (narrowedTypes.has(def.type)) {
+          record.computed_values[def.id] = record.values[def.api_name] ?? null;
+        }
+      }
+    }
   }
 
   /**
