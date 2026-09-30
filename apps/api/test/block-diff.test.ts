@@ -61,6 +61,20 @@ describe('diffBlocks (#595)', () => {
     expect(changes[0]!.kind).toBe('changed');
   });
 
+  // #796 — the positional-fallback identity used to be `\0#${index}`, a
+  // literal NUL byte. RecordsService.update() writes a BlockChange straight
+  // into activity_events.payload (jsonb), and Postgres's jsonb rejects an
+  // embedded \u0000 in a text value outright — a 500 on the very first edit
+  // of any rich_text field whose blocks predate having ids. The restore-only
+  // caller never hit this because a record needs a prior real edit (which
+  // always assigns ids) before a version exists to restore.
+  it('never returns a blockId containing a NUL byte, even for id-less blocks', () => {
+    const before = [{ type: 'paragraph', content: [{ type: 'text', text: 'no id', styles: {} }] }];
+    const after = [{ type: 'paragraph', content: [{ type: 'text', text: 'edited', styles: {} }] }];
+    const changes = diffBlocks(before, after);
+    expect(changes[0]!.blockId).not.toContain('\0');
+  });
+
   it('returns an empty diff for non-array input rather than throwing', () => {
     expect(diffBlocks(null, undefined)).toEqual([]);
     expect(diffBlocks('not-an-array', 42)).toEqual([]);

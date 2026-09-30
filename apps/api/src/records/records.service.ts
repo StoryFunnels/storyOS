@@ -49,6 +49,7 @@ import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
 import { diffSnapshots } from './record-diff';
+import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
 import { isPickOneOp, pickOneRow, pickOneSortKey, rollupFieldValue } from './rollup-pick-one';
@@ -3047,12 +3048,23 @@ export class RecordsService {
 
     const before = row.values as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...before };
-    const diff: Record<string, { from: unknown; to: unknown }> = {};
+    const diff: Record<string, { from: unknown; to: unknown; blocks?: BlockChange[] }> = {};
+    // #796 — this method's own diff was written before #595's block-level
+    // detail existed and never learned about it: restoreVersion (below) picked
+    // it up via diffSnapshots, but this everyday edit path — the one that
+    // actually fires for a normal rich_text field edit — never called
+    // diffBlocks at all, so activity.service.ts's `changes[].blocks` was
+    // always undefined for a live edit, only ever populated by a restore.
+    // ActivityPanel's own fmt() fallback then rendered the raw BlockNote
+    // block array as "[object Object]" — a frontend rendering gap layered
+    // on top of a backend data gap the ticket's own investigation missed.
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
 
     for (const [fieldId, value] of Object.entries(validated.values)) {
       const previous = before[fieldId] ?? null;
       if (JSON.stringify(previous) === JSON.stringify(value)) continue;
       diff[fieldId] = { from: previous, to: value };
+      if (richTextFieldIds.has(fieldId)) diff[fieldId]!.blocks = diffBlocks(previous, value);
       if (value === null) delete merged[fieldId];
       else merged[fieldId] = value;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockPlainText } from './record-history';
+import { blockPlainText } from './entity-field-utils';
 
 describe('blockPlainText — #677 (Gap 2) human-readable document-diff text', () => {
   it('extracts text from a simple paragraph block', () => {

@@ -12,6 +12,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
+import { blockPlainText } from './entity-field-utils';
 
 interface FieldChange {
   id: string;
@@ -75,31 +76,6 @@ interface DocVersionsPage {
 interface DocVersionPreview {
   id: string;
   blocks: BlockChange[];
-}
-
-/**
- * #677 (Gap 2) — "human-readable, not raw JSON" for a BlockNote block, the
- * document-diff sibling of the field-diff `*_display` strings the API
- * already computes for `record_field_changes`. Mirrors
- * `documents.service.ts`'s own `extractText` (same recursive text-node walk)
- * applied to ONE block instead of a whole document — that helper is
- * API-internal (used for search-index text), so this is the client-side
- * copy of the same shape rather than a new algorithm.
- */
-export function blockPlainText(block: unknown): string {
-  const parts: string[] = [];
-  const walk = (node: unknown): void => {
-    if (node == null) return;
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (typeof node === 'object') {
-      const obj = node as Record<string, unknown>;
-      if (typeof obj.text === 'string') parts.push(obj.text);
-      Object.values(obj).forEach(walk);
-    }
-  };
-  walk(block);
-  const text = parts.join(' ').trim();
-  return text || '(empty block)';
 }
 
 /** #39 — badges the record history / audit trail by #390's `source` enum.

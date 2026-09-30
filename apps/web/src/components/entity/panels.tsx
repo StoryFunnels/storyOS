@@ -16,7 +16,9 @@ import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
+import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
+import { blockPlainText } from './entity-field-utils';
 
 type Segment =
   | { type: 'text'; text: string }
@@ -374,7 +376,10 @@ interface ActivityEntry {
   type: string;
   actor: { id: string; name: string } | null;
   payload: Record<string, unknown>;
-  changes?: Array<{ field: string; from: unknown; to: unknown }>;
+  // #796 — `blocks` is only ever present for a rich_text field's change:
+  // activity.service.ts's own diff carries it alongside from/to specifically
+  // because those are raw BlockNote blocks, not a scalar `fmt()` can render.
+  changes?: Array<{ field: string; from: unknown; to: unknown; blocks?: BlockChange[] }>;
   created_at: string;
   // #481/#496 — WHO made the write (`actor`) and WHAT kind of thing made it
   // (`source`). null means genuinely not captured (every row written before
@@ -470,8 +475,35 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
                 {event.changes.map((change, i) => (
                   <span key={i}>
                     {i > 0 && '; '}
-                    <span className="font-medium">{change.field}</span>: {fmt(change.from)} →{' '}
-                    {fmt(change.to)}
+                    <span className="font-medium">{change.field}</span>:{' '}
+                    {change.blocks ? (
+                      // #796 — a rich_text field's `from`/`to` are raw BlockNote
+                      // blocks, not the scalar values `fmt()` resolves — hence
+                      // "[object Object]". `diffBlocks(prev, next)` (this is
+                      // the FORWARD direction, unlike record-history.tsx's
+                      // restore-preview reading of the same shape): 'added' is
+                      // new content, 'removed' is content that's gone,
+                      // 'changed' is before → after, same as every other field
+                      // change on this line.
+                      change.blocks.map((b, j) => (
+                        <span key={j}>
+                          {j > 0 && ', '}
+                          {b.kind === 'added' && <>+ {blockPlainText(b.to)}</>}
+                          {b.kind === 'removed' && (
+                            <span className="text-muted line-through">− {blockPlainText(b.from)}</span>
+                          )}
+                          {b.kind === 'changed' && (
+                            <>
+                              {blockPlainText(b.from)} → {blockPlainText(b.to)}
+                            </>
+                          )}
+                        </span>
+                      ))
+                    ) : (
+                      <>
+                        {fmt(change.from)} → {fmt(change.to)}
+                      </>
+                    )}
                   </span>
                 ))}
               </>
