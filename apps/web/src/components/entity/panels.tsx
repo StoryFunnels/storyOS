@@ -625,6 +625,14 @@ export function useWatchers(ws: string, db: string, rec: string) {
   const key = ['watchers', ws, db, rec];
   const query = useQuery({
     queryKey: key,
+    // #780 regression fix — `rec` must be the resolved record id: neither the
+    // controller (`records.controller.ts`'s `:rec/watchers`/`:rec/watch`) nor
+    // the service (`RecordsService.watch`/`listWatchers`) resolves a pretty
+    // slug to a uuid the way the main record GET does, so a slug here 500s on
+    // every poll. `enabled` guards the callers that call this before their own
+    // resolved id exists yet (record-detail.tsx's pre-fetch, above its early
+    // returns) rather than ever firing with the raw route param.
+    enabled: rec.length > 0,
     queryFn: async () => {
       const { data, error } = await api.GET(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watchers',

@@ -445,10 +445,13 @@ export function RecordDetail({
   const propDrag = useDragPresentation(fieldLabel);
 
   // #780 — same rule as propDrag above: hooks belong here, not after the
-  // early returns. `rec` (the raw route param) rather than `recordId` (only
-  // resolved once `record.data` exists) — the watchers endpoint accepts
-  // either shape, same as useRecordQuery itself does with this same prop.
-  const watchers = useWatchers(ws, db, rec);
+  // early returns. Regression fix: the watchers endpoint does NOT accept a
+  // pretty slug the way useRecordQuery does — it 500s on every poll when
+  // `rec` (the raw route param) is one. `record.data?.id` is the resolved
+  // uuid, available here as soon as the fetch above completes even though we
+  // are still ahead of the early-return guards; `useWatchers`'s `enabled`
+  // guard keeps this from firing at all until that id exists.
+  const watchers = useWatchers(ws, db, record.data?.id ?? '');
 
   if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!record.data) return <p className="p-6 text-sm text-error">Item not found.</p>;
@@ -526,7 +529,7 @@ export function RecordDetail({
           {/* #780 — promoted to a header icon, matching the design artifact's
               cluster (star/watch/copy-link/split-view/delegate/actions). Reuses
               the same fetch/mutation the About tab's watcher list already used. */}
-          <WatchButton ws={ws} db={db} rec={rec} />
+          <WatchButton ws={ws} db={db} rec={recordId} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
           <RecordActions
             ws={ws}
