@@ -155,10 +155,18 @@ function DatabasePageInner() {
                   fields={database.data?.fields ?? []}
                   onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
                   onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
-                  // #527/#555 — the public page only knows how to render a
-                  // table today; board/dashboard public rendering needs
-                  // backend support that doesn't exist yet (#555).
-                  onShare={view.type === 'table' ? () => setSharingViewId(view.id) : undefined}
+                  // #751 — #555 shipped board/dashboard support in the public
+                  // payload (board grouping, dashboard tiles) and #709 shipped
+                  // rendering both on the public page itself; this gate was
+                  // never widened to match; a "Share…" action never existed
+                  // to reach either, so the API's own publish-time validation
+                  // (cross-database tiles, hidden-field references) was
+                  // unreachable from the UI at all.
+                  onShare={
+                    view.type === 'table' || view.type === 'board' || view.type === 'dashboard'
+                      ? () => setSharingViewId(view.id)
+                      : undefined
+                  }
                   onDelete={async () => {
                     if (
                       !(await confirm({

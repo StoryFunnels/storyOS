@@ -442,7 +442,12 @@ export function useViewMutations(ws: string, db: string) {
         return data as unknown as { token: string };
       },
       onSuccess: invalidate,
-      onError: () => toast.error('Could not publish the view'),
+      // #751 — share() already rejects a cross-database tile, a board grouped by
+      // a hidden field, or a tile/widget referencing an unallowlisted field with
+      // a specific 422 message naming which one; a generic toast here discarded
+      // that and left the owner guessing why publish failed.
+      onError: (error) =>
+        toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Could not publish the view'),
     }),
     unshareView: useMutation({
       mutationFn: async (id: string) => {
