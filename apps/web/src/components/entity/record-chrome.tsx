@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Copy, CopyPlus, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { Bot, Copy, CopyPlus, Eye, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { useFavorites } from '@/components/sidebar';
 import { CopyToDialog } from './copy-to-dialog';
 import { RecordHistoryDialog } from './record-history';
+import { useWatchers } from './panels';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
 
@@ -146,6 +147,25 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
       className={HEADER_ICON_BTN}
     >
       <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
+    </button>
+  );
+}
+
+/** #780 — a header-level Watch toggle, matching the design artifact's header
+ * icon cluster. Reuses `useWatchers` (panels.tsx), previously only called
+ * from the About tab — same fetch/mutation, not a second implementation. */
+export function WatchButton({ ws, db, rec }: { ws: string; db: string; rec: string }) {
+  const { query, toggle } = useWatchers(ws, db, rec);
+  const watching = query.data?.watching ?? false;
+  return (
+    <button
+      onClick={() => toggle.mutate(!watching)}
+      disabled={toggle.isPending}
+      title={watching ? 'Stop watching' : 'Watch'}
+      aria-label={watching ? 'Stop watching this item' : 'Watch this item for changes'}
+      className={HEADER_ICON_BTN}
+    >
+      <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
     </button>
   );
 }

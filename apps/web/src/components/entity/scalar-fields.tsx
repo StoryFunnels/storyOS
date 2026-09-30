@@ -21,7 +21,7 @@ import { vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
-import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
+import { AUDIT_TYPES, NOT_INLINE, auditValue, computedBadgeLabel } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu } from './field-controls';
 import { useOpenInSplit } from './split-panel-context';
@@ -73,8 +73,13 @@ function useRemoveRelationLink(ws: string, db: string, recordId: string, field: 
  * wraps the editable value in a subtle bordered/hover cell (Fibery-parity
  * Properties panel, #176) so the value area reads as a clickable control.
  */
-function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
+/** #780 — exported so the record page's status strip (record-detail.tsx) can
+ * render a workflow/assignee/due chip using the SAME generic per-type
+ * rendering every other field surface already goes through, rather than a
+ * second formatter for just these three types. */
+export function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
   const [editing, setEditing] = useState(false);
+  const [showAllChips, setShowAllChips] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
@@ -86,19 +91,36 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
   // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
   // already renders created_at/updated_at as datetimes and created_by as a person.
   if (AUDIT_TYPES.has(field.type)) {
-    return value === undefined || value === null ? (
-      <span className="text-body text-faint">—</span>
-    ) : (
-      <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+    // #780 — this early return bypasses the generic value-wrapper below
+    // (and its badge) entirely, the same way the `button` branch further
+    // down does — both needed their own `<ComputedBadge>` rather than one
+    // shared placement covering every computed field.
+    return (
+      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+        {value === undefined || value === null ? (
+          <span className="text-body text-faint">—</span>
+        ) : (
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+        )}
+        <ComputedBadge type={field.type} />
+      </div>
     );
   }
 
   if (field.type === 'relation') {
     // Single reference (collections render as their own body section).
     const chips = (value as LinkChip[]) ?? [];
+    // #780 Rule 2 (the Ten Real Records artifact, M1NWWboSsyroxUqunyajSV) —
+    // Backlog in Stages linked 45 records as inline chips and pushed two
+    // OTHER fields off screen entirely. Real evidence, not a guess: cap at
+    // 6 chips + "+N more" (RELCAP in the artifact's own source). Fields
+    // dense enough to exceed 12 leave the grid entirely — see
+    // record-detail.tsx's promotedRelationFields, a separate concern from
+    // this cap (a field can be capped here without ever being promoted).
+    const shown = showAllChips ? chips : chips.slice(0, 6);
     return (
       <div className="relative flex flex-wrap items-center gap-1">
-        {chips.map((chip) => (
+        {shown.map((chip) => (
           // #176: consistent chip control — the title opens the target (split
           // panel / navigation), the × unlinks it (only when editable). The ×
           // is a sibling of the link, never nested, so their clicks can't reach
@@ -136,6 +158,15 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
             )}
           </span>
         ))}
+        {chips.length > 6 && (
+          <button
+            type="button"
+            className="text-label text-muted underline hover:text-ink"
+            onClick={() => setShowAllChips((s) => !s)}
+          >
+            {showAllChips ? 'Show fewer' : `+${chips.length - 6} more`}
+          </button>
+        )}
         {!readOnly && (
           <button
             className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
@@ -214,7 +245,14 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
       </div>
     );
   }
-  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
+  if (field.type === 'button') {
+    return (
+      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+        <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />
+        <ComputedBadge type={field.type} />
+      </div>
+    );
+  }
   if (editing) {
     // relative anchor so absolute-positioned option lists / pickers drop under the field
     return (
@@ -241,10 +279,15 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
   const empty = value === undefined || value === null || value === '';
   // Inline-editable when not read-only and not a computed/audit type (NOT_INLINE).
   const editableInline = !readOnly && !NOT_INLINE.has(field.type);
+  // #780 — the artifact badges the VALUE, not just the row, so this stays
+  // regardless of `empty`: an em-dash placeholder still needs the badge to
+  // explain why it isn't a fake "Add value" affordance.
+  const badge = computedBadgeLabel(field.type);
   return (
     <div
       className={cn(
         'min-h-6 min-w-0',
+        badge && 'flex flex-wrap items-center gap-1.5',
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
@@ -284,6 +327,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
       ) : (
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
+      {badge && <ComputedBadge type={field.type} />}
     </div>
   );
 }
@@ -437,6 +481,23 @@ function FieldTypeGlyph({ type, className }: { type: string; className?: string 
   return <Icon className={cn('h-3.5 w-3.5 shrink-0 text-faint', className)} aria-hidden />;
 }
 
+/** #780 — the artifact's `.computed` badge. `text-micro`/`--radius-chip` are
+ * the nearest role-scale/radius-token steps to the artifact's raw 9px/3px —
+ * type and radius come from main's established scale, not the artifact's
+ * literal pixels (matching those would revert #900). `font-mono` is the
+ * project's existing monospace utility (no bespoke `--font-mono` token; every
+ * other monospace usage in this codebase already reaches for this same
+ * Tailwind default stack). */
+function ComputedBadge({ type }: { type: string }) {
+  const label = computedBadgeLabel(type);
+  if (!label) return null;
+  return (
+    <span className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1 font-mono text-micro tracking-wide text-muted">
+      {label}
+    </span>
+  );
+}
+
 /** Compact draggable property in the right sidebar (label above value). */
 export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, ...vp }: VP & { field: Field; topDivider?: boolean }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
@@ -510,6 +571,39 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #780 — the record page's UNIFIED field row: replaces `SidebarField`'s 88px
+ * label (its own #640 comment: "the longest real label, 'Monthly Value',
+ * measures ~85px") now that every non-body field renders in one place at
+ * full main-column width instead of a narrow aside. 150px is the artifact's
+ * own measured `.frow` label column — fixed width is what makes every
+ * value start at one x regardless of label length, same reasoning #640
+ * already established, just re-measured for the wider column.
+ *
+ * No drag handle: reordering within the top/sidebar zones was part of the
+ * zoning feature being hidden (#780 ticket comment), and reordering a newly
+ * merged list is a separate, un-ruled-on capability — flagged there rather
+ * than assumed. Renders in `zonesOf`/`orderKey` sort order, read-only.
+ */
+export function UnifiedFieldRow({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
+  return (
+    <div className="group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] py-0.5 pr-1.5 hover:bg-hover/50">
+      <span className={cn('flex min-h-[24px] items-center gap-1.5 pt-0.5', FIELD_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} />
+        <span className="truncate">{field.displayName}</span>
+      </span>
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
+        </div>
+        {schemaEditable && (
+          <FieldMenu field={field} onToggleZone={onToggleZone} hideZoneToggle ws={vp.ws} db={vp.db} />
+        )}
       </div>
     </div>
   );

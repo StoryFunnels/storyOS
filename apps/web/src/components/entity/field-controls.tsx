@@ -110,12 +110,20 @@ export function FieldMenu({
   field,
   onToggleZone,
   collection = false,
+  hideZoneToggle = false,
 }: {
   ws: string;
   db: string;
   field: Field;
   onToggleZone: (field: Field, zone: Zone) => void;
   collection?: boolean;
+  /** #780 — field zoning (top/sidebar/body placement) is hidden now that every
+   * scalar field renders in one unified area; toggling a zone nobody can see
+   * anymore would be confusing, so the record page's own unified field row
+   * passes this to suppress just those three items. `onToggleZone` itself
+   * still works and is passed through unchanged — this only hides the menu
+   * entries, per "hide the UI, don't touch the stored data or the code". */
+  hideZoneToggle?: boolean;
 }) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
@@ -144,6 +152,7 @@ export function FieldMenu({
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
           {!collection &&
+            !hideZoneToggle &&
             (['top', 'sidebar', 'body'] as Zone[]).map((z) => (
               <DropdownMenuItem
                 key={z}

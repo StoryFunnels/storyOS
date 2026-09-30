@@ -47,7 +47,61 @@ export const AUDIT_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
 // case for it).
 export const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'ai', 'created_at', 'updated_at', 'created_by']);
 
+/**
+ * #780 — the design artifact's `.computed` badge: a monospace type-name tag
+ * after every computed field's VALUE ("COMPUTED fields are not editable and
+ * must not pretend to be" — the artifact's own CSS comment). Derived from
+ * NOT_INLINE/AUDIT_TYPES rather than re-enumerating field types, so this
+ * can't drift from the sets that already gate editability — the exact
+ * failure shape CLAUDE.md's collision-check section warns a hand-maintained
+ * list eventually suffers. `color` and `id` visually sit in the artifact's
+ * "Computed" field-GROUP but are editable (color) or hidden entirely (id,
+ * via HIDDEN) — neither is in NOT_INLINE, so neither gets a badge, matching
+ * the artifact's own data (its `color` row carries no badge).
+ */
+export function computedBadgeLabel(type: string): string | null {
+  if (!NOT_INLINE.has(type)) return null;
+  return AUDIT_TYPES.has(type) ? 'system' : type;
+}
+
 export type Zone = 'top' | 'sidebar' | 'body';
+
+/** #780 — the four collapsible field-group headings on the record page's
+ * unified field area (Details/Links/Computed/System), replacing the old
+ * top/sidebar zone split now that field zoning is hidden. Matches the
+ * design artifact's own grouping exactly (its `FIELDS` array groups the
+ * same 25 field types this way) rather than inventing a new taxonomy. */
+export type FieldGroup = 'Details' | 'Links' | 'Computed' | 'System';
+const FIELD_GROUP: Record<string, FieldGroup> = {
+  title: 'Details',
+  text: 'Details',
+  number: 'Details',
+  checkbox: 'Details',
+  date: 'Details',
+  select: 'Details',
+  multi_select: 'Details',
+  workflow: 'Details',
+  user: 'Details',
+  relation: 'Links',
+  url: 'Links',
+  email: 'Links',
+  attachment: 'Links',
+  formula: 'Computed',
+  rollup: 'Computed',
+  lookup: 'Computed',
+  ai: 'Computed',
+  button: 'Computed',
+  color: 'Computed',
+  id: 'Computed',
+  created_by: 'System',
+  created_at: 'System',
+  updated_at: 'System',
+};
+/** Falls back to 'Details' for any type this map doesn't (yet) name — a new
+ * field type should be visible somewhere rather than silently unlisted. */
+export function fieldGroup(f: Field): FieldGroup {
+  return FIELD_GROUP[f.type] ?? 'Details';
+}
 
 /** A to-many relation is a collection — it belongs in the body as a list, never the top/sidebar. */
 export function isCollection(f: Field): boolean {
