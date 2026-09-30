@@ -21,9 +21,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # #793 — which of the three services a push actually touches, so an
+  # unchanged one is RE-TAGGED onto the new sha (a registry-side manifest
+  # copy, seconds) instead of rebuilt from scratch. Every commit still gets
+  # all three sha tags — docker-compose.prod.yml pins IMAGE_TAG for all three,
+  # so a missing one breaks both deploy and the "re-run an older workflow run"
+  # rollback story this file's own header describes. See the script's own doc
+  # for why an unresolvable diff (workflow_dispatch, a missing `before`)
+  # rebuilds everything rather than guessing.
+  changes:
+    name: which services changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      web: ${{ steps.changes.outputs.web }}
+      mcp: ${{ steps.changes.outputs.mcp }}
+      services: ${{ steps.changes.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        env:
+          DOCKER_DIFF_BASE: ${{ github.event.before }}
+        run: node scripts/docker-inputs-changed.mjs
+
   build:
     name: ${{ matrix.service }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    needs: changes
     timeout-minutes: 30
     permissions:
       contents: read
@@ -37,8 +64,17 @@ jobs:
       # `build-args`, concatenated with this matrix's static `build_args` — not
       # in the matrix itself. Referencing `env` here makes the whole workflow
       # invalid: GitHub refuses to start it at all (failure at 0s, no logs).
+      #
+      # #793 — `service` is the DYNAMIC axis: needs.changes.outputs.services is
+      # a JSON array of only the services this push actually touches, so an
+      # unchanged service gets ZERO `service x arch` combinations generated for
+      # it — no runner even starts — rather than starting a job and skipping
+      # its steps. A job's own `if:` cannot see `matrix.*` (only github/inputs/
+      # needs/vars are available at that scope — confirmed by actionlint when
+      # an earlier version of this tried exactly that), so filtering has to
+      # happen at the matrix level, not with a per-job condition.
       matrix:
-        service: [api, mcp, web]
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -112,7 +148,15 @@ jobs:
   merge:
     name: merge manifests
     runs-on: ubuntu-latest
-    needs: build
+    needs: [changes, build]
+    # `build` is a matrix; a service the changes job marked unchanged never
+    # runs its two arch jobs at all, and a job with no matrix entries left
+    # reports "skipped", not "success" — the default `if: success()` would
+    # treat that skip as a failed dependency and skip THIS job too, which is
+    # exactly backwards (an unchanged service is the NORMAL case, not a
+    # problem). `!failure() && !cancelled()` still stops the manifest step
+    # below from running against a build that genuinely broke.
+    if: always() && !failure() && !cancelled()
     timeout-minutes: 10
     permissions:
       contents: read
@@ -128,16 +172,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # One multi-arch manifest per service: :latest and :<sha> now point at
-      # BOTH arch images; docker pull picks the right one per machine.
-      - name: Create multi-arch manifests
+      # A changed service's two fresh arch images become its multi-arch
+      # :latest + :<sha> manifest, same as before #793. An UNCHANGED service
+      # was never rebuilt, so there is nothing at :<sha>-amd64/-arm64 to
+      # merge — instead its existing :latest (already a multi-arch manifest)
+      # is RE-TAGGED onto the new sha, a registry-side copy with no rebuild.
+      # :latest itself is left alone for an unchanged service; it already
+      # points at the right thing. Either way every service ends this step
+      # with a real :<sha> tag, which is the one invariant deploy/rollback
+      # actually depends on (#793's own caution).
+      - name: Create/re-tag manifests so every service has a :sha tag
+        env:
+          API_CHANGED: ${{ needs.changes.outputs.api }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          MCP_CHANGED: ${{ needs.changes.outputs.mcp }}
         run: |
           for svc in api mcp web; do
-            docker buildx imagetools create \
-              -t "ghcr.io/$OWNER_LC/storyos-$svc:latest" \
-              -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
-              "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-amd64" \
-              "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-arm64"
+            changed_var="${svc^^}_CHANGED"
+            if [ "${!changed_var}" = "true" ]; then
+              echo "$svc changed — building a fresh multi-arch manifest"
+              docker buildx imagetools create \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:latest" \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-amd64" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-arm64"
+            else
+              echo "$svc unchanged — re-tagging :latest onto ${{ github.sha }}"
+              docker buildx imagetools create \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:latest"
+            fi
           done
 
   # Continuous delivery to the staging VPS: pin IMAGE_TAG to this exact commit,
