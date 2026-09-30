@@ -12,7 +12,7 @@ import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { CommentComposer } from '../entity/panels';
 import { dayBucket } from '../inbox-panel';
-import { CardFieldChip } from './board-view';
+import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { CellEditor, OptionChip, richTextPreview, optionColor } from '../table-view/cells';
 import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
@@ -243,7 +243,7 @@ export function FeedView({
                     >
                       <Maximize2 className="h-3 w-3" /> Open
                     </Link>
-                    {row.number !== null && !numberHidden && <span className="tabular-nums">#{row.number}</span>}
+                    {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="text-meta" />}
                   </div>
                 </div>
                 {canComment && (
