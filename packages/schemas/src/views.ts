@@ -18,6 +18,33 @@ export const hexColourSchema = z
   .string()
   .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Expected a hex colour such as #1c1917 or #abc');
 
+/**
+ * #720 — the embed's font control. An ENUM of self-hosted family keys, not a
+ * string: a free string would let an embedder name a family we do not carry,
+ * which fails silently to a fallback stack — the same class of bug the
+ * hex-only allowlist above was written to avoid. Each key is declared via
+ * `next/font/google` in apps/web/src/app/layout.tsx (build-time self-hosted,
+ * per the corrected docs/design/form-embed-theming-spec.md §4 — no runtime
+ * request to Google, so the LG München privacy concern that section raises
+ * does not apply to any of these).
+ *
+ * The set is the one recorded in that spec's §4 proposed table: eight
+ * registers, "closest match" rather than arbitrary. `figtree` reuses the
+ * app's OWN already-loaded font — zero extra bundle weight for the one
+ * option most embedders who like our defaults will pick.
+ */
+export const EMBED_FONT_FAMILIES = [
+  'inter',
+  'figtree',
+  'source-sans-3',
+  'dm-sans',
+  'source-serif-4',
+  'playfair-display',
+  'jetbrains-mono',
+] as const;
+export const embedFontFamilySchema = z.enum(EMBED_FONT_FAMILIES);
+export type EmbedFontFamily = z.infer<typeof embedFontFamilySchema>;
+
 export const viewTypeSchema = z.enum([
   'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
 ]);
@@ -470,6 +497,9 @@ export const viewConfigSchema = z.object({
           text: hexColourSchema.optional(),
           /** Control radius in px. The other radii derive multiplicatively. */
           radius: z.number().int().min(0).max(16).optional(),
+          /** #720 — closed set, self-hosted. Absent = today's own Figtree,
+           *  same "emit nothing" rule as the colours above. */
+          font: embedFontFamilySchema.optional(),
         })
         .optional(),
     })

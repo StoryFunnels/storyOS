@@ -8,6 +8,8 @@ import {
   embedThemeStyle,
   readableTextFor,
 } from '@/lib/embed-theme';
+import { EMBED_FONT_LABELS } from '@/lib/embed-fonts';
+import { Select } from '@/components/ui/select';
 
 type Theme = NonNullable<NonNullable<ViewConfig['form']>['theme']>;
 
@@ -41,6 +43,7 @@ export function FormThemePanel({
   const surface = theme?.surface ?? '#ffffff';
   const text = theme?.text ?? '#1c1917';
   const radius = theme?.radius ?? 6;
+  const font = theme?.font ?? '';
 
   const set = (patch: Partial<Theme>) => onChange({ ...(theme ?? {}), ...patch });
 
@@ -89,6 +92,27 @@ export function FormThemePanel({
         />
         <span className="w-10 shrink-0 tabular-nums text-muted">{radius}px</span>
       </label>
+
+      <label className="flex items-center gap-2">
+        <span className="w-20 shrink-0 text-muted">Font</span>
+        <Select
+          size="sm"
+          className="flex-1"
+          value={font}
+          onChange={(e) => set({ font: (e.target.value || undefined) as Theme['font'] })}
+          aria-label="Font"
+        >
+          <option value="">System (default)</option>
+          {(Object.entries(EMBED_FONT_LABELS) as Array<[NonNullable<Theme['font']>, string]>).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      {/* #720 AC5 — an embedder whose brand face isn't on the list must not be
+          left thinking they picked it exactly. */}
+      <p className="text-label text-faint">Closest match, not your exact brand font.</p>
 
       {uncomfortable && (
         /* Spec: the contrast warning is a PRODUCT FEATURE, not a lint. Our form

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Figtree } from 'next/font/google';
+import { DM_Sans, Figtree, Inter, JetBrains_Mono, Playfair_Display, Source_Sans_3, Source_Serif_4 } from 'next/font/google';
 import Script from 'next/script';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
@@ -11,6 +11,48 @@ const figtree = Figtree({
   weight: ['400', '500', '600', '700'],
   variable: '--font-figtree',
 });
+
+/**
+ * #720 — the embed font control's other six families (`figtree` above covers
+ * the seventh — the app's own default reused, not reloaded). Each is
+ * build-time self-hosted the same way Figtree already is; see
+ * embed-fonts.ts's own comment for why this file is the only place these
+ * loaders are instantiated, and docs/design/form-embed-theming-spec.md §4 for
+ * why that self-hosting is what makes this privacy-safe. Three weights
+ * (regular/medium/semibold) — a form's own type scale never asks these for
+ * bold, and a fourth weight per family is exactly the "a few more won't hurt"
+ * bundle creep AC4 warns against.
+ */
+const embedInter = Inter({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-embed-inter' });
+const embedSourceSans3 = Source_Sans_3({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-embed-source-sans-3',
+});
+const embedDmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-embed-dm-sans' });
+const embedSourceSerif4 = Source_Serif_4({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-embed-source-serif-4',
+});
+const embedPlayfairDisplay = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-embed-playfair-display',
+});
+const embedJetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-embed-jetbrains-mono',
+});
+const embedFontVariables = [
+  embedInter.variable,
+  embedSourceSans3.variable,
+  embedDmSans.variable,
+  embedSourceSerif4.variable,
+  embedPlayfairDisplay.variable,
+  embedJetbrainsMono.variable,
+].join(' ');
 
 export const metadata: Metadata = {
   // #566 — unset before this meant Next fell back to 'http://localhost:3000'
@@ -48,7 +90,7 @@ export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={figtree.variable} suppressHydrationWarning>
+    <html lang="en" className={`${figtree.variable} ${embedFontVariables}`} suppressHydrationWarning>
       <head>
         {/* Resolve + apply the saved theme before paint so there's no light flash
             (#30). next/script's beforeInteractive strategy, not a raw <script> tag —

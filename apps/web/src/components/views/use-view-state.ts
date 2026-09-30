@@ -93,7 +93,7 @@ export interface ViewConfig {
     success_message?: string;
     redirect_url?: string;
     /**
-     * #711 — how the EMBEDDED form should look on the host's page. Four
+     * #711/#720 — how the EMBEDDED form should look on the host's page. Five
      * controls; everything else derives (lib/embed-theme.ts). Hex only, no
      * alpha — see packages/schemas' own comment for why. Absent means emit
      * nothing at all, which is what makes "reset to default" exact.
@@ -103,6 +103,18 @@ export interface ViewConfig {
       surface?: string;
       text?: string;
       radius?: number;
+      /** #720 — closed set, self-hosted. Mirrors `EmbedFontFamily`
+       *  (packages/schemas) as a literal union rather than importing the
+       *  type, matching this interface's own existing pattern of a plain
+       *  local mirror rather than a z.infer. */
+      font?:
+        | 'inter'
+        | 'figtree'
+        | 'source-sans-3'
+        | 'dm-sans'
+        | 'source-serif-4'
+        | 'playfair-display'
+        | 'jetbrains-mono';
     };
   };
   /**

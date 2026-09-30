@@ -15109,6 +15109,18 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 16
+                      },
+                      "font": {
+                        "type": "string",
+                        "enum": [
+                          "inter",
+                          "figtree",
+                          "source-sans-3",
+                          "dm-sans",
+                          "source-serif-4",
+                          "playfair-display",
+                          "jetbrains-mono"
+                        ]
                       }
                     }
                   }
@@ -15868,6 +15880,18 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 16
+                      },
+                      "font": {
+                        "type": "string",
+                        "enum": [
+                          "inter",
+                          "figtree",
+                          "source-sans-3",
+                          "dm-sans",
+                          "source-serif-4",
+                          "playfair-display",
+                          "jetbrains-mono"
+                        ]
                       }
                     }
                   }
@@ -16607,6 +16631,18 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 16
+                      },
+                      "font": {
+                        "type": "string",
+                        "enum": [
+                          "inter",
+                          "figtree",
+                          "source-sans-3",
+                          "dm-sans",
+                          "source-serif-4",
+                          "playfair-display",
+                          "jetbrains-mono"
+                        ]
                       }
                     }
                   }

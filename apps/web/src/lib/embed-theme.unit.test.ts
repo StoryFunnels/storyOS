@@ -118,6 +118,47 @@ describe('embedThemeStyle', () => {
     });
   });
 
+  describe('#720 — font: a closed enum, re-validated at render time', () => {
+    it('sets --font-sans to the chosen family’s variable, plus a fallback stack', () => {
+      const s = embedThemeStyle({ font: 'jetbrains-mono' }) as Record<string, string>;
+      expect(s['--font-sans']).toBe("var(--font-embed-jetbrains-mono), -apple-system, 'Segoe UI', sans-serif");
+    });
+
+    it('re-declares font-family so the override actually re-resolves for this subtree', () => {
+      // Setting --font-sans alone would do nothing: body's own font-family
+      // already resolved against ITS inherited value. See the function's own
+      // comment for why (the BlockNote --bn-font-family bug, in reverse).
+      const s = embedThemeStyle({ font: 'inter' }) as Record<string, string>;
+      expect(s.fontFamily).toBe('var(--font-sans)');
+    });
+
+    it('figtree reuses the app’s own already-loaded variable, not a duplicate load', () => {
+      const s = embedThemeStyle({ font: 'figtree' }) as Record<string, string>;
+      expect(s['--font-sans']).toContain('var(--font-figtree)');
+    });
+
+    it.each([
+      // The exact shape a stored-config bug or a crafted payload could send:
+      // a family we never declared via next/font/google would silently fall
+      // back rather than fail loudly, exactly the class of bug the schema's
+      // own enum (not a free string) exists to prevent at write time — this
+      // is the render-time half of that same guarantee.
+      ['an unknown family', 'comic-sans'],
+      ['empty string', ''],
+      ['a number', 12],
+      ['an array', ['inter']],
+      ['null', null],
+    ])('drops %s rather than falling back silently', (_label, font) => {
+      expect(embedThemeStyle({ font })).toBeUndefined();
+    });
+
+    it('is absent from the style object when no font is chosen — spec §2', () => {
+      const s = embedThemeStyle({ accent: '#0f1729' }) as Record<string, string>;
+      expect(s['--font-sans']).toBeUndefined();
+      expect(s.fontFamily).toBeUndefined();
+    });
+  });
+
   describe('derivation: four controls, not eighteen tokens', () => {
     it('derives the whole text hierarchy from the ink, toward the surface', () => {
       const s = embedThemeStyle({ text: '#1c1917', surface: '#ffffff' }) as Record<string, string>;

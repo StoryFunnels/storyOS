@@ -1,4 +1,7 @@
 import type { CSSProperties } from 'react';
+import { EMBED_FONT_FAMILIES } from '@storyos/schemas';
+import type { EmbedFontFamily } from '@storyos/schemas';
+import { EMBED_FONT_VAR } from './embed-fonts';
 
 /**
  * #711 phase 1 — turn a form's stored theme config into inline custom
@@ -40,6 +43,7 @@ export interface EmbedThemeConfig {
   surface?: string;
   text?: string;
   radius?: number;
+  font?: string;
 }
 
 function colour(v: unknown): string | null {
@@ -49,6 +53,16 @@ function colour(v: unknown): string | null {
 /** Control radius in px. The spec's range; anything else is dropped, not clamped. */
 function radius(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 16 ? v : null;
+}
+
+/** #720 — re-validated here for the same reason every other field in this
+ *  function is: this renders into a public, unauthenticated page's style
+ *  attribute, so a stored value is trusted no further than the API's own
+ *  enum already trusted it at write time. */
+function fontFamily(v: unknown): EmbedFontFamily | null {
+  return typeof v === 'string' && (EMBED_FONT_FAMILIES as readonly string[]).includes(v)
+    ? (v as EmbedFontFamily)
+    : null;
 }
 
 /** sRGB relative luminance (WCAG 2.1) of a validated hex colour. */
@@ -158,6 +172,7 @@ export function embedThemeStyle(config: unknown): CSSProperties | undefined {
   const surface = colour(cfg.surface);
   const text = colour(cfg.text);
   const r = radius(cfg.radius);
+  const font = fontFamily(cfg.font);
 
   const style: Record<string, string> = {};
 
@@ -216,6 +231,20 @@ export function embedThemeStyle(config: unknown): CSSProperties | undefined {
     style['--radius-control'] = `${r}px`;
     style['--radius-card'] = `${Math.round((r * 4) / 3)}px`;
     style['--radius-modal'] = `${r * 2}px`;
+  }
+
+  if (font) {
+    // Overriding `--font-sans` alone changes nothing: `body`'s own
+    // `font-family: var(--font-sans)` (globals.css) already resolved against
+    // its OWN inherited value, and font-family inheritance carries the
+    // COMPUTED value down, not the unresolved `var()` — this is the exact
+    // "BlockNote hard-coded a literal instead of the variable" bug
+    // globals.css's own comment describes, in reverse: without this second
+    // line, this wrapper would still inherit body's already-resolved Figtree.
+    // Re-declaring `font-family` HERE, on the same element the override is
+    // set on, is what makes it re-resolve for this subtree.
+    style['--font-sans'] = `var(${EMBED_FONT_VAR[font]}), -apple-system, 'Segoe UI', sans-serif`;
+    style.fontFamily = 'var(--font-sans)';
   }
 
   return Object.keys(style).length > 0 ? (style as CSSProperties) : undefined;
