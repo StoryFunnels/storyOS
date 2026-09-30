@@ -715,6 +715,13 @@
       "when": 1790340986304,
       "tag": "0101_special_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790811185081,
+      "tag": "0102_clammy_risque",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import type { AuthedUser } from '../auth/auth.guard';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { SalesSignalService } from '../billing/sales-signal.service';
 import { MembershipEventsService } from '../events/membership-events.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -45,6 +46,7 @@ export class InvitesService {
     private readonly access: AccessService,
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
+    private readonly salesSignal: SalesSignalService,
     private readonly emailService: EmailService,
     private readonly membershipEvents: MembershipEventsService,
     private readonly notifications: NotificationsService,
@@ -60,6 +62,10 @@ export class InvitesService {
     if (invitedRoleIsBillable(input.role, input.grants)) {
       const allowed = await this.entitlements.can(workspaceId, 'add_seat');
       if (!allowed) {
+        // #650 AC2 — hooked at the EXISTING rejection, not a new detection
+        // path. Fire-and-forget: a sales-touch failing must never be the
+        // reason an admin can't see why their invite was refused.
+        void this.salesSignal.maybeFire(workspaceId, 'free_seats_blocked');
         throw new HttpException(
           'Free plan is limited to 2 members — upgrade to Pro to invite more.',
           HttpStatus.PAYMENT_REQUIRED,
@@ -235,6 +241,13 @@ export class InvitesService {
     // the seat exists either way; a missed sync is a billing gap to notice
     // and retry, not a reason to leave someone unable to join.
     await this.billing.syncSeatQuantity(invite.workspaceId).catch(() => undefined);
+
+    // #650 AC2 — a billable role just became a real, active seat (billableUserIds
+    // only counts active memberships, so this is the actual crossing point, not
+    // invite creation). Never throws; fire-and-forget like the sync above.
+    if (invitedRoleIsBillable(invite.role, invite.grants as GrantInput[] | undefined)) {
+      void this.salesSignal.checkSeatCrossing(invite.workspaceId);
+    }
 
     // #128: a joined member/guest projects into the Members system database.
     // Emitted after the membership is committed and isolated inside the bus, so

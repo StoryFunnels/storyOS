@@ -7,6 +7,7 @@ import { AutoReloadRetryService } from './auto-reload-retry.service';
 import { BillingController, BillingWebhookController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { EntitlementsService } from './entitlements.service';
+import { SalesSignalService } from './sales-signal.service';
 import { StripeService } from './stripe.service';
 import { TrialRemindersService } from './trial-reminders.service';
 
@@ -40,6 +41,11 @@ import { TrialRemindersService } from './trial-reminders.service';
  * ReferralsService.recordConversionIfEligible from reconcileSubscription —
  * the one-directional edge is safe because ReferralsModule does NOT import
  * BillingModule back (see its own doc comment).
+ *
+ * SalesSignalService (#650 AC2) needs only EmailService (MailModule,
+ * @Global()) and DB — exported so DatabasesModule (the 5th-database trigger)
+ * can import this module directly; WorkspacesModule (the seat triggers)
+ * already imports it.
  */
 @Module({
   imports: [AccessModule, ReferralsModule],
@@ -51,7 +57,8 @@ import { TrialRemindersService } from './trial-reminders.service';
     AiCreditsService,
     TrialRemindersService,
     AutoReloadRetryService,
+    SalesSignalService,
   ],
-  exports: [BillingService, EntitlementsService, AiCreditsService],
+  exports: [BillingService, EntitlementsService, AiCreditsService, SalesSignalService],
 })
 export class BillingModule {}

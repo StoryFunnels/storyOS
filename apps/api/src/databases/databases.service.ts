@@ -17,6 +17,7 @@ import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import type { ChangeSource } from '../db/schema';
 import type { PendingApprovalResult } from '../records/records.service';
+import { SalesSignalService } from '../billing/sales-signal.service';
 
 /** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -108,6 +109,7 @@ export class DatabasesService {
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
     private readonly actionGates: ActionGatesService,
+    private readonly salesSignal: SalesSignalService,
   ) {}
 
   /**
@@ -398,7 +400,7 @@ export class DatabasesService {
     for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
       const apiSlug = await this.uniqueSlug(input.space_id, input.name);
       try {
-        return await this.db.transaction(async (tx) => {
+        const created = await this.db.transaction(async (tx) => {
           const [database] = await tx
             .insert(databases)
             .values({
@@ -480,6 +482,16 @@ export class DatabasesService {
             qualifiedSlug: `${space.slug}/${database!.apiSlug}`,
           };
         });
+
+        // #650 AC2 — checked after the create commits (the transaction above
+        // is the only source of truth for "does this database exist yet"),
+        // and only for a real, user-visible database — a system database
+        // (Members projection, Agentic OS pack) says nothing about the
+        // workspace's own usage shape. Never throws; must not affect the
+        // response this endpoint returns.
+        if (!input.is_system) void this.salesSignal.checkDatabaseCrossing(membership.workspaceId);
+
+        return created;
       } catch (err) {
         if (isSlugUniqueViolation(err)) continue;
         throw err;

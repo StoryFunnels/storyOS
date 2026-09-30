@@ -72,6 +72,18 @@ export type EmailInput =
       metricLabel: string;
       percentUsed: number;
       billingUrl: string;
+    }
+  | {
+      /** #650 AC2 — a workspace's usage pattern looks like a Business/
+       * Enterprise-track account (see SalesSignalService). Soft and
+       * informational, never a hard paywall; sent once per workspace
+       * lifetime, to its admin(s). `reason` picks the copy — the three
+       * triggers differ in what happened, not in tone or CTA. */
+      kind: 'sales-signal';
+      to: string;
+      workspaceName: string;
+      reason: 'free_seats_blocked' | 'pro_five_seats' | 'fifth_database';
+      billingUrl: string;
     };
 
 export type EmailKind = EmailInput['kind'];
