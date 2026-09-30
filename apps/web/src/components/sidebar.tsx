@@ -3157,13 +3157,19 @@ function DeleteDatabaseDialog({
   onConfirm: (typed: string) => void;
 }) {
   const [typed, setTyped] = useState('');
+  // #801 — ticket cited confirm-dialog.tsx, but THIS dialog (database delete,
+  // the one the report actually hit) is a separate, independent
+  // implementation that never shared that file's label-nesting bug (the name
+  // below sits in a <p>, not inside the <label> for the input). It shares
+  // the OTHER half: a strict, untrimmed match with zero feedback on a miss.
+  const matches = typed.trim() === name.trim();
   return (
     <DialogContent title={`Delete "${name}"?`}>
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (typed === name) onConfirm(typed); // gate Enter too, not just the button
+          if (matches) onConfirm(typed.trim()); // gate Enter too, not just the button
         }}
       >
         <p className="text-body text-muted">
@@ -3172,16 +3178,21 @@ function DeleteDatabaseDialog({
           {/* #618 — was "This permanently deletes...", written before #37
               shipped restore_database. Verified live: a deleted database
               reappears, fields/records/views intact, via Settings → Trash. */}
-          {' '}Type <span className="font-semibold text-ink">{name}</span> to confirm.
         </p>
-        <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <p className="text-body text-ink-secondary">
+          Type <span className="font-semibold text-ink">{name}</span> to confirm.
+        </p>
+        <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+        {typed.trim().length > 0 && !matches && (
+          <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+        )}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
             <Button type="button" variant="secondary">
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" variant="destructive" disabled={typed !== name}>
+          <Button type="submit" variant="destructive" disabled={!matches}>
             Delete forever
           </Button>
         </div>

@@ -364,6 +364,11 @@ function EraseMemberDialog({
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="off"
             />
+            {/* #801 — same class of bug as confirm-dialog.tsx: strict,
+                untrimmed match with no feedback on a mismatch. */}
+            {confirm.trim().length > 0 && confirm.trim() !== target.trim() && (
+              <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
@@ -374,7 +379,7 @@ function EraseMemberDialog({
             <Button
               type="button"
               variant="destructive"
-              disabled={confirm !== target || erase.isPending}
+              disabled={confirm.trim() !== target.trim() || erase.isPending}
               onClick={() => erase.mutate()}
             >
               Erase permanently

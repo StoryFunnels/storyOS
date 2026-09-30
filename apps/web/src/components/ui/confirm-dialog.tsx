@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Dialog, DialogContent } from './dialog';
 import { Button } from './button';
@@ -42,6 +42,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null);
   const [typed, setTyped] = useState('');
   const resolver = useRef<((value: boolean) => void) | null>(null);
+  const typedInputId = useId();
 
   const confirm = useCallback<ConfirmFn>((options) => {
     setTyped('');
@@ -65,17 +66,30 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           <DialogContent title={opts.title}>
             {opts.message && <p className="mb-5 text-body leading-relaxed text-muted">{opts.message}</p>}
             {opts.requireTyped && (
-              <label className="mb-5 block text-body text-ink-secondary">
-                Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
+              <div className="mb-5">
+                {/* #801 — the name to retype must be OUTSIDE the <label>: nesting
+                    it means a click-drag to select the text lands in the input
+                    instead, since a label click transfers focus to its control. */}
+                <label htmlFor={typedInputId} className="mb-1.5 block text-body text-ink-secondary">
+                  Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
+                </label>
                 <Input
+                  id={typedInputId}
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   aria-label={`Type ${opts.requireTyped} to confirm`}
                   size="sm"
-                  className="mt-1.5 w-full"
+                  className="w-full"
+                  autoComplete="off"
                 />
-              </label>
+                {/* #801 — a non-matching non-empty attempt must say so; the button
+                    silently staying disabled gave no signal a case/space mismatch
+                    was the reason. */}
+                {typed.trim().length > 0 && typed.trim() !== opts.requireTyped.trim() && (
+                  <p className="mt-1.5 text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+                )}
+              </div>
             )}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => settle(false)}>
@@ -88,7 +102,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                    destructive button and letting Enter fire it would undo the
                    whole point of asking. */
                 autoFocus={!opts.requireTyped}
-                disabled={Boolean(opts.requireTyped) && typed !== opts.requireTyped}
+                disabled={Boolean(opts.requireTyped) && typed.trim() !== (opts.requireTyped ?? '').trim()}
                 onClick={() => settle(true)}
               >
                 {opts.confirmLabel ?? 'Confirm'}
