@@ -6,6 +6,34 @@ import { api } from '@/lib/api';
 import type { FilterCondition, NullsPlacement, SortSpec } from '@/components/views/use-view-state';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 
+/**
+ * #677 (Gap 2) — "human-readable, not raw JSON" for a BlockNote block, the
+ * document-diff sibling of the field-diff `*_display` strings the API
+ * already computes for `record_field_changes`. Mirrors
+ * `documents.service.ts`'s own `extractText` (same recursive text-node walk)
+ * applied to ONE block instead of a whole document — that helper is
+ * API-internal (used for search-index text), so this is the client-side
+ * copy of the same shape rather than a new algorithm.
+ *
+ * #796 — moved here from record-history.tsx so panels.tsx's ActivityPanel
+ * can share it rather than writing a second implementation.
+ */
+export function blockPlainText(block: unknown): string {
+  const parts: string[] = [];
+  const walk = (node: unknown): void => {
+    if (node == null) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (typeof node === 'object') {
+      const obj = node as Record<string, unknown>;
+      if (typeof obj.text === 'string') parts.push(obj.text);
+      Object.values(obj).forEach(walk);
+    }
+  };
+  walk(block);
+  const text = parts.join(' ').trim();
+  return text || '(empty block)';
+}
+
 // id renders in the header, title is the page heading — showing them again is
 // duplication. The audit fields (MN-126) are NOT hidden outright any more: they
 // exist on every database and are now opt-in from the field picker.

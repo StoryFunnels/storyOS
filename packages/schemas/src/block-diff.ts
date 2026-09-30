@@ -41,9 +41,25 @@ function toBlockArray(value: unknown): Block[] {
  * shape this diff doesn't recognize — gets a positional identity instead,
  * so it still participates in the diff rather than crashing or being
  * silently dropped; it just can't be identity-matched across a move.
+ *
+ * #796 — this fallback used a literal NUL byte (`\0#${index}`) to guarantee
+ * no collision with a real id. That's fine as long as the result never
+ * leaves memory, but this diff's own module comment says callers may do
+ * their own thing with the output — and #796 added a caller
+ * (RecordsService.update()) that writes it straight into
+ * activity_events.payload, a jsonb column. Postgres's jsonb rejects an
+ * embedded `\u0000` in a text value outright ("22P05: \u0000 cannot be
+ * converted to text"), which surfaced as a 500 on the very first edit of
+ * ANY rich_text field whose blocks predate having ids (seed-created
+ * content, in particular) — a landmine the restore-only caller never
+ * stepped on, because a record needs a prior edit through the real editor
+ * (which always assigns ids) before a version exists to restore. The
+ * sentinel just needs to never collide with a real BlockNote id, not be
+ * a specific byte; a printable one is strictly better since JSON storage
+ * places no odder constraint on it than plain text does.
  */
 function identityOf(block: Block, index: number): string {
-  return typeof block.id === 'string' ? block.id : `\0#${index}`;
+  return typeof block.id === 'string' ? block.id : `__no-id__#${index}`;
 }
 
 /**
