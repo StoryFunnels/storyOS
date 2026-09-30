@@ -334,7 +334,10 @@ function DatabasePicker({
           autoFocus
           value={query}
           placeholder="Search databases…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
+          // #717 — plain `rounded` bypassed the radius token; --radius-control
+          // is the fix, not the `<Input>` primitive (its `sm` size would also
+          // swap py-1 for a fixed h-8, a restyle this ticket's AC forbids).
+          className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="max-h-60 overflow-y-auto">
