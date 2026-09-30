@@ -5636,6 +5636,8 @@ export interface components {
                         surface?: string;
                         text?: string;
                         radius?: number;
+                        /** @enum {string} */
+                        font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
                     };
                 };
                 share?: {
@@ -5835,6 +5837,8 @@ export interface components {
                         surface?: string;
                         text?: string;
                         radius?: number;
+                        /** @enum {string} */
+                        font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
                     };
                 };
                 share?: {
@@ -6030,6 +6034,8 @@ export interface components {
                         surface?: string;
                         text?: string;
                         radius?: number;
+                        /** @enum {string} */
+                        font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
                     };
                 };
                 share?: {
