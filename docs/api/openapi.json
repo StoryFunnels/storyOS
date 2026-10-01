@@ -12645,6 +12645,59 @@
                     "method",
                     "url"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "post_social"
+                      ]
+                    },
+                    "connection_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "linkedin_org",
+                        "linkedin_member",
+                        "x"
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3000
+                    },
+                    "media_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "link": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "result_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "connection_id",
+                    "target",
+                    "text"
+                  ]
                 }
               ]
             }
@@ -13296,6 +13349,59 @@
                     "type",
                     "method",
                     "url"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "post_social"
+                      ]
+                    },
+                    "connection_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "linkedin_org",
+                        "linkedin_member",
+                        "x"
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3000
+                    },
+                    "media_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "link": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "result_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "connection_id",
+                    "target",
+                    "text"
                   ]
                 }
               ]

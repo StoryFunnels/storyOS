@@ -4992,6 +4992,21 @@ export interface components {
                     /** Format: uuid */
                     target_field_id: string;
                 }[];
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "post_social";
+                /** Format: uuid */
+                connection_id: string;
+                /** @enum {string} */
+                target: "linkedin_org" | "linkedin_member" | "x";
+                text: string;
+                /** Format: uuid */
+                media_field_id?: string;
+                link?: string;
+                /** Format: uuid */
+                result_field_id?: string;
             })[];
             /** @default true */
             enabled: boolean;
@@ -5168,6 +5183,21 @@ export interface components {
                     /** Format: uuid */
                     target_field_id: string;
                 }[];
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "post_social";
+                /** Format: uuid */
+                connection_id: string;
+                /** @enum {string} */
+                target: "linkedin_org" | "linkedin_member" | "x";
+                text: string;
+                /** Format: uuid */
+                media_field_id?: string;
+                link?: string;
+                /** Format: uuid */
+                result_field_id?: string;
             })[];
             enabled?: boolean;
             approverId?: string | null;
