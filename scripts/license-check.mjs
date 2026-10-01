@@ -60,6 +60,20 @@ const ALLOW = new Set([
 ]);
 
 /**
+ * Packages whose own package.json omits a `license` field (so `pnpm licenses
+ * list` reports them as "Unknown"), keyed by `name@version` with the REAL
+ * SPDX id, verified by hand against the package's own LICENSE file — never
+ * "Unknown" itself, which would blanket-allow every undeclared-license
+ * package and is exactly what this gate exists to catch.
+ */
+const UNDECLARED_LICENSE_OVERRIDES = new Map([
+  // twitter-text@3.1.0 (#42/MN-257) — package.json has no "license" field,
+  // but node_modules/twitter-text/LICENSE is the stock Apache License 2.0
+  // header (Copyright 2011 Twitter, Inc.), already an ALLOW-listed family.
+  ['twitter-text@3.1.0', 'Apache-2.0'],
+]);
+
+/**
  * Decide whether an SPDX expression is acceptable. Handles simple dual licenses:
  * `(A OR B)` passes if either side is allowed; `(A AND B)` needs both allowed.
  * Anything unparseable (custom text, "UNKNOWN", "SEE LICENSE IN …") fails.
@@ -96,10 +110,11 @@ const components = [];
 for (const [license, pkgs] of Object.entries(byLicense)) {
   for (const pkg of pkgs) {
     for (const version of pkg.versions ?? ['0.0.0']) {
+      const override = UNDECLARED_LICENSE_OVERRIDES.get(`${pkg.name}@${version}`);
       components.push({
         name: pkg.name,
         version,
-        license,
+        license: override ?? license,
         author: pkg.author,
         homepage: pkg.homepage,
       });
