@@ -45,6 +45,7 @@
     "rxjs": "^7.8.2",
     "sharp": "^0.35.3",
     "stripe": "^22.3.2",
+    "twitter-text": "^3.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -57,6 +58,7 @@
     "@types/archiver": "^6.0.3",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",
+    "@types/twitter-text": "^3.1.10",
     "adm-zip": "^0.6.0",
     "drizzle-kit": "^0.31.10",
     "pino-pretty": "^13.1.3",
