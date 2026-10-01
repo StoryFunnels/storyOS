@@ -248,6 +248,14 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   /**
+   * Ticket #42 / MN-257 — a self-managed operator's own LinkedIn OAuth app
+   * (connections/providers/linkedin.ts's `oauth.clientIdEnv`/`clientSecretEnv`),
+   * same Tier B shape as GOOGLE_CLIENT_ID/SECRET above. Hosted StoryOS
+   * supplies its own managed app instead; see availability.ts's truth table.
+   */
+  LINKEDIN_CLIENT_ID: z.string().optional(),
+  LINKEDIN_CLIENT_SECRET: z.string().optional(),
+  /**
    * MN-263 — extra comma-separated CIDRs (v4 or v6) net-guard.ts always
    * refuses, on top of its built-in private/reserved/metadata blocklist.
    * For hosted-infra ranges specific to a deployment (e.g. a VPC CIDR the

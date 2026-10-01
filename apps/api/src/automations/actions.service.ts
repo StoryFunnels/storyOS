@@ -6,6 +6,7 @@ import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
 import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
+import { env } from '../config/env';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
@@ -426,6 +427,61 @@ export class AutomationActionsService {
           }
         }
       }
+      if (action.type === 'post_social') {
+        const connection = await this.db.query.connections.findFirst({
+          where: and(eq(connections.id, action.connection_id), eq(connections.workspaceId, workspaceId)),
+        });
+        if (!connection) {
+          throw new UnprocessableEntityException('post_social references an unknown connection');
+        }
+        const expectedProvider = action.target === 'x' ? 'x' : 'linkedin';
+        if (connection.provider !== expectedProvider) {
+          throw new UnprocessableEntityException(
+            `post_social's connection must be a '${expectedProvider}' connection for target "${action.target}" (got "${connection.provider}")`,
+          );
+        }
+        // Ticket #42 — LinkedIn needs its own app-review clearance (restricted
+        // w_organization_social/r_organization_social scopes) before a
+        // linkedin_org/linkedin_member post_social can actually run; reuses
+        // MN-261's LINKEDIN_ACTIONS_ENABLED kill-switch (env.ts) rather than a
+        // second flag. `x` carries no such gate — it is bring-your-own-tier
+        // and always available once connected.
+        if (action.target !== 'x' && !env().LINKEDIN_ACTIONS_ENABLED) {
+          throw new UnprocessableEntityException(
+            'LinkedIn post_social actions are not enabled on this deployment — the LinkedIn provider is not enabled yet.',
+          );
+        }
+        if (action.media_field_id) {
+          const mediaField = live.find((f) => f.id === action.media_field_id);
+          if (!mediaField) {
+            throw new UnprocessableEntityException('post_social media_field_id must be a field on this database');
+          }
+        }
+        if (action.result_field_id) {
+          const resultField = live.find((f) => f.id === action.result_field_id);
+          if (!resultField) {
+            throw new UnprocessableEntityException('post_social result_field_id must be a field on this database');
+          }
+        }
+        // Same admin-only override send_email's `require_approval: false`
+        // gets above: an explicit `false` is the save-time decision gated
+        // here; only an admin, typed by a human (never authored on their
+        // behalf), may turn it off. Unlike send_email, post_social has no
+        // run-time default-to-gated heuristic — #42 didn't ask for one, and
+        // `require_approval` left unset behaves like every other ungated
+        // action type (set_values, http_request, …).
+        if (
+          action.require_approval === false &&
+          actorRole !== undefined &&
+          (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
+        ) {
+          throw new UnprocessableEntityException(
+            source !== undefined && source !== 'human'
+              ? 'Turning off approval for a post_social action has to be a human decision, typed by a workspace admin — not something authored on their behalf.'
+              : 'Only a workspace admin can turn off approval for a post_social action.',
+          );
+        }
+      }
     }
   }
 
@@ -761,6 +817,17 @@ export class AutomationActionsService {
         const snapshot = { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
         return { snapshot, previewText: `${action.method} ${snapshot.url}` };
       }
+      case 'post_social': {
+        // Ticket #42 — rendered here (once) the same way send_email's body is,
+        // whether or not this ends up gated; the executor (post-social.action
+        // .ts) never touches {Field}/{payload} interpolation itself.
+        const text = this.interpolate(action.text, ctx, displayToApi);
+        const link = action.link ? this.interpolate(action.link, ctx, displayToApi) : action.link;
+        return {
+          snapshot: { ...action, text, link },
+          previewText: `Post to ${action.target}: ${text.slice(0, 200)}`,
+        };
+      }
     }
   }
 
@@ -941,7 +1008,7 @@ export class AutomationActionsService {
         // registered kind today (run_agent's own case returns the action
         // verbatim).
         const enqueueAction: AutomationAction =
-          action.type === 'send_email'
+          action.type === 'send_email' || action.type === 'post_social'
             ? this.renderForApproval(action, ctx, displayToApi).snapshot
             : action.type === 'http_request'
               ? { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) }

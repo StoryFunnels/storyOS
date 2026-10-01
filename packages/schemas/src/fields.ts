@@ -463,6 +463,41 @@ export const actionSchema = z.discriminatedUnion('type', [
       .max(10)
       .optional(),
   }),
+  /**
+   * MN-257 (ticket #42) — publish to LinkedIn or X from a record. Durable-
+   * queued like send_email/http_request (job-runner.service.ts's registered
+   * 'post_social' executor); `text`/`link` are {Field}-templated the same way
+   * add_comment's `body_template` is, rendered once before the job is
+   * enqueued (or before an approval snapshot freezes) — the executor itself
+   * never touches interpolation.
+   *
+   * `target` picks both the provider (linkedin_org/linkedin_member → the
+   * `linkedin` connection provider; x → the `x` connection provider) and, for
+   * LinkedIn, which actor posts as (the member vs. their organization page).
+   * `connection_id` must be a connection on the matching provider — checked
+   * at save time by AutomationActionsService.validate(), which also gates
+   * linkedin_org/linkedin_member behind env().LINKEDIN_ACTIONS_ENABLED (#42's
+   * E2E requirement) — `x` carries no such flag, it's bring-your-own-tier and
+   * always available once connected.
+   *
+   * `media_field_id` (optional) names an attachment field on this database;
+   * its first attachment is uploaded alongside the post. `result_field_id`
+   * (optional) is where the published post's URL is written back after a
+   * successful send — also DOUBLES as the dedup key: if it already holds a
+   * non-empty value, the executor skips the post rather than publishing a
+   * second time (see post-social.action.ts).
+   */
+  z.object({
+    ...gated,
+    type: z.literal('post_social'),
+    connection_id: z.uuid(),
+    target: z.enum(['linkedin_org', 'linkedin_member', 'x']),
+    /** {Field Name}/{payload.…} tokens are interpolated from the triggering record. */
+    text: z.string().min(1).max(3000),
+    media_field_id: z.uuid().optional(),
+    link: z.string().max(500).optional(),
+    result_field_id: z.uuid().optional(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 
