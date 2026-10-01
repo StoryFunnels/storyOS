@@ -30,6 +30,16 @@ type ApprovalRow = typeof approvals.$inferSelect;
  */
 export interface WriteBackPushAction {
   type: 'write_back_push';
+  /**
+   * #781 Phase 3 — tags this snapshot with the shared action-class
+   * vocabulary `ActionClassGateSnapshot` uses, so a held write-back push is
+   * visible/queryable alongside every other action-class gate. Descriptive
+   * only: dispatch (approve/reject/apply) stays on `type`, registered by
+   * WriteBackSubscriber exactly as before — adding this field changes no
+   * behavior. See SOURCE_PUSH_ACTION_CLASS's own doc for what's deliberately
+   * NOT changed alongside it (policy, human-bypass — both filed as #803/#804).
+   */
+  action_class: string;
   source_id: string;
   external_key: string;
   values: Record<string, unknown>;

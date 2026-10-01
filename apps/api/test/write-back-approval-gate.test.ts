@@ -160,6 +160,24 @@ describe('#282 write-back approval gate', () => {
     expect(runs[0]!.stats).toMatchObject({ pushed: false, external_key: productGid });
   });
 
+  it("#781 Phase 3: the held approval's snapshot is tagged action_class: 'source_push' — visible in the shared action-class vocabulary, no behavior change", async () => {
+    graphqlCalls = [];
+    const { dbId, productIdFieldId, titleFieldId, titleApiName } = await setupProductDb();
+    const recordId = await insertRecord(dbId, { [productIdFieldId]: 'gid://shopify/Product/901', [titleFieldId]: 'Tagged Product' });
+    await createSource(dbId, productIdFieldId, titleFieldId, { write_back: true, require_approval_for_push: true });
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${recordId}`, {
+      values: { [titleApiName]: 'Tagged Product (v2)' },
+    });
+
+    const approval = await pendingApprovalFor(recordId);
+    const pending = await inject('GET', `/workspaces/${wsId}/approvals?status=pending`);
+    const full = (pending.json() as Array<{ id: string; action_snapshot: { action: Record<string, unknown> } }>).find(
+      (a) => a.id === approval.id,
+    );
+    expect(full?.action_snapshot.action).toMatchObject({ type: 'write_back_push', action_class: 'source_push' });
+  });
+
   it('AC: approving performs the write and both the job and the run log reflect success', async () => {
     graphqlCalls = [];
     responseQueue = [];
