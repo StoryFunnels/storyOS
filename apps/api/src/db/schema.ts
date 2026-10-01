@@ -120,6 +120,15 @@ export const workspaces = pgTable('workspaces', {
   onboardingNudgeGuestInvitedSentAt: timestamp('onboarding_nudge_guest_invited_sent_at', { withTimezone: true }),
   onboardingNudgeSecondDatabaseSentAt: timestamp('onboarding_nudge_second_database_sent_at', { withTimezone: true }),
   onboardingNudgeFormPublishedSentAt: timestamp('onboarding_nudge_form_published_sent_at', { withTimezone: true }),
+  /**
+   * #650 AC2 — fired ONCE per workspace lifetime, on the first of three real
+   * events (a blocked Free seat-add, a Pro workspace reaching 5 billable
+   * seats, or a Free/Pro workspace's 5th database) — see SalesSignalService.
+   * `salesSignalReason` records WHICH one, so AdminWorkspaceSummary's flag is
+   * actionable rather than a bare boolean. Null = not yet fired.
+   */
+  salesSignalSentAt: timestamp('sales_signal_sent_at', { withTimezone: true }),
+  salesSignalReason: text('sales_signal_reason'),
   ...timestamps,
 });
 

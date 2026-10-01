@@ -451,6 +451,53 @@ function renderUsageThreshold(
   return { subject, text, html };
 }
 
+const SALES_SIGNAL_COPY: Record<
+  'free_seats_blocked' | 'pro_five_seats' | 'fifth_database',
+  { subject: string; heading: string; body: (workspaceName: string) => string; cta: string }
+> = {
+  free_seats_blocked: {
+    subject: 'Your team is outgrowing the Free plan',
+    heading: 'Ready for another teammate?',
+    body: (name) =>
+      `You tried to add someone new to ${name}, but the Free plan tops out at 2 members. Pro removes that ceiling — seats beyond the first few are billed per member, so you only pay for the team you actually have.`,
+    cta: 'Upgrade to Pro',
+  },
+  pro_five_seats: {
+    subject: "You've outgrown Pro's per-seat pricing",
+    heading: 'Business covers this team size for less',
+    body: (name) =>
+      `${name} just reached 5 members on Pro's per-seat pricing. Business includes 5 seats in its flat price — at this size it's the same team for less, not a bigger bill for more.`,
+    cta: 'Compare plans',
+  },
+  fifth_database: {
+    subject: 'Your workspace is growing',
+    heading: "You're getting real use out of StoryOS",
+    body: (name) =>
+      `${name} has grown to 5 databases — that's the kind of workspace where a bit of help paying for it can be worth exploring, whether that's a plan with more headroom or just talking through what you're building.`,
+    cta: 'See your options',
+  },
+};
+
+function renderSalesSignal(
+  workspaceName: string,
+  reason: 'free_seats_blocked' | 'pro_five_seats' | 'fifth_database',
+  billingUrl: string,
+): RenderedEmail {
+  const copy = SALES_SIGNAL_COPY[reason];
+  const body = copy.body(workspaceName);
+  const text = [body, '', `${copy.cta}: ${billingUrl}`].join('\n');
+  const html = renderBrandedEmail({
+    heading: copy.heading,
+    preheader: body,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;">${escapeHtml(body)}</p>
+    `,
+    cta: { label: copy.cta, url: billingUrl },
+  });
+  return { subject: copy.subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -476,5 +523,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderOnboardingNudge(input.milestone, input.ctaUrl);
     case 'usage-threshold':
       return renderUsageThreshold(input.workspaceName, input.metricLabel, input.percentUsed, input.billingUrl);
+    case 'sales-signal':
+      return renderSalesSignal(input.workspaceName, input.reason, input.billingUrl);
   }
 }
