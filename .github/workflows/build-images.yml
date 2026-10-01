@@ -51,6 +51,20 @@ jobs:
     name: ${{ matrix.service }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: changes
+    # An EMPTY services array is a valid outcome — a push that touches only
+    # workflows, docs or tests changes no image input. But `fromJSON('[]')` in
+    # strategy.matrix is not: Actions cannot generate a combination, refuses to
+    # create the job, and marks the whole RUN failed. `merge` then skips on
+    # `needs: build`, so the re-tag never runs and the commit gets no image at
+    # all — the same end state as the include bug this file was just fixed for.
+    # Observed on f795406, the merge of that very fix: services=[], zero build
+    # jobs, merge and deploy skipped, run red.
+    #
+    # A job-level `if` is evaluated BEFORE the matrix is expanded, so this skips
+    # the job cleanly instead. A skip is not a failure, so `merge`'s
+    # `always() && !failure()` still runs and re-tags all three services onto
+    # the new sha — which is exactly what an image-input-free commit needs.
+    if: needs.changes.outputs.services != '[]'
     timeout-minutes: 30
     permissions:
       contents: read
