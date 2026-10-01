@@ -11,10 +11,12 @@ import { readFileSync } from 'node:fs';
  * cookieless (memory persistence) mode, so the docs need NO cookie banner and
  * collect no personal data. Session recording is off.
  *
- * Astro does not expose .env to astro.config at config-evaluation time, so the
- * value is read explicitly with Vite's loadEnv. With PUBLIC_POSTHOG_KEY unset,
- * `head` stays empty and not a single byte of analytics reaches the page --
- * which is the default for a fresh clone and for every self-hoster.
+ * Astro does not expose .env to astro.config at config-evaluation time, and
+ * `vite`'s loadEnv is not reachable either (vite is not a direct dependency of
+ * this package), so the value is read with the small dependency-free parser
+ * below (readEnvFile). With PUBLIC_POSTHOG_KEY unset, `head` stays empty and
+ * not a single byte of analytics reaches the page -- which is the default for
+ * a fresh clone and for every self-hoster.
  *
  * Unlike the app (apps/web), the docs have no /ingest reverse-proxy rewrite,
  * so events go to the PostHog host directly.
