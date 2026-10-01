@@ -12,6 +12,7 @@ import type { DomainEvent } from '../events/domain-events.service';
 import { RecordsService } from '../records/records.service';
 import { ApprovalsService } from '../automations/approvals.service';
 import type { WriteBackPushAction } from '../automations/approvals.service';
+import { SOURCE_PUSH_ACTION_CLASS } from '../action-gates/action-gates.service';
 import { JobRunnerService } from '../automations/job-runner.service';
 import type { JobHelpers } from '../automations/job-runner.service';
 import { normalizeFieldMapping } from './field-mapping';
@@ -176,7 +177,13 @@ export class WriteBackSubscriber implements OnModuleInit {
     const summary = await this.recordsService.renderChangeSummary(event.databaseId, changedValuesByFieldId);
     const previewText = `Push to ${source.providerSource} (${source.name}): ${summary || 'field values changed'}`;
 
-    const action: WriteBackPushAction = { type: 'write_back_push', source_id: source.id, external_key: externalKey, values };
+    const action: WriteBackPushAction = {
+      type: 'write_back_push',
+      action_class: SOURCE_PUSH_ACTION_CLASS,
+      source_id: source.id,
+      external_key: externalKey,
+      values,
+    };
     await this.approvalsService.create({
       workspaceId: source.workspaceId,
       databaseId: event.databaseId,

@@ -14,6 +14,20 @@ type PolicyRow = typeof actionGatePolicies.$inferSelect;
  */
 export const DELETE_RECORDS_ACTION_CLASS = 'delete_records';
 
+/**
+ * #781 Phase 3 — the first "publish externally" action class, naming #282's
+ * existing write-back push. Deliberately NOT routed through this service's
+ * own `check()`/`resolvePolicy()` — #282's hold decision stays driven by its
+ * own per-source `require_approval_for_push` flag (WriteBackSubscriber), not
+ * a declared `action_gate_policies` row, and `check()`'s unconditional
+ * human-bypass is NOT applied here either. Both of those are real, filed,
+ * open product decisions (#803, #804) — this constant exists only so the
+ * held action's snapshot carries the SAME shared action-class vocabulary
+ * `ActionClassGateSnapshot` uses, not to opt `source_push` into this
+ * service's policy/bypass behavior before those decisions land.
+ */
+export const SOURCE_PUSH_ACTION_CLASS = 'source_push';
+
 export interface CheckGateInput {
   workspaceId: string;
   databaseId: string;
