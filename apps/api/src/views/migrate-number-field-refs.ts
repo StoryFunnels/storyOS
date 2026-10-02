@@ -28,12 +28,19 @@ import { env } from '../config/env';
 import { createDb } from '../db/client';
 import { views } from '../db/schema';
 import type { Db } from '../db/client';
-import { rewriteConfigNumberRefs } from './number-field-ref-rewrite';
-import { scanNumberFieldRefs } from './scan-number-field-refs';
+import { rewriteConfigNumberRefs, scanConfigForNumberRefs } from './number-field-ref-rewrite';
+import { databasesWithUserNumberField, scanNumberFieldRefs } from './scan-number-field-refs';
 
 export interface MigrateNumberFieldRefsResult {
   scanned: number;
   migrated: number;
+  /** Would have been rewritten, but `number` in that database is the user's OWN
+   * field (it wins over the system one), so rewriting would change what the
+   * view selects. Left alone on purpose. */
+  skippedUserField: number;
+  /** A space-level view has no single database, so `number` is ambiguous.
+   * Left alone; the scan reports it as unresolved. */
+  skippedSpaceView: number;
 }
 
 /** Runs the rewrite against an already-connected `db`. Exported (rather than
@@ -41,18 +48,31 @@ export interface MigrateNumberFieldRefsResult {
  * assert idempotency by calling it twice — same shape as
  * migrateEmojiIcons/#251. */
 export async function migrateNumberFieldRefs(db: Db): Promise<MigrateNumberFieldRefsResult> {
+  const userNumber = await databasesWithUserNumberField(db);
   const rows = await db.query.views.findMany({
-    columns: { id: true, config: true },
+    columns: { id: true, config: true, databaseId: true },
     where: isNull(views.deletedAt),
   });
   let migrated = 0;
+  let skippedUserField = 0;
+  let skippedSpaceView = 0;
   for (const row of rows) {
+    // The rewrite itself only sees a config, never the database it belongs to,
+    // so whether `number` means the system field is decided here.
+    if (row.databaseId === null) {
+      if (scanConfigForNumberRefs(row.config).hit) skippedSpaceView++;
+      continue;
+    }
+    if (userNumber.has(row.databaseId)) {
+      if (scanConfigForNumberRefs(row.config).hit) skippedUserField++;
+      continue;
+    }
     const rewritten = rewriteConfigNumberRefs(row.config);
     if (rewritten === row.config) continue; // no hit found — nothing to write
     await db.update(views).set({ config: rewritten }).where(eq(views.id, row.id));
     migrated++;
   }
-  return { scanned: rows.length, migrated };
+  return { scanned: rows.length, migrated, skippedUserField, skippedSpaceView };
 }
 
 async function main(): Promise<void> {
@@ -64,6 +84,7 @@ async function main(): Promise<void> {
         '',
         'Number field-ref migration (#764) complete:',
         `  views: migrated ${result.migrated} of ${result.scanned} scanned`,
+        `  left alone: ${result.skippedUserField} in a database where 'number' is the user's own field, ${result.skippedSpaceView} space-level view(s) with an ambiguous reference`,
         '',
       ].join('\n'),
     );
@@ -72,7 +93,10 @@ async function main(): Promise<void> {
       console.warn(
         `WARNING: ${remaining.length} view(s) still reference the deprecated 'number' field after migration:`,
       );
-      for (const hit of remaining) console.warn(`  [${hit.viewId}] "${hit.name}": ${hit.locations.join(', ')}`);
+      for (const hit of remaining) {
+        const why = hit.reason === 'space_view_unresolved' ? ' (space-level view: needs a human decision)' : '';
+        console.warn(`  [${hit.viewId}] "${hit.name}": ${hit.locations.join(', ')}${why}`);
+      }
       console.warn('Do NOT remove `number` from SYSTEM_FIELDS (#764 AC3) until this is zero.');
     } else {
       console.log("Post-migration scan: 0 views reference 'number'. Safe to proceed with #764 AC3 once every environment confirms this.");
