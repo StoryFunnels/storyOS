@@ -84,6 +84,14 @@ const activationSchema = z
   })
   .partial();
 
+// #775: workspaces where this user has views-only mode on. Client sends the full
+// next list (same contract as `activation`), capped to keep the blob bounded.
+const sidebarSchema = z
+  .object({
+    viewsOnlyWorkspaces: z.array(z.string()).max(1000),
+  })
+  .partial();
+
 const preferencesPatchSchema = z.object({
   notifications: notificationTogglesSchema.optional(),
   regional: regionalSchema.optional(),
@@ -92,6 +100,8 @@ const preferencesPatchSchema = z.object({
   github: githubPrefsSchema.optional(),
   /** First-run activation checklist dismissal (#155). */
   activation: activationSchema.optional(),
+  /** Sidebar display preferences (#775). */
+  sidebar: sidebarSchema.optional(),
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 

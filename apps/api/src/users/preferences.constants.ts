@@ -140,6 +140,17 @@ export interface UserPreferences {
   activation: {
     dismissedWorkspaces: string[];
   };
+  /**
+   * Sidebar display preferences (#775). `viewsOnlyWorkspaces` holds the workspace
+   * ids where THIS user has turned on views-only mode (databases hidden, views
+   * kept). Per user per workspace: one person's display choice must never change
+   * what anyone else sees (#736's defect), and it is server-stored rather than
+   * localStorage so it survives a device change instead of looking like the
+   * toggle "forgot". Same shape and reasoning as `activation.dismissedWorkspaces`.
+   */
+  sidebar: {
+    viewsOnlyWorkspaces: string[];
+  };
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -150,6 +161,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   collectionFilters: {},
   github: { login: null },
   activation: { dismissedWorkspaces: [] },
+  sidebar: { viewsOnlyWorkspaces: [] },
 };
 
 /** Merge a stored (possibly partial / legacy) blob over the defaults, so missing
@@ -163,6 +175,7 @@ export function mergePreferences(stored: unknown): UserPreferences {
     collectionFilters?: UserPreferences['collectionFilters'];
     github?: Partial<UserPreferences['github']>;
     activation?: Partial<UserPreferences['activation']>;
+    sidebar?: Partial<UserPreferences['sidebar']>;
   };
   return {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
@@ -173,6 +186,9 @@ export function mergePreferences(stored: unknown): UserPreferences {
     github: { ...DEFAULT_PREFERENCES.github, ...(s.github ?? {}) },
     activation: {
       dismissedWorkspaces: [...(s.activation?.dismissedWorkspaces ?? [])],
+    },
+    sidebar: {
+      viewsOnlyWorkspaces: [...(s.sidebar?.viewsOnlyWorkspaces ?? [])],
     },
   };
 }
