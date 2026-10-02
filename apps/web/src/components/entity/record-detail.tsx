@@ -1332,14 +1332,16 @@ function DescriptionSection({
           Description
         </button>
         {onHide && (
-          <button
-            type="button"
-            onClick={onHide}
-            title="Remove Description from this database's items"
-            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/desc:opacity-100 group-hover/bodyrow:opacity-100"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip label="Remove">
+            <button
+              type="button"
+              onClick={onHide}
+              aria-label="Remove Description from this database's items"
+              className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/desc:opacity-100 group-hover/bodyrow:opacity-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         )}
       </div>
     );
