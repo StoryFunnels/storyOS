@@ -231,6 +231,7 @@
   --z-dialog: 70;
   --z-palette: 80; /* command palette, shortcuts overlay */
   --z-popover: 90; /* EVERY portalled popover/menu — above all of the above */
+  --z-tooltip: 95; /* a tooltip labels a control, including one inside a popover or dialog */
   --z-toast: 100;
 }
 

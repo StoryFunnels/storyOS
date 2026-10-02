@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { Tooltip } from '@/components/ui/tooltip';
 
 /** Minimal structural type — BlockNote's editor exposes this (#74). Some versions
  * return a string, others a Promise; `await` handles both. */
@@ -85,22 +86,26 @@ export function MarkdownActions({ editor, filename }: { editor: MarkdownSource; 
 
   return (
     <span className="flex items-center gap-0.5">
-      <button
-        type="button"
-        title={copied ? 'Copied' : 'Copy as Markdown'}
-        onClick={copy}
-        className="rounded p-1 text-faint hover:bg-hover hover:text-ink"
-      >
-        {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
-      <button
-        type="button"
-        title="Download as .md"
-        onClick={download}
-        className="rounded p-1 text-faint hover:bg-hover hover:text-ink"
-      >
-        <Download className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip label={copied ? 'Copied' : 'Copy Markdown'}>
+        <button
+          type="button"
+          aria-label={copied ? 'Copied' : 'Copy as Markdown'}
+          onClick={copy}
+          className="rounded p-1 text-faint hover:bg-hover hover:text-ink"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </Tooltip>
+      <Tooltip label="Download .md">
+        <button
+          type="button"
+          aria-label="Download as .md"
+          onClick={download}
+          className="rounded p-1 text-faint hover:bg-hover hover:text-ink"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </span>
   );
 }

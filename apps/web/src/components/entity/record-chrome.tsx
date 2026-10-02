@@ -28,12 +28,13 @@ import { RecordHistoryDialog } from './record-history';
 import { useWatchers } from './panels';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
+import { Tooltip } from '@/components/ui/tooltip';
 
 /**
  * One uniform header icon-button (#197) — every control in the record header's
  * right-side cluster (Star, Fields, Actions, Copy link, and the split-panel
  * Collapse/Maximize/Close) shares this so they line up as equal-weight squares
- * with a consistent hover background. Pair it with a `title=` tooltip.
+ * with a consistent hover background. Wrap it in `<Tooltip>` (#807) — never a native `title=`.
  */
 export const HEADER_ICON_BTN =
   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-hover hover:text-ink';
@@ -69,15 +70,16 @@ async function copyRecordLink(ws: string, db: string, rec: RecordIdentity) {
  * one click puts the shareable record URL on the clipboard. */
 export function CopyLinkButton({ ws, db, rec }: { ws: string; db: string; rec: RecordIdentity }) {
   return (
-    <button
-      type="button"
-      title="Copy link"
-      aria-label="Copy link to this item"
-      onClick={() => void copyRecordLink(ws, db, rec)}
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
-    >
-      <Link2 className="h-4 w-4" />
-    </button>
+    <Tooltip label="Copy link">
+      <button
+        type="button"
+        aria-label="Copy link to this item"
+        onClick={() => void copyRecordLink(ws, db, rec)}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
+      >
+        <Link2 className="h-4 w-4" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -140,14 +142,15 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['favorites', ws] }),
   });
   return (
-    <button
-      onClick={() => toggle.mutate()}
-      title={starred ? 'Unstar' : 'Star'}
-      aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
-      className={HEADER_ICON_BTN}
-    >
-      <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
-    </button>
+    <Tooltip label={starred ? 'Unstar' : 'Star'}>
+      <button
+        onClick={() => toggle.mutate()}
+        aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
+        className={HEADER_ICON_BTN}
+      >
+        <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -158,15 +161,16 @@ export function WatchButton({ ws, db, rec }: { ws: string; db: string; rec: stri
   const { query, toggle } = useWatchers(ws, db, rec);
   const watching = query.data?.watching ?? false;
   return (
-    <button
-      onClick={() => toggle.mutate(!watching)}
-      disabled={toggle.isPending}
-      title={watching ? 'Stop watching' : 'Watch'}
-      aria-label={watching ? 'Stop watching this item' : 'Watch this item for changes'}
-      className={HEADER_ICON_BTN}
-    >
-      <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
-    </button>
+    <Tooltip label={watching ? 'Unwatch' : 'Watch'}>
+      <button
+        onClick={() => toggle.mutate(!watching)}
+        disabled={toggle.isPending}
+        aria-label={watching ? 'Stop watching this item' : 'Watch this item for changes'}
+        className={HEADER_ICON_BTN}
+      >
+        <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -241,11 +245,16 @@ export function RecordActions({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className={HEADER_ICON_BTN} title="Actions" aria-label="Item actions">
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
+        {/* Tooltip OUTSIDE the trigger: a Radix `asChild` trigger must wrap the
+            real button directly, or it clones a non-DOM component and the menu
+            never opens. */}
+        <Tooltip label="Actions">
+          <DropdownMenuTrigger asChild>
+            <button className={HEADER_ICON_BTN} aria-label="Item actions">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
         <DropdownMenuContent align="end">
           {/* This record — everyday, non-destructive actions (#197). */}
           <DropdownMenuLabel>This item</DropdownMenuLabel>

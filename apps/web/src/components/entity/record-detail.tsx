@@ -40,6 +40,7 @@ import {
 import type { Field } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import { PromotedProse } from '@/components/entity/promoted-prose';
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   CollapseToggle,
   CollapsibleBody,
@@ -553,43 +554,46 @@ export function RecordDetail({
               handle would imply a drag this panel doesn't support (the
               sidebar's own resizable-edge convention would train the wrong
               expectation here). */}
-          <button
-            type="button"
-            title={sidePanelCollapsed ? 'Show panel' : 'Hide panel'}
-            aria-label={sidePanelCollapsed ? 'Show the Activity/Comments/About panel' : 'Hide the Activity/Comments/About panel'}
-            className={HEADER_ICON_BTN}
-            onClick={() => setSidePanelCollapsed((c) => !c)}
-          >
-            <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
-          </button>
+          <Tooltip label={sidePanelCollapsed ? 'Show panel' : 'Hide panel'}>
+            <button
+              type="button"
+              aria-label={sidePanelCollapsed ? 'Show the Activity/Comments/About panel' : 'Hide the Activity/Comments/About panel'}
+              className={HEADER_ICON_BTN}
+              onClick={() => setSidePanelCollapsed((c) => !c)}
+            >
+              <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
+            </button>
+          </Tooltip>
           {/* Split-panel chrome (#167): collapse to a peek-rail, and maximize /
               restore the split area. Only present when the host mounts this record
               as a panel. */}
           {onCollapse && (
-            <button
-              type="button"
-              title="Collapse"
-              aria-label="Collapse to rail"
-              className={HEADER_ICON_BTN}
-              onClick={onCollapse}
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
+            <Tooltip label="Collapse">
+              <button
+                type="button"
+                aria-label="Collapse to rail"
+                className={HEADER_ICON_BTN}
+                onClick={onCollapse}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </Tooltip>
           )}
           {onToggleMaximize && (
-            <button
-              type="button"
-              title={isMaximized ? 'Restore' : 'Maximize'}
-              aria-label={isMaximized ? 'Restore split view' : 'Maximize pane'}
-              className={HEADER_ICON_BTN}
-              onClick={onToggleMaximize}
-            >
-              {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </button>
+            <Tooltip label={isMaximized ? 'Restore' : 'Maximize'}>
+              <button
+                type="button"
+                aria-label={isMaximized ? 'Restore split view' : 'Maximize pane'}
+                className={HEADER_ICON_BTN}
+                onClick={onToggleMaximize}
+              >
+                {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            </Tooltip>
           )}
+          <Tooltip label="Close">
           <button
             type="button"
-            title="Close"
             aria-label="Close"
             className={HEADER_ICON_BTN}
             onClick={() => {
@@ -603,6 +607,7 @@ export function RecordDetail({
           >
             <X className="h-4 w-4" />
           </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1155,10 +1160,10 @@ function BodyRow({
       className={cn('group/bodyrow relative', vacatedSlotClass(sortable.isDragging))}
     >
       {draggable && (
+        <Tooltip label="Drag" side="left">
         <button
           type="button"
           aria-label="Drag to reorder"
-          title="Drag to reorder"
           className={cn(
             // #706 — KEEPS faint: the handle's only content is a drag glyph, a
             // non-text graphic at 3:1. Its accessible name is the aria-label.
@@ -1171,6 +1176,7 @@ function BodyRow({
         >
           <GripVertical className="h-4 w-4" />
         </button>
+        </Tooltip>
       )}
       {children}
     </div>
@@ -1312,16 +1318,18 @@ function DescriptionSection({
         <CollapseToggle collapsed={collapsed} onToggle={toggle} label="Description" />
         <h2 className="text-label font-medium uppercase tracking-wider text-muted">Description</h2>
         {onHide && (
+          <Tooltip label="Remove">
           <button
             type="button"
             onClick={onHide}
-            title="Remove Description from this database's items"
+            aria-label="Remove Description from this database's items"
           /* #706 — KEEPS faint: this button's only content is an X icon, a
              non-text graphic judged at 3:1, which faint clears. */
             className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/bodyrow:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </button>
+          </Tooltip>
         )}
       </div>
       <CollapsibleBody collapsed={collapsed}>

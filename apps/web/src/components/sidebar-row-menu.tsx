@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { MoreHorizontal } from 'lucide-react';
@@ -93,23 +94,25 @@ export function SidebarRowMenu({
   if (visible.length === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          /**
-           * `focus:opacity-100` matters as much as the hover: the trigger is
-           * invisible until hovered, so without it a keyboard user tabs onto a
-           * control they cannot see.
-           */
-          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100"
-          aria-label={`Options for ${label}`}
-          // The row is usually a link or a toggle; opening the menu must not
-          // also navigate or collapse it.
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreHorizontal className="h-3.5 w-3.5 text-faint" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label="Options">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            /**
+             * `focus:opacity-100` matters as much as the hover: the trigger is
+             * invisible until hovered, so without it a keyboard user tabs onto a
+             * control they cannot see.
+             */
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100"
+            aria-label={`Options for ${label}`}
+            // The row is usually a link or a toggle; opening the menu must not
+            // also navigate or collapse it.
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5 text-faint" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="end" className={contentClassName ?? 'w-52'}>
         {visible.map((action, i) => (
           <Fragment key={action.label}>

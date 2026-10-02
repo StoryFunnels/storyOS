@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -400,11 +401,13 @@ export function PersonalSection({ ws }: { ws: string }) {
 
   const newMenu = (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button type="button" title="New…" className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted">
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label="New">
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label="New in Personal" className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted">
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="start">
         <DropdownMenuItem disabled={!canCreateDoc} onSelect={() => createDoc.mutate()}>
           <FileText className="mr-2 h-3.5 w-3.5" /> New document

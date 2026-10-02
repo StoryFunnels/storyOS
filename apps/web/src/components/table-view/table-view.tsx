@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -1306,13 +1307,15 @@ export function TableView({
                       {/* The labelled "Open" affordance on the title cell is the single way
                           to expand a row (#90) — no duplicate icon here. */}
                       {!readOnly && (
-                        <button
-                          title={`Delete ${noun}`}
-                          className="rounded p-0.5 text-faint hover:text-error"
-                          onClick={() => deleteRecord.mutate(row.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <Tooltip label="Delete">
+                          <button
+                            aria-label={`Delete ${noun}`}
+                            className="rounded p-0.5 text-faint hover:text-error"
+                            onClick={() => deleteRecord.mutate(row.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                   </div>

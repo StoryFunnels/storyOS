@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import posthog from 'posthog-js';
 import { ThemeProvider } from '@/lib/theme';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { registerServiceWorker } from '@/lib/service-worker';
 import { captureReferralCode } from '@/lib/referral';
 import { useSession } from '@/lib/auth-client';
@@ -75,8 +76,10 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <ConfirmProvider>
-          <IdentitySync />
-          {children}
+          <TooltipProvider>
+            <IdentitySync />
+            {children}
+          </TooltipProvider>
         </ConfirmProvider>
       </ThemeProvider>
     </QueryClientProvider>

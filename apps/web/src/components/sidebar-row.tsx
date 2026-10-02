@@ -3,6 +3,7 @@
 import { forwardRef } from 'react';
 import { GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_INDENT_PX,
   sidebarRowStateClass,
@@ -41,6 +42,19 @@ const SIDEBAR_HEADER_PAD_PX = 14;
  */
 export function GlyphSlot({ children }: { children: React.ReactNode }) {
   return <span className="flex h-4 w-4 shrink-0 items-center justify-center">{children}</span>;
+}
+
+/** The grip gutter is the drag handle for a draggable row without a caret (a
+ * caret takes the slot instead), so it gets the "Drag" label; every other
+ * gutter is an inert spacer and must not. */
+function GutterTip({ enabled, children }: { enabled: boolean; children: React.ReactElement }) {
+  return enabled ? (
+    <Tooltip label="Drag" side="right">
+      {children}
+    </Tooltip>
+  ) : (
+    children
+  );
 }
 
 export const SidebarRow = forwardRef<HTMLDivElement, {
@@ -118,6 +132,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
         Rendering it only on hover is what made rows shift under the cursor.
       */}
       {indicator}
+      <GutterTip enabled={draggable && !caret}>
       <span
         aria-hidden={!draggable && !caret}
         className={cn(
@@ -149,6 +164,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
           <span className="block h-3 w-3" />
         ))}
       </span>
+      </GutterTip>
       {children}
     </div>
   );
