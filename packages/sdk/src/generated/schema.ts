@@ -4829,6 +4829,9 @@ export interface components {
             activation?: {
                 dismissedWorkspaces?: string[];
             };
+            sidebar?: {
+                viewsOnlyWorkspaces?: string[];
+            };
         };
         CreateAutomationDto: {
             name: string;

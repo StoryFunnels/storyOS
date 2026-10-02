@@ -40,6 +40,9 @@ export class PreferencesService {
       // current one is carried through untouched — same reconstruct-safe rule as
       // the keys above so an unrelated patch can't silently wipe it.
       activation: { ...current.activation, ...(patch.activation ?? {}) },
+      // Sidebar display prefs (#775): same reconstruct-safe merge, so an unrelated
+      // patch can never silently switch views-only mode back off.
+      sidebar: { ...current.sidebar, ...(patch.sidebar ?? {}) },
       // viewFilters (#259) is never part of this generic patch — it's managed by
       // the dedicated personal-filter endpoint (views/:view/personal-filter) so it
       // gets the view/field existence checks that live there. Carry it through

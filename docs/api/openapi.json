@@ -12039,6 +12039,18 @@
                 }
               }
             }
+          },
+          "sidebar": {
+            "type": "object",
+            "properties": {
+              "viewsOnlyWorkspaces": {
+                "maxItems": 1000,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },

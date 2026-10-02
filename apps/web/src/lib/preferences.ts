@@ -33,6 +33,11 @@ export interface UserPreferences {
   activation: {
     dismissedWorkspaces: string[];
   };
+  /** #775: workspace ids where this user has views-only mode on (per user per
+   *  workspace, server-stored so it follows them across devices). */
+  sidebar: {
+    viewsOnlyWorkspaces: string[];
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: Partial<T[K]> };
