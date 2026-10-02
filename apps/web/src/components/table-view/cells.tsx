@@ -1052,11 +1052,40 @@ function OptionList({
     }
   }
 
+  // #810 — while a picker is open the cell renders ONLY this component, so the
+  // field went blank and the list opened under an empty box: the value you are
+  // changing was the one thing you could no longer see. Keep it on screen, in
+  // place, drawn from the same chips as the list rows. Fixed here, in the shared
+  // control, so every select / multi-select / workflow / person picker inherits
+  // it (CLAUDE.md field-surface rule). Nothing selected renders nothing, so the
+  // batch editor (which has no single current value) is unchanged.
+  const currentOptions = current
+    .map((id) => options.find((o) => o.id === id))
+    .filter((o): o is NonNullable<typeof o> => o !== undefined);
+
   return (
+    <>
+      {currentOptions.length > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-1" data-testid="option-list-current">
+          {currentOptions.map((option) =>
+            option.image !== undefined ? (
+              <span key={option.id} className="flex items-center gap-1.5 text-body text-ink">
+                <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                {option.label}
+              </span>
+            ) : (
+              <OptionChip key={option.id} option={option} />
+            ),
+          )}
+        </div>
+      )}
     <Popover open onOpenChange={handleOpenChange}>
       <PopoverParentAnchor />
       <PopoverContent
-        className="flex max-h-80 w-56 flex-col gap-1 p-1"
+        // Bounded by what the viewport leaves (Radix's available-height var), so
+        // when it flips above a field near an edge the list scrolls instead of
+        // running off-screen with its search box.
+        className="flex max-h-[min(20rem,var(--radix-popover-content-available-height))] w-56 flex-col gap-1 p-1"
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -1085,7 +1114,7 @@ function OptionList({
             e.stopPropagation();
           }}
         />
-        <div className="max-h-60 overflow-y-auto">
+        <div className="min-h-0 max-h-60 overflow-y-auto">
           {filtered.map((option, idx) => {
             const isSelected = current.includes(option.id);
             return (
@@ -1153,6 +1182,7 @@ function OptionList({
         </div>
       </PopoverContent>
     </Popover>
+    </>
   );
 }
 
