@@ -137,26 +137,38 @@ export class CopyRecordService {
     const sourceRelationLinks = await adapter.readRelations();
     const skip = new Set(input.skip ?? []);
 
-    // Whether ANY record in THIS copy carries a value for a field — planField's
-    // blocking rule is per-copy, not per-schema (an empty field never blocks).
-    const hasValueByKey = new Map<string, boolean>();
+    // How many of THIS copy's selected records carry a value for a field. One
+    // computation feeds both the blocking rule (planField's `hasValue` is just
+    // `count > 0`: blocking is per-copy, not per-schema, so an empty field never
+    // blocks) and the "N of M selected" figure shown with a block (#435 AC2), so
+    // the number a person reads and the rule that blocked them cannot disagree.
+    const affectedByKey = new Map<string, number>();
     for (const field of schema) {
-      const has =
-        sourceRecords.some((r) => !isEmptyValue(r.fields[field.key])) ||
-        sourceRelationLinks.some((l) => l.fieldKey === field.key);
-      hasValueByKey.set(field.key, has);
+      const withValue = new Set<string>();
+      for (const r of sourceRecords) if (!isEmptyValue(r.fields[field.key])) withValue.add(r.sourceId);
+      for (const l of sourceRelationLinks) if (l.fieldKey === field.key) withValue.add(l.fromSourceId);
+      affectedByKey.set(field.key, withValue.size);
     }
 
+    const selectedCount = sourceRecords.length;
     const plans: FieldPlan[] = schema.map((field) => {
       const sourceField = sourceByApiName.get(field.key);
       const sourceTargetDatabaseId =
         sourceField?.type === 'relation' ? sourceRelTargets.get(sourceField.id) : undefined;
-      return planField(field, destinations, {
-        hasValue: hasValueByKey.get(field.key) ?? false,
+      const plan = planField(field, destinations, {
+        hasValue: (affectedByKey.get(field.key) ?? 0) > 0,
         skipped: skip.has(field.key),
         sourceTargetDatabaseId,
         override: input.override?.[field.key],
       });
+      // "Has a value" versus "has a value in 12 of 50 selected" is the difference
+      // between a block you cannot act on and one you can: 12 of 50 means fix
+      // twelve records, 50 of 50 means choose another field. Said only for a
+      // multi-record selection — "1 of 1" is noise on the single-record path.
+      if (plan.state === 'blocking' && plan.reason && selectedCount > 1) {
+        return { ...plan, reason: `${plan.reason} Affects ${affectedByKey.get(field.key) ?? 0} of ${selectedCount} selected records.` };
+      }
+      return plan;
     });
 
     const report = new DryRunBuilder();
