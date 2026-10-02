@@ -291,3 +291,26 @@ export function useClearCollectionViewOverride(ws: string, db: string) {
     onError: () => toast.error('Could not clear your personal filter'),
   });
 }
+
+/**
+ * #813 — is this rich-text value EMPTY? BlockNote can hand back `[]`, `null`, or
+ * the single empty paragraph it creates for a blank document, and all three mean
+ * "nothing written". A block with text, a non-paragraph block (a divider, an
+ * image, a list item), or any child block is content.
+ */
+export function isEmptyBlocks(value: unknown): boolean {
+  if (value == null) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((b) => {
+    if (!b || typeof b !== 'object') return true;
+    const block = b as { type?: string; content?: unknown; children?: unknown };
+    if (block.type !== 'paragraph') return false;
+    if (Array.isArray(block.children) && block.children.length > 0) return false;
+    if (typeof block.content === 'string') return block.content.trim() === '';
+    if (!Array.isArray(block.content)) return true;
+    return block.content.every((c) => {
+      const run = c as { type?: string; text?: unknown };
+      return run?.type === 'text' && typeof run.text === 'string' && run.text.trim() === '';
+    });
+  });
+}
