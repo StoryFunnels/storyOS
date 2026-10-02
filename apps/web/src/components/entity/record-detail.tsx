@@ -39,6 +39,7 @@ import {
 } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
+import { PromotedProse } from '@/components/entity/promoted-prose';
 import {
   CollapseToggle,
   CollapsibleBody,
@@ -390,8 +391,6 @@ export function RecordDetail({
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
-  /** #780 Rule 1 — which promoted prose blocks are expanded past their clip. */
-  const [expandedProse, setExpandedProse] = useState<Set<string>>(new Set());
   /**
    * #780 — Ievgen's ruling: the side panel is collapsible by the user, open
    * by default on the full record page, and auto-collapsed on mount when
@@ -842,48 +841,19 @@ export function RecordDetail({
               148px-label grid row). The common case, not the exception: five
               of the artifact's ten sampled records had a field long enough
               to trigger this. */}
-          {promotedProseFields.map((field) => {
-            const text = String(record.data!.values[field.apiName] ?? '');
-            const expanded = expandedProse.has(field.id);
-            return (
-              <div key={field.id} className="mt-6 max-w-[74ch]">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <h4 className="text-body font-semibold text-ink">{field.displayName}</h4>
-                  <span className="rounded border border-border-default px-1 font-mono text-micro text-muted">
-                    {text.length.toLocaleString()} chars
-                  </span>
-                </div>
-                <div
-                  className={cn(
-                    'relative whitespace-pre-wrap border-l-2 border-border-default pl-3.5 text-body leading-relaxed text-ink-secondary',
-                    !expanded && 'max-h-[172px] overflow-hidden',
-                  )}
-                >
-                  {text}
-                  {!expanded && (
-                    <span
-                      aria-hidden
-                      className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-[var(--bg-app)] to-transparent"
-                    />
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="mt-1 rounded px-1 text-label font-medium text-muted hover:bg-hover hover:text-ink"
-                  onClick={() =>
-                    setExpandedProse((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(field.id)) next.delete(field.id);
-                      else next.add(field.id);
-                      return next;
-                    })
-                  }
-                >
-                  {expanded ? 'Show less' : 'Show all'}
-                </button>
-              </div>
-            );
-          })}
+          {promotedProseFields.map((field) => (
+            <PromotedProse
+              key={field.id}
+              ws={ws}
+              db={db}
+              rec={recordId}
+              field={field}
+              text={String(record.data!.values[field.apiName] ?? '')}
+              members={memberList}
+              readOnly={readOnly}
+              onCommit={vp.onCommit}
+            />
+          ))}
 
           {/* Body fields: collections (lists), scalars-in-body, rich text — in order.
               All are drag-reorderable via a hover-revealed handle EXCEPT rich-text
