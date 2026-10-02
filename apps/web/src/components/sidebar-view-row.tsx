@@ -6,7 +6,7 @@ import { SidebarRowMenu, type SidebarMenuAction } from '@/components/sidebar-row
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { GlyphSlot, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -83,7 +83,9 @@ export function SidebarViewRow({
 
   const label = (
     <>
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
+      <GlyphSlot>
+        <Icon className="h-3.5 w-3.5 text-muted" />
+      </GlyphSlot>
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {view.personal && (
         // #291 — badge that it is private. Never say whose: the payload does
@@ -136,11 +138,11 @@ export function SidebarViewRow({
       className={isDragging ? 'opacity-50' : undefined}
     >
       {href ? (
-        <Link href={href} className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Link href={href} className="flex min-w-0 flex-1 items-center gap-2">
           {label}
         </Link>
       ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">{label}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2">{label}</span>
       )}
 
       {/**

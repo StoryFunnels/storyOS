@@ -40,9 +40,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
-import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { markInitials } from '@/components/sidebar-row-style';
 import {
   SIDEBAR_NAV_DEFAULT_W,
+  SIDEBAR_RAIL_W,
   SIDEBAR_NAV_MAX_W,
   SIDEBAR_NAV_MIN_W,
   SIDEBAR_NAV_STEP,
@@ -82,17 +84,23 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-2 pb-1 text-meta font-semibold uppercase tracking-wider text-muted">Favorites</div>
+      <div className="px-3 pb-1 text-micro font-normal uppercase tracking-[0.16em] text-faint">Favorites</div>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
-          <Link
-            key={`${f.target_type}:${f.target_id}`}
-            href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-            className="flex items-center gap-2 rounded px-2 py-[3px] text-body text-ink-secondary hover:bg-hover"
-          >
-            <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
-            <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
-          </Link>
+          // #805 — through SidebarRow + GlyphSlot like every other row. This was
+          // a hand-rolled `px-2` link that never had the gutter, so its star and
+          // label sat at their own x, off the column every other row shares.
+          <SidebarRow key={`${f.target_type}:${f.target_id}`} depth={0} className="hover:bg-hover">
+            <Link
+              href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
+              className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
+            >
+              <GlyphSlot>
+                <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+              </GlyphSlot>
+              <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
+            </Link>
+          </SidebarRow>
         ))}
       </div>
     </div>
@@ -288,7 +296,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       onOpenInbox={() => setInboxOpen(true)}
     />
     <aside
-      style={{ width: sidebarWidth }}
+      style={{ width: sidebarWidth - SIDEBAR_RAIL_W }}
       className="flex h-full shrink-0 flex-col border-r border-border-default bg-sidebar"
     >
       <div className="flex shrink-0 items-stretch">
@@ -325,7 +333,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
+      <nav className="flex-1 overflow-y-auto pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
         {/* #742 phase 6 — Collections tier: Reviews and Business Packs (both
             without a count or an add button — this app has no count source for
@@ -337,7 +345,10 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             add into from the sidebar"), but removing that capability entirely
             would be a functional regression this ticket isn't scoped to make;
             it stays, just grouped under this banner instead of its own. */}
-        <p className="mb-0.5 mt-1 px-2 text-meta font-semibold uppercase tracking-wider text-faint">
+        {/* #805 — the artifact's quiet tier label: 9px/400 at 0.16em. 9px is
+            below --text-micro (10px), the floor of the role scale, so 10px is
+            the mapping; the weight and tracking are the artifact's. */}
+        <p className="mb-0.5 mt-1 px-3 text-micro font-normal uppercase tracking-[0.16em] text-faint">
           Collections
         </p>
         {/* #779 — through SidebarRow like every other row, rather than a bare
@@ -347,13 +358,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             no gutter landed 6px left of where it should. */}
         <SidebarRow depth={0} className="hover:bg-hover">
           <Link href={`/w/${ws}/reviews`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+            <GlyphSlot><GitPullRequest className="h-3.5 w-3.5" /></GlyphSlot>
             <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
           </Link>
         </SidebarRow>
         <SidebarRow depth={0} className="hover:bg-hover">
           <Link href={`/w/${ws}/packs`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <Package className="h-3.5 w-3.5 shrink-0" />
+            <GlyphSlot><Package className="h-3.5 w-3.5" /></GlyphSlot>
             <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
           </Link>
         </SidebarRow>
@@ -363,7 +374,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         {/* #641 — 72px of the void between the nav and the tree was Personal's
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
-        <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
+        <div className="mb-0.5 mt-0 flex items-center justify-between px-3">
           <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
           <div className="flex items-center gap-0.5">
             <ViewsOnlyModeButton active={viewsOnly} onToggle={toggleViewsOnly} />
@@ -920,9 +931,14 @@ function HiddenRow({
   onUnhide: () => void;
 }) {
   return (
-    <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-body text-muted">
+    <div className="group/h mx-1.5 flex h-6 items-center justify-between rounded px-2 text-body text-muted">
       <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
-        <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+        {/* the chevron column every SidebarRow reserves, empty here — without it
+            these rows' icons sat 20px left of everything else */}
+        <span aria-hidden className="-mr-0 block w-3 shrink-0" />
+        <GlyphSlot>
+          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+        </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
       <button
@@ -1623,6 +1639,7 @@ function SpaceSection({
        */}
       <SidebarRow
         depth={0}
+        edge="header"
         ref={setNodeRef}
         // #641 — was py-1 (4/4); the inter-space breathing room now comes
         // from the space-list's own gap-2 (added between siblings only, so
@@ -1672,11 +1689,13 @@ function SpaceSection({
         ) : (
           <Link
             href={`/w/${ws}/s/${space.id}`}
-            className="flex min-w-0 flex-1 items-center gap-1 text-left text-meta font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.09em] text-muted hover:text-ink-secondary"
             onPointerDown={(e) => e.stopPropagation()}
           >
             {space.icon ? (
-              <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
+              <GlyphSlot>
+                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
+              </GlyphSlot>
             ) : (
               /* #742 finding 08 — glyph vocabulary: a space with no custom
                  icon gets a coloured letter mark, same primitive Groups
@@ -1686,13 +1705,21 @@ function SpaceSection({
               <LetterMark name={space.name} color={space.color} />
             )}
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
-            {collapsed && databases.length > 0 && (
-              <span className="ml-1 text-faint/70">{databases.length}</span>
-            )}
           </Link>
         )}
+        {/* #805 AC6 — the artifact's database count on the space header, shown
+            open or shut (it was shut-only), and swapped for the actions on hover
+            exactly as the artifact does. Source: `databases.length`, the space's
+            full database list from useDatabases(ws) — that endpoint is not
+            paginated, so this is the real number, not a count of loaded rows
+            (the #755 lie). */}
+        {!renaming && databases.length > 0 && (
+          <span className="shrink-0 text-micro font-semibold tabular-nums text-faint group-focus-within:hidden group-hover:hidden">
+            {databases.length}
+          </span>
+        )}
         {canEdit && (
-          <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <span className="hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="rounded p-0.5 text-muted hover:bg-active" title="Add">
@@ -2075,7 +2102,9 @@ function DocumentRow({
       dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
     >
       <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+        <GlyphSlot>
+          <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+        </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{doc.title || 'Untitled'}</span>
       </Link>
       {/*
@@ -2319,7 +2348,9 @@ function FolderSection({
         </button>
       }>
         <button onClick={toggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+          <GlyphSlot>
+            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+          </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
         {contentCount > 0 && (
@@ -2390,7 +2421,10 @@ function FolderSection({
            #641 — gap-0.5 added: same zero-gap-between-rows issue as the
            space's own root list, fixed the same way. */
         <div
-          className="flex flex-col gap-0.5 border-l border-border-default"
+          // #805 — the guide line is a pseudo-element, not `border-l`: a real
+          // border took 1px of layout and pushed every folder child 1px right
+          // of the artifact's columns (35/55/79 instead of 34/54/78).
+          className="relative flex flex-col gap-0.5 before:pointer-events-none before:absolute before:inset-y-px before:left-px before:w-px before:bg-border-default"
           style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}
         >
           {contentCount === 0 && (
@@ -2708,11 +2742,13 @@ function DatabaseRow({
               gets its own hit target. Rendered only when there is something to
               expand, which after #381 is the minority of databases. */}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-          <EntityIcon
-            icon={db.icon}
-            color={db.color}
-            fallback={<Database className="h-3.5 w-3.5 text-muted" />}
-          />
+          <GlyphSlot>
+            <EntityIcon
+              icon={db.icon}
+              color={db.color}
+              fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+            />
+          </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
         </Link>
         </>
@@ -2938,7 +2974,7 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
  * (nobody has customized this one yet), not a value to paper over.
  */
 function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
-  const letter = (name.trim()[0] ?? '?').toUpperCase();
+  const letter = markInitials(name);
   return (
     <span
       className={cn(

@@ -11,6 +11,9 @@ import {
 
 export { SIDEBAR_INDENT_PX, type SidebarDepth };
 
+const SIDEBAR_ROW_PAD_PX = 8;
+const SIDEBAR_HEADER_PAD_PX = 14;
+
 /**
  * #380 — the ONE place that owns sidebar row geometry.
  *
@@ -27,6 +30,18 @@ export { SIDEBAR_INDENT_PX, type SidebarDepth };
  * and #369 both add or move row types.
  */
 
+
+/**
+ * #805 — the artifact's `.gslot`: every leading glyph (database icon, view
+ * type, folder, document, letter mark) sits in ONE 16px centred slot, so a
+ * 14px icon and a 16px letter mark both start their label at the same x
+ * (58 panel-relative) whatever glyph the row happens to carry. The slot is the
+ * mechanism; a row that skips it drifts by a pixel or two, which is exactly
+ * the "every icon at one x" defect #779 was filed for.
+ */
+export function GlyphSlot({ children }: { children: React.ReactNode }) {
+  return <span className="flex h-4 w-4 shrink-0 items-center justify-center">{children}</span>;
+}
 
 export const SidebarRow = forwardRef<HTMLDivElement, {
   depth: SidebarDepth;
@@ -52,10 +67,18 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
    * Positioned absolutely, so it never affects the row's height or indent.
    */
   indicator?: React.ReactNode;
+  /**
+   * #805 — where the row's content starts. `row` (default) is the artifact's
+   * `.row`: 6px margin + 8px padding, so the hover/active fill is inset from
+   * the panel edge. `header` is its `.sp-hd`/`.area-hd`: full-bleed (they are
+   * sticky and must be opaque edge to edge) with 14px padding. Both put the
+   * chevron slot at x=14 panel-relative.
+   */
+  edge?: 'row' | 'header';
   className?: string;
   children: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>>(function SidebarRow(
-  { depth, active = false, draggable = false, dragHandleProps, caret, indicator, className, style, children, ...rest },
+  { depth, active = false, draggable = false, dragHandleProps, caret, indicator, edge = 'row', className, style, children, ...rest },
   ref,
 ) {
   return (
@@ -68,11 +91,14 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
        * lose its depth only while sortable, which is exactly the kind of
        * conditional geometry bug this component exists to end.
        */
-      style={{ paddingLeft: SIDEBAR_INDENT_PX[depth], ...style }}
+      style={{ paddingLeft: (edge === 'header' ? SIDEBAR_HEADER_PAD_PX : SIDEBAR_ROW_PAD_PX) + SIDEBAR_INDENT_PX[depth], ...style }}
       className={cn(
         // `relative` so #412's absolutely-positioned insertion marker anchors to
         // the row rather than escaping to the nearest positioned ancestor.
-        'group relative flex items-center justify-between rounded pr-2 py-[3px] text-body',
+        // #805 — 24px, not the old ~20 (py-[3px] around a 14px line): the
+        // artifact's row height, measured.
+        'group relative flex h-6 items-center justify-between rounded pr-2 text-body',
+        edge === 'header' ? 'mx-0 pr-3.5' : 'mx-1.5',
         /**
          * #380 — BACKGROUND ONLY for the active row.
          *
@@ -95,7 +121,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
       <span
         aria-hidden={!draggable && !caret}
         className={cn(
-          'mr-0.5 flex w-3 shrink-0 justify-center',
+          'mr-2 flex w-3 shrink-0 justify-center',
           draggable && !caret && 'cursor-grab active:cursor-grabbing',
         )}
         {...(draggable && !caret ? dragHandleProps : {})}

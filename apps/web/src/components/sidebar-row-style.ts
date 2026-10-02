@@ -53,3 +53,16 @@ export function sidebarRowIndent(depth: SidebarDepth): number {
 export function sidebarRowStateClass(active: boolean): string {
   return active ? 'bg-active text-ink' : 'text-ink-secondary hover:bg-hover';
 }
+
+/**
+ * #805 — TWO letters, as the artifact draws them (AO, ST, CW, BF, JC): first
+ * letters of the first two words, or the first two characters of a single word.
+ * One letter collides the moment two spaces share an initial, and
+ * "Borderlands Foundation" read as "B".
+ */
+export function markInitials(name: string): string {
+  const words = name.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  const out = words.length > 1 ? words[0]![0]! + words[1]![0]! : (words[0] ?? '').slice(0, 2);
+  return (out || '?').toUpperCase();
+}
+

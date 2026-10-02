@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { SIDEBAR_INDENT_PX, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
+import { SIDEBAR_INDENT_PX, markInitials, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
 
 /**
  * #380 / #742 — this geometry has regressed twice under the OLD margin-scale
@@ -134,5 +134,42 @@ describe('#779 — every sidebar chevron goes through SidebarRow\'s caret slot',
       (loc) => !EXEMPT_COMPONENTS.has(loc.split(' (')[0]!),
     );
     expect(offenders, 'a ChevronRight outside caret={} reserves its own gutter alongside SidebarRow\'s, pushing the row right of its own children').toEqual([]);
+  });
+});
+
+/**
+ * #805 — the artifact's marks are TWO letters. One letter collided the moment
+ * two spaces shared an initial, and "Borderlands Foundation" showed "B".
+ */
+describe('markInitials (#805)', () => {
+  it('two words: first letter of each of the first two', () => {
+    expect(markInitials('Borderlands Foundation')).toBe('BF');
+    expect(markInitials('Agentic OS')).toBe('AO');
+    expect(markInitials('Client Work')).toBe('CW');
+  });
+
+  it('a single word: its first two characters', () => {
+    expect(markInitials('General')).toBe('GE');
+    expect(markInitials('StoryOS')).toBe('ST');
+    expect(markInitials('JCM')).toBe('JC');
+  });
+
+  it('keeps two spaces that share an initial distinguishable', () => {
+    expect(markInitials('Client Portal')).not.toBe(markInitials('Client Work'));
+  });
+
+  it('ignores a third and later word', () => {
+    expect(markInitials('Agency Back Office')).toBe('AB');
+  });
+
+  it('survives punctuation, extra whitespace and non-latin names', () => {
+    expect(markInitials('  --Q3 / Reports  ')).toBe('QR');
+    expect(markInitials('Über Uns')).toBe('ÜU');
+  });
+
+  it('single-character and empty names still yield something', () => {
+    expect(markInitials('X')).toBe('X');
+    expect(markInitials('')).toBe('?');
+    expect(markInitials('///')).toBe('?');
   });
 });
