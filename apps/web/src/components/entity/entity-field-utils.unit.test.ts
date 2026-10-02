@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NOT_INLINE } from './entity-field-utils';
+import { NOT_INLINE, computedBadgeLabel } from './entity-field-utils';
 
 /**
  * #776 — a computed field must never get the ordinary click-to-edit
@@ -26,5 +26,30 @@ describe('NOT_INLINE', () => {
     expect(NOT_INLINE.has('text')).toBe(false);
     expect(NOT_INLINE.has('number')).toBe(false);
     expect(NOT_INLINE.has('select')).toBe(false);
+  });
+});
+
+describe('computedBadgeLabel (#811)', () => {
+  it('badges the derived types, which is where the badge carries information', () => {
+    expect(computedBadgeLabel('formula')).toBe('formula');
+    expect(computedBadgeLabel('rollup')).toBe('rollup');
+    expect(computedBadgeLabel('lookup')).toBe('lookup');
+    expect(computedBadgeLabel('ai')).toBe('ai');
+  });
+
+  it('badges the audit fields as "system"', () => {
+    expect(computedBadgeLabel('created_at')).toBe('system');
+    expect(computedBadgeLabel('updated_at')).toBe('system');
+    expect(computedBadgeLabel('created_by')).toBe('system');
+  });
+
+  it('does NOT badge a button: it holds no derived value and labels itself', () => {
+    expect(computedBadgeLabel('button')).toBeNull();
+  });
+
+  it('does not badge an ordinary editable field', () => {
+    for (const t of ['text', 'number', 'select', 'checkbox', 'relation', 'color']) {
+      expect(computedBadgeLabel(t), t).toBeNull();
+    }
   });
 });
