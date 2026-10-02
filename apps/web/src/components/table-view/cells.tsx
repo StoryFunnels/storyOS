@@ -265,7 +265,10 @@ export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
  * native `<input type="checkbox" readOnly>` (the OS's control, unthemed, the
  * brightest thing in dark mode, and a "click me" shape wherever the surface
  * doesn't toggle). Tokens only, so it follows light/dark; a role=img rather
- * than a form control so nothing here pretends to be interactive.
+ * than a form control so nothing here pretends to be interactive. Both states
+ * occupy the same box (tick vs. empty muted box) so a grid column stays
+ * scannable — Dara's ruling on #812. Unset (null/undefined) never reaches here:
+ * CellDisplay renders blank for it, so unset/false/true stay three distinct marks.
  */
 export function CheckGlyph({ checked, className }: { checked: boolean; className?: string }) {
   return (
@@ -274,11 +277,11 @@ export function CheckGlyph({ checked, className }: { checked: boolean; className
       aria-label={checked ? 'Checked' : 'Unchecked'}
       className={cn(
         'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border',
-        checked ? 'border-ink bg-ink text-card' : 'border-border-strong bg-card',
+        checked ? 'border-ink bg-card text-ink' : 'border-border-strong bg-card',
         className,
       )}
     >
-      {checked && <Check size={10} strokeWidth={3} aria-hidden />}
+      {checked && <Check size={11} strokeWidth={3} aria-hidden />}
     </span>
   );
 }
