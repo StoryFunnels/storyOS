@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { connectTestDb, truncateAll } from './helpers/db';
-import { databases, spaces, views, workspaces } from '../src/db/schema';
+import { databases, fields, spaces, views, workspaces } from '../src/db/schema';
 import { migrateNumberFieldRefs } from '../src/views/migrate-number-field-refs';
 import { scanNumberFieldRefs } from '../src/views/scan-number-field-refs';
 
@@ -20,10 +20,26 @@ let vDashboardTile: string;
 let vDashboardWidget: string;
 let vSummaryWidget: string;
 let vFormRelationFilter: string;
-/** A real user field literally named `number` — SYSTEM_FIELDS' own comment: "a
- * user field literally named `number` is preserved." Filtering on it must be
- * left alone; it has nothing to do with the deprecated system field. */
+/** A database where `number` is a REAL user field (a synced GitHub issue
+ * number). The resolver says real fields win, so here `field: 'number'` means
+ * the user's field, with different values from the record number — rewriting
+ * it to `id` would silently change what the view selects. These views really
+ * do reference `number`; the migration must still leave them alone.
+ *
+ * The first version of this test used a view filtering on `a_real_user_field`,
+ * which never referenced `number` at all, so it passed whether or not the
+ * migration was database-aware. It now tests the case its name claims. */
 let vUserFieldNamedNumber: string;
+let vUserFieldNamedNumberSort: string;
+/** Control: an unrelated filter, which is all the old fixture ever proved. */
+let vUnrelatedField: string;
+/** `number` was a user field here but is soft-deleted, so it no longer
+ * shadows the system field and this view must migrate. */
+let vDeletedUserFieldDb: string;
+/** Space-level: no single database, so `number` is ambiguous. Left alone and
+ * reported as unresolved rather than guessed at. */
+let vSpaceView: string;
+let firstRun: Awaited<ReturnType<typeof migrateNumberFieldRefs>>;
 let vAlreadyId: string;
 let vNoConfig: string;
 let vTrashed: string;
@@ -40,13 +56,33 @@ beforeAll(async () => {
     .returning();
   dbId = database!.id;
 
-  async function makeView(name: string, config: Record<string, unknown>) {
+  async function makeView(name: string, config: Record<string, unknown>, onDb: string = dbId) {
     const [row] = await db
       .insert(views)
-      .values({ databaseId: dbId, name, type: 'table', config })
+      .values({ databaseId: onDb, name, type: 'table', config })
       .returning();
     return row!.id;
   }
+
+  const [githubDb] = await db
+    .insert(databases)
+    .values({ workspaceId: wsId, spaceId: space!.id, name: 'GitHub issues', apiSlug: 'github-issues' })
+    .returning();
+  await db
+    .insert(fields)
+    .values({ databaseId: githubDb!.id, displayName: 'number', apiName: 'number', type: 'number', isSystem: false });
+  const [deletedFieldDb] = await db
+    .insert(databases)
+    .values({ workspaceId: wsId, spaceId: space!.id, name: 'Had a number field', apiSlug: 'had-number' })
+    .returning();
+  await db.insert(fields).values({
+    databaseId: deletedFieldDb!.id,
+    displayName: 'number',
+    apiName: 'number',
+    type: 'number',
+    isSystem: false,
+    deletedAt: new Date(),
+  });
 
   vFilter = await makeView('Filter', { filters: { field: 'number', op: 'eq', value: 1 } });
   vNestedFilter = await makeView('Nested filter', {
@@ -74,9 +110,27 @@ beforeAll(async () => {
   vFormRelationFilter = await makeView('Form relation filter', {
     form: { fields: [{ field_id: '44444444-4444-4444-4444-444444444444', relation_filter: { field: 'number', op: 'eq', value: 3 } }] },
   });
-  vUserFieldNamedNumber = await makeView('User field named number', {
-    filters: { field: 'a_real_user_field', op: 'eq', value: 'x' },
-  });
+  vUserFieldNamedNumber = await makeView(
+    'User field named number',
+    { filters: { field: 'number', op: 'eq', value: 42 } },
+    githubDb!.id,
+  );
+  vUserFieldNamedNumberSort = await makeView(
+    'User field named number (sort)',
+    { sorts: [{ field: 'number', direction: 'desc' }] },
+    githubDb!.id,
+  );
+  vUnrelatedField = await makeView('Unrelated field', { filters: { field: 'a_real_user_field', op: 'eq', value: 'x' } });
+  vDeletedUserFieldDb = await makeView(
+    'Soft-deleted user field',
+    { filters: { field: 'number', op: 'eq', value: 7 } },
+    deletedFieldDb!.id,
+  );
+  const [spaceView] = await db
+    .insert(views)
+    .values({ spaceId: space!.id, databaseId: null, name: 'Space view', type: 'table', config: { filters: { field: 'number', op: 'eq', value: 9 } } })
+    .returning();
+  vSpaceView = spaceView!.id;
   vAlreadyId = await makeView('Already id', { filters: { field: 'id', op: 'eq', value: 1 } });
   vNoConfig = await makeView('No config', {});
   vTrashed = await makeView('Trashed', { filters: { field: 'number', op: 'eq', value: 1 } });
@@ -108,7 +162,12 @@ describe('#764 — migrate stored view configs off the deprecated `number` api_n
         vFormRelationFilter,
       ]),
     );
+    // These two genuinely reference `number` — they are excluded because it is the user's own field there.
     expect(ids).not.toContain(vUserFieldNamedNumber);
+    expect(ids).not.toContain(vUserFieldNamedNumberSort);
+    expect(ids).toContain(vDeletedUserFieldDb);
+    expect(hits.find((h) => h.viewId === vSpaceView)?.reason).toBe('space_view_unresolved');
+    expect(ids).not.toContain(vUnrelatedField);
     expect(ids).not.toContain(vAlreadyId);
     expect(ids).not.toContain(vNoConfig);
     // Trashed views are excluded from the scan on purpose — unreachable, never compiled.
@@ -116,7 +175,7 @@ describe('#764 — migrate stored view configs off the deprecated `number` api_n
   });
 
   it('migrates a top-level filter leaf', async () => {
-    await migrateNumberFieldRefs(db);
+    firstRun = await migrateNumberFieldRefs(db);
     const config = await configOf(vFilter);
     expect(config.filters).toEqual({ field: 'id', op: 'eq', value: 1 });
   });
@@ -162,9 +221,23 @@ describe('#764 — migrate stored view configs off the deprecated `number` api_n
     expect(field.relation_filter).toEqual({ field: 'id', op: 'eq', value: 3 });
   });
 
-  it('MUST KEEP WORKING: a real user field literally named `number` is untouched', async () => {
-    const config = await configOf(vUserFieldNamedNumber);
-    expect(config.filters).toEqual({ field: 'a_real_user_field', op: 'eq', value: 'x' });
+  it('MUST KEEP WORKING: a view filtering or sorting on a real user field named `number` is untouched', async () => {
+    expect((await configOf(vUserFieldNamedNumber)).filters).toEqual({ field: 'number', op: 'eq', value: 42 });
+    expect((await configOf(vUserFieldNamedNumberSort)).sorts).toEqual([{ field: 'number', direction: 'desc' }]);
+    expect((await configOf(vUnrelatedField)).filters).toEqual({ field: 'a_real_user_field', op: 'eq', value: 'x' });
+  });
+
+  it('a soft-deleted user field named `number` no longer shadows the system one, so its view migrates', async () => {
+    expect((await configOf(vDeletedUserFieldDb)).filters).toEqual({ field: 'id', op: 'eq', value: 7 });
+  });
+
+  it('a space-level view is left alone, because `number` there is ambiguous', async () => {
+    expect((await configOf(vSpaceView)).filters).toEqual({ field: 'number', op: 'eq', value: 9 });
+  });
+
+  it('reports what it deliberately skipped, so a skip is never silent', () => {
+    expect(firstRun.skippedUserField).toBe(2);
+    expect(firstRun.skippedSpaceView).toBe(1);
   });
 
   it('leaves an already-`id` filter and an empty config alone', async () => {
@@ -177,16 +250,26 @@ describe('#764 — migrate stored view configs off the deprecated `number` api_n
     expect(config.filters).toEqual({ field: 'number', op: 'eq', value: 1 });
   });
 
-  it('the post-migration scan finds zero reachable references', async () => {
+  it('the post-migration scan finds nothing but the one reference nobody can resolve automatically', async () => {
     const hits = await scanNumberFieldRefs(db);
-    expect(hits).toEqual([]);
+    expect(hits).toEqual([
+      { viewId: vSpaceView, name: 'Space view', locations: ['filters'], reason: 'space_view_unresolved' },
+    ]);
   });
 
-  it('is idempotent: running it again migrates nothing and changes nothing', async () => {
-    const before = await configOf(vFilter);
+  it('is idempotent: running it again migrates nothing and changes EVERY view not at all', async () => {
+    // Every view, trashed ones included, not just one fixture: if this ever runs
+    // on each boot, "twice equals once" has to hold for the whole table.
+    const snapshot = async () =>
+      (await db.select({ id: views.id, config: views.config, updatedAt: views.updatedAt }).from(views)).sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+    const before = await snapshot();
+    expect(before.length).toBeGreaterThan(10);
     const result = await migrateNumberFieldRefs(db);
     expect(result.migrated).toBe(0);
-    const after = await configOf(vFilter);
-    expect(after).toEqual(before);
+    expect(result.skippedUserField).toBe(firstRun.skippedUserField);
+    expect(result.skippedSpaceView).toBe(firstRun.skippedSpaceView);
+    expect(await snapshot()).toEqual(before);
   });
 });
