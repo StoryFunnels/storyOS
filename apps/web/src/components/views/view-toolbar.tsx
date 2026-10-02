@@ -51,7 +51,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -63,7 +63,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
-import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
+import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { API_URL, api } from '@/lib/api';
@@ -1649,7 +1649,7 @@ export function FilterBuilderPanel({
    * meaningful (and only rendered) when there's something to clear. */
   onClearAll?: () => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   const flat = useMemo(() => flattenFilterTree(nodes), [nodes]);
 
   function addCondition(field: Field) {
@@ -1974,9 +1974,10 @@ function GroupRow({
     >
       <div className="flex items-start gap-1.5">
         <button
+          type="button"
           {...attributes}
           {...listeners}
-          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted focus-visible:opacity-100 group-hover:opacity-100"
           title="Drag to reorder"
         >
           <GripVertical className="h-3.5 w-3.5" />
@@ -2599,7 +2600,7 @@ export function SortButton({
   const hasUnsortableComputedFields = fields.some(
     (f) => f.type === 'lookup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
   );
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
 
   function updateAt(i: number, next: SortSpec) {
     onChange(sorts.map((s, j) => (j === i ? next : s)));
@@ -2626,6 +2627,17 @@ export function SortButton({
     { onDragEnd },
     sorts.map((_, i) => String(i)),
   );
+  // #814 — this popover is a hand-rolled backdrop, not Radix, so it did not
+  // inherit Escape-to-close. Esc during a keyboard drag belongs to dnd-kit
+  // (it cancels the lift), so only close when no drag is active.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !sortDrag.activeId) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
 
   return (
     <span className="relative">
@@ -2954,7 +2966,7 @@ function CardFieldsButton({
 
 /** Shown card fields (draggable, ordered) + a list to add more (MN-151). */
 function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: string[]; onChange: (ids: string[]) => void }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   const shownFields = shown
     .map((id) => fields.find((f) => f.id === id))
     .filter((f): f is Field => Boolean(f));
