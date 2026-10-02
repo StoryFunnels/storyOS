@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
@@ -99,19 +100,23 @@ export function FieldsMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {iconOnly ? (
-          <button
-            title={triggerLabel}
-            aria-label={triggerLabel}
-            className={cn(
-              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-hover hover:text-ink',
-              triggerActive ? 'text-ink' : 'text-muted',
-            )}
-          >
-            <TriggerIcon className="h-4 w-4" />
-          </button>
-        ) : (
+      {iconOnly ? (
+        // Tooltip OUTSIDE the trigger — see record-chrome's Actions button.
+        <Tooltip label={triggerLabel}>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label={triggerLabel}
+              className={cn(
+                'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-hover hover:text-ink',
+                triggerActive ? 'text-ink' : 'text-muted',
+              )}
+            >
+              <TriggerIcon className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
+      ) : (
+        <DropdownMenuTrigger asChild>
           <button
             className={cn(
               'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover hover:text-ink',
@@ -120,8 +125,8 @@ export function FieldsMenu({
           >
             <TriggerIcon className="h-3.5 w-3.5" /> {triggerLabel}
           </button>
-        )}
-      </DropdownMenuTrigger>
+        </DropdownMenuTrigger>
+      )}
       <DropdownMenuContent align={align} className="w-64">
         <Input
           autoFocus
@@ -192,15 +197,17 @@ function FieldRow({
       )}
     >
       {reorderable ? (
-        <button
-          className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover/fm:opacity-100"
-          title="Drag to reorder"
-          onClick={(e) => e.preventDefault()}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip label="Drag" side="left">
+          <button
+            className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted focus-visible:opacity-100 group-hover/fm:opacity-100"
+            aria-label="Drag to reorder"
+            onClick={(e) => e.preventDefault()}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       ) : (
         <span className="w-2.5 shrink-0" />
       )}
@@ -224,14 +231,16 @@ function FieldRow({
         <span className="truncate">{field.displayName}</span>
       </button>
       {onOpenConfig && (
-        <button
-          type="button"
-          onClick={onOpenConfig}
-          title="Field options"
-          className="shrink-0 rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/fm:opacity-100"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip label="Options" side="right">
+          <button
+            type="button"
+            onClick={onOpenConfig}
+            aria-label="Field options"
+            className="shrink-0 rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink focus-visible:opacity-100 group-hover/fm:opacity-100"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       )}
     </div>
   );

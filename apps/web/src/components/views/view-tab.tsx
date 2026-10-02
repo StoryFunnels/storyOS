@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useState } from 'react';
 import {
@@ -151,19 +152,21 @@ export function ViewTab({
 
       {canManage && !renaming && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                'rounded p-0.5 text-faint hover:bg-active hover:text-ink',
-                isActive ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100',
-              )}
-              onClick={(e) => e.stopPropagation()}
-              aria-label="View options"
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip label="Options">
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'rounded p-0.5 text-faint hover:bg-active hover:text-ink focus-visible:opacity-100',
+                  isActive ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100',
+                )}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="View options"
+              >
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent align="start" className="w-44">
             <DropdownMenuItem
               onSelect={() => {

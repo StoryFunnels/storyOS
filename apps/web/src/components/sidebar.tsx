@@ -42,6 +42,7 @@ import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { markInitials } from '@/components/sidebar-row-style';
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
   SIDEBAR_RAIL_W,
@@ -304,14 +305,16 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
         {onCloseMobile && (
-          <button
-            type="button"
-            onClick={onCloseMobile}
-            title="Close sidebar"
-            className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:hidden"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <Tooltip label="Close">
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              aria-label="Close sidebar"
+              className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:hidden"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </Tooltip>
         )}
       </div>
 
@@ -382,13 +385,15 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
             )}
             {(spaces.data ?? []).length > 0 && (
-              <button
-                onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
-                title="Collapse all spaces"
-                className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
-              >
-                <ChevronsDownUp className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip label="Collapse all">
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
+                  aria-label="Collapse all spaces"
+                  className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+                >
+                  <ChevronsDownUp className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -625,16 +630,17 @@ function AccountMenu({
 }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          title="Settings & account"
-          aria-label="Settings & account"
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
-        >
-          <Settings className="h-[17px] w-[17px]" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label="Settings" side="right">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Settings & account"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+          >
+            <Settings className="h-[17px] w-[17px]" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="start" side="right" className="w-52">
         {isAdmin && (
           <>
@@ -749,17 +755,18 @@ function RailLink({
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      href={href}
-      title={title}
-      aria-label={title}
-      className={cn(
-        'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink',
-        active && 'bg-active text-ink',
-      )}
-    >
-      {children}
-    </Link>
+    <Tooltip label={title} side="right">
+      <Link
+        href={href}
+        aria-label={title}
+        className={cn(
+          'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink',
+          active && 'bg-active text-ink',
+        )}
+      >
+        {children}
+      </Link>
+    </Tooltip>
   );
 }
 
@@ -775,20 +782,21 @@ function RailButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
-    >
-      {children}
-      {badge && (
-        <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
-          {badge}
-        </span>
-      )}
-    </button>
+    <Tooltip label={title} side="right">
+      <button
+        type="button"
+        aria-label={title}
+        onClick={onClick}
+        className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+      >
+        {children}
+        {badge && (
+          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
+            {badge}
+          </span>
+        )}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -810,15 +818,16 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          title={name ?? 'Switch workspace'}
-          aria-label="Switch workspace"
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90"
-        >
-          {name?.[0]?.toUpperCase() ?? 'S'}
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label="Switch workspace" side="right">
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label="Switch workspace"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90"
+          >
+            {name?.[0]?.toUpperCase() ?? 'S'}
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="start" className="w-52">
         {(workspaces.data ?? []).map((w) => (
           <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
@@ -941,13 +950,15 @@ function HiddenRow({
         </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
-      <button
-        onClick={onUnhide}
-        title="Show in my sidebar"
-        className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted group-hover/h:opacity-100"
-      >
-        <Eye className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip label="Unhide">
+        <button
+          onClick={onUnhide}
+          aria-label="Show in my sidebar"
+          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted focus-visible:opacity-100 group-hover/h:opacity-100"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </div>
   );
 }
@@ -1663,18 +1674,20 @@ function SpaceSection({
            collapse-toggle in that state. */
         caret={
           renaming ? undefined : (
-            <button
-              type="button"
-              className="text-faint hover:text-muted"
-              onClick={toggleCollapsed}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
-              aria-expanded={!collapsed}
-            >
-              <ChevronRight
-                className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
-              />
-            </button>
+            <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
+              <button
+                type="button"
+                className="text-faint hover:text-muted"
+                onClick={toggleCollapsed}
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
+                aria-expanded={!collapsed}
+              >
+                <ChevronRight
+                  className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
+                />
+              </button>
+            </Tooltip>
           )
         }
       >
@@ -1721,11 +1734,13 @@ function SpaceSection({
         {canEdit && (
           <span className="hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="rounded p-0.5 text-muted hover:bg-active" title="Add">
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip label="Add">
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Add to ${space.name}`}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem onSelect={() => setNewDbFolder(null)}>
                   <Database className="mr-2 h-3.5 w-3.5" /> New database
@@ -1778,11 +1793,13 @@ function SpaceSection({
               />
             </Dialog>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="rounded p-0.5 text-muted hover:bg-active">
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip label="Options">
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Options for ${space.name}`}>
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setDescribing(true)}>
@@ -2337,15 +2354,17 @@ function FolderSection({
           the space header's bug, just not yet triggered. Migrated onto
           SidebarRow itself so the match is structural, not by agreement. */}
       <SidebarRow depth={0} className="text-ink-secondary hover:bg-hover" caret={
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
-          aria-expanded={!collapsed}
-          className="text-faint hover:text-muted"
-        >
-          <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
-        </button>
+        <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+            aria-expanded={!collapsed}
+            className="text-faint hover:text-muted"
+          >
+            <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+          </button>
+        </Tooltip>
       }>
         <button onClick={toggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <GlyphSlot>
@@ -2710,19 +2729,21 @@ function DatabaseRow({
          database with children lines up with one without. */
       caret={
         expandable ? (
-          <button
-            type="button"
-            aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
-            aria-expanded={expanded}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onToggle?.();
-            }}
-            className="rounded text-faint hover:text-ink"
-          >
-            <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
-          </button>
+          <Tooltip label={expanded ? 'Collapse' : 'Expand'} side="right">
+            <button
+              type="button"
+              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle?.();
+              }}
+              className="rounded text-faint hover:text-ink"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+            </button>
+          </Tooltip>
         ) : undefined
       }
     >
@@ -3055,10 +3076,11 @@ function GroupHeaderRow({
  */
 function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
   return (
+    <Tooltip label={active ? 'Show databases' : 'Hide databases'}>
     <button
       type="button"
       onClick={onToggle}
-      title={active ? 'Showing views only — click to show databases too' : 'Show views only, hiding databases'}
+      aria-label={active ? 'Showing views only — click to show databases too' : 'Show views only, hiding databases'}
       aria-pressed={active}
       className={cn(
         'relative rounded p-0.5 hover:bg-hover',
@@ -3075,6 +3097,7 @@ function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: 
         </span>
       )}
     </button>
+    </Tooltip>
   );
 }
 
@@ -3083,14 +3106,16 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('');
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button
-          title="New group"
-          className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DialogTrigger>
+      <Tooltip label="New group">
+        <DialogTrigger asChild>
+          <button
+            aria-label="New group"
+            className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DialogTrigger>
+      </Tooltip>
       <DialogContent title="New group">
         <form
           className="flex flex-col gap-4"

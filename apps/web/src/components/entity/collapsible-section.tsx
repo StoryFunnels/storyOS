@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 
 /**
  * Collapse state for a long section on the record page (#309).
@@ -61,16 +62,17 @@ export function CollapseToggle({
   label: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={!collapsed}
-      title={collapsed ? `Expand ${label}` : `Collapse ${label}`}
-      aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
-      className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
-    >
-      <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
-    </button>
+    <Tooltip label={collapsed ? 'Expand' : 'Collapse'}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+        className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+      >
+        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+      </button>
+    </Tooltip>
   );
 }
 

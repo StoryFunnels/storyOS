@@ -66,6 +66,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
@@ -2152,15 +2153,17 @@ function ConditionRow({
           {editingLabel && (
             <div className="mt-1.5 flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
               <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
-                    title="Change icon"
-                  >
-                    <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
-                  </button>
-                </PopoverTrigger>
+                <Tooltip label="Change icon">
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
+                      aria-label="Change icon"
+                    >
+                      <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
+                    </button>
+                  </PopoverTrigger>
+                </Tooltip>
                 <PopoverContent align="start" className="p-2" onClick={(e) => e.stopPropagation()}>
                   <IconColorPicker
                     icon={condition.icon ?? null}

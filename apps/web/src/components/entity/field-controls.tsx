@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal, Pin, Plus } from 'lucide-react';
@@ -51,11 +52,13 @@ export function FieldPicker({
   if (candidates.length === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink" title={label}>
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label={label}>
+        <DropdownMenuTrigger asChild>
+          <button className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink" aria-label={label}>
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
         {candidates.map((f) => (
           <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>
@@ -141,14 +144,17 @@ export function FieldMenu({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink group-hover:opacity-100"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip label="Options">
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label={`Options for ${field.displayName}`}
+              className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
           {!collection &&

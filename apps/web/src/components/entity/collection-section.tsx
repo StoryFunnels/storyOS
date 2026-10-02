@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -560,12 +561,15 @@ function ColorByButton({
 /** Chevron that collapses/expands a field or section (persisted in config.entity_collapsed). */
 export function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
-    <button
-      className="-ml-1 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
-      onClick={onToggle}
-      title={collapsed ? 'Expand' : 'Collapse'}
-    >
-      {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-    </button>
+    <Tooltip label={collapsed ? 'Expand' : 'Collapse'}>
+      <button
+        className="-ml-1 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+        onClick={onToggle}
+        aria-label={collapsed ? 'Expand section' : 'Collapse section'}
+        aria-expanded={!collapsed}
+      >
+        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+    </Tooltip>
   );
 }

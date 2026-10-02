@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { useMemo, useRef, useState } from 'react';
 import {
   ArrowUpDown,
@@ -247,29 +248,34 @@ export function HeaderCell({
         )}
       </span>
       {isFirst && onTogglePin && (
-        <button
-          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/header:opacity-100"
-          title={pinned ? 'Unfreeze column' : 'Freeze column'}
-          /* #413 — see the note on the menu triggers: pinning is not a drag. */
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onTogglePin}
-        >
-          {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-        </button>
+        <Tooltip label={pinned ? 'Unfreeze' : 'Freeze'}>
+          <button
+            className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink focus-visible:opacity-100 group-hover/header:opacity-100"
+            aria-label={pinned ? 'Unfreeze column' : 'Freeze column'}
+            /* #413 — see the note on the menu triggers: pinning is not a drag. */
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onTogglePin}
+          >
+            {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+          </button>
+        </Tooltip>
       )}
       {hasMenu && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              /* #413 — the cell is the drag handle now, so every control inside
-                 it must keep its own gesture off the reorder sensor. Same guard
-                 the resize handle has carried since MN-225. */
-              onPointerDown={(e) => e.stopPropagation()}
-              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip label="Options">
+            <DropdownMenuTrigger asChild>
+              <button
+                /* #413 — the cell is the drag handle now, so every control inside
+                   it must keep its own gesture off the reorder sensor. Same guard
+                   the resize handle has carried since MN-225. */
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={`Options for ${field.displayName}`}
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent>
             {/* #492 — Edit/Change-type/Delete are the three destructive schema
                 ops a system field genuinely must not offer (read_only per
@@ -310,17 +316,20 @@ export function HeaderCell({
       )}
       {canConfigureTitle && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              /* #413 — the cell is the drag handle now, so every control inside
-                 it must keep its own gesture off the reorder sensor. Same guard
-                 the resize handle has carried since MN-225. */
-              onPointerDown={(e) => e.stopPropagation()}
-              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip label="Options">
+            <DropdownMenuTrigger asChild>
+              <button
+                /* #413 — the cell is the drag handle now, so every control inside
+                   it must keep its own gesture off the reorder sensor. Same guard
+                   the resize handle has carried since MN-225. */
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={`Options for ${field.displayName}`}
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>
           </DropdownMenuContent>

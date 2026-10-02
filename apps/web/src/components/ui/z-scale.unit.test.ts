@@ -61,6 +61,7 @@ describe('#422 — the z-scale', () => {
       'z-popover',
       'z-sticky',
       'z-toast',
+      'z-tooltip',
     ]);
   });
 
@@ -101,8 +102,14 @@ describe('#422 — the z-scale', () => {
     expect(new Set(values).size, `duplicate layer values: ${values.join(', ')}`).toBe(values.length);
   });
 
+  it('puts a tooltip above a popover, because a control inside a popover needs a label too (#807)', () => {
+    expect(z['z-tooltip']!).toBeGreaterThan(z['z-popover']!);
+    expect(z['z-tooltip']!).toBeGreaterThan(z['z-dialog']!);
+  });
+
   it('puts toasts on top — they report on what you just did to the layer below', () => {
     expect(z['z-toast']!).toBeGreaterThan(z['z-popover']!);
+    expect(z['z-toast']!).toBeGreaterThan(z['z-tooltip']!);
   });
 });
 

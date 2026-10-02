@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -181,11 +182,12 @@ export default function SpacePage() {
           (there isn't one for this), but the same proportions rather than an
           invented one.
         */}
+        <Tooltip label="Change icon">
         <button
           type="button"
           onClick={() => setIconing(true)}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
-          title="Change icon"
+          aria-label="Change icon"
         >
           <EntityIcon
             icon={space.icon}
@@ -199,6 +201,7 @@ export default function SpacePage() {
             }
           />
         </button>
+        </Tooltip>
         <h1 className="text-xl font-semibold text-ink">{space.name}</h1>
       </div>
 

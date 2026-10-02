@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
@@ -112,10 +113,11 @@ function DatabasePageInner() {
             )
           ) : (
             <DropdownMenu>
+              <Tooltip label="Change icon">
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  title="Change icon & color"
+                  aria-label="Change icon & color"
                   className="rounded-[6px] hover:bg-hover"
                 >
                   <EntityIconChip
@@ -127,6 +129,7 @@ function DatabasePageInner() {
                   />
                 </button>
               </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent align="start" className="w-auto p-2">
                 <IconColorPicker
                   icon={database.data?.icon ?? null}
@@ -451,11 +454,13 @@ function NewViewDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink">
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DialogTrigger>
+      <Tooltip label="New view">
+        <DialogTrigger asChild>
+          <button aria-label="New view" className="flex items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink">
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DialogTrigger>
+      </Tooltip>
       <DialogContent title="New view">
         <div className="grid grid-cols-2 gap-2">
           {(
