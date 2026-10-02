@@ -245,14 +245,8 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
       </div>
     );
   }
-  if (field.type === 'button') {
-    return (
-      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
-        <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />
-        <ComputedBadge type={field.type} />
-      </div>
-    );
-  }
+  // #811 — no type badge: see computedBadgeLabel. The control labels itself.
+  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
   if (editing) {
     // relative anchor so absolute-positioned option lists / pickers drop under the field
     return (

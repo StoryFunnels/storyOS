@@ -61,6 +61,11 @@ export const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'ai'
  */
 export function computedBadgeLabel(type: string): string | null {
   if (!NOT_INLINE.has(type)) return null;
+  // #811 — a button is not DERIVED: the badge's job is "this value is computed,
+  // you cannot type into it", and a button holds no value; it already says what
+  // it does ("Mark as Done"). Printing its internal type string beside it reads
+  // as debug output. The badge is reserved for types where derivation is the point.
+  if (type === 'button') return null;
   return AUDIT_TYPES.has(type) ? 'system' : type;
 }
 
