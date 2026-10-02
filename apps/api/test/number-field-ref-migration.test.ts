@@ -257,11 +257,19 @@ describe('#764 — migrate stored view configs off the deprecated `number` api_n
     ]);
   });
 
-  it('is idempotent: running it again migrates nothing and changes nothing', async () => {
-    const before = await configOf(vFilter);
+  it('is idempotent: running it again migrates nothing and changes EVERY view not at all', async () => {
+    // Every view, trashed ones included, not just one fixture: if this ever runs
+    // on each boot, "twice equals once" has to hold for the whole table.
+    const snapshot = async () =>
+      (await db.select({ id: views.id, config: views.config, updatedAt: views.updatedAt }).from(views)).sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+    const before = await snapshot();
+    expect(before.length).toBeGreaterThan(10);
     const result = await migrateNumberFieldRefs(db);
     expect(result.migrated).toBe(0);
-    const after = await configOf(vFilter);
-    expect(after).toEqual(before);
+    expect(result.skippedUserField).toBe(firstRun.skippedUserField);
+    expect(result.skippedSpaceView).toBe(firstRun.skippedSpaceView);
+    expect(await snapshot()).toEqual(before);
   });
 });
