@@ -260,6 +260,32 @@ interface DisplayProps {
 import { cellToText, isPercentField, isPercentNumberField, richTextPreview } from './cell-text';
 export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
 
+/**
+ * #812 — the one drawing of a boolean's value. CellDisplay used to return a
+ * native `<input type="checkbox" readOnly>` (the OS's control, unthemed, the
+ * brightest thing in dark mode, and a "click me" shape wherever the surface
+ * doesn't toggle). Tokens only, so it follows light/dark; a role=img rather
+ * than a form control so nothing here pretends to be interactive. Both states
+ * occupy the same box (tick vs. empty muted box) so a grid column stays
+ * scannable — Dara's ruling on #812. Unset (null/undefined) never reaches here:
+ * CellDisplay renders blank for it, so unset/false/true stay three distinct marks.
+ */
+export function CheckGlyph({ checked, className }: { checked: boolean; className?: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={checked ? 'Checked' : 'Unchecked'}
+      className={cn(
+        'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border',
+        checked ? 'border-ink bg-card text-ink' : 'border-border-strong bg-card',
+        className,
+      )}
+    >
+      {checked && <Check size={11} strokeWidth={3} aria-hidden />}
+    </span>
+  );
+}
+
 export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
@@ -290,7 +316,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     }
     case 'formula': {
       const rt = field.config['result_type'] as string | undefined;
-      if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
+      if (rt === 'checkbox') return <CheckGlyph checked={value === true} />;
       if (rt === 'number') return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
       // A date-returning formula used to fall through to String(value) and render
       // the raw ISO ("2026-02-28T00:00:00.000Z"). #288's add_months/end_of_month/
@@ -344,7 +370,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
         />
       );
     case 'checkbox':
-      return <input type="checkbox" checked={Boolean(value)} readOnly className="pointer-events-none" />;
+      return <CheckGlyph checked={Boolean(value)} />;
     // #172: a workflow value renders as the same coloured state badge as select.
     case 'select':
     case 'workflow': {

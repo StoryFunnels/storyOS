@@ -946,9 +946,13 @@ export function CardFieldChip({
     );
   }
   if (field.type === 'checkbox') {
+    /* #812 — a card is not a form: a boolean reads as a chip, drawn by the shared
+       CellDisplay glyph, and only when true (the field name says what is true).
+       An unticked box on a card was an inert control that looked tickable. */
+    if (value !== true) return null;
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
-        <input type="checkbox" checked={value === true} readOnly className="pointer-events-none h-3 w-3" />
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
         {field.displayName}
       </span>
     );
