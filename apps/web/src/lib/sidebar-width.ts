@@ -21,11 +21,22 @@ import { useCallback, useEffect, useState } from 'react';
  * sits beside the whole app's content area, which is never that constrained,
  * so this only clamps to [MIN, MAX] — no container-width reservation.
  */
+/**
+ * #805 — these are TOTAL widths, rail included, because that is what the
+ * artifact's 284/220/460 are: `.sb` (rail + panel) is 284 wide, rail 52 +
+ * panel 231 + borders. They were built as the PANEL width, which made the
+ * whole sidebar 52px wider than designed on every screen. The `<aside>` is
+ * therefore `width - SIDEBAR_RAIL_W`.
+ */
+export const SIDEBAR_RAIL_W = 52;
 export const SIDEBAR_NAV_DEFAULT_W = 284;
 export const SIDEBAR_NAV_MIN_W = 220;
 export const SIDEBAR_NAV_MAX_W = 460;
 export const SIDEBAR_NAV_STEP = 16; // keyboard-arrow nudge, in px
-export const SIDEBAR_NAV_WIDTH_KEY = 'storyos:nav-sidebar-w';
+// New key (was `storyos:nav-sidebar-w`, which stored a PANEL width): reading an
+// old panel-width value as a total would silently shrink a user's dragged
+// sidebar by 52px. Starting from the default once is the honest alternative.
+export const SIDEBAR_NAV_WIDTH_KEY = 'storyos:nav-sidebar-total-w';
 
 /** Clamp a desired sidebar width into [SIDEBAR_NAV_MIN_W, SIDEBAR_NAV_MAX_W]. */
 export function clampSidebarNavWidth(width: number): number {

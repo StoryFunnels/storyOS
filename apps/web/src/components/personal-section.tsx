@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { SidebarRow } from '@/components/sidebar-row';
+import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 
 interface PersonalDoc {
@@ -451,7 +451,9 @@ export function PersonalSection({ ws }: { ws: string }) {
           title="Only you can see this. If your account is removed, this content is deleted with it."
         >
           <span className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <Lock className="h-3.5 w-3.5 shrink-0 text-faint" />
+            <GlyphSlot>
+              <Lock className="h-3.5 w-3.5 text-faint" />
+            </GlyphSlot>
             Personal
           </span>
           {newMenu}
@@ -541,7 +543,9 @@ export function PersonalSection({ ws }: { ws: string }) {
                 href={`/w/${ws}/d/${v.database_id}?view=${v.id}`}
                 className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
               >
-                <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
+                <GlyphSlot>
+                  <Icon className="h-3.5 w-3.5 text-faint" />
+                </GlyphSlot>
                 <span className="overflow-hidden whitespace-nowrap">{v.name}</span>
                 {v.database_name && <span className="shrink-0 overflow-hidden whitespace-nowrap text-meta text-muted">· {v.database_name}</span>}
               </Link>
