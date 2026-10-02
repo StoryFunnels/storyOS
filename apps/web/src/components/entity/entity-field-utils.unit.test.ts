@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NOT_INLINE, computedBadgeLabel } from './entity-field-utils';
+import { NOT_INLINE, computedBadgeLabel, isEmptyBlocks } from './entity-field-utils';
 
 /**
  * #776 — a computed field must never get the ordinary click-to-edit
@@ -51,5 +51,46 @@ describe('computedBadgeLabel (#811)', () => {
     for (const t of ['text', 'number', 'select', 'checkbox', 'relation', 'color']) {
       expect(computedBadgeLabel(t), t).toBeNull();
     }
+  });
+});
+
+describe('isEmptyBlocks (#813)', () => {
+  it('treats null, undefined and [] as empty', () => {
+    expect(isEmptyBlocks(null)).toBe(true);
+    expect(isEmptyBlocks(undefined)).toBe(true);
+    expect(isEmptyBlocks([])).toBe(true);
+  });
+
+  it('treats the blank document BlockNote creates as empty', () => {
+    expect(isEmptyBlocks([{ type: 'paragraph', content: [], children: [] }])).toBe(true);
+    expect(isEmptyBlocks([{ type: 'paragraph' }])).toBe(true);
+    expect(isEmptyBlocks([{ type: 'paragraph', content: [{ type: 'text', text: '  ', styles: {} }] }])).toBe(true);
+    expect(isEmptyBlocks([{ type: 'paragraph' }, { type: 'paragraph' }])).toBe(true);
+  });
+
+  // The cases the filter must KEEP: calling real content "empty" would hide
+  // someone's writing behind a one-line add affordance.
+  it('keeps real text as content', () => {
+    expect(isEmptyBlocks([{ type: 'paragraph', content: [{ type: 'text', text: 'hi', styles: {} }] }])).toBe(false);
+    expect(isEmptyBlocks([{ type: 'paragraph', content: 'hi' }])).toBe(false);
+  });
+
+  it('keeps non-paragraph blocks as content even with no text', () => {
+    expect(isEmptyBlocks([{ type: 'image', props: {} }])).toBe(false);
+    expect(isEmptyBlocks([{ type: 'bulletListItem', content: [] }])).toBe(false);
+  });
+
+  it('keeps an empty paragraph that has children, and a mention-only paragraph', () => {
+    expect(isEmptyBlocks([{ type: 'paragraph', content: [], children: [{ type: 'paragraph' }] }])).toBe(false);
+    expect(isEmptyBlocks([{ type: 'paragraph', content: [{ type: 'mention', props: { id: 'x' } }] }])).toBe(false);
+  });
+
+  it('keeps a document with one empty paragraph and one real one', () => {
+    expect(isEmptyBlocks([{ type: 'paragraph' }, { type: 'paragraph', content: [{ type: 'text', text: 'x', styles: {} }] }])).toBe(false);
+  });
+
+  it('does not call a non-array value empty', () => {
+    expect(isEmptyBlocks('text')).toBe(false);
+    expect(isEmptyBlocks({})).toBe(false);
   });
 });

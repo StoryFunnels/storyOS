@@ -23,6 +23,7 @@ import {
   Minimize2,
   PanelLeftClose,
   PanelRight,
+  Plus,
   X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -38,7 +39,7 @@ import {
   useUpdateDescriptionPlacement,
 } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
-import { DescriptionEditor } from '@/components/entity/description-editor';
+import { DescriptionEditor, useDescriptionDocument } from '@/components/entity/description-editor';
 import { PromotedProse } from '@/components/entity/promoted-prose';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
@@ -54,6 +55,7 @@ import {
   fieldGroup,
   hasOwnRecordOrder,
   isCollection,
+  isEmptyBlocks,
   isHidden,
   orderKey,
   resetOrderPlan,
@@ -903,6 +905,7 @@ export function RecordDetail({
                 return field.type === 'rich_text' ? (
                   <BodyRow key={field.id} rowId={field.id} draggable={schemaEditable}>
                     <RichTextFieldSection
+                      key={`${recordId}:${field.id}`}
                       ws={ws}
                       db={db}
                       field={field}
@@ -1312,6 +1315,35 @@ function DescriptionSection({
   onHide?: () => void;
 }) {
   const { collapsed, toggle } = useCollapsedSection(db, 'description');
+  // #813 — same rule as every rich-text field: empty means one quiet line.
+  const doc = useDescriptionDocument(ws, db, recordId);
+  const [opened, setOpened] = useState(false);
+  const quiet = !doc.isLoading && !doc.isError && isEmptyBlocks(doc.data?.content) && !opened;
+  if (quiet && readOnly) return null;
+  if (quiet) {
+    return (
+      <div className="group/desc mb-1 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setOpened(true)}
+          className="group flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 text-label font-medium uppercase tracking-wider text-muted hover:bg-hover hover:text-ink"
+        >
+          <Plus className="h-3 w-3 text-faint group-hover:text-ink" aria-hidden />
+          Description
+        </button>
+        {onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            title="Remove Description from this database's items"
+            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/desc:opacity-100 group-hover/bodyrow:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  }
   return (
     <div>
       <div className="mb-2 flex items-center gap-1">
@@ -1333,7 +1365,7 @@ function DescriptionSection({
         )}
       </div>
       <CollapsibleBody collapsed={collapsed}>
-        <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
+        <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} autoFocus={opened} onBlurEmpty={() => setOpened(false)} />
       </CollapsibleBody>
     </div>
   );
