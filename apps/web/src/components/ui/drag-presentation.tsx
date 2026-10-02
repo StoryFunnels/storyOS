@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { DragOverlay } from '@dnd-kit/core';
+import { DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { Announcements, DragStartEvent, DragEndEvent, DragCancelEvent, DragMoveEvent } from '@dnd-kit/core';
 import { blockAnnouncements } from './drag-announcements';
 import type { DragLabeller } from './drag-announcements';
@@ -25,6 +26,19 @@ import { cn } from '@/lib/utils';
  */
 
 export type { DragLabeller };
+
+/**
+ * Sensors for a vertical sortable list: pointer (5px before it counts as a drag,
+ * so a click still clicks) AND keyboard (#814 — Space lifts, arrows move, Space
+ * drops). A list registered with only PointerSensor can be reordered by mouse
+ * and by nothing else; the handle takes focus and then does nothing.
+ */
+export function useSortableSensors() {
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+}
 
 export interface DragPresentation {
   /** The id currently being dragged, or null. */
