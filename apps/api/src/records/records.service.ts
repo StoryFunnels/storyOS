@@ -4443,13 +4443,24 @@ export class RecordsService {
    * concept of, so folding the two into one shared builder would hide that
    * difference behind a parameter neither call site's reader would expect.
    *
-   * Grouping is supported for exactly the field types a board can group by
+   * Grouping is supported for the field types a board can group by
    * (`boardGroupError` in views.service.ts) — select, workflow, single user,
    * date (with a required `group_by_granularity`), a binned number, the
    * single ("a") side of a one-to-many relation, text, and lookup — because
-   * those are the only types where "one column per value" has a single
-   * meaning. A multi-valued field is refused with the same reasoning
-   * `boardGroupError` already states.
+   * those are the types where "one column per value" has a single meaning.
+   * A multi-person field and a many-sided relation are still refused with the
+   * same reasoning `boardGroupError` states.
+   *
+   * #795 adds two the DASHBOARD widgets already offered and could therefore
+   * only compute by paging the whole database into the browser:
+   *  - `checkbox`: keys `'true'` / `'false'`; a record that never had the box
+   *    set has no stored value and lands in the `null` group, exactly as the
+   *    client's `groupKeysForRecord` has always bucketed it.
+   *  - `multi_select`: ONE GROUP PER OPTION, and a record counts in EVERY one of
+   *    its options' groups — so per-group counts can add up to MORE than the
+   *    number of records. A record with no options goes in the `null` group.
+   *    That is deliberate and is not what a board column means, which is why a
+   *    board still refuses it.
    *
    * Group keys are the RAW stored value (an option id, a user id, a linked
    * record id, a bin index as a string, or a bucket's start date as
@@ -4487,8 +4498,15 @@ export class RecordsService {
     if (!groupDef) throw new UnprocessableEntityException(`unknown field "${input.group_by}"`);
 
     const numberBins = (groupDef.config?.['bins'] as Array<{ label: string; min: number | null; max: number | null }> | undefined) ?? [];
-    if (groupDef.type === 'select' || groupDef.type === 'workflow' || groupDef.type === 'text' || groupDef.type === 'lookup') {
-      // groupable — one column per raw value.
+    if (
+      groupDef.type === 'select' ||
+      groupDef.type === 'workflow' ||
+      groupDef.type === 'text' ||
+      groupDef.type === 'lookup' ||
+      groupDef.type === 'checkbox' ||
+      groupDef.type === 'multi_select'
+    ) {
+      // groupable — one column per raw value (a multi_select: per option, see below).
     } else if (groupDef.type === 'date') {
       if (!input.group_by_granularity) {
         throw new UnprocessableEntityException(`grouping by a date field ("${input.group_by}") needs group_by_granularity`);
@@ -4511,7 +4529,7 @@ export class RecordsService {
       }
     } else {
       throw new UnprocessableEntityException(
-        `cannot group by a "${groupDef.type}" field — use a select, a single user, a date, a binned number, or a one-to-many relation`,
+        `cannot group by a "${groupDef.type}" field — use a select, a multi-select, a checkbox, a single user, a date, a binned number, or a one-to-many relation`,
       );
     }
 
@@ -4594,19 +4612,47 @@ export class RecordsService {
     // column name — passing a bare `sql` fragment as an object value gives
     // drizzle nothing to alias it with, so the column comes back unnamed and
     // `GROUP BY "key"` below has no column to find.
-    const rows = (await this.db
-      .select({ key: keyExpr.as('key'), value: aggExpr.as('value') })
-      .from(records)
-      .where(input.op === 'count' ? where : and(where, aggExpr.guard))
-      // GROUP BY the output ALIAS ("key"), not keyExpr itself: passing the
-      // same SQL object to both .select() and .groupBy() serializes it
-      // TWICE, each time binding its embedded values (the field id) to a
-      // fresh, separate `$n` parameter — so Postgres sees two syntactically
-      // different expressions and refuses with "must appear in the GROUP BY
-      // clause", even though they're identical at execution time. Grouping
-      // by the SELECT list's own alias is one expression, unambiguous, and
-      // exactly what a hand-written query would do here.
-      .groupBy(sql`"key"`)) as Array<{ key: string | null; value: string | number | null }>;
+    let rows: Array<{ key: string | null; value: string | number | null }>;
+    if (groupDef.type === 'multi_select') {
+      // One row per (record, option): the option array is expanded in a LATERAL
+      // subquery, so a record with three options is aggregated three times — once
+      // into each option's group. DISTINCT keeps a (corrupt) duplicate option in
+      // one record from counting that record twice. An empty, absent or non-array
+      // value expands to a single NULL, i.e. the "no value" group, matching the
+      // client's groupKeysForRecord.
+      //
+      // Explicit "records"."values" rather than `${records.values}`: drizzle drops
+      // the table qualifier for a column inside its own SELECT list and renders it
+      // inside a correlated subquery as something else (see the relation branch
+      // above, which was bitten by exactly this), so the qualification is spelled out.
+      const optionsJson = sql`("records"."values" -> ${groupDef.id})`;
+      const grouped = await this.db.execute(sql`
+        SELECT k.key AS key, ${aggExpr} AS value
+        FROM "records"
+        CROSS JOIN LATERAL (
+          SELECT DISTINCT e AS key FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(${optionsJson}) = 'array' AND jsonb_array_length(${optionsJson}) > 0
+                 THEN ${optionsJson} ELSE '[null]'::jsonb END
+          ) AS e
+        ) AS k
+        WHERE ${input.op === 'count' ? where : and(where, aggExpr.guard)}
+        GROUP BY k.key`);
+      rows = grouped.rows as Array<{ key: string | null; value: string | number | null }>;
+    } else {
+      rows = (await this.db
+        .select({ key: keyExpr.as('key'), value: aggExpr.as('value') })
+        .from(records)
+        .where(input.op === 'count' ? where : and(where, aggExpr.guard))
+        // GROUP BY the output ALIAS ("key"), not keyExpr itself: passing the
+        // same SQL object to both .select() and .groupBy() serializes it
+        // TWICE, each time binding its embedded values (the field id) to a
+        // fresh, separate `$n` parameter — so Postgres sees two syntactically
+        // different expressions and refuses with "must appear in the GROUP BY
+        // clause", even though they're identical at execution time. Grouping
+        // by the SELECT list's own alias is one expression, unambiguous, and
+        // exactly what a hand-written query would do here.
+        .groupBy(sql`"key"`)) as Array<{ key: string | null; value: string | number | null }>;
+    }
 
     return {
       op: input.op,

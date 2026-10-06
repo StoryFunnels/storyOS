@@ -1226,10 +1226,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'computed in the database. USE THIS for "how many of each type", "totals by status", or any board/' +
         'dashboard column count, rather than calling count_records once per value or grouping query_records ' +
         'results yourself (query_records is paginated, so a client-side group-by undercounts every value that ' +
-        "didn't fit on the page it saw). group_by must be a field a board could group by: select, workflow, a " +
+        "didn't fit on the page it saw). group_by can be: select, workflow, multi_select, checkbox, a " +
         'single-person user field, a date field (with group_by_granularity), a number field with configured ' +
-        'bins, the single side of a one-to-many relation, text, or lookup. Same filter AST and label resolution ' +
-        'as count_records/query_records.',
+        'bins, the single side of a one-to-many relation, text, or lookup. TWO THINGS THAT DIFFER FROM A ' +
+        'BOARD COLUMN: a multi_select counts a record in EVERY one of its options, so the group counts can ' +
+        'add up to MORE than the number of records (a record with no option is in the `null` group); and a ' +
+        'checkbox has keys "true" and "false", with a record that never had it set in `null`. Group keys are ' +
+        'raw (an option id, not its label). Same filter AST and label resolution as count_records/query_records.',
       inputSchema: {
         workspace: z.string(),
         database: z.string().describe('Database name, api slug, or id.'),

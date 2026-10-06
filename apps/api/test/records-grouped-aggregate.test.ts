@@ -137,20 +137,11 @@ describe('#750 — grouped by workflow (mirrors select)', () => {
   });
 });
 
+// #795 — multi_select and checkbox USED TO be refused here ("a multi-select field is
+// refused"). That was deliberate for a board, and is reversed on purpose for dashboard
+// widgets, which already offer both groupings. Their behaviour, and what is still
+// refused, is tested in records-grouped-aggregate-multiselect-checkbox.test.ts.
 describe('#750 — grouping refusals mirror boardGroupError', () => {
-  it('a multi-select field is refused', async () => {
-    const field = (
-      await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
-        display_name: 'Tags',
-        type: 'multi_select',
-        options: [{ label: 'a' }],
-      })
-    ).json();
-    const { status, body } = await grouped({ op: 'count', group_by: field.apiName });
-    expect(status).toBe(422);
-    expect(JSON.stringify(body)).toContain('cannot group');
-  });
-
   it('a multi-person user field is refused', async () => {
     const field = (
       await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
