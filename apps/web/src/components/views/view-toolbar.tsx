@@ -72,6 +72,8 @@ import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import { isHierarchyField } from '../table-view/use-hierarchy';
 import { fieldTypeIcon } from './field-type-icon';
+import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
+import { isCoverField } from './cover-fields';
 import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
 import { FieldsMenu } from './fields-menu';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
@@ -317,7 +319,7 @@ export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
 function GalleryNoCoverFieldNotice() {
   return (
     <span className="text-label italic text-faint">
-      No Cover control — this database has no attachment field. Add one to use this view.
+      No Cover control — this database has no attachment or URL field. Add one to use this view.
     </span>
   );
 }
@@ -587,7 +589,7 @@ export function ViewToolbar({
           even mentions covers. Say so once, where the picker would have been,
           and offer the actual fix. */}
       {viewType === 'gallery' &&
-        (fields.some((f) => f.type === 'attachment') ? (
+        (fields.some(isCoverField) ? (
           <label className="flex items-center gap-1 text-label text-muted">
             Cover
             <select
@@ -597,7 +599,7 @@ export function ViewToolbar({
             >
               <option value="">None</option>
               {fields
-                .filter((f) => f.type === 'attachment')
+                .filter(isCoverField)
                 .map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.displayName}
@@ -635,11 +637,19 @@ export function ViewToolbar({
           onChange={(e) => onPatch({ date_field_id: e.target.value })}
           title="Date field"
         >
-          {fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at').map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.displayName}
-            </option>
-          ))}
+          {/* #808 — every date-capable field is listed; one that makes a read-only
+              calendar is disabled WITH the reason, before the choice rather than in
+              a banner after it (the board's #225 pattern). A view already built on
+              one keeps it as its (disabled) current value. */}
+          {fields.filter(isCalendarDateField).map((f) => {
+            const reason = calendarDateDisabledReason(f);
+            return (
+              <option key={f.id} value={f.id} disabled={reason !== null}>
+                {f.displayName}
+                {reason ? ` — ${reason}` : ''}
+              </option>
+            );
+          })}
         </select>
       )}
 
@@ -657,12 +667,16 @@ export function ViewToolbar({
         >
           <option value="">No end field (fixed 1h blocks)</option>
           {fields
-            .filter((f) => f.id !== config.date_field_id && (f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at'))
-            .map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.displayName}
-              </option>
-            ))}
+            .filter((f) => f.id !== config.date_field_id && isCalendarDateField(f))
+            .map((f) => {
+              const reason = calendarDateDisabledReason(f);
+              return (
+                <option key={f.id} value={f.id} disabled={reason !== null}>
+                  {f.displayName}
+                  {reason ? ` — ${reason}` : ''}
+                </option>
+              );
+            })}
         </select>
       )}
 

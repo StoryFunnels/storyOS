@@ -12,6 +12,7 @@ import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from 
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
+import { arrangeBoardColumns } from './board-columns';
 import { canGroupListBy } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
 import type { FilterNode, ViewConfig } from './use-view-state';
@@ -89,7 +90,7 @@ export function ListView({
       const v = (row.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
       (buckets.get(v) ?? buckets.get(NO_VALUE)!).push(row);
     }
-    return [
+    const columns = [
       ...(groupField.options ?? []).map((o) => ({
         id: o.id,
         label: o.label,
@@ -97,8 +98,23 @@ export function ListView({
         rows: buckets.get(o.id)!,
       })),
       { id: NO_VALUE, label: 'No value', color: OPTION_COLORS.gray!, rows: buckets.get(NO_VALUE)! },
-    ].filter((g) => g.rows.length > 0 || g.id !== NO_VALUE);
-  }, [groupField, rows]);
+    ];
+    /* #825 — the Groups controls in the toolbar (hide empty groups, hide the
+       no-value group, column order) were offered for every GROUPED view,
+       including this one, but this renderer never read them: a picker offering
+       what its renderer ignores. They now run through the SAME function the
+       board uses, so the two views cannot drift (field-surfaces.md). The list's
+       own older rule — an EMPTY no-value group is never drawn — is kept. */
+    return arrangeBoardColumns(
+      columns,
+      {
+        column_sort: config.column_sort,
+        hide_empty_groups: config.hide_empty_groups,
+        hide_empty_no_value_group: config.hide_empty_no_value_group,
+      },
+      { groupType: groupField.type, hasMore: Boolean(records.hasNextPage) },
+    ).filter((g) => g.rows.length > 0 || g.id !== NO_VALUE);
+  }, [groupField, rows, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, records.hasNextPage]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>

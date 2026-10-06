@@ -11,6 +11,7 @@ import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, 
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
+import { editableCalendarDateFields } from '@/components/views/calendar-date-fields';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
 import { canGroupBoardBy } from '@/components/views/groupable-fields';
@@ -446,7 +447,10 @@ function NewViewDialog({
     const patch: Partial<ViewConfig> = {};
     if (kind === 'table') patch.hidden_field_ids = defaultTableHiddenFieldIds(fields);
     if (kind === 'board') patch.group_by_field_id = boardDefaultGroupId;
-    if (kind === 'calendar') patch.date_field_id = dateFields[0]?.id;
+    // #808 — a calendar defaults to a WRITABLE date: defaulting to created_at (the
+    // first date-capable field on most databases) built a view that could not move
+    // a card, which is the dead view this ticket is about.
+    if (kind === 'calendar') patch.date_field_id = editableCalendarDateFields(fields)[0]?.id;
     if (kind === 'timeline') patch.start_date_field_id = dateFields[0]?.id;
     onCreate(uniqueViewName(VIEW_KIND_LABEL[kind]), kind, patch);
     setOpen(false);
@@ -467,7 +471,7 @@ function NewViewDialog({
             [
               { kind: 'table', label: 'Table', Icon: Table2 },
               { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
-              { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
+              { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: editableCalendarDateFields(fields).length === 0 ? 'Needs an editable date field' : null },
               { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
               { kind: 'list', label: 'List', Icon: ListIcon },
               { kind: 'feed', label: 'Feed', Icon: Newspaper },

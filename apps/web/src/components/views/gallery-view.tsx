@@ -6,6 +6,7 @@ import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
+import { isCoverField } from './cover-fields';
 import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
@@ -67,7 +68,7 @@ export function GalleryView({
    */
   const cover = useMemo(() => {
     const field = (database.data?.fields ?? []).find(
-      (f) => f.id === config.cover_field_id && f.type === 'attachment',
+      (f) => f.id === config.cover_field_id && isCoverField(f),
     );
     return field ? { field, ws, db } : undefined;
   }, [database.data, config.cover_field_id, ws, db]);
