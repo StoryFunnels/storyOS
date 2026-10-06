@@ -13,6 +13,12 @@ import { authed, signUpUser } from './helpers/users';
  * self-relation, and nothing exercised that shape. So the claim "sub-items are covered by
  * the same path as any linked record" was an inference, and this is the check.
  *
+ * ABSENT, NOT A BARE REFERENCE. Ticket #473's older comments (2026-09-08 and
+ * 2026-09-24) say a record the guest cannot read renders as a "bare reference".
+ * That prose is superseded: Otto ratified the stricter behaviour on 2026-10-06
+ * because a child's mere existence is information. Do NOT "fix" the code toward
+ * the old wording; loosening this is a deliberate, reviewed decision.
+ *
  * THIS IS A SECURITY BOUNDARY. Every assertion is about the RESPONSE BODY a real
  * record-scoped-only guest receives, never the UI: a child the API returns and the client
  * hides is a leak. The strongest form used throughout is that the serialised body does not

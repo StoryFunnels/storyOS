@@ -12,8 +12,9 @@ import { authed, signUpUser } from './helpers/users';
  * for the denied one (an ABSENT chip, per #469's own precedent).
  *
  * This is the SAME underlying gap ticket #473 needs closed for its own
- * ruling (a linked record outside a grant is a bare reference, a rollup
- * over inaccessible records returns nothing) — attachRollups/attachLookups
+ * ruling (a linked record outside a grant is ABSENT — not a bare reference,
+ * whatever the older ticket prose says; ratified 2026-10-06 on ticket #473 —
+ * and a rollup over inaccessible records returns nothing) — attachRollups/attachLookups
  * derive their candidate ids from attachLinks' own chips, so fixing this
  * one fix point closes both tickets' remaining read-path gap.
  *
