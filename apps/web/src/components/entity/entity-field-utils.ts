@@ -192,13 +192,34 @@ export function resetOrderPlan(
 export function isEmptyValue(v: unknown): boolean {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 }
+/**
+ * Does this field disappear when it has no value? The explicit choice wins —
+ * `true` hides it, `false` is "Always show (even empty)" — and only a field that
+ * NEVER made the choice falls back to a default.
+ *
+ * #783 — the default is per KIND, in code, deliberately not written onto rows:
+ * a COLLECTION (a many-to-many, or the many side of a one-to-many) is a headed,
+ * bordered block, and an empty one is chrome saying nothing — measured as four of
+ * them opening both of the common record shapes. A scalar row names itself in a
+ * scannable list, so it keeps showing. A default lives here so a deploy can undo
+ * it; a data change would have written one into every relation field in every
+ * workspace to express something that is not a fact about their data.
+ *
+ * The control and the hidden flyout both read THIS, so what the menu offers is
+ * what the record does.
+ */
+export function hidesWhenEmpty(f: Field): boolean {
+  const explicit = f.config?.['hide_when_empty'];
+  if (typeof explicit === 'boolean') return explicit;
+  return isCollection(f);
+}
 /** Hidden outright, or flagged hide-when-empty and currently empty. */
 export function isHidden(f: Field, record: RecordRow): boolean {
   if (f.config?.['entity_hidden'] === true) return true;
   // Audit fields are available but default-hidden, so a record doesn't sprout three
   // new rows until the user opts in from the picker (MN-126).
   if (AUDIT_TYPES.has(f.type) && f.config?.['entity_hidden'] !== false) return true;
-  return f.config?.['hide_when_empty'] === true && isEmptyValue(record.values[f.apiName]);
+  return hidesWhenEmpty(f) && isEmptyValue(record.values[f.apiName]);
 }
 /** Audit fields live on the record row, not in `values` (MN-126). */
 export function auditValue(f: Field, record: RecordRow): unknown {

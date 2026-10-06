@@ -19,7 +19,7 @@ import { EditFieldDialog } from '@/components/table-view/edit-field-dialog';
 import { useDeleteField } from '@/components/table-view/field-dialog-shared';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
-import { zonesOf } from './entity-field-utils';
+import { hidesWhenEmpty, zonesOf } from './entity-field-utils';
 import type { Zone } from './entity-field-utils';
 
 const ZONE_LABEL: Record<Zone, string> = { top: 'top strip', sidebar: 'sidebar', body: 'main body' };
@@ -175,11 +175,13 @@ export function FieldMenu({
             onSelect={() =>
               setConfig.mutate({
                 fieldId: field.id,
-                config: { hide_when_empty: field.config?.['hide_when_empty'] !== true },
+                // Writes an EXPLICIT boolean either way: "Always show" must be a stored
+                // `false`, because for a collection the unset default is hide (#783).
+                config: { hide_when_empty: !hidesWhenEmpty(field) },
               })
             }
           >
-            {field.config?.['hide_when_empty'] === true ? 'Always show (even empty)' : 'Hide when empty'}
+            {hidesWhenEmpty(field) ? 'Always show (even empty)' : 'Hide when empty'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } })}>
             Hide on record page

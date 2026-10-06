@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NOT_INLINE, computedBadgeLabel, isEmptyBlocks } from './entity-field-utils';
+import { NOT_INLINE, computedBadgeLabel, hidesWhenEmpty, isEmptyBlocks, isHidden } from './entity-field-utils';
 
 /**
  * #776 — a computed field must never get the ordinary click-to-edit
@@ -92,5 +92,44 @@ describe('isEmptyBlocks (#813)', () => {
   it('does not call a non-array value empty', () => {
     expect(isEmptyBlocks('text')).toBe(false);
     expect(isEmptyBlocks({})).toBe(false);
+  });
+});
+
+describe('hidesWhenEmpty / isHidden — collection default (#783)', () => {
+  const rel = (config: Record<string, unknown>, rel: Record<string, unknown>) =>
+    ({ id: 'r', apiName: 'r', displayName: 'R', type: 'relation', config, relation: rel }) as never;
+  const manyToMany = (config: Record<string, unknown> = {}) => rel(config, { cardinality: 'many_to_many', side: 'a' });
+  const oneToManyB = (config: Record<string, unknown> = {}) => rel(config, { cardinality: 'one_to_many', side: 'b' });
+  const oneToManyA = (config: Record<string, unknown> = {}) => rel(config, { cardinality: 'one_to_many', side: 'a' });
+  const text = (config: Record<string, unknown> = {}) => ({ id: 't', apiName: 't', displayName: 'T', type: 'text', config }) as never;
+  const record = (values: Record<string, unknown>) => ({ values }) as never;
+
+  it('an empty collection that never made the choice is hidden', () => {
+    expect(isHidden(manyToMany(), record({ r: [] }))).toBe(true);
+    expect(isHidden(oneToManyB(), record({}))).toBe(true);
+  });
+
+  // What the default must KEEP: an explicit "Always show" beats it, and filled sections stay.
+  it('an explicit false is "always show" and beats the default', () => {
+    expect(isHidden(manyToMany({ hide_when_empty: false }), record({ r: [] }))).toBe(false);
+  });
+  it('a collection with linked records is never hidden by this rule', () => {
+    expect(isHidden(manyToMany(), record({ r: [{ id: 'x', title: 'x' }] }))).toBe(false);
+  });
+  it('an explicit true still hides an empty one, and entity_hidden still hides a full one', () => {
+    expect(isHidden(manyToMany({ hide_when_empty: true }), record({ r: [] }))).toBe(true);
+    expect(isHidden(manyToMany({ entity_hidden: true }), record({ r: [{ id: 'x' }] }))).toBe(true);
+  });
+
+  it('is per KIND: single references and scalar fields keep showing when empty', () => {
+    expect(isHidden(oneToManyA(), record({}))).toBe(false);
+    expect(isHidden(text(), record({}))).toBe(false);
+    expect(isHidden(text({ hide_when_empty: true }), record({}))).toBe(true);
+  });
+
+  it('the menu label follows the effective state', () => {
+    expect(hidesWhenEmpty(manyToMany())).toBe(true);
+    expect(hidesWhenEmpty(manyToMany({ hide_when_empty: false }))).toBe(false);
+    expect(hidesWhenEmpty(text())).toBe(false);
   });
 });
