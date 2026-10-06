@@ -28,6 +28,7 @@ import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
+import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import {
@@ -3240,10 +3241,14 @@ function DeleteDatabaseDialog({
               shipped restore_database. Verified live: a deleted database
               reappears, fields/records/views intact, via Settings → Trash. */}
         </p>
-        <p className="text-body text-ink-secondary">
-          Type <span className="font-semibold text-ink">{name}</span> to confirm.
-        </p>
-        <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+        <TypedConfirmName name={name} />
+        <Input
+          autoFocus
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          aria-label={`Type ${name} to confirm`}
+          autoComplete="off"
+        />
         {typed.trim().length > 0 && !matches && (
           <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
         )}

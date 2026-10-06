@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { useSpaces, useWorkspace } from '@/lib/queries';
 import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
+import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -355,11 +356,10 @@ function EraseMemberDialog({
             attributed to a real person. <span className="font-medium">This cannot be undone.</span>
           </p>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="erase-confirm">
-              Type <span className="font-medium text-ink">{target}</span> to confirm
-            </Label>
+            <TypedConfirmName name={target} />
             <Input
               id="erase-confirm"
+              aria-label={`Type ${target} to confirm`}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="off"

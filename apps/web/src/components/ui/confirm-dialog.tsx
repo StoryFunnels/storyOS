@@ -1,10 +1,11 @@
 'use client';
 
-import { createContext, useCallback, useContext, useId, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Dialog, DialogContent } from './dialog';
 import { Button } from './button';
 import { Input } from './input';
+import { TypedConfirmName } from './typed-confirm-name';
 
 interface ConfirmOptions {
   title: string;
@@ -42,7 +43,6 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null);
   const [typed, setTyped] = useState('');
   const resolver = useRef<((value: boolean) => void) | null>(null);
-  const typedInputId = useId();
 
   const confirm = useCallback<ConfirmFn>((options) => {
     setTyped('');
@@ -67,14 +67,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {opts.message && <p className="mb-5 text-body leading-relaxed text-muted">{opts.message}</p>}
             {opts.requireTyped && (
               <div className="mb-5">
-                {/* #801 — the name to retype must be OUTSIDE the <label>: nesting
-                    it means a click-drag to select the text lands in the input
-                    instead, since a label click transfers focus to its control. */}
-                <label htmlFor={typedInputId} className="mb-1.5 block text-body text-ink-secondary">
-                  Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
-                </label>
+                <div className="mb-2">
+                  <TypedConfirmName name={opts.requireTyped} />
+                </div>
                 <Input
-                  id={typedInputId}
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
