@@ -188,7 +188,10 @@ to `latest`; pin `IMAGE_TAG=<git-sha>` in `.env` to deploy or roll back to a
 specific build. If the packages are private, run `docker login ghcr.io` once
 with a token that has `read:packages`. Analytics (`NEXT_PUBLIC_POSTHOG_*`) are
 baked into the published `web` image from the CI Actions *variables*, not from
-your host `.env`.
+your host `.env`. The `api` container has its own, separate analytics settings
+(`POSTHOG_PROJECT_TOKEN` and `POSTHOG_HOST`), read at runtime and **unset by
+default**: with either left blank the API sends no analytics at all, so a
+self-hosted instance reports nothing unless you choose to configure it.
 
 ## Backup & restore
 

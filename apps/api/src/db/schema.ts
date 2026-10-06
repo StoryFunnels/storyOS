@@ -129,6 +129,14 @@ export const workspaces = pgTable('workspaces', {
    */
   salesSignalSentAt: timestamp('sales_signal_sent_at', { withTimezone: true }),
   salesSignalReason: text('sales_signal_reason'),
+  /**
+   * #817 — set ONCE, when `workspace_activated` is claimed (see
+   * WorkspaceActivationEventsService). Doubles as the exactly-once guard: the
+   * sweep only ever considers workspaces where this is null. Released (set back to
+   * null) if the analytics send itself fails, so an outage delays the event
+   * instead of losing it. Never set on an instance with analytics unconfigured.
+   */
+  activatedAt: timestamp('activated_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -1293,6 +1301,14 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
    */
   trialReminder23SentAt: timestamp('trial_reminder_23_sent_at', { withTimezone: true }),
   trialReminder29SentAt: timestamp('trial_reminder_29_sent_at', { withTimezone: true }),
+  /**
+   * #817 — claimed ONCE, the first time a workspace is a PAYING subscription
+   * (`status = 'active'`: not a trial, not a plan change). Same atomic
+   * claim-then-act shape as the trial reminders above; released if the analytics
+   * send fails. A workspace that cancels and resubscribes does not fire again:
+   * "started" is the first time ever, which is what a funnel stage means.
+   */
+  subscriptionStartedAt: timestamp('subscription_started_at', { withTimezone: true }),
   ...timestamps,
 });
 

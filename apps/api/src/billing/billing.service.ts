@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -11,6 +11,8 @@ import {
 } from '../db/schema';
 import { env } from '../config/env';
 import { AccessService } from '../access/access.service';
+import { AnalyticsService, eventUuid } from '../analytics/analytics.service';
+import { foundingAdminId } from '../analytics/founding-admin';
 import { ReferralsService } from '../referrals/referrals.service';
 import { AiCreditsService } from './ai-credits.service';
 import { StripeService } from './stripe.service';
@@ -51,6 +53,7 @@ export class BillingService {
     private readonly access: AccessService,
     private readonly aiCredits: AiCreditsService,
     private readonly referrals: ReferralsService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   /**
@@ -343,6 +346,58 @@ export class BillingService {
       await this.referrals.recordConversionIfEligible(workspaceId).catch((err) => {
         this.logger.warn(`Referral conversion check failed for workspace ${workspaceId}: ${(err as Error).message}`);
       });
+    }
+
+    // #817 — the funnel's PAID stage. `active` is the only status that means money
+    // has changed hands: a trial is `trialing` (and is its own branch of the funnel),
+    // and past_due / incomplete / unpaid have not paid. Best-effort for the same
+    // reason as the referral check above: analytics must never fail a webhook.
+    if (sub.status === 'active' && !terminal) {
+      await this.emitSubscriptionStarted(workspaceId, effectivePlan, seats, priorRow?.status === 'trialing').catch((err) => {
+        this.logger.warn(`subscription_started for workspace ${workspaceId} failed: ${(err as Error).message}`);
+      });
+    }
+  }
+
+  /**
+   * #817 — emits `subscription_started` once per workspace, the first time its
+   * subscription is paying. Reached from every path that projects Stripe state
+   * (customer.subscription.*, invoice.paid, the periodic reconcile), and the same
+   * subscription legitimately arrives here many times, so exactly-once rests on an
+   * atomic claim rather than on remembering which event we saw: a later upgrade,
+   * downgrade, renewal or seat change finds the claim taken and does nothing.
+   * A trial converting to paid and a direct-to-paid signup both fire it.
+   *
+   * The person is the workspace's founding admin, not whoever pressed upgrade, so the
+   * event lands on the same person as `user_signed_up` and `workspace_activated`.
+   */
+  private async emitSubscriptionStarted(
+    workspaceId: string,
+    plan: PlanId,
+    seats: number,
+    fromTrial: boolean,
+  ): Promise<void> {
+    if (!this.analytics.enabled) return;
+    const person = await foundingAdminId(this.db, workspaceId);
+    if (!person) return; // nobody to attribute it to: leave it unclaimed rather than lose it
+    const [claimed] = await this.db
+      .update(billingSubscriptions)
+      .set({ subscriptionStartedAt: new Date() })
+      .where(and(eq(billingSubscriptions.workspaceId, workspaceId), isNull(billingSubscriptions.subscriptionStartedAt)))
+      .returning({ workspaceId: billingSubscriptions.workspaceId });
+    if (!claimed) return;
+    const result = await this.analytics.capture({
+      distinctId: person,
+      event: 'subscription_started',
+      uuid: eventUuid('subscription_started', workspaceId),
+      properties: { workspace_id: workspaceId, plan, seats, converted_from_trial: fromTrial },
+    });
+    if (result !== 'sent') {
+      // Release so the next projection of this subscription retries: delayed, not lost.
+      await this.db
+        .update(billingSubscriptions)
+        .set({ subscriptionStartedAt: null })
+        .where(eq(billingSubscriptions.workspaceId, workspaceId));
     }
   }
 

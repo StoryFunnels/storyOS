@@ -256,6 +256,15 @@ export const envSchema = z.object({
   LINKEDIN_CLIENT_ID: z.string().optional(),
   LINKEDIN_CLIENT_SECRET: z.string().optional(),
   /**
+   * #817 — server-side product analytics (PostHog). BOTH must be set or the API
+   * makes no network call at all and ships zero analytics: unset is the default
+   * for every fresh clone and every self-hoster, the same by-construction safety
+   * apps/web/src/lib/posthog-server.ts has. Hosted StoryOS sets them; nobody
+   * else is expected to, and nothing else changes if they do not.
+   */
+  POSTHOG_PROJECT_TOKEN: z.string().optional(),
+  POSTHOG_HOST: z.string().optional(),
+  /**
    * MN-263 — extra comma-separated CIDRs (v4 or v6) net-guard.ts always
    * refuses, on top of its built-in private/reserved/metadata blocklist.
    * For hosted-infra ranges specific to a deployment (e.g. a VPC CIDR the

@@ -1,19 +1,10 @@
 import { Controller, Get, Inject, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import {
-  apiTokens,
-  databases,
-  invites,
-  memberships,
-  packInstalls,
-  records,
-  relations,
-  views,
-  workspaces,
-} from '../db/schema';
+import { databases, packInstalls, relations, views } from '../db/schema';
+import { ActivationService } from './activation.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import type { WorkspaceRequest } from './workspace-access.guard';
@@ -29,7 +20,10 @@ import type { WorkspaceRequest } from './workspace-access.guard';
 @Controller('workspaces/:ws')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class OnboardingController {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly activation: ActivationService,
+  ) {}
 
   private async exists(query: Promise<Array<unknown>>): Promise<boolean> {
     return (await query).length > 0;
@@ -40,11 +34,6 @@ export class OnboardingController {
   async onboarding(@Req() req: WorkspaceRequest) {
     const workspaceId = req.membership.workspaceId;
 
-    // Sample records (installed by a template) don't count as "added records".
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const sampleIds =
-      ((ws?.settings ?? {}) as { sample_record_ids?: string[] }).sample_record_ids ?? [];
-
     // #128: system databases (Members, and the Agentic OS pack) are provisioned
     // FOR the user, not BY them — they must not light up "create a database" or
     // "add a record" on an otherwise-empty workspace.
@@ -54,12 +43,10 @@ export class OnboardingController {
 
     const [
       database_created,
-      records_added,
-      teammate_invited,
       board_view_built,
       relation_created,
-      ai_connected,
       business_pack_installed,
+      { records_added, teammate_invited, ai_connected },
     ] = await Promise.all([
         this.exists(
           this.db
@@ -68,36 +55,6 @@ export class OnboardingController {
             .where(and(eq(databases.workspaceId, workspaceId), notSystemDatabase))
             .limit(1),
         ),
-        this.exists(
-          this.db
-            .select({ one: sql`1` })
-            .from(records)
-            .innerJoin(databases, eq(databases.id, records.databaseId))
-            .where(
-              and(
-                eq(databases.workspaceId, workspaceId),
-                notSystemDatabase,
-                isNull(records.deletedAt),
-                ...(sampleIds.length ? [notInArray(records.id, sampleIds)] : []),
-              ),
-            )
-            .limit(1),
-        ),
-        (async () => {
-          const activeMembers = await this.db
-            .select({ one: sql`1` })
-            .from(memberships)
-            .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')))
-            .limit(2);
-          if (activeMembers.length > 1) return true;
-          return this.exists(
-            this.db
-              .select({ one: sql`1` })
-              .from(invites)
-              .where(and(eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt)))
-              .limit(1),
-          );
-        })(),
         this.exists(
           this.db
             .select({ one: sql`1` })
@@ -114,10 +71,6 @@ export class OnboardingController {
         this.exists(
           this.db.select({ one: sql`1` }).from(relations).where(eq(relations.workspaceId, workspaceId)).limit(1),
         ),
-        // "Connect your AI": a PAT exists for this workspace — the MCP on-ramp.
-        this.exists(
-          this.db.select({ one: sql`1` }).from(apiTokens).where(eq(apiTokens.workspaceId, workspaceId)).limit(1),
-        ),
         // "Install a Business Pack" (MN-219 / #161): any tracked install still
         // standing — an uninstalled pack no longer counts, the same way a
         // sample record stops counting once its template is removed.
@@ -128,6 +81,8 @@ export class OnboardingController {
             .where(and(eq(packInstalls.workspaceId, workspaceId), isNull(packInstalls.uninstalledAt)))
             .limit(1),
         ),
+        // records_added / teammate_invited / ai_connected: one shared definition (#817).
+        this.activation.evaluate(workspaceId),
       ]);
 
     return {
