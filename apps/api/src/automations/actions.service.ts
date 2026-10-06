@@ -7,6 +7,7 @@ import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { env } from '../config/env';
+import { classRulesFor } from '../action-gates/action-classes';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
@@ -463,24 +464,26 @@ export class AutomationActionsService {
             throw new UnprocessableEntityException('post_social result_field_id must be a field on this database');
           }
         }
-        // Same admin-only override send_email's `require_approval: false`
-        // gets above: an explicit `false` is the save-time decision gated
-        // here; only an admin, typed by a human (never authored on their
-        // behalf), may turn it off. Unlike send_email, post_social has no
-        // run-time default-to-gated heuristic — #42 didn't ask for one, and
-        // `require_approval` left unset behaves like every other ungated
-        // action type (set_values, http_request, …).
-        if (
-          action.require_approval === false &&
-          actorRole !== undefined &&
-          (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
-        ) {
-          throw new UnprocessableEntityException(
-            source !== undefined && source !== 'human'
-              ? 'Turning off approval for a post_social action has to be a human decision, typed by a workspace admin — not something authored on their behalf.'
-              : 'Only a workspace admin can turn off approval for a post_social action.',
-          );
-        }
+      }
+
+      // #781 — a class's save-time rule, declared once in action-classes.ts rather than
+      // re-typed inside each action. For `publish_externally` (today: post_social) an
+      // explicit `require_approval: false` is the decision that removes the only thing
+      // standing between an automation and a public post, so only an admin, typing it
+      // themselves (never an agent or MCP client authoring on their behalf), may save it.
+      // Same rule and same wording send_email has; the messages are unchanged for post_social.
+      const classRules = classRulesFor(action.type);
+      if (
+        classRules?.ungateNeedsHumanAdmin &&
+        action.require_approval === false &&
+        actorRole !== undefined &&
+        (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
+      ) {
+        throw new UnprocessableEntityException(
+          source !== undefined && source !== 'human'
+            ? `Turning off approval for a ${action.type} action has to be a human decision, typed by a workspace admin — not something authored on their behalf.`
+            : `Only a workspace admin can turn off approval for a ${action.type} action.`,
+        );
       }
     }
   }
@@ -946,6 +949,13 @@ export class AutomationActionsService {
       // saved. An explicit `true`/`false` on the action always wins outright:
       // this defaulting only ever applies when the field was left unset.
       let requireApproval = action.require_approval;
+      // #781 — a gated CLASS is held by default when the author left the field unset
+      // (publish_externally: post_social). Before this, only send_email had a default, so
+      // an unset post_social was queued and PUBLISHED with no approval at all, while #42's
+      // own title says "approval-gated by default". An explicit true/false still wins.
+      if (requireApproval === undefined && classRulesFor(action.type)?.approvalWhenUnset === 'gated') {
+        requireApproval = true;
+      }
       if (action.type === 'send_email' && requireApproval === undefined) {
         requireApproval = true;
         const addresses = splitEmailAddresses(
