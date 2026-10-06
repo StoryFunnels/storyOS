@@ -29,8 +29,7 @@ import {
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
-import { EntityIcon } from '@/components/ui/icon-picker';
-import { DbColorMarker } from '@/components/table-view/relation-cell';
+import { DbMarker } from './db-marker';
 import { atLeast } from '@/lib/access';
 import {
   useDatabase,
@@ -510,11 +509,7 @@ export function RecordDetail({
             href={`/w/${ws}/d/${db}`}
             className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-hover hover:text-ink"
           >
-            <EntityIcon
-              icon={database.data?.icon ?? null}
-              color={database.data?.color ?? null}
-              fallback={<DbColorMarker color={database.data?.color ?? 'gray'} />}
-            />
+            <DbMarker icon={database.data?.icon} color={database.data?.color} />
             <span className="truncate">{database.data?.name}</span>
           </Link>
           {record.data.number !== null && (
