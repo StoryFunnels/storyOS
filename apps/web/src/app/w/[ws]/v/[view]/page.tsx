@@ -77,7 +77,7 @@ export default function SpaceViewPage() {
   return (
     <div className="flex h-full flex-col overflow-auto">
       <div className="border-b border-border-default px-6 py-3">
-        <h1 className="text-[15px] font-semibold text-ink">{view.name}</h1>
+        <h1 className="text-title font-semibold text-ink">{view.name}</h1>
       </div>
       <div className="flex-1 p-6">
         <DashboardView

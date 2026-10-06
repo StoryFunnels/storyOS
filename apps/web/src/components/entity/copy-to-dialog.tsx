@@ -296,7 +296,7 @@ export function CopyToDialog({
 
             {result && (
               <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4 text-center">
-                <p className="text-[15px] font-semibold text-ink">
+                <p className="text-title font-semibold text-ink">
                   {single ? 'Record copied 🎉' : `${result.created.length} records copied 🎉`}
                 </p>
                 {result.warnings.length > 0 && (

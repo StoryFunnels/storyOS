@@ -136,7 +136,7 @@ export function FormThemePanel({
       <div className="rounded-[var(--radius-control)] border border-border-default p-3" style={style}>
         <p className="mb-2 text-meta uppercase tracking-wider text-muted">Preview</p>
         <div className="flex flex-col gap-2 text-body">
-          <span className="text-[15px] font-semibold text-ink">Your form</span>
+          <span className="text-title font-semibold text-ink">Your form</span>
           <span className="text-label text-muted">A short description under the title.</span>
           <span className="text-label font-medium text-ink-secondary">Email</span>
           <div className="h-8 rounded-[var(--radius-control)] border border-border-strong bg-card" />

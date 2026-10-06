@@ -618,7 +618,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
 
         {step === 4 && result && (
           <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4 text-center">
-            <p className="text-[15px] font-semibold text-ink">
+            <p className="text-title font-semibold text-ink">
               {upsertColumn
                 ? `Created ${result.created}, updated ${result.updated}, skipped ${result.skipped} 🎉`
                 : `Imported ${result.created} records 🎉`}
