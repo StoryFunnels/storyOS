@@ -146,6 +146,39 @@ export function computeChartSeries(
   return points;
 }
 
+/**
+ * #795 — the same series, built from the SERVER's per-group measure instead of from
+ * records. Same ordering contract as `computeChartSeries` (descending value, empty
+ * bucket last), so a widget does not reshuffle when it moves onto the endpoint.
+ *
+ * Two honest differences, both stated rather than hidden: the server returns the
+ * measure but not a per-group record count, so `count` is the measure only for
+ * `count` (where they are the same number) and 0 otherwise, and ties are broken by
+ * label rather than by count-then-label. Date grouping is NOT served from here —
+ * the endpoint buckets by week/month/quarter/year while the widget buckets by DAY.
+ */
+export function seriesFromGroups(
+  groups: ReadonlyArray<{ key: string | null; value: number | null }>,
+  op: TileOp,
+  labelFor?: (key: string) => string,
+): SeriesPoint[] {
+  const points: SeriesPoint[] = groups.map((g) => ({
+    key: g.key,
+    label: g.key === null ? EMPTY_GROUP_LABEL : labelFor?.(g.key) ?? g.key,
+    value: g.value,
+    count: op === 'count' ? (g.value ?? 0) : 0,
+  }));
+  points.sort((a, b) => {
+    if (a.key === null) return 1;
+    if (b.key === null) return -1;
+    const av = a.value ?? Number.NEGATIVE_INFINITY;
+    const bv = b.value ?? Number.NEGATIVE_INFINITY;
+    if (bv !== av) return bv - av;
+    return a.label.localeCompare(b.label);
+  });
+  return points;
+}
+
 /** True when the measure needs a target number field (everything but count). */
 export function measureNeedsField(op: TileOp): boolean {
   return op !== 'count';
