@@ -9,6 +9,8 @@ import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingNudgeService } from './onboarding-nudge.service';
+import { ActivationService } from './activation.service';
+import { WorkspaceActivationEventsService } from './workspace-activation-events.service';
 import { SpacesService } from './spaces.service';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import {
@@ -39,6 +41,8 @@ import { WorkspacesService } from './workspaces.service';
     GroupsService,
     WorkspaceAccessGuard,
     OnboardingNudgeService,
+    ActivationService,
+    WorkspaceActivationEventsService,
   ],
   exports: [WorkspaceAccessGuard, SpacesService, WorkspacesService],
 })

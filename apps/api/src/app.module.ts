@@ -44,6 +44,7 @@ import { MentionsModule } from './mentions/mentions.module';
 import { FormsModule } from './forms/forms.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { BillingModule } from './billing/billing.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AdminModule } from './admin/admin.module';
 import { env } from './config/env';
@@ -132,6 +133,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     FormsModule,
     GdprModule,
     BillingModule,
+    AnalyticsModule,
     ReferralsModule,
     AdminModule,
     ThrottlerModule.forRoot({
