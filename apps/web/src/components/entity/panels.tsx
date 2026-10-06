@@ -19,6 +19,8 @@ import { Button } from '@/components/ui/button';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 import { blockPlainText } from './entity-field-utils';
+import { formatActivityValue } from './activity-format';
+import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 
 type Segment =
   | { type: 'text'; text: string }
@@ -453,11 +455,22 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
     },
   });
 
-  const fmt = (value: unknown): string => {
-    if (value === null || value === undefined) return 'empty';
-    if (Array.isArray(value)) return value.map(fmt).join(', ');
-    return String(value);
-  };
+  // #806 — resolve by FIELD TYPE. The change carries the field's display name; the
+  // database's own field list (already cached by the record page) gives its type,
+  // and the workspace members give names for the user-id types. Removed members
+  // fall back to the label record-history.tsx already uses.
+  const database = useDatabase(ws, db);
+  const members = useMembers(ws, true);
+  const typeByName = useMemo(
+    () => new Map((database.data?.fields ?? []).map((f) => [f.displayName, f.type])),
+    [database.data],
+  );
+  const nameById = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])),
+    [members.data],
+  );
+  const fmtFor = (fieldName: string) => (value: unknown) =>
+    formatActivityValue(value, fieldName === 'Name' ? 'title' : typeByName.get(fieldName), (id) => nameById.get(id));
 
   return (
     <div className="flex flex-col gap-2">
@@ -501,7 +514,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
                       ))
                     ) : (
                       <>
-                        {fmt(change.from)} → {fmt(change.to)}
+                        {fmtFor(change.field)(change.from)} → {fmtFor(change.field)(change.to)}
                       </>
                     )}
                   </span>
