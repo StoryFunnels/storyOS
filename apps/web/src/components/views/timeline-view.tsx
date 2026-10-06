@@ -583,7 +583,8 @@ export function TimelineView({
           dates are recorded, not chosen, so there is nothing to reschedule. */}
       {startIsSystemDate && (
         <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
-          {startField.displayName} is recorded automatically and can&apos;t be edited — bars here are read-only.
+          {/* One template string — see calendar-view.tsx for why. */}
+          {`${startField.displayName} is recorded automatically and can't be edited — bars here are read-only.`}
         </div>
       )}
 

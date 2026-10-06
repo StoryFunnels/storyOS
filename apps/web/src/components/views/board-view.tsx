@@ -23,6 +23,7 @@ import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { API_URL } from '@/lib/api';
+import { coverImageUrl, isUrlCoverField } from './cover-fields';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
 import {
@@ -560,7 +561,7 @@ export function BoardView({
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
           <span>
             Grouped by <span className="font-medium text-ink">{groupField.displayName}</span> — a{' '}
-            {groupField.type} field can&apos;t be reordered by dragging between columns.
+            {`${groupField.type} field can't be reordered by dragging between columns.`}
           </span>
         </div>
       )}
@@ -868,6 +869,12 @@ function CardCover({
   cover?: { field: Field; ws: string; db: string };
 }) {
   if (!cover) return null;
+  const alt = row.title || 'Untitled';
+  // #825 — a URL/text field holds the image's address itself.
+  if (isUrlCoverField(cover.field)) {
+    const url = coverImageUrl(row.values[cover.field.apiName]);
+    return url ? <UrlCoverImage key={url} src={url} alt={alt} /> : null;
+  }
   const files = row.values[cover.field.apiName];
   const first = Array.isArray(files) ? (files[0] as { id?: string; has_thumbnail?: boolean } | undefined) : undefined;
   if (!first?.id || !first.has_thumbnail) return null;
@@ -884,11 +891,26 @@ function CardCover({
          element. Simplest defensible choice per #754 AC2: both board and
          gallery cards get the title, rather than the component taking a
          per-caller distinction neither ticket asked for. */
-      alt={row.title || 'Untitled'}
+      alt={alt}
       loading="lazy"
-      className="mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover"
+      className={COVER_IMG_CLASS}
     />
   );
+}
+
+const COVER_IMG_CLASS = 'mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover';
+
+/**
+ * #825 — a cover read from a URL. A text/URL field is not guaranteed to hold an
+ * image, so a failed load falls back to this CARD's no-cover rendering (nothing
+ * at all, exactly what a card with no value shows) rather than a broken-image
+ * icon. State is per card: one bad URL cannot blank the gallery. The caller keys
+ * this by `src`, so editing the URL gets a fresh attempt.
+ */
+function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} className={COVER_IMG_CLASS} />;
 }
 
 /** One field value on a card: self-colored types render their own chip; everything

@@ -14,6 +14,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
+import { calendarNoEditableDateMessage, isShowingToday } from './calendar-date-fields';
 import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
@@ -242,9 +243,13 @@ export function CalendarView({
   }
 
   if (!dateField) {
+    /* #825 — "pick one in the toolbar" dead-ends when the database has no WRITABLE
+       date field: every option the picker would offer is read-only, so the calendar
+       stays unusable and nothing says why. Say the real blocker and the fix instead. */
+    const blocker = calendarNoEditableDateMessage(database.data?.fields ?? []);
     return (
       <p className="p-6 text-sm text-muted">
-        This calendar has no valid date field. Pick one in the toolbar ("Date field").
+        {blocker ?? 'This calendar has no valid date field. Pick one in the toolbar ("Date field").'}
       </p>
     );
   }
@@ -266,6 +271,7 @@ export function CalendarView({
       return addDays(d, delta);
     });
   };
+  const showingToday = isShowingToday(mode, anchorDate, today, week);
   const headerLabel =
     mode === 'month'
       ? `${MONTH_NAMES[view.month]} ${view.year}`
@@ -283,9 +289,14 @@ export function CalendarView({
         <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(1)}>
           <ChevronRight className="h-4 w-4" />
         </button>
+        {/* #808 — Today was correct and still read as broken: pressed while the view
+            already shows today, it changed nothing and said nothing. It is disabled in
+            exactly that state, and says why. */}
         <button
-          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
+          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
           onClick={() => setAnchorDate(today)}
+          disabled={showingToday}
+          title={showingToday ? 'Already showing today' : undefined}
         >
           Today
         </button>
@@ -344,7 +355,11 @@ export function CalendarView({
           to create "into". */}
       {dateIsSystemDate && (
         <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
-          {dateField.displayName} is recorded automatically and can&apos;t be edited — cards here are read-only.
+          {/* One template string, not an expression followed by entity-bearing JSX text:
+              the compiled output of that form dropped the space after the expression, so
+              the banner read "Created atis recorded automatically" (#808 finding three,
+              reproduced live; guarded by jsx-space-after-expression.unit.test.ts). */}
+          {`${dateField.displayName} is recorded automatically and can't be edited — cards here are read-only.`}
         </div>
       )}
 
