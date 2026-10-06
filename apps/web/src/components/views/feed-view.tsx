@@ -168,7 +168,7 @@ export function FeedView({
               style={dot ? { borderLeftColor: dot, borderLeftWidth: 3 } : undefined}
               className="cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-4 hover:border-border-strong"
             >
-              <p className="text-[15px] font-semibold text-ink">{row.title || 'Untitled'}</p>
+              <p className="text-title font-semibold text-ink">{row.title || 'Untitled'}</p>
               {preview && <p className="mt-1.5 line-clamp-4 text-body text-ink-secondary">{preview}</p>}
               {cardFields.length > 0 && (
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
