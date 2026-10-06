@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { PackVisual, registryVertical } from '@/components/pack-visual';
+import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -52,6 +52,9 @@ interface RegistryCard {
     automations: number;
     agents: number;
   };
+  /** #824 — the hero; read from the pack's own manifest. */
+  workflow?: { database: string; field: string; stages: string[][] } | null;
+  marks?: { agent: boolean; notifies: boolean };
 }
 interface RegistryEntry extends RegistryCard {
   manifest: unknown;
@@ -699,6 +702,9 @@ export default function PacksPage() {
                 )}
               </div>
               <p className="line-clamp-3 text-body text-muted">{pack.summary}</p>
+              {/* #824 — the counts, demoted from the hero to one quiet line. Gallery-only
+                  chrome: the new-workspace card has no room for it (see PackVisual). */}
+              <p className="font-mono text-micro text-muted">{packCountsLine(pack.preview)}</p>
               <Button
                 type="button"
                 className="mt-auto self-start"

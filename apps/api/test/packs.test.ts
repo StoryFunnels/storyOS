@@ -1416,6 +1416,24 @@ describe('authenticated pack gallery metadata (#305)', () => {
       agents: 1,
     });
   });
+
+  // #824 — the card's hero is the workflow, read from the pack's own manifest.
+  it('returns every pack\'s workflow and marks, and no pack\'s pipeline override leaks', async () => {
+    const res = await as(admin.token, 'GET', '/packs/registry');
+    const cards = res.json() as Array<{
+      slug: string;
+      pipeline?: unknown;
+      workflow: { database: string; field: string; stages: string[][] } | null;
+      marks: { agent: boolean; notifies: boolean };
+    }>;
+    for (const card of cards) {
+      expect(card.workflow, card.slug).not.toBeNull();
+      expect(card.workflow!.stages.length, card.slug).toBeGreaterThanOrEqual(2);
+    }
+    const support = cards.find((c) => c.slug === 'support-inbox')!;
+    expect(support.workflow!.stages.flat()).toEqual(['New', 'To Do', 'In Progress', 'Review', 'Done']);
+    expect(support.marks).toEqual({ agent: true, notifies: true });
+  });
 });
 
 /**

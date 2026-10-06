@@ -28,6 +28,9 @@ interface PackCard {
   highlights: string[];
   /** #351 — already returned by /packs/registry; the picker just never used it. */
   preview: { databases: number; views: number; automations: number; agents: number };
+  /** #824 — the hero; read from the pack's own manifest. */
+  workflow?: { database: string; field: string; stages: string[][] } | null;
+  marks?: { agent: boolean; notifies: boolean };
 }
 
 interface PackEntry extends PackCard {
