@@ -20,6 +20,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { CellEditor, OptionChip } from '@/components/table-view/cells';
 import { DbColorMarker } from '@/components/table-view/relation-cell';
+import { DbMarker } from './db-marker';
 import { useOpenInSplit } from './split-panel-context';
 import {
   useDatabase,
@@ -191,11 +192,8 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
       contentEditable={false}
       className="inline-flex max-w-full select-none items-center gap-1 whitespace-nowrap rounded border border-border-default bg-hover px-1 py-0.5 align-baseline text-[0.9em] text-ink"
     >
-      <EntityIcon
-        icon={database.data?.icon ?? null}
-        color={database.data?.color ?? null}
-        fallback={<DbColorMarker color={database.data?.color ?? 'gray'} />}
-      />
+      {/* #811 — no icon and no colour means NO SLOT (null), not an empty box. */}
+      <DbMarker icon={database.data?.icon} color={database.data?.color} />
       <Link
         href={`/w/${ws}/d/${db}/r/${id}`}
         onClick={openInSplit({ db, rec: id, title, number: rec?.number ?? null })}
