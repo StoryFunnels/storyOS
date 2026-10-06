@@ -15,6 +15,7 @@
     "billing:seed": "nest build && node dist/billing/seed-stripe.js",
     "icons:migrate": "nest build && node dist/icons/migrate-emoji-icons.js",
     "views:migrate-number-refs": "nest build && node dist/views/migrate-number-field-refs.js",
+    "views:scan-number-refs": "nest build && node dist/views/scan-number-field-refs-cli.js",
     "openapi:generate": "nest build && node dist/openapi.js",
     "seed:agent-uat": "nest build && node dist/seed/agent-uat.js"
   },

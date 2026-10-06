@@ -23,7 +23,7 @@ export interface NumberFieldRefHit {
  * record number). Rewriting it to `id` would silently change what that filter
  * or sort selects. A soft-deleted field no longer shadows the system one.
  */
-export async function databasesWithUserNumberField(db: Db): Promise<Set<string>> {
+export async function databasesWithUserNumberField(db: Pick<Db, 'selectDistinct'>): Promise<Set<string>> {
   const rows = await db
     .selectDistinct({ databaseId: fields.databaseId })
     .from(fields)
