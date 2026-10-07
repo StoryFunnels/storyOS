@@ -23,8 +23,10 @@ interface FieldChange {
   source: 'human' | 'agent' | 'automation' | 'mcp';
   old_value: unknown;
   new_value: unknown;
-  old_display: string;
-  new_display: string;
+  /** The API resolves option ids and passes everything else through as stored, so this is
+   *  NOT always a string — see `shownValue`. */
+  old_display: unknown;
+  new_display: unknown;
   created_at: string;
 }
 interface ChangesPage {
@@ -136,14 +138,24 @@ export function RecordHistoryDialog({
   const members = useMembers(ws, true);
   const actorName = (id: string | null) =>
     id ? (members.data?.find((m) => m.user.id === id)?.user.name ?? '(removed member)') : '—';
-  // #806 — the API's `*_display` resolves option ids but leaves a person field's
-  // stored USER ID as it was written, so this list printed raw ids exactly like the
-  // Activity tab did. Resolve by field TYPE, from the raw value, with the same
-  // formatter and the same removed-member fallback.
-  const shownValue = (display: string, raw: unknown, type: string | undefined) =>
-    type && USER_ID_FIELD_TYPES.has(type) && raw !== null && raw !== undefined && raw !== ''
-      ? formatActivityValue(raw, type, (id) => members.data?.find((m) => m.user.id === id)?.user.name)
-      : display || '—';
+  // #806 / #829 — the API's `*_display` resolves option ids but passes every other stored
+  // value through UNCHANGED, whatever its shape: a person field's user id, a rich_text
+  // field's ARRAY OF BLOCK OBJECTS, a checkbox's boolean. Typed `string` here, they were
+  // rendered raw — and React refuses an object child, so a record with ONE rich_text
+  // change took the whole record page down ("Objects are not valid as a React child")
+  // the moment History was opened. Everything that is not already a string now goes
+  // through the shared formatter (never an object, never a dropped `true`), and a
+  // person field resolves to a NAME from the raw value, with the same removed-member
+  // fallback the Activity tab uses.
+  const memberNameOf = (id: string) => members.data?.find((m) => m.user.id === id)?.user.name;
+  const shownValue = (display: unknown, raw: unknown, type: string | undefined): string => {
+    if (type && USER_ID_FIELD_TYPES.has(type) && raw !== null && raw !== undefined && raw !== '') {
+      return formatActivityValue(raw, type, memberNameOf);
+    }
+    if (typeof display === 'string') return display || '—';
+    if (display === null || display === undefined) return '—';
+    return formatActivityValue(display, type, memberNameOf);
+  };
 
   const changes = useInfiniteQuery({
     queryKey: ['record-field-changes', ws, db, rec],
