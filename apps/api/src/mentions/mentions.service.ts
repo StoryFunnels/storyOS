@@ -1,8 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, databases, documents, fields, records, recordMentions } from '../db/schema';
+import { activityEvents, comments, databases, documents, fields, records, recordMentions } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
+import { looksLikeUuid } from '../common/uuid';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -62,6 +65,9 @@ export class MentionsService {
     sourceRecordId: string,
     actorId: string,
     opts: { snippet?: string; notify?: boolean } = {},
+    /** #670 — same contract as comment.created's `source`: who/what made
+     *  this edit, for the `reference.created` events this method emits. */
+    source: ChangeSource = 'human',
   ): Promise<void> {
     const [doc, record, richTextFields, commentRows] = await Promise.all([
       this.db.query.documents.findFirst({ where: eq(documents.recordId, sourceRecordId) }),
@@ -121,6 +127,22 @@ export class MentionsService {
           .filter((id) => id !== sourceRecordId)
       : [];
 
+    // #670 — this method DELETEs the whole mention set and RE-INSERTs it on
+    // every content save, even when nothing mention-related changed. Emitting
+    // a `reference.created` event on every insert would flood the activity
+    // feed with false "reference created" entries on every unrelated edit —
+    // diff against what existed BEFORE the replace and emit only for targets
+    // that are genuinely new.
+    const previousTargets = new Set(
+      (
+        await this.db
+          .select({ targetRecordId: recordMentions.targetRecordId })
+          .from(recordMentions)
+          .where(eq(recordMentions.sourceRecordId, sourceRecordId))
+      ).map((r) => r.targetRecordId),
+    );
+    const newTargets = validTargets.filter((id) => !previousTargets.has(id));
+
     await this.db.transaction(async (tx) => {
       await tx.delete(recordMentions).where(eq(recordMentions.sourceRecordId, sourceRecordId));
       if (validTargets.length) {
@@ -128,6 +150,22 @@ export class MentionsService {
           .insert(recordMentions)
           .values(validTargets.map((targetRecordId) => ({ workspaceId, sourceRecordId, targetRecordId })))
           .onConflictDoNothing();
+      }
+      // #670 — mirrors comment.created's insert exactly (same table, same
+      // shape), one row per genuinely-new reference so the activity feed can
+      // answer "who/what created this reference" — record_mentions itself
+      // carries no actor/source, by design (it's current-state, not a log).
+      if (newTargets.length) {
+        await tx.insert(activityEvents).values(
+          newTargets.map((targetRecordId) => ({
+            workspaceId,
+            recordId: sourceRecordId,
+            actorId,
+            type: 'reference.created' as const,
+            payload: { target_record_id: targetRecordId },
+            source,
+          })),
+        );
       }
     });
 
@@ -145,24 +183,96 @@ export class MentionsService {
   }
 
   /**
+   * #474 phase 5 — the controller used to gate on `DatabasesService.
+   * assertAccess(db, 'viewer')` alone: database-level, and its record-scoped-
+   * grant fallback only checks "does the guest have ANY record grant
+   * somewhere in this database" (DatabasesService.assertAccess's own
+   * fallback, built in #474 phase 1), never that a grant covers THIS
+   * specific target record. A guest granted record X could read record Y's
+   * backlinks in the same database. Equivalent to RecordsService.
+   * assertRecordAccess, replicated here (not depended on) since RecordsModule
+   * already imports MentionsModule — the reverse edge would be a cycle.
+   */
+  async assertBacklinksAccess(membership: Membership, databaseId: string, recordId: string): Promise<void> {
+    if (!looksLikeUuid(recordId)) throw new NotFoundException('Record not found');
+    const database = await this.db.query.databases.findFirst({
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    const record = await this.db.query.records.findFirst({
+      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      columns: { id: true },
+    });
+    if (!record) throw new NotFoundException('Record not found');
+    const effective = await this.access.effectiveForRecord(membership, {
+      id: recordId,
+      databaseId: database.id,
+      spaceId: database.spaceId,
+    });
+    this.access.assertRank(effective, 'viewer', 'Record');
+  }
+
+  /**
    * "Mentioned in": the records whose document mentions this one, scoped to what the
    * caller can actually see (a guest must not learn a title through a backlink — the
    * same leak class as MN-202). Reuses the guest-visibility grant sets.
+   *
+   * #512 — used to be a bare `.limit(100)` with no total and no cursor, so an
+   * 11th+ page of mentions was simply invisible: the response looked complete
+   * whether there were 3 backlinks or 300. Paged now with the SAME keyset-cursor
+   * convention `runs.service.ts` already uses ((created_at, id) tuple compare,
+   * `has_more`/`next_cursor`) — not a new style, and not `records.service.ts`'s
+   * position-based one, since there is no position here, only recency.
+   *
+   * `visibleDbIds` scoping is unconditional on every page: it is part of the
+   * WHERE clause the cursor is layered onto, not a page-one-only filter, so a
+   * guest cannot page past it — the exact class of regression a paging change
+   * risks (#469 unified this same check for the relation-chip readers).
    */
-  async backlinks(membership: Membership, targetRecordId: string) {
-    const visibility = await this.access.guestVisibility(membership);
-    let visibleDbIds: string[] | null = null;
-    if (visibility) {
-      const rows = await this.db.query.databases.findMany({
-        where: eq(databases.workspaceId, membership.workspaceId),
-        columns: { id: true, spaceId: true },
-      });
-      visibleDbIds = rows
-        .filter((d) => visibility.spaceIds.has(d.spaceId) || visibility.databaseIds.has(d.id))
-        .map((d) => d.id);
-      if (visibleDbIds.length === 0) return { data: [] };
+  async backlinks(membership: Membership, targetRecordId: string, opts: { limit?: number; cursor?: string } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 200);
+    // #469 — shared with the relation-chip readers (records.service.ts
+    // attachLinks, relations.service.ts listLinks) via AccessService, rather than
+    // computed inline here a second time.
+    const visibleDbIds = await this.access.visibleDatabaseIds(membership);
+    // #474 phase 5 — a record-scoped grant (#472) names one SOURCE record,
+    // not its whole database: OR'd in below alongside `visibleDbIds`, the
+    // same treatment search/recent got in phase 4, so a mentioning record
+    // the guest holds a direct grant on is findable without widening its
+    // whole database into scope.
+    const recordGrantIds = await this.access.guestRecordGrantIds(membership);
+    const hasRecordGrants = Boolean(recordGrantIds?.size);
+    if (visibleDbIds && visibleDbIds.size === 0 && !hasRecordGrants) {
+      return { data: [], total: 0, has_more: false, next_cursor: null };
     }
 
+    const scopeConditions = [
+      eq(recordMentions.targetRecordId, targetRecordId),
+      eq(recordMentions.workspaceId, membership.workspaceId),
+      isNull(records.deletedAt),
+      ...(visibleDbIds !== null
+        ? [
+            or(
+              visibleDbIds.size ? inArray(records.databaseId, [...visibleDbIds]) : sql`false`,
+              hasRecordGrants ? inArray(records.id, [...recordGrantIds!]) : sql`false`,
+            ),
+          ]
+        : []),
+    ];
+
+    const [totalRow] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(recordMentions)
+      .innerJoin(records, eq(records.id, recordMentions.sourceRecordId))
+      .where(and(...scopeConditions));
+    const total = totalRow?.total ?? 0;
+
+    const cursor = opts.cursor ? decodeBacklinksCursor(opts.cursor) : null;
     const rows = await this.db
       .select({
         id: records.id,
@@ -170,21 +280,52 @@ export class MentionsService {
         number: records.number,
         database_id: records.databaseId,
         database_name: databases.name,
+        mention_id: recordMentions.id,
+        mention_created_at: recordMentions.createdAt,
       })
       .from(recordMentions)
       .innerJoin(records, eq(records.id, recordMentions.sourceRecordId))
       .innerJoin(databases, eq(databases.id, records.databaseId))
       .where(
         and(
-          eq(recordMentions.targetRecordId, targetRecordId),
-          eq(recordMentions.workspaceId, membership.workspaceId),
-          isNull(records.deletedAt),
-          ...(visibleDbIds !== null ? [inArray(records.databaseId, visibleDbIds)] : []),
+          ...scopeConditions,
+          ...(cursor
+            ? [sql`(${recordMentions.createdAt}, ${recordMentions.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`]
+            : []),
         ),
       )
-      .orderBy(desc(recordMentions.createdAt))
-      .limit(100);
+      .orderBy(desc(recordMentions.createdAt), desc(recordMentions.id))
+      .limit(limit + 1);
 
-    return { data: rows };
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const last = page[page.length - 1];
+
+    return {
+      data: page.map((r) => ({ id: r.id, title: r.title, number: r.number, database_id: r.database_id, database_name: r.database_name })),
+      total,
+      has_more: hasMore,
+      next_cursor:
+        hasMore && last ? encodeBacklinksCursor({ createdAt: last.mention_created_at.toISOString(), id: last.mention_id }) : null,
+    };
+  }
+}
+
+interface BacklinksCursor {
+  createdAt: string;
+  id: string;
+}
+
+function encodeBacklinksCursor(cursor: BacklinksCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeBacklinksCursor(raw: string): BacklinksCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString()) as Partial<BacklinksCursor>;
+    if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') throw new Error();
+    return { createdAt: parsed.createdAt, id: parsed.id };
+  } catch {
+    throw new UnprocessableEntityException('Invalid cursor');
   }
 }

@@ -22,7 +22,8 @@ GET|POST         /.../databases/:db/fields       PATCH|DELETE /fields/:field
 POST             /.../fields/:field/options      PATCH|DELETE per option
 POST             /workspaces/:ws/relations        DELETE /relations/:rel
 GET|POST         /.../databases/:db/records       (POST supports batch ≤100)
-GET|PATCH|DELETE /.../records/:rec
+GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid — see below for a public number)
+GET              /.../records/by-number/:number     ← resolve a public number to its record
 POST             /.../databases/:db/records/query          ← the workhorse
 POST             /.../records/:rec/move           { before_record_id? | after_record_id?, values? }
 GET|PUT          /.../records/:rec/links/:field   (list/replace) · POST add · DELETE remove
@@ -34,6 +35,13 @@ GET|POST         /.../databases/:db/views          PATCH|DELETE /views/:view
 POST             /workspaces/:ws/templates/:slug/apply
 GET|POST         /me/tokens                        DELETE /me/tokens/:id
 ```
+
+**A record's public number only resolves through `by-number/:number`.** Every write and read tool
+in the [MCP surface](/mcp/tools/) accepts "a uuid or public number" for `record` because it does
+this resolution for you — `get_record` given a plain number calls `by-number` first, then reads the
+result the same way it would a uuid. Calling `GET .../records/:rec` directly with a bare number
+instead of a uuid is not the same path and doesn't work; resolve the number to its uuid via
+`by-number` first if you're calling the raw API without the MCP layer in between.
 
 The complete, always-current list with schemas is the [API Reference](/api/reference/).
 
@@ -60,17 +68,28 @@ Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one le
 
 ## Operator × type matrix
 
-| Op | text/url/email | number | date | checkbox | select | multi_select | user | relation |
-|---|---|---|---|---|---|---|---|---|
-| `eq` / `neq` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
-| `contains` | ✅ | — | — | — | — | — | — | — |
-| `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — |
-| `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — |
-| `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ (record ids) |
-| `is_empty` / `not_empty` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ |
+| Op | text/url/email | number | date | checkbox | select | workflow | multi_select | user | relation |
+|---|---|---|---|---|---|---|---|---|---|
+| `eq` / `neq` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| `contains` | ✅ | — | — | — | — | — | — | — | — |
+| `not_contains` | ✅ | — | — | — | — | — | — | — | — |
+| `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — | — |
+| `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — | — |
+| `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (record ids) |
+| `is_empty` / `not_empty` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 `within` accepts relative ranges (`today`, `next_7_days`, `this_month`, …). User filters accept the
 literal `"me"`, resolved server-side. An invalid op-for-type returns `422`.
+
+**`not_contains` treats an unset field as a match** — `null`/empty counts as "doesn't contain X",
+the same direction `is_empty` already goes, rather than being silently excluded the way a bare
+negated `contains` would leave it.
+
+**A `workflow` field filters exactly like `select`** — same ops, same option-**id** values (not
+labels; the MCP tools resolve a label to its id for you, the raw API always wants the id). It's
+easy to miss precisely because it's identical to `select` rather than its own thing — see the
+[MCP tools](/mcp/tools/) page for how `describe_database` and `query_records`/`count_records`
+make this discoverable and filterable by label over MCP.
 
 ## Pagination
 

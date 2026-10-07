@@ -21,9 +21,24 @@ Monorepo: pnpm + Turbo. `apps/api` (NestJS/Fastify), `apps/web` (Next.js),
 2. **Never hand-merge `docs/api/openapi.json` or `packages/sdk/src/generated/`.**
    Take main's version, then `pnpm --filter @storyos/schemas build && pnpm
    sdk:generate`, commit.
-3. **One in-flight branch per hotspot file**
-   (`w/[ws]/d/[db]/r/[rec]/page.tsx`, `table-view/field-dialogs.tsx`,
-   `table-view/table-view.tsx`, `relations/relations.service.ts`).
+3. **Collisions between in-flight branches are checked in CI, not listed
+   here.** `scripts/collision-check.mjs` asks GitHub on every PR whether
+   another open PR already touches a file yours touches. An overlap is
+   allowed, but it must be *declared* — `Overlaps-With: #NNN — why` in the PR
+   description. Every "cannot tell" fails the build; unresolvable must never
+   read as "no problem".
+
+   **This replaced a list of four hotspot filenames, and how that list failed
+   is the reason not to write another one.** It named
+   `table-view/field-dialogs.tsx`, which stopped existing at commit `2669191`
+   — the commit titled *"decompose the four hotspot files into focused
+   modules"*. Meanwhile `table-view/field-dialog-shared.tsx`, which inherited
+   that file's traffic (13 commits in 60 days, more than `relations.service.ts`
+   at 9), was never named at all; and the rule still protected
+   `r/[rec]/page.tsx`, by then 656 bytes and 3 commits in 60 days. **A filename
+   is a proxy for collision risk. The proxy drifted and the rule went on
+   asserting it.** Do not reintroduce a list because a list is easier to write
+   than a mechanism.
 4. **Secrets never reach git** — keys live in `.env` only.
 5. **Don't mention the reference tool by name** in anything public-facing —
    code comments, docs, or commit messages say "the reference tool".
@@ -272,8 +287,112 @@ monorepo (`/Users/ievgen/Documents/storyos-website`). Do not go looking for
 
 ## Merging
 
-Open the PR, wait for green, then `gh pr merge --squash --auto` — the merge
-queue handles rebase + re-test + landing. Don't hand-drive rebase trains.
+**Builders do not merge.** Open the PR, wait for green, record on the ticket
+what you did and what you did **not** verify, set `agents = Vera`, and move on.
+Vera verifies against the ticket's acceptance criteria — in a browser where the
+criterion describes something a person sees — and then merges, sends it back,
+or escalates. **Nothing reaches main without her.** Don't hand-drive rebase
+trains; the merge queue still does rebase + re-test + landing when she merges.
+
+**This section said the opposite until 2026-09-28, and it was followed.** It
+read: *"Open the PR, wait for green, then `gh pr merge --squash --auto`."* That
+is the flow the gate **abolished** on 2026-08-30, after auto-merge cost
+seventeen documentation PRs merged in one evening with nothing checking them,
+#251 merged having shipped half its written scope with the dropped half filed
+nowhere, and **two permission leaks reaching main** — one of which let a guest
+export record titles out of a database that returned 404 to her own session.
+The text outlived the mechanism by a month, and on 2026-09-28 four PRs merged
+unchecked because a session read this file and did what it said. So: `--auto`
+is not the normal path, and re-adding it here would re-abolish the gate by
+accident.
+
+**The gate's own home is `bin/agent-house-rules.md`, which is NOT in this
+repository** — it sits outside every worktree. That is why this section exists
+at all: a rule you cannot reach from the checkout cannot govern work done in
+the checkout. If the two ever disagree, the house rules win and this section is
+the stale one.
+
+**An exception is Ievgen's to give, never a builder's to take.** He may say a
+specific PR is yours to land — he did for #905 on 2026-09-28 — and that is a
+visible override on the record. "It was green and I was confident" is not one,
+and neither is a peer agent saying to go ahead.
+
+## When a check is wrong about what it checks
+
+Every rule below exists because a check was real, passed honestly, and was
+blind to the thing it was written to catch. The shared shape, and the sentence
+worth remembering:
+
+> **A verification whose scope silently differs from the thing it claims to
+> verify.**
+
+It has now appeared in five costumes, all within two weeks, none of them
+carelessness:
+
+- **A grep matching a class shape**, whose population was then reported as the
+  population of the thing. `border border-border-default bg-card px-2` is worn
+  by `<input>` *and* `<select>`; "42 hand-rolled inputs" was neither 42 nor
+  inputs. Same error twice — "four hand-rolled segmented controls" was four of
+  seven, and one of the three missed sat 840 lines below one that was migrated,
+  in the same file.
+- **A fixture that is a prefix of reality.** A unit test named *"storyos/issues'
+  REAL schema"* used its first 8 of 27 fields, stopping ten positions before
+  the field that broke the rule. It was green; the product was wrong. **A
+  fixture that is a prefix of reality passes for exactly the cases it omits.**
+- **A check that ran and detected nothing for four days.** The contrast
+  advisory's diff half died on a shallow clone with no `origin/main`, printed
+  "Diff check skipped" and exited 0 — while an accepted 174-site tail rested on
+  the claim that new sites would be caught.
+- **A rule naming a file that had moved** — rule 3 above, for weeks.
+- **An assertion outliving its defect, and quietly specifying it.** An
+  assertion written to prevent a filter-chip collapse survived eight days past
+  the fix that removed the collapse; built to as written, it would have
+  reintroduced the defect. This is the worst of the five: the others were
+  checks that missed something, **this one was the defence itself.**
+
+**The general test is one question:** does the evidence come from the thing, or
+from the way you looked for it? If a search term produced the set, find what
+actually *created* the set — a commit, a decomposition, a convention — before
+reporting it as complete.
+
+### Re-verify a ticket's premise at CLAIM time, against main
+
+Not at file time, and not against a summary. A ticket is written in good faith
+and then ages while the repo moves: ticket #737 asked for a type scale that
+had shipped eleven days earlier; ticket #738 cited two tickets as live proof
+of a gap both had already closed. **Against `main`, specifically** — not a
+local worktree. A checkout eight days stale invalidated a day of otherwise
+careful work.
+
+Before writing code, run the premise:
+
+- Does the thing the premise **names** still exist? One `git cat-file -e` per
+  named path.
+- If it cites a ticket as proof, what **state** is that ticket in *now*? One
+  read.
+- Is the set defined by the repo, or by your search term?
+- **Premises of the form "X does not exist" are the ones that rot** — true when
+  written, quietly false later, and nothing fails to compile. Before filing a
+  defect someone handed you verbally, search whether it is already ticketed or
+  already shipped. "File it" is an instruction, not evidence of novelty.
+
+If the premise has moved, **say so on the ticket before writing code.**
+
+### Resolve a PR by (repo, number), never by number alone
+
+A successful call and a landed fact are not the same thing. In
+`storyos/github_pull_requests`, **151 PR numbers appear in more than one repo**,
+and storyOS's own sync stopped at PR #463 (ticket #666) — so "look up PR
+#838" for a storyOS ticket returns a real record, with a plausible title and a
+genuinely stale timestamp, **from a different repository**. A drift check
+built on number alone reports "silent for three weeks" about an unrelated
+repo, with total
+confidence and no indication anything is wrong.
+
+So: resolve by the pair, and when a PR cannot be resolved, **fail loudly**.
+Never treat unresolvable as "no movement". And a send-back is two writes to two
+systems — posting the review is not the same fact as the ticket moving; confirm
+both.
 
 ## Verification honesty
 

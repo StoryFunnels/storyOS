@@ -20,6 +20,9 @@ design the workspace, not just fill it. Always call `get_started` first.
 | `query_records` | Filter / sort / paginate records with the structured filter AST. |
 | `get_record` | One record in full, by uuid or public number. |
 | `get_links` | Web-app URLs for a database, its saved views, and/or a batch of records — no round-trip per record. |
+| `list_agent_activity` | Everything one configured Agent wrote in a date range — writes made through an ordinary token never carry agent attribution, so only agent-scoped ones show up here. |
+| `list_database_comments` | Every comment and `#record` reference across a whole database, newest first — see [mentions and notifications](/concepts/mentions-and-notifications/#a-feed-across-many-records-comments-and-references-over-time). |
+| `list_hierarchy_activity` | The same feed, rooted at one record and walked down a chain of relation fields (e.g. Epic → Story → Task), up to 5 levels — permission-checked at every level. |
 
 ## Write
 
@@ -28,11 +31,41 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 | Tool | What it does |
 |---|---|
 | `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. |
+| `upsert_record` | Match-or-create on a [unique field](/concepts/databases-and-fields/#preventing-duplicate-values) — a matching value updates that record, no match creates one. Returns `{ record, created }` so a caller can tell which branch it took; idempotent on repeat. An [automation rule's own "Create a record" action](/concepts/automations/#creating-or-upserting-a-record) can do the same thing via `upsert`. |
 | `update_record` | Merge-update (null clears); record by uuid or public number. |
 | `delete_record` | Trash a record (restorable 30 days). |
 | `link_records` | Link a record to targets through a relation field. |
 | `add_comment` | Post a comment. |
 | `run_button` | Press a button field, running its automation actions. |
+| `duplicate_record` | Copy a record within the **same** database (unlike `copy_records`, a different one) — values, links, description, and its comment thread + attachments, all copied onto the new record. Owned one-to-many collections are NOT copied (a duplicated project doesn't clone its tasks). |
+| `copy_records` | Copy one or more records into a **different** database (unlike `duplicate_record`, same database). Fields auto-match by name; one with a value and no destination match **blocks** the copy. Call with `dry_run: true` (the default) to see the mapping and any blocking fields, resolve a row with `skip` (drop it) or `override` (send it to a specific destination field instead of the auto-match — or resolve an ambiguous relation by naming which candidate to use), then call again with `dry_run: false`. `override` is MCP/API-only — the web dialog's mapping is still read-only. |
+
+## Trash & restore
+
+Databases, spaces, and views are trashed and restorable the same way a record is — nothing here
+erases outright.
+
+| Tool | What it does |
+|---|---|
+| `list_trash` / `restore_records` | A database's deleted records (30-day retention) and bringing one back. |
+| `list_views_trash` / `restore_view` | A database's deleted views. |
+| `list_spaces_trash` / `restore_space` | Workspace-wide deleted spaces (**admin only**) — restoring one brings back every database it held automatically. |
+| `list_databases_trash` / `restore_database` | Workspace-wide deleted databases (**admin only**). |
+
+## Personal space
+
+A view or space owned by the **calling identity**, invisible to everyone else including admins —
+see [Personal space](/concepts/personal-space/) for what that guarantees.
+
+| Tool | What it does |
+|---|---|
+| `get_or_create_personal_space` | My own personal space. Idempotent — lazily provisioned on first call, returns the same space every time after. |
+| `create_personal_view` | A view over a **shared** database that only I can see (deleting a record through it still deletes it for everyone — it's a lens, not a private copy). Needs only read access, unlike `create_view`, and is never folder-placed. |
+
+**`create_personal_view` accepts `form` as a type; the web dialog doesn't offer it.** The app's own
+picker restricts to seven types for a reason stated in the UI (form and dashboard don't fit a
+private-lens framing) — that's a client-side choice, not an API restriction, so a form-type
+personal view is only reachable from here today.
 
 ## Build / schema
 
@@ -55,6 +88,12 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
   clickable web-app link for that record, e.g. `https://app.storyos.dev/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number}`
   (falls back to the record's uuid when it has no public number yet). Use `get_links` for a
   database or view link, or to resolve a batch of record links in one call.
+- **A `workflow` field (the canonical status column on almost every database) filters exactly like
+  `select`** over MCP — `describe_database` returns its own `ops` array so you don't have to guess,
+  and `query_records` / `count_records` accept either an option's label or its id, translating
+  `eq`/`neq` to `has`/`has_none` for you. See the [operator × type
+  matrix](/api/conventions/#operator--type-matrix) for the raw API's own shape, which wants the
+  option **id** only — the label resolution above is an MCP-side convenience.
 
 For the concepts these tools operate on, see [databases & fields](/concepts/databases-and-fields/),
 [relations](/concepts/relations/), and [views](/concepts/views/).

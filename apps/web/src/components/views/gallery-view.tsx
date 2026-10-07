@@ -4,8 +4,9 @@ import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
+import { isCoverField } from './cover-fields';
 import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
@@ -67,10 +68,30 @@ export function GalleryView({
    */
   const cover = useMemo(() => {
     const field = (database.data?.fields ?? []).find(
-      (f) => f.id === config.cover_field_id && f.type === 'attachment',
+      (f) => f.id === config.cover_field_id && isCoverField(f),
     );
     return field ? { field, ws, db } : undefined;
   }, [database.data, config.cover_field_id, ws, db]);
+
+  /*
+   * #754 (G2/AC4) — "a cover set but unfilled is a different message" than no
+   * cover configured at all. Same is_empty aggregate #753 uses for the
+   * calendar's undated count, scoped by the SAME filter the view's own query
+   * applies — never counting loaded rows (that's the #755-shaped defect this
+   * whole redesign pass keeps finding and fixing elsewhere).
+   */
+  const coverEmptyFilter = useMemo(() => {
+    if (!cover) return undefined;
+    const active = queryBody.filter;
+    const existing: unknown[] = active ? [active] : [];
+    return { and: [...existing, { field: cover.field.apiName, op: 'is_empty' }] };
+  }, [cover, queryBody.filter]);
+  const coverEmptyCount = useRecordCount(ws, db, coverEmptyFilter, Boolean(cover));
+  const totalCount = useRecordCount(ws, db, queryBody.filter, Boolean(cover));
+  const coverFillRate =
+    cover && coverEmptyCount.data !== undefined && totalCount.data !== undefined
+      ? { filled: totalCount.data - coverEmptyCount.data, total: totalCount.data }
+      : undefined;
 
   if (rows.length === 0) {
     return (
@@ -89,6 +110,15 @@ export function GalleryView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="h-full overflow-auto p-4">
+      {/* #754 (G2) — a cover IS configured but most records don't have one:
+          a fact worth surfacing (and acting on), distinct from "no cover
+          configured at all" (that case has nothing to say here — every card
+          already renders correctly with no image). Silent when fully filled. */}
+      {cover && coverFillRate && coverFillRate.filled < coverFillRate.total && (
+        <p className="mb-3 text-label text-muted">
+          Cover: {cover.field.displayName} — {coverFillRate.filled} of {coverFillRate.total} records have one.
+        </p>
+      )}
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}>
         {rows.map((row) => (
           <div
@@ -114,7 +144,7 @@ export function GalleryView({
       </div>
       {records.hasNextPage && (
         <button
-          className="mt-3 rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+          className="mt-3 rounded px-2 py-1 text-body text-info hover:bg-hover"
           onClick={() => void records.fetchNextPage()}
           disabled={records.isFetchingNextPage}
         >

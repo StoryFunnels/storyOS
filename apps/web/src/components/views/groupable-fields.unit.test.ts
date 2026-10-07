@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   boardGroupDisabledReason,
+  boardGroupIsReadOnly,
   canGroupBoardBy,
   canGroupListBy,
   listGroupDisabledReason,
@@ -58,12 +59,47 @@ describe('canGroupBoardBy — mirrors the API boardGroupError', () => {
     expect(canGroupBoardBy(f('date'))).toBe(true);
   });
 
-  it.each(['text', 'number', 'checkbox', 'multi_select', 'rich_text', 'formula'])(
+  it.each(['checkbox', 'multi_select', 'rich_text', 'formula', 'rollup'])(
     'rejects %s',
     (type) => {
       expect(canGroupBoardBy(f(type))).toBe(false);
     },
   );
+
+  // #498 — bins turn a number into single-valued buckets, mirroring the API's
+  // boardGroupError exactly: unconfigured stays refused, configured is allowed.
+  it('rejects an unconfigured number field (no bins yet)', () => {
+    expect(canGroupBoardBy(f('number'))).toBe(false);
+    expect(canGroupBoardBy(f('number', { config: { bins: [] } }))).toBe(false);
+  });
+
+  it('allows a number field once bins are configured', () => {
+    expect(
+      canGroupBoardBy(f('number', { config: { bins: [{ label: 'Small', min: null, max: 10 }] } })),
+    ).toBe(true);
+  });
+
+  // #499 — single-valued, so groupable, even though read-only (see boardGroupIsReadOnly below).
+  it('allows text and lookup', () => {
+    expect(canGroupBoardBy(f('text'))).toBe(true);
+    expect(canGroupBoardBy(f('lookup'))).toBe(true);
+  });
+});
+
+describe('boardGroupIsReadOnly — #499: a card lands in a column but a drag can never re-group it', () => {
+  it('is true for exactly text and lookup', () => {
+    expect(boardGroupIsReadOnly(f('text'))).toBe(true);
+    expect(boardGroupIsReadOnly(f('lookup'))).toBe(true);
+  });
+
+  it('is false for every other groupable type', () => {
+    expect(boardGroupIsReadOnly(f('select'))).toBe(false);
+    expect(boardGroupIsReadOnly(f('workflow'))).toBe(false);
+    expect(boardGroupIsReadOnly(f('date'))).toBe(false);
+    expect(boardGroupIsReadOnly(f('number', { config: { bins: [{ label: 'x', min: null, max: 1 }] } }))).toBe(
+      false,
+    );
+  });
 });
 
 describe('canGroupListBy — narrower on purpose, matches what list-view renders', () => {
@@ -103,15 +139,24 @@ describe('boardGroupDisabledReason — #225: say WHY, never silently omit', () =
     ).toContain('several columns');
   });
 
-  it('distinguishes not-built-yet from cannot-work, so the roadmap is legible', () => {
+  it('distinguishes not-configured-yet from cannot-work, so the roadmap is legible', () => {
     // date is groupable as of #307 — no reason, because it isn't disabled.
     expect(boardGroupDisabledReason(f('date'))).toBeNull();
-    expect(boardGroupDisabledReason(f('number'))).toContain('not built yet');
+    // number is groupable as of #498 once bins exist — the disabled reason
+    // only applies to the unconfigured case now.
+    expect(boardGroupDisabledReason(f('number'))).toContain('bins');
     expect(boardGroupDisabledReason(f('formula'))).toContain('computed');
+    expect(boardGroupDisabledReason(f('rollup'))).toContain('computed');
+  });
+
+  // text and lookup are groupable as of #499 — no reason, because they aren't disabled.
+  it('returns null for text and lookup (#499)', () => {
+    expect(boardGroupDisabledReason(f('text'))).toBeNull();
+    expect(boardGroupDisabledReason(f('lookup'))).toBeNull();
   });
 
   it('always returns SOME reason for an ungroupable field — never an empty label', () => {
-    for (const type of ['text', 'rich_text', 'checkbox', 'email', 'url', 'attachment']) {
+    for (const type of ['rich_text', 'checkbox', 'email', 'url', 'attachment']) {
       const reason = boardGroupDisabledReason(f(type));
       expect(reason, `${type} must explain itself`).toBeTruthy();
     }

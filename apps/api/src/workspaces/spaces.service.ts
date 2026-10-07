@@ -1,12 +1,14 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, spaces } from '../db/schema';
+import { databases, spaceDocuments, spaces, type ChangeSource, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
-import { slugify } from '../databases/databases.service';
+import { restoreDatabaseCascade, slugify, softDeleteDatabaseCascade } from '../databases/databases.service';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
@@ -14,6 +16,7 @@ export class SpacesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly actionGates: ActionGatesService,
   ) {}
 
   /** Guests see spaces they hold grants on — directly or via a database inside (ADR-0007). */
@@ -29,7 +32,7 @@ export class SpacesService {
     // admins. `visible === null` (admin/member "sees everything") is exactly the case
     // that would otherwise leak it, so the predicate is ANDed onto every branch.
     return this.db.query.spaces.findMany({
-      where: and(scope, this.access.notOthersPersonal(membership)),
+      where: and(scope, this.access.notOthersPersonal(membership), notDeleted(spaces.deletedAt)),
       orderBy: [asc(spaces.position)],
     });
   }
@@ -73,6 +76,54 @@ export class SpacesService {
     return space!;
   }
 
+  /**
+   * #520 — idempotent get-or-create for the CALLER's own personal space.
+   * Nothing else provisions one (confirmed: no create() path accepts
+   * personal/ownerUserId), so this is the one place a personal space comes
+   * into existence — lazily, on first use, rather than at signup/invite time.
+   *
+   * Races the `spaces_workspace_owner_uq` partial unique index (one personal
+   * space per user per workspace) rather than checking-then-inserting: two
+   * concurrent first-uses insert, one wins, the loser's insert is swallowed
+   * by the bare onConflictDoNothing() (matches ensureCustomer's shape in
+   * billing.service.ts) and both re-read the same winning row.
+   */
+  async getOrCreatePersonal(workspaceId: string, userId: string) {
+    const existing = await this.db.query.spaces.findFirst({
+      where: and(
+        eq(spaces.workspaceId, workspaceId),
+        eq(spaces.ownerUserId, userId),
+        eq(spaces.personal, true),
+        notDeleted(spaces.deletedAt),
+      ),
+    });
+    if (existing) return existing;
+
+    await this.db
+      .insert(spaces)
+      .values({
+        workspaceId,
+        name: 'Personal',
+        // Deterministic per user, so a losing racer's insert collides on
+        // EITHER unique index for the exact same reason a winner would —
+        // no target named, so onConflictDoNothing() swallows both.
+        slug: `personal-${userId}`,
+        personal: true,
+        ownerUserId: userId,
+      })
+      .onConflictDoNothing();
+
+    const row = await this.db.query.spaces.findFirst({
+      where: and(
+        eq(spaces.workspaceId, workspaceId),
+        eq(spaces.ownerUserId, userId),
+        eq(spaces.personal, true),
+        notDeleted(spaces.deletedAt),
+      ),
+    });
+    return row!;
+  }
+
   async update(
     workspaceId: string,
     spaceId: string,
@@ -82,6 +133,8 @@ export class SpacesService {
       color?: string | null;
       position?: number;
       description?: string | null;
+      /** #742 finding 04 — presentational sidebar group; null ungroups. */
+      groupId?: string | null;
     },
   ) {
     let icon = patch.icon;
@@ -127,23 +180,30 @@ export class SpacesService {
    * no friction at all. A guard that only exists in one caller is not a guard;
    * it is a habit.
    *
-   * `spaces → databases → records` is a hard-delete cascade. Records carry
-   * `deletedAt` for the trash, but a cascade deletes the ROWS, so the trash
-   * cannot recover any of it.
-   *
-   * Empty spaces confirm without a typed name deliberately — see
-   * `deleteSpaceSchema`. Asking for ceremony where there is nothing to lose is
-   * how people learn to type the name without reading the sentence.
+   * #453 amended the mechanism, not the warning: `spaces → databases → records`
+   * used to be a hard-delete FK cascade, genuinely unrecoverable. Now every
+   * level is soft-deleted (the space, each database via the SAME
+   * `softDeleteDatabaseCascade` a direct database delete uses, and this
+   * space's own live views/documents) — the rows survive. The message below
+   * still says "cannot be undone" because that remains true from where a user
+   * stands: #453 is storage-only, there is no restore UI or endpoint yet for a
+   * database or space (that is #37's job), so nothing today lets anyone
+   * actually get it back.
    */
-  async remove(workspaceId: string, spaceId: string, opts: { confirm?: string } = {}) {
+  async remove(
+    workspaceId: string,
+    spaceId: string,
+    opts: { confirm?: string } = {},
+    source: ChangeSource = 'human',
+  ) {
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
       columns: { id: true, name: true },
     });
     if (!space) throw new NotFoundException('Space not found');
 
     const contained = await this.db.query.databases.findMany({
-      where: eq(databases.spaceId, spaceId),
+      where: and(eq(databases.spaceId, spaceId), notDeleted(databases.deletedAt)),
       columns: { id: true, name: true },
     });
 
@@ -162,11 +222,96 @@ export class SpacesService {
       );
     }
 
-    const [gone] = await this.db
-      .delete(spaces)
-      .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
-      .returning();
+    // #542 — this cascade used to reach `softDeleteDatabaseCascade` for every
+    // contained database with NO gate check at all, the same bypass fixed on
+    // the direct database-delete path (DatabasesService.remove). A space can
+    // contain several databases, each with its own DIFFERENT declared
+    // `delete_records` policy, and there's no atomic "hold N databases behind
+    // one approval" mechanism yet (ActionGatesService.check() stages one
+    // approval per call). Rather than gate some contained databases and
+    // silently delete the rest — a partial delete, which this ticket's own
+    // AC treats as worse than a refusal — refuse the WHOLE space delete up
+    // front when ANY contained database would be gated. The operator can
+    // still delete that database individually, where the real hold/approve/
+    // apply flow applies, then retry the space delete once it's clear.
+    for (const db of contained) {
+      if (await this.actionGates.wouldGate(workspaceId, db.id, DELETE_RECORDS_ACTION_CLASS, source)) {
+        throw new UnprocessableEntityException(
+          `"${db.name}" has a workspace-declared approval gate on deleting its records, and this space delete ` +
+            `would bypass it. Delete "${db.name}" on its own first (which respects the gate), then delete the space.`,
+        );
+      }
+    }
+
+    const gone = await this.db.transaction(async (tx) => {
+      const now = new Date();
+      for (const db of contained) {
+        await softDeleteDatabaseCascade(tx, db.id, now);
+      }
+      await tx
+        .update(views)
+        .set({ deletedAt: now })
+        .where(and(eq(views.spaceId, spaceId), isNull(views.deletedAt)));
+      await tx
+        .update(spaceDocuments)
+        .set({ deletedAt: now })
+        .where(and(eq(spaceDocuments.spaceId, spaceId), isNull(spaceDocuments.deletedAt)));
+      const [row] = await tx
+        .update(spaces)
+        .set({ deletedAt: now })
+        .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
+        .returning();
+      return row;
+    });
     if (!gone) throw new NotFoundException('Space not found');
     return { deleted: true, databases_deleted: contained.length };
+  }
+
+  /** #37 — deleted spaces in this workspace, for the trash view. */
+  async listTrash(workspaceId: string) {
+    const rows = await this.db.query.spaces.findMany({
+      where: and(eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
+      orderBy: [desc(spaces.deletedAt)],
+    });
+    return rows.map((s) => ({ id: s.id, name: s.name, deleted_at: s.deletedAt }));
+  }
+
+  /**
+   * #37 — undo `remove()` above: the space itself, every database that was
+   * cascade-deleted WITH it (via `restoreDatabaseCascade`, the same
+   * same-timestamp rule that function documents), and the space's own
+   * views/documents (a space-level dashboard has no `databaseId`, so it is
+   * matched by `spaceId` here rather than folded into a database's own
+   * restore). A database independently trashed before the space was
+   * deleted keeps its own, earlier `deletedAt` and is left alone — same
+   * symmetry `restoreDatabaseCascade` already applies one level down.
+   */
+  async restore(workspaceId: string, spaceId: string) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
+    });
+    if (!space) throw new NotFoundException('Space not found in trash');
+    const deletedAt = space.deletedAt!;
+
+    const containedDatabases = await this.db.query.databases.findMany({
+      where: and(eq(databases.spaceId, spaceId), eq(databases.deletedAt, deletedAt)),
+      columns: { id: true },
+    });
+
+    await this.db.transaction(async (tx) => {
+      await tx.update(spaces).set({ deletedAt: null }).where(eq(spaces.id, spaceId));
+      for (const db of containedDatabases) {
+        await restoreDatabaseCascade(tx, db.id, deletedAt);
+      }
+      await tx
+        .update(views)
+        .set({ deletedAt: null })
+        .where(and(eq(views.spaceId, spaceId), eq(views.deletedAt, deletedAt)));
+      await tx
+        .update(spaceDocuments)
+        .set({ deletedAt: null })
+        .where(and(eq(spaceDocuments.spaceId, spaceId), eq(spaceDocuments.deletedAt, deletedAt)));
+    });
+    return { restored: true, id: spaceId, databases_restored: containedDatabases.length };
   }
 }

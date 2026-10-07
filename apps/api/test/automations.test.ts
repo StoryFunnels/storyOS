@@ -221,6 +221,238 @@ describe('automations (MN-047)', () => {
     expect(updated.enabled).toBe(false);
     expect(updated.failureStreak).toBeGreaterThanOrEqual(10);
   });
+
+  /**
+   * #714 — records.service.ts's field-validation throw sites carry a real
+   * `details: [{ path, message }]` array, but the run's stored `error` used
+   * to show only the generic top-level "Record values validation failed",
+   * because `(error as Error).message` on a Nest exception built from an
+   * OBJECT body resolves to just that object's own `message`, never
+   * `details` — reachable only through `getResponse()`. A customer
+   * diagnosing this had nothing to go on but the generic line.
+   *
+   * Also exercises the ticket's own investigated hypothesis: a `set_values`
+   * action configured with a select/workflow field's human-readable LABEL
+   * (`"New"`) rather than the stored option id fails this exact way —
+   * confirmed via record-values.ts's validator, which requires a real
+   * option id and has no label-resolution step (unlike the MCP layer's
+   * `mapWriteValues`, which actions.service.ts has no equivalent of).
+   */
+  it('a record-write action failure surfaces the FIELD and the real reason, not just a generic message', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Set state to a label, not an option id',
+      trigger: { type: 'record_created' },
+      // "New" reads like a real State option to a human configuring this,
+      // but the field only has Urgent/Done — and even if it existed, a
+      // LABEL is never what this field type accepts (see the hypothesis
+      // this test also confirms).
+      actions: [{ type: 'set_values', values: { [stateApi]: 'New' } }],
+    })).json();
+    try {
+      const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'Should fail loudly' },
+      })).json();
+      await engine.settle(rec.id);
+
+      const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+      expect(runs.data).toHaveLength(1);
+      expect(runs.data[0].status).toBe('error');
+      // The generic top-level message survives...
+      expect(runs.data[0].error).toContain('Record values validation failed');
+      // ...AND so does the field-level detail that used to be dropped.
+      expect(runs.data[0].error).toContain(`values.${stateApi}`);
+      expect(runs.data[0].error).toMatch(/unknown option id/i);
+    } finally {
+      // record_created triggers on every record this workspace creates for
+      // the rest of the file — leaving this enabled corrupted MN-168's
+      // entitlements-call counting downstream (double-fired per record).
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
+  });
+});
+
+describe('#392 — scheduled rules can carry a sort + limit (top-N leaderboard)', () => {
+  let leaderDbId: string;
+  let engagementApi: string;
+
+  async function forceDueAndTick(ruleId: string) {
+    const { connectTestDb } = await import('./helpers/db');
+    const { db, pool } = connectTestDb();
+    const { automations } = await import('../src/db/schema');
+    const { eq } = await import('drizzle-orm');
+    await db.update(automations).set({ nextDueAt: new Date(Date.now() - 1000) }).where(eq(automations.id, ruleId));
+    await engine.tick();
+    await pool.end();
+  }
+
+  beforeAll(async () => {
+    leaderDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Leaderboard',
+    })).json().id;
+    const engagement = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/fields`, {
+      display_name: 'Engagement', type: 'number', config: {},
+    })).json();
+    engagementApi = engagement.apiName;
+  });
+
+  it('a top-N rule comments on exactly the N highest-engagement records, ranked in order', async () => {
+    for (const engagement of [10, 90, 40, 90, 20]) {
+      await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/records`, {
+        values: { name: `Post ${engagement}`, [engagementApi]: engagement },
+      });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Promote the winners',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 3,
+      actions: [{ type: 'add_comment', body_template: 'Top performer!' }],
+    })).json();
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/automations/${rule.id}/runs`)).json();
+    const okRuns = runs.data.filter((r: { status: string }) => r.status === 'ok');
+    expect(okRuns).toHaveLength(3); // exactly the limit, not every matching record
+    // Ranks are exactly 1..3, one each — "why did it pick those" answered directly.
+    expect(okRuns.map((r: { selectionRank: number }) => r.selectionRank).sort()).toEqual([1, 2, 3]);
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/records?limit=200`)).json().data;
+    for (const record of records) {
+      const comments = (
+        await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/records/${record.id}/comments`)
+      ).json().data;
+      const shouldHaveWon = record.values[engagementApi] >= 40; // the top 3 of [10,90,40,90,20]
+      expect(comments.length > 0, `${record.title} (engagement ${record.values[engagementApi]})`).toBe(shouldHaveWon);
+    }
+  });
+
+  it('ties resolve deterministically by record id, and re-running picks the SAME records', async () => {
+    const tiedDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Tied',
+    })).json().id;
+    const field = (await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/fields`, {
+      display_name: 'Score', type: 'number', config: {},
+    })).json();
+    // Six records tied for the top spot — "top 5" must pick exactly 5, deterministically.
+    for (let i = 0; i < 6; i++) {
+      await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/records`, {
+        values: { name: `Tied ${i}`, [field.apiName]: 100 },
+      });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/automations`, {
+      name: 'Top 5 of a 6-way tie',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: field.apiName, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'Selected' }],
+    })).json();
+
+    await forceDueAndTick(rule.id);
+    const firstRuns = (await inject('GET', `/workspaces/${wsId}/databases/${tiedDb}/automations/${rule.id}/runs`)).json();
+    const firstPicks = firstRuns.data.filter((r: { status: string }) => r.status === 'ok').map((r: { triggerRecordId: string }) => r.triggerRecordId).sort();
+    expect(firstPicks).toHaveLength(5);
+
+    // Force due again — the SAME 5 must be picked (record id ASC tiebreak).
+    await forceDueAndTick(rule.id);
+    const secondRuns = (await inject('GET', `/workspaces/${wsId}/databases/${tiedDb}/automations/${rule.id}/runs`)).json();
+    const secondPicks = secondRuns.data
+      .filter((r: { status: string }) => r.status === 'ok')
+      .slice(0, 5)
+      .map((r: { triggerRecordId: string }) => r.triggerRecordId)
+      .sort();
+    expect(secondPicks).toEqual(firstPicks);
+  });
+
+  it('a sort field deleted after the rule was created fails LOUDLY — an errored run naming the field, nothing selected', async () => {
+    const volatileDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Volatile',
+    })).json().id;
+    const field = (await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/fields`, {
+      display_name: 'Score', type: 'number', config: {},
+    })).json();
+    await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/records`, {
+      values: { name: 'Should not be touched', [field.apiName]: 50 },
+    });
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/automations`, {
+      name: 'Depends on a field about to vanish',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: field.apiName, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'Selected' }],
+    })).json();
+    await inject('DELETE', `/workspaces/${wsId}/databases/${volatileDb}/fields/${field.id}`);
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${volatileDb}/automations/${rule.id}/runs`)).json();
+    expect(runs.data).toHaveLength(1);
+    expect(runs.data[0].status).toBe('error');
+    expect(runs.data[0].error).toContain(field.apiName); // names the field, not a generic failure
+    expect(runs.data[0].triggerRecordId).toBeNull(); // rule-level failure, not attributed to any one record
+  });
+
+  it('sort/limit are rejected on a record-triggered rule — top-N has no meaning for a single record', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Invalid: top-N on record_created',
+      trigger: { type: 'record_created' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('limit above the hard ceiling is rejected at create time', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Invalid: limit over ceiling',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 100_000,
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('patching sort/limit onto a rule whose STORED trigger is not schedule is rejected too', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Plain record-created rule',
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    })).json();
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${leaderDbId}/automations/${rule.id}`, {
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 3,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('MUST KEEP WORKING: a scheduled rule with no sort/limit behaves exactly as before — every matching record runs, unranked', async () => {
+    const plainDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Plain schedule',
+    })).json().id;
+    for (let i = 0; i < 4; i++) {
+      await inject('POST', `/workspaces/${wsId}/databases/${plainDb}/records`, { values: { name: `Rec ${i}` } });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${plainDb}/automations`, {
+      name: 'No sort, no limit',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      actions: [{ type: 'add_comment', body_template: 'Swept' }],
+    })).json();
+    expect(rule.sort ?? null).toBeNull();
+    expect(rule.topNLimit ?? null).toBeNull();
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${plainDb}/automations/${rule.id}/runs`)).json();
+    const ok = runs.data.filter((r: { status: string }) => r.status === 'ok');
+    expect(ok).toHaveLength(4); // every record, not top-N
+    expect(ok.every((r: { selectionRank: number | null }) => r.selectionRank === null)).toBe(true);
+  });
 });
 
 describe('MN-168 — entitlements wiring for the automations engine', () => {
@@ -941,6 +1173,188 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     expect(text).toContain('Urgent');
     expect(text).toContain('Done');
     expect(text).not.toContain(urgentId); // labels, never raw option ids
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+});
+
+describe('#230 create_record upsert — updates-or-skips a matching record instead of duplicating', () => {
+  it('rejects a key_field_id that is not marked unique', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230a',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      // deliberately NOT unique
+    })).json();
+
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert without a unique key',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: { name: '{Name}', [emailField.apiName]: '{Name}@example.com' },
+          upsert: { key_field_id: emailField.id },
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.body.toLowerCase()).toContain('unique');
+  });
+
+  it('updates the matching record instead of duplicating (default on_match)', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230b',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+    const tagField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Tag',
+      type: 'text',
+    })).json();
+
+    const existing = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records`, {
+      values: { name: 'Old Name', [emailField.apiName]: 'match@example.com', [tagField.apiName]: 'original' },
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — update',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: {
+            name: '{Name}',
+            [emailField.apiName]: 'match@example.com',
+            [tagField.apiName]: 'refreshed',
+          },
+          upsert: { key_field_id: emailField.id, on_match: 'update' },
+        },
+      ],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230b', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    // No duplicate — still exactly one record in the target database.
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+
+    const updated = (await inject('GET', `/workspaces/${wsId}/databases/${targetDb.id}/records/${existing.id}`)).json();
+    expect(updated.values[tagField.apiName]).toBe('refreshed');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
+  it('leaves the matching record untouched when on_match is "skip"', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230c',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+    const tagField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Tag',
+      type: 'text',
+    })).json();
+
+    await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records`, {
+      values: { name: 'Keep Me', [emailField.apiName]: 'skip@example.com', [tagField.apiName]: 'untouched' },
+    });
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — skip',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: {
+            name: 'Should not overwrite',
+            [emailField.apiName]: 'skip@example.com',
+            [tagField.apiName]: 'would-be-overwritten',
+          },
+          upsert: { key_field_id: emailField.id, on_match: 'skip' },
+        },
+      ],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230c', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+    expect(all.data[0].title).toBe('Keep Me');
+    expect(all.data[0].values[tagField.apiName]).toBe('untouched');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
+  it('creates a new record when nothing matches the key', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230d',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — no match yet',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: { name: 'Brand New', [emailField.apiName]: 'new-230d@example.com' },
+          upsert: { key_field_id: emailField.id },
+        },
+      ],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230d', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+    expect(all.data[0].title).toBe('Brand New');
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });

@@ -41,7 +41,14 @@ describe('boardGroupError', () => {
 
   it('rejects other field types by name', () => {
     expect(boardGroupError({ type: 'multi_select', config: {} }, null)).toMatch(/"multi_select"/);
-    expect(boardGroupError({ type: 'text', config: {} }, null)).toMatch(/"text"/);
+    expect(boardGroupError({ type: 'rollup', config: {} }, null)).toMatch(/"rollup"/);
+  });
+
+  // #499 — text is single-valued (one column per record), so it's groupable
+  // now, unlike the other rejected types above. See views.service.test.ts for
+  // the fuller #498/#499 coverage (number bins, lookup, boardGroupIsReadOnly).
+  it('allows text — groupable as of #499, though read-only for a drag', () => {
+    expect(boardGroupError({ type: 'text', config: {} }, null)).toBeNull();
   });
 
   it('rejects a missing field', () => {

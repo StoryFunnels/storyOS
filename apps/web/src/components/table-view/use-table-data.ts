@@ -25,6 +25,11 @@ export interface Field {
   type: string;
   config: Record<string, unknown>;
   isSystem: boolean;
+  /** #743 — set by `withSystemFields()` for a deprecated system field (e.g.
+   *  `number`, superseded by `id`): it still resolves for an existing saved
+   *  filter/sort, but `isPickableField()` excludes it from NEW picks. Absent
+   *  (undefined) for every ordinary field. */
+  deprecated?: boolean;
   options?: SelectOption[];
   relation?: {
     id: string;
@@ -129,10 +134,24 @@ export function useUpdateDescriptionPlacement(ws: string, db: string) {
   });
 }
 
-export function useUpdateDatabaseIcon(ws: string, db: string) {
+/**
+ * PATCH a database's own presentation — icon, colour, description. ONE hook for
+ * one endpoint, deliberately: this was `useUpdateDatabaseIcon` until #731 needed
+ * the description too, and the cheap move would have been a second hook against
+ * the same PATCH with its own cache-merge. That is how `config.share` and
+ * `config.form` drifted (#713), and how the MCP grew its own copy of form config
+ * (#718). One endpoint, one hook, one merge.
+ *
+ * NOTE THE ACCESS LEVEL: the server requires `creator` on the database for this
+ * PATCH (`databases.controller.ts` → `assertAccess(..., 'creator')`), which is a
+ * rung ABOVE the `editor` that the page's own `readOnly` flag tests. A caller
+ * gating an affordance on `readOnly` would offer this to an editor and have the
+ * API refuse — gate on `schemaEditable`/`atLeast(my_access, 'creator')` instead.
+ */
+export function useUpdateDatabase(ws: string, db: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: { icon?: string | null; color?: string | null }) => {
+    mutationFn: async (patch: { icon?: string | null; color?: string | null; description?: string | null }) => {
       const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
         params: { path: { ws, db } },
         body: patch,
@@ -142,7 +161,7 @@ export function useUpdateDatabaseIcon(ws: string, db: string) {
     },
     onSuccess: (data) => {
       qc.setQueryData(['database', ws, db], (prev: DatabaseDetail | undefined) =>
-        prev ? { ...prev, icon: data.icon, color: data.color } : prev,
+        prev ? { ...prev, icon: data.icon, color: data.color, description: data.description } : prev,
       );
       void qc.invalidateQueries({ queryKey: ['databases', ws] });
     },
@@ -215,9 +234,30 @@ export function useMembers(ws: string, enabled: boolean) {
   });
 }
 
-const recordsKey = (ws: string, db: string) => ['records', ws, db];
+// Exported for use-table-data.unit.test.ts, which pins the prefix separation
+// this fix depends on — everything else in this file still only calls these
+// as plain helpers.
+export const recordsKey = (ws: string, db: string) => ['records', ws, db];
+// #728 fix — a query key TanStack Query would happily prefix-match against
+// recordsKey's own ['records', ws, db]. It used to (below), and every
+// optimistic update in useRecordMutations paid for it: setQueriesData/
+// getQueriesData match by PREFIX, so a plain-number count cache entry got
+// run through updaters written for { pages: [...] }, threw on the first
+// `.pages.map(...)`, and — because the throw happened inside onMutate,
+// before mutationFn — silently aborted record edit/create/delete with no
+// network request and no real error message. Its own key, not a shared one.
+export const recordCountKey = (ws: string, db: string) => ['records-count', ws, db];
 
-export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<string, unknown>) {
+export function useRecordsInfinite(
+  ws: string,
+  db: string,
+  queryBody?: Record<string, unknown>,
+  /** #785 — a small, purpose-scoped query (e.g. the calendar's undated tray)
+   * needs to skip entirely rather than fire with a default/empty body when its
+   * own precondition (a configured date field) isn't met yet. Defaults to true
+   * so every existing caller is unaffected. */
+  enabled = true,
+) {
   const body = queryBody ?? { limit: 100 };
   return useInfiniteQuery({
     queryKey: [...recordsKey(ws, db), body],
@@ -237,15 +277,122 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
     // #306 — a space-level dashboard has no database until a tile names one, so
     // `db` can legitimately be empty. useDatabase already guards this way; this
     // one did not, and an empty id would POST to /databases//records/query.
-    enabled: Boolean(ws && db),
+    enabled: Boolean(ws && db) && enabled,
   });
+}
+
+/** The `/records/aggregate` op set — mirrors AggregateRecordsDto exactly. */
+export type AggregateOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
+/**
+ * #659/#759 — ONE server-computed number via `/records/aggregate`, rather than
+ * paging the dataset client-side and reducing it in the browser —
+ * `useRecordsInfinite` only holds however many pages have been scrolled (or
+ * auto-fetched) into view so far, and the ADR-0016 rule against this ("counting
+ * must not be done by fetching") applies just as much to a table's row count
+ * or a dashboard tile as to Tyron's. Scoped by the SAME filter AST `/query`
+ * takes, so the number always matches what a records view of the same filter
+ * would show. Grant-scoped server-side exactly like `/query` — a database the
+ * viewer cannot read throws (404/403) rather than returning a value, so a
+ * caller can tell "no access" from "adds up to zero" (#304) by checking
+ * `isError`, never by reading `0`.
+ */
+export function useRecordAggregate(
+  ws: string,
+  db: string,
+  input: { op: AggregateOp; field?: string; filter?: unknown },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...recordCountKey(ws, db), input],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
+        params: { path: { ws, db } },
+        body: {
+          op: input.op,
+          ...(input.field ? { field: input.field } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+        } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { value: number | null }).value;
+    },
+    enabled: Boolean(ws && db) && enabled,
+  });
+}
+
+/**
+ * #659 — the view's total row count, for the persistent "N records" indicator.
+ * A thin `op: 'count'` wrapper over `useRecordAggregate` — see its own comment
+ * for why this asks the server for one number rather than counting pages.
+ * `count` never returns null server-side (records.service.ts's own `?? 0`),
+ * so this coerces the shared hook's `number | null` back to the `number`
+ * every existing caller already expects — a narrowing, not a behavior change.
+ */
+export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
+  const query = useRecordAggregate(ws, db, { op: 'count', filter }, enabled);
+  return { ...query, data: query.data ?? undefined };
+}
+
+/**
+ * #750/#784 — ONE query for every column's true total, via `/aggregate/grouped`,
+ * rather than a board reading `column.rows.length` (however many pages have
+ * been scrolled into view so far — see `groupCountLabel`'s own comment on why
+ * that undercounts). Same grant-scoped filter AST as `useRecordAggregate`.
+ *
+ * Returns raw `{key, value}` groups exactly as the server does — a `key` of
+ * `null` is the ungrouped bucket, a date key is the bucket's START DATE (not
+ * the client's compact bucket key), so callers group by a date field must
+ * re-derive their own column id from it (`dateBucketKey`) rather than look
+ * the raw key up directly. Left to the caller rather than done here: this
+ * hook has no opinion on grouping semantics, only on fetching the numbers.
+ */
+export function useGroupedRecordCount(
+  ws: string,
+  db: string,
+  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...recordCountKey(ws, db), 'grouped', input],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+        params: { path: { ws, db } },
+        body: {
+          op: 'count',
+          group_by: input.group_by,
+          ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+        } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { groups: Array<{ key: string | null; value: number | null }> }).groups;
+    },
+    enabled: Boolean(ws && db) && enabled,
+  });
+}
+
+/**
+ * #728 fix — true only for the `{ pages: [...] }` shape every `setAll`
+ * updater below assumes. `recordsKey` used to also match `useRecordCount`'s
+ * cache entry (a plain number) via prefix, and the updaters threw on the
+ * first `.pages` access; that collision is gone now that the count has its
+ * own key (see `recordCountKey`), but this guard stays — a FUTURE query
+ * sharing this same prefix then fails safe (the cache entry comes back
+ * untouched) instead of silently reintroducing the exact same abort.
+ */
+export function isRecordsPageCache(data: unknown): data is { pages: RecordsPage[] } {
+  return Boolean(data) && Array.isArray((data as { pages?: unknown }).pages);
 }
 
 export function useRecordMutations(ws: string, db: string) {
   const qc = useQueryClient();
   const key = recordsKey(ws, db);
-  const setAll = (updater: (old: { pages: RecordsPage[] } | undefined) => unknown) =>
-    qc.setQueriesData({ queryKey: key }, updater as never);
+  const countKey = recordCountKey(ws, db);
+  const setAll = (updater: (old: { pages: RecordsPage[] }) => unknown) =>
+    qc.setQueriesData({ queryKey: key }, (old: unknown) =>
+      isRecordsPageCache(old) ? updater(old) : old,
+    );
 
   const updateRecord = useMutation({
     mutationFn: async ({ rec, values }: { rec: string; values: Record<string, unknown> }) => {
@@ -259,8 +406,7 @@ export function useRecordMutations(ws: string, db: string) {
     onMutate: async ({ rec, values }) => {
       await qc.cancelQueries({ queryKey: key });
       const previous = qc.getQueriesData({ queryKey: key });
-      setAll((old: { pages: RecordsPage[] } | undefined) => {
-        if (!old) return old;
+      setAll((old) => {
         return {
           ...old,
           pages: old.pages.map((page) => ({
@@ -291,6 +437,13 @@ export function useRecordMutations(ws: string, db: string) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
+      // The count is filter-scoped (table-view.tsx passes the view's own
+      // filter to useRecordCount), and a field edit CAN change whether a
+      // record matches that filter — moving it in or out of the view changes
+      // the "N records" total, not just the row set. Used to refresh for
+      // free through the same prefix collision this file fixes; needs its
+      // own invalidation now that the count has its own key.
+      void qc.invalidateQueries({ queryKey: countKey });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
       // #199 — My Work lists records from EVERY database, so an edit made anywhere
@@ -313,13 +466,17 @@ export function useRecordMutations(ws: string, db: string) {
       return data as unknown as RecordRow;
     },
     onSuccess: (created) => {
-      setAll((old: { pages: RecordsPage[] } | undefined) => {
-        if (!old || old.pages.length === 0) return old;
+      setAll((old) => {
+        if (old.pages.length === 0) return old;
         const pages = [...old.pages];
         const last = pages[pages.length - 1]!;
         pages[pages.length - 1] = { ...last, data: [...last.data, created] };
         return { ...old, pages };
       });
+      // A new record changes the view's total — same count invalidation
+      // `key` used to trigger incidentally via the prefix collision this
+      // fixes; now explicit, since it no longer happens for free.
+      void qc.invalidateQueries({ queryKey: countKey });
     },
     onError: () => toast.error('Could not create record'),
   });
@@ -332,14 +489,13 @@ export function useRecordMutations(ws: string, db: string) {
       if (error) throw error;
     },
     onSuccess: (_data, rec) => {
-      setAll((old: { pages: RecordsPage[] } | undefined) =>
-        old
-          ? {
-              ...old,
-              pages: old.pages.map((p) => ({ ...p, data: p.data.filter((r) => r.id !== rec) })),
-            }
-          : old,
-      );
+      setAll((old) => ({
+        ...old,
+        pages: old.pages.map((p) => ({ ...p, data: p.data.filter((r) => r.id !== rec) })),
+      }));
+      // A deleted (or restored) record changes the view's total — see the
+      // matching note in createRecord.
+      void qc.invalidateQueries({ queryKey: countKey });
       // #265: one restore closure, used by BOTH the toast button and the
       // Cmd-Z stack, so the two routes can't drift into doing different things.
       const restore = async () => {
@@ -349,6 +505,7 @@ export function useRecordMutations(ws: string, db: string) {
         );
         if (error) throw error;
         void qc.invalidateQueries({ queryKey: key });
+        void qc.invalidateQueries({ queryKey: countKey });
       };
       pushUndo({ label: 'Restored from trash', run: restore });
       toast.success('Moved to trash', {

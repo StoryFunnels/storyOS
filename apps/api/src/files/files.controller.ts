@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -16,6 +17,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { AccessService } from '../access/access.service';
 import { FilesService } from './files.service';
 
 /** Upload endpoint — workspace-scoped + auth'd (MN-097). */
@@ -24,12 +26,35 @@ import { FilesService } from './files.service';
 @Controller('workspaces/:ws/files')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class FilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    private readonly access: AccessService,
+  ) {}
+
+  /**
+   * #238 — files carry no space/database at upload time (they're referenced
+   * afterward from whatever content the caller is editing), so there is no
+   * scope to `assertAccess`/`assertSpace` against. But a GUEST with zero
+   * grants anywhere was passing through regardless — any invited guest could
+   * upload arbitrary files and mint download URLs before this existed. The
+   * bar is deliberately coarse (any grant, anywhere, at any rank) rather than
+   * scoped, matching what upload/mint can actually check at this point; real
+   * per-content enforcement happens where the file's URL gets saved into a
+   * record/document, which already goes through the normal write checks.
+   */
+  private async assertGuestHasAnyGrant(membership: WorkspaceRequest['membership']) {
+    const visibility = await this.access.guestVisibility(membership);
+    if (!visibility) return; // admin/member
+    if (visibility.spaceIds.size === 0 && visibility.databaseIds.size === 0) {
+      throw new ForbiddenException('You need access to at least one space or database to upload files.');
+    }
+  }
 
   @Post()
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload an image for the editor (multipart "file"); returns { id, url }' })
   async upload(@Req() req: WorkspaceRequest) {
+    await this.assertGuestHasAnyGrant(req.membership);
     const raw = req as unknown as FastifyRequest & {
       file?: () => Promise<{ filename: string; mimetype: string; toBuffer: () => Promise<Buffer> } | undefined>;
     };
@@ -48,10 +73,12 @@ export class FilesController {
   /** #201: mint a short-lived signed download URL. Minting requires access to the
    * file's workspace (any active member — same "viewer+" bar as the inline path
    * gets under private-attachments mode); the resulting URL then carries its own
-   * proof and needs no further auth. */
+   * proof and needs no further auth. #238: a guest additionally needs at least
+   * one grant somewhere — see `assertGuestHasAnyGrant`. */
   @Post(':id/download-url')
   @ApiOperation({ summary: 'Mint a signed, expiring download URL for a file (#201)' })
   async mintDownloadUrl(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+    await this.assertGuestHasAnyGrant(req.membership);
     return this.files.mintDownloadUrl(req.membership.workspaceId, id);
   }
 

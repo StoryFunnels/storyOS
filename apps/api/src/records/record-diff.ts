@@ -1,5 +1,14 @@
-/** A single field's before/after value, keyed by field id ("title" for the promoted title column). */
-export type RecordDiff = Record<string, { from: unknown; to: unknown }>;
+import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
+
+/**
+ * A single field's before/after value, keyed by field id ("title" for the
+ * promoted title column). `blocks` is additive (#595): present only for a
+ * rich_text field whose value actually changed, alongside the unchanged
+ * `from`/`to` — every existing reader of `from`/`to` keeps working exactly
+ * as before, and a reader that wants block-level detail (which paragraph
+ * changed, not just "this field changed") has somewhere to get it.
+ */
+export type RecordDiff = Record<string, { from: unknown; to: unknown; blocks?: BlockChange[] }>;
 
 /**
  * Compares two full record snapshots (values + title) and returns only the
@@ -15,10 +24,18 @@ export type RecordDiff = Record<string, { from: unknown; to: unknown }>;
  * (differently-shaped, already-shipped) diffing inline, and this ticket's
  * blast radius is high enough that touching working, unrelated code isn't
  * worth the risk for a cosmetic dedupe.
+ *
+ * `richTextFieldIds` (#595) is optional and keyed by field id (the same key
+ * `values` uses) — callers that don't pass it get exactly the prior
+ * behavior, generic whole-value comparison for every field. When a
+ * differing field's id IS in the set, its value is a BlockNote block array
+ * (rich_text's storage shape) and gets `diffBlocks` on top: which blocks
+ * were added, removed, or actually edited, not just "this field changed".
  */
 export function diffSnapshots(
   before: { values: Record<string, unknown>; title: string },
   after: { values: Record<string, unknown>; title: string },
+  richTextFieldIds?: ReadonlySet<string>,
 ): RecordDiff {
   const diff: RecordDiff = {};
   const fieldIds = new Set([...Object.keys(before.values), ...Object.keys(after.values)]);
@@ -27,6 +44,9 @@ export function diffSnapshots(
     const next = after.values[fieldId] ?? null;
     if (JSON.stringify(prev) === JSON.stringify(next)) continue;
     diff[fieldId] = { from: prev, to: next };
+    if (richTextFieldIds?.has(fieldId)) {
+      diff[fieldId]!.blocks = diffBlocks(prev, next);
+    }
   }
   if (before.title !== after.title) {
     diff.title = { from: before.title, to: after.title };

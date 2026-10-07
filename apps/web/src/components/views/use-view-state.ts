@@ -43,12 +43,44 @@ export interface ViewConfig {
    */
   cover_field_id?: string;
   date_field_id?: string;
+  /** #470 — day/week/month mode. Undefined = month, the only mode that
+   *  existed before this ticket, so every calendar view saved before it
+   *  renders exactly as it did with no migration. */
+  calendar_mode?: 'month' | 'week' | 'day';
+  /** #470 — optional END date field for a day/week event's height, the same
+   *  "a second date FIELD" pattern timeline's start/end pair below already
+   *  uses. Unset = a fixed default duration, computed client-side, never
+   *  stored (see calendar-time-grid-layout.ts's DEFAULT_DURATION_MINUTES). */
+  calendar_end_date_field_id?: string;
+  /** #471 AC3 — day/week grid's snap/create granularity. Undefined = 15,
+   *  matching #470's hardcoded behaviour. */
+  calendar_increment_minutes?: 10 | 15 | 30 | 60;
+  /** #471 AC4/AC7 — collapses the day/week grid's rendered hour axis to this
+   *  window; never affects the all-day row. Undefined = all 24 hours. */
+  calendar_collapsed_hours?: { start: number; end: number };
   /** Timeline (MN-092). */
   start_date_field_id?: string;
   end_date_field_id?: string;
   /** #227 — optional baseline (planned) pair drawn behind the primary bar. */
   baseline_start_date_field_id?: string;
   baseline_end_date_field_id?: string;
+  /**
+   * #264/#527 — a public read-only link for this view. Server-minted and
+   * immutable across allowlist edits (ViewsService.share never rotates an
+   * existing token) — NEVER set this via the ordinary view PATCH/`onPatch`;
+   * the server silently strips a client-supplied `share` from that path on
+   * purpose (views.service.ts), so the only way to change it is the
+   * dedicated share/unshare mutations below.
+   */
+  share?: {
+    public_token?: string;
+    /** undefined = the view's own non-hidden fields, except rollup/lookup/
+     *  formula, which need explicit naming (never exposed by default). */
+    visible_field_api_names?: string[];
+    /** Empty by default — no related data travels unless named. */
+    include_relation_api_names?: string[];
+    indexable?: boolean;
+  };
   /** Form (MN-094, MN-101). */
   form?: {
     title?: string;
@@ -60,6 +92,30 @@ export interface ViewConfig {
     access?: 'members' | 'link' | 'public';
     success_message?: string;
     redirect_url?: string;
+    /**
+     * #711/#720 — how the EMBEDDED form should look on the host's page. Five
+     * controls; everything else derives (lib/embed-theme.ts). Hex only, no
+     * alpha — see packages/schemas' own comment for why. Absent means emit
+     * nothing at all, which is what makes "reset to default" exact.
+     */
+    theme?: {
+      accent?: string;
+      surface?: string;
+      text?: string;
+      radius?: number;
+      /** #720 — closed set, self-hosted. Mirrors `EmbedFontFamily`
+       *  (packages/schemas) as a literal union rather than importing the
+       *  type, matching this interface's own existing pattern of a plain
+       *  local mirror rather than a z.infer. */
+      font?:
+        | 'inter'
+        | 'figtree'
+        | 'source-sans-3'
+        | 'dm-sans'
+        | 'source-serif-4'
+        | 'playfair-display'
+        | 'jetbrains-mono';
+    };
   };
   /**
    * Dashboard (MN-225 / #168) — metric tiles.
@@ -88,7 +144,28 @@ export interface ViewConfig {
     filter?: FilterNode;
     database_id?: string;
   }>;
+  /**
+   * #228 — an ordinary view's OWN inline summary strip. Deliberately narrower
+   * than a dashboard tile/widget (no filter/database_id) — see
+   * `summaryWidgetSchema`'s comment in packages/schemas: this widget must
+   * always match what's visible in the view beneath it.
+   */
+  summary_widgets?: Array<{
+    id: string;
+    type: 'stat' | 'bar' | 'line' | 'pie';
+    title: string;
+    op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    field_api_name?: string;
+    group_by_field_api_name?: string;
+  }>;
+  /** #233 — table view's inline hierarchy mode. See the schema comment in
+   *  packages/schemas/src/views.ts for the eligibility rule. */
+  hierarchy_field_id?: string;
   column_widths: Record<string, number>;
+  /** #739 T8 — table row density, a user control with three steps on the 4px
+   *  grid. Undefined = 32, the pre-#739 hardcoded height, so every view saved
+   *  before this ticket renders exactly as it did with no migration. */
+  row_height?: 28 | 32 | 40;
 }
 
 export interface ViewSummary {
@@ -98,6 +175,15 @@ export interface ViewSummary {
   config: ViewConfig;
   isDefault?: boolean;
   position?: number;
+  /**
+   * #520/#527 — set only for a PERSONAL view (a private window onto shared
+   * data, never visible to anyone else — not even admins). The share dialog
+   * uses this to hide the Publish control entirely for a personal view: the
+   * database-editor access `share`/`unshare` check server-side does NOT
+   * itself verify ownership (see #554), so this is a client-side guard only,
+   * not the actual fix — it just makes the gap harder to hit by accident.
+   */
+  ownerUserId?: string | null;
 }
 
 export const EMPTY_CONFIG: ViewConfig = {
@@ -247,6 +333,43 @@ export function useViewMutations(ws: string, db: string) {
       },
       onSuccess: invalidate,
     }),
+    /**
+     * #515 — the only way to change an EXISTING board/list view's grouping
+     * field; until now `group_by_field_id` was only ever written once, at
+     * creation (page.tsx's NewViewDialog). Takes the view's own current
+     * config so a stale `group_by_granularity` from an earlier date-grouped
+     * stint is carried forward untouched rather than guessed at here — it's
+     * simply unused while grouped by anything else, and board-view.tsx
+     * already reads it only when the group field is a date.
+     */
+    regroupView: useMutation({
+      mutationFn: async ({
+        id,
+        config,
+        groupByFieldId,
+        isDateField,
+      }: {
+        id: string;
+        config: ViewConfig;
+        groupByFieldId: string;
+        /** #515 AC5 — a stale granularity from an earlier date-grouped stint
+         *  must NOT survive a regroup away from dates: reproduced live
+         *  (Vera) resurfacing on a later regroup back to a different date
+         *  field. Cleared here, not merely left unread, whenever the new
+         *  group field isn't a date. */
+        isDateField: boolean;
+      }) => {
+        const nextConfig: ViewConfig = { ...config, group_by_field_id: groupByFieldId };
+        if (!isDateField) delete nextConfig.group_by_granularity;
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+          params: { path: { ws, db, view: id } },
+          body: { config: nextConfig as never },
+        });
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not change the grouping'),
+    }),
     deleteView: useMutation({
       mutationFn: async (id: string) => {
         const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
@@ -269,6 +392,29 @@ export function useViewMutations(ws: string, db: string) {
       onSuccess: invalidate,
       onError: () => toast.error('Could not duplicate the view'),
     }),
+    /**
+     * #293 — "Copy to My Space": fork a shared view into the caller's own
+     * private copy, never sync'd back. Invalidates the SAME query key
+     * duplicateView does — the personal-views list (personal-section.tsx)
+     * refetches on its own ['personal-views', ws] key, not this one, so a
+     * second invalidation there isn't needed for this call to be visible.
+     */
+    copyViewToPersonal: useMutation({
+      mutationFn: async (id: string) => {
+        const { data, error } = await api.POST(
+          '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal',
+          { params: { path: { ws, db, view: id } } } as never,
+        );
+        if (error) throw error;
+        return data as unknown as { id: string };
+      },
+      onSuccess: () => {
+        invalidate();
+        void qc.invalidateQueries({ queryKey: ['personal-views', ws] });
+        toast.success('Copied to My Space');
+      },
+      onError: () => toast.error('Could not copy the view'),
+    }),
     setDefaultView: useMutation({
       mutationFn: async (id: string) => {
         const { error } = await api.POST(
@@ -279,6 +425,51 @@ export function useViewMutations(ws: string, db: string) {
       },
       onSuccess: invalidate,
       onError: () => toast.error('Could not set the default view'),
+    }),
+    /**
+     * #527 — the ONLY way to set/change a view's public link. Never route this
+     * through the ordinary view PATCH/`onPatch`: the server silently strips a
+     * client-supplied `config.share` from that path so a plain config edit can
+     * never accidentally unpublish (or publish) a view (views.service.ts).
+     * Re-sharing an already-published view keeps the SAME token server-side —
+     * this call is also how the allowlist/indexable flags get edited later.
+     */
+    shareView: useMutation({
+      mutationFn: async ({
+        id,
+        visible_field_api_names,
+        include_relation_api_names,
+        indexable,
+      }: {
+        id: string;
+        visible_field_api_names?: string[];
+        include_relation_api_names?: string[];
+        indexable?: boolean;
+      }) => {
+        const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws, db, view: id } } as never,
+          body: { visible_field_api_names, include_relation_api_names, indexable } as never,
+        } as never);
+        if (error) throw error;
+        return data as unknown as { token: string };
+      },
+      onSuccess: invalidate,
+      // #751 — share() already rejects a cross-database tile, a board grouped by
+      // a hidden field, or a tile/widget referencing an unallowlisted field with
+      // a specific 422 message naming which one; a generic toast here discarded
+      // that and left the owner guessing why publish failed.
+      onError: (error) =>
+        toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Could not publish the view'),
+    }),
+    unshareView: useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws, db, view: id } } as never,
+        } as never);
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not stop sharing the view'),
     }),
     // Drag-to-reorder the view tabs → writes each moved view's position (MN-221).
     // The DB page renders views in position order, so persisting the new indexes

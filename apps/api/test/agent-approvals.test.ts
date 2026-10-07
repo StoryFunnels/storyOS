@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { connectTestDb } from './helpers/db';
+import { approvals } from '../src/db/schema';
 import { AgentsService } from '../src/agents/agents.service';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
+import type { ApprovalActionSnapshot } from '../src/automations/approvals.service';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -13,6 +17,7 @@ let agentsDbId: string;
 let runsDbId: string;
 /** An ordinary user database — the thing agents propose to act on. */
 let issuesDbId: string;
+const { db } = connectTestDb();
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
   return app.inject({
@@ -707,6 +712,20 @@ describe('The derived principal is enforced at the action boundary (#330)', () =
     );
     expect(restamped.statusCode, restamped.body).toBe(200);
 
+    // #603 — `pending_action` above is now a display-only copy; resolveGate's
+    // actual apply reads the principal from the shared `approvals` row
+    // (findByRunId), so THAT is what the demotion boundary this test exists
+    // to prove has to be re-stamped too — otherwise this test would pass for
+    // the wrong reason (the original, still-scoped principal never getting
+    // exercised at all).
+    const approvalRow = await db.query.approvals.findFirst({ where: eq(approvals.runId, run.id) });
+    expect(approvalRow).toBeTruthy();
+    const snapshot = approvalRow!.actionSnapshot as ApprovalActionSnapshot;
+    if (snapshot.action.type === 'agent_proposed_action') {
+      snapshot.action.principal = { userId: memberRow.user.id, scope: 'write' };
+    }
+    await db.update(approvals).set({ actionSnapshot: snapshot }).where(eq(approvals.id, approvalRow!.id));
+
     const demoted = await as(
       admin.token,
       'PATCH',
@@ -878,5 +897,110 @@ describe('Gate endpoints guard their state and their caller (#210)', () => {
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/approve`);
     expect(res.statusCode, res.body).toBe(422);
     expect(res.json().error.message).toMatch(/malformed/i);
+  });
+});
+
+/**
+ * #603 — the unification itself: an agent run's gate now creates a row in the
+ * SAME `approvals` table automation actions use, not a second, invisible
+ * mechanism only reachable via `/agents/runs/*`. These tests exist to prove
+ * the unification is real (visible via the shared listing, not just an
+ * internal refactor nobody outside agents.service.ts could ever observe),
+ * not to re-cover ground agent-approvals.test.ts's other 25 cases already do.
+ */
+describe('#603: agent-run gates unify onto the shared approvals table', () => {
+  it('staging an agent action creates a row the SHARED /approvals listing can see — the concrete proof of unification', async () => {
+    const agent = await createAgent('Unified stager', ['delete']);
+    const issue = await createIssue('Visible in the shared inbox now');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete the shared-inbox issue', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+
+    // Before #603 this row could not exist: agent-run gates lived only on the
+    // run record's own `pending_action`, invisible to this exact endpoint.
+    const list = (await as(admin.token, 'GET', `/workspaces/${wsId}/approvals?status=pending`)).json();
+    const found = list.find((a: { run_id: string | null }) => a.run_id === run.id);
+    expect(found, 'the agent run gate must appear in the shared approvals list').toBeTruthy();
+    expect(found.action_snapshot.action.type).toBe('agent_proposed_action');
+    expect(found.status).toBe('pending');
+  });
+
+  it('the generic /approvals/:id/approve endpoint refuses an agent-run row, pointing at the right endpoint instead', async () => {
+    const agent = await createAgent('Wrong-endpoint tester', ['delete']);
+    const issue = await createIssue('Do not resolve me generically');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete via the wrong endpoint', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    const approvalRow = await db.query.approvals.findFirst({ where: eq(approvals.runId, run.id) });
+    expect(approvalRow).toBeTruthy();
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalRow!.id}/approve`);
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json().error.message).toMatch(/agents\/runs.*approve/i);
+    // Refused before any decision was recorded — not half-decided.
+    const stillPending = await db.query.approvals.findFirst({ where: eq(approvals.id, approvalRow!.id) });
+    expect(stillPending!.status).toBe('pending');
+    await expectIssueAlive(issue.id, 'a refused generic-endpoint call must apply nothing');
+  });
+
+  it('approving via the run-specific endpoint flips the SAME shared row to approved, with decided_by/decided_at set', async () => {
+    const agent = await createAgent('Unified approver', ['delete']);
+    const issue = await createIssue('Approve me through the shared table');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete through the shared table', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    const before = await db.query.approvals.findFirst({ where: eq(approvals.runId, run.id) });
+    expect(before!.status).toBe('pending');
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/approve`);
+    expect(res.statusCode, res.body).toBeLessThan(300);
+
+    const after = await db.query.approvals.findFirst({ where: eq(approvals.id, before!.id) });
+    expect(after!.status).toBe('approved');
+    expect(after!.decidedBy).toBeTruthy();
+    expect(after!.decidedAt).toBeTruthy();
+  });
+
+  it('rejecting via the run-specific endpoint flips the shared row to rejected, with the reason carried through', async () => {
+    const agent = await createAgent('Unified rejecter', ['delete']);
+    const issue = await createIssue('Reject me through the shared table');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete through the shared table', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    const before = await db.query.approvals.findFirst({ where: eq(approvals.runId, run.id) });
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`, {
+      reason: 'not today',
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+
+    const after = await db.query.approvals.findFirst({ where: eq(approvals.id, before!.id) });
+    expect(after!.status).toBe('rejected');
+    expect(after!.reason).toBe('not today');
+    await expectIssueAlive(issue.id, 'a rejected gate must apply nothing');
+  });
+
+  it('an expired agent-run gate refuses to resolve — re-approving a stale row must not apply the ancient action', async () => {
+    const agent = await createAgent('Staleness tester', ['delete']);
+    const issue = await createIssue('Do not delete me late');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete me late', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    const row = await db.query.approvals.findFirst({ where: eq(approvals.runId, run.id) });
+    expect(row).toBeTruthy();
+    // Force it stale, exactly as approvals.test.ts does for the automation case.
+    await db.update(approvals).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(approvals.id, row!.id));
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/approve`);
+    expect(res.statusCode, res.body).toBe(422);
+    // The RUN record's own status never changes on expiry (a known,
+    // documented gap — see approvals.service.ts's `decide()` doc) but the
+    // action must still never apply against a stale approval.
+    await expectIssueAlive(issue.id, 'an expired agent-run gate must apply nothing even though the run still LOOKS parked');
   });
 });

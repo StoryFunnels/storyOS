@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { describeDraft } from '@/lib/description-draft';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 /**
@@ -59,26 +60,24 @@ export function DescriptionDialogContent({
         }}
       >
         <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] text-muted">
+          <span className="text-body text-muted">
             One line saying what this {noun} is for. Shown to anyone who opens it.
           </span>
-          <textarea
+          <Textarea
             autoFocus
             rows={3}
+            size="default"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             // No `maxLength`: a hard cap silently swallows the tail of a pasted
             // sentence, and the person never learns why. AC 7 asks for the limit
             // to be visible and exceeding it reported, not prevented invisibly.
-            className={cn(
-              'w-full resize-none rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink',
-              draft.over ? 'border-error' : 'border-border-default',
-            )}
+            className={cn('min-h-0 w-full resize-none', draft.over && 'border-error')}
             placeholder={`What is this ${noun} for?`}
           />
         </label>
         <div className="flex items-center gap-2">
-          <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
+          <span className={cn('text-label tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
             {draft.hint}
           </span>
           <div className="ml-auto flex gap-2">

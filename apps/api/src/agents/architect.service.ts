@@ -465,6 +465,7 @@ export class ArchitectService {
         },
         membership.userId,
         0,
+        'agent',
       );
       result.agents.push({ name: planned.name, action: 'created', id: created.id });
       ids.set(norm(planned.name), created.id);
@@ -528,14 +529,18 @@ export class ArchitectService {
         continue;
       }
 
-      const created = await this.agents.createBinding(membership, {
-        agent: agentId,
-        database_id: databaseId,
-        state_field_id: field.id,
-        state_option_id: option.id,
-        human_gate: planned.human_gate,
-        enabled: true,
-      });
+      const created = await this.agents.createBinding(
+        membership,
+        {
+          agent: agentId,
+          database_id: databaseId,
+          state_field_id: field.id,
+          state_option_id: option.id,
+          human_gate: planned.human_gate,
+          enabled: true,
+        },
+        'agent',
+      );
       result.triggers.push({ name: label, action: 'created', id: created.id });
     }
   }

@@ -65,7 +65,7 @@ export default function DelegateToAgentIntegrationPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link
         href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
@@ -73,12 +73,12 @@ export default function DelegateToAgentIntegrationPage() {
         <Bot className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Delegate to agent</h1>
         {enabled && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
             enabled
           </span>
         )}
       </div>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 text-body text-muted">
         Assign a StoryOS agent to any record — from that record&apos;s <strong>···</strong> menu,
         choose
         <strong> Delegate to agent</strong> and pick one. It runs through the same tool catalog a
@@ -111,7 +111,7 @@ export default function DelegateToAgentIntegrationPage() {
 
       {!enabled ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             Nothing to connect — this is a built-in capability. Enable it to provision the Agents
             database, then create an agent record (name, goal, scopes) to delegate to.
           </p>
@@ -126,7 +126,7 @@ export default function DelegateToAgentIntegrationPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             Agents are provisioned. Create or edit agent records — name, goal, instructions, scopes
             — in the Agents database, then delegate to any of them from a record&apos;s{' '}
             <strong>···</strong> menu. Only an
@@ -135,7 +135,7 @@ export default function DelegateToAgentIntegrationPage() {
           {pack.data?.id && (
             <Link
               href={`/w/${ws}/d/${pack.data.id}`}
-              className="w-fit rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-[13px] font-medium text-ink hover:border-border-strong"
+              className="w-fit rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-body font-medium text-ink hover:border-border-strong"
             >
               Open Agents →
             </Link>

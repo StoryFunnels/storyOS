@@ -130,10 +130,9 @@ describe('records query engine (MN-012)', () => {
   });
 
   it('date before/after/within relative ranges', async () => {
-    expect(await titles({ filter: { field: 'due', op: 'within', value: 'next_7_days' } })).toEqual([
-      'Beta',
-      'Gamma',
-    ]);
+    // #523 — next_7_days is exclusive of today; Beta (due today) belongs to
+    // "today", not "next 7 days". Only Gamma (due in 5 days) matches.
+    expect(await titles({ filter: { field: 'due', op: 'within', value: 'next_7_days' } })).toEqual(['Gamma']);
     const today = new Date().toISOString().slice(0, 10);
     expect(await titles({ filter: { field: 'due', op: 'before', value: today } })).toEqual(['Delta']);
   });
@@ -314,6 +313,26 @@ describe('records query engine (MN-012)', () => {
     }
   });
 
+  it('#590: op-for-type errors name the FIELD and the full allowed-op set, not just the rejected op', async () => {
+    const cases: Array<{ filter: Record<string, unknown>; allowed: string[] }> = [
+      // choice/id-set (select)
+      { filter: { field: 'state', op: 'gt', value: 1 }, allowed: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'] },
+      // number
+      { filter: { field: 'estimate', op: 'contains', value: 1 }, allowed: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'] },
+      // date
+      { filter: { field: 'due', op: 'gt', value: '2026-01-01' }, allowed: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'] },
+      // checkbox
+      { filter: { field: 'urgent_flag', op: 'contains', value: true }, allowed: ['eq', 'neq', 'is_empty', 'not_empty'] },
+    ];
+    for (const { filter, allowed } of cases) {
+      const res = await query({ filter });
+      expect(res.statusCode, JSON.stringify(filter)).toBe(422);
+      const message = res.json().error.message as string;
+      expect(message, JSON.stringify(filter)).toContain(`"${filter.field}"`);
+      for (const op of allowed) expect(message, JSON.stringify(filter)).toContain(op);
+    }
+  });
+
   it('is injection-proof: hostile values are parameterized, hostile fields rejected', async () => {
     const hostileValue = await query({
       filter: { field: 'brief', op: 'eq', value: `'; DROP TABLE records; --` },
@@ -337,5 +356,88 @@ describe('records query engine (MN-012)', () => {
     });
     // Zeta was inserted by the cursor test above (estimate 100, matches q=a)
     expect(result.sort()).toEqual(['Beta', 'Delta', 'Gamma', 'Zeta']);
+  });
+});
+
+/**
+ * #429 — the filter panel's own operator audit, proven here against the real
+ * compiler rather than by inspecting `compileCondition`'s switch statements.
+ * Otto's ruling on the ticket: "every operator you add must be proven
+ * against the API's FILTER COMPILER and not merely rendered... an operator
+ * the compiler rejects is worse than one that was never offered." Runs
+ * AFTER the main describe block (whose cursor test adds a stray "Zeta"
+ * record), so assertions use containment rather than exact-set equality —
+ * proving each operator matches/excludes the right records, without being
+ * coupled to exactly which other records exist by the time these run.
+ */
+describe('#429 — new/expanded filter operators', () => {
+  it('text: not_contains excludes matches, includes everything else (including unset)', async () => {
+    const result = await titles({ filter: { field: 'brief', op: 'not_contains', value: 'spec' } });
+    expect(result).not.toContain('Alpha'); // Alpha's brief is "write the spec"
+    expect(result).toContain('Epsilon'); // unset brief counts as not containing it
+  });
+
+  it('text: neq treats an unset field as distinct from any value', async () => {
+    const result = await titles({ filter: { field: 'brief', op: 'neq', value: 'write the spec' } });
+    expect(result).not.toContain('Alpha');
+    expect(result).toContain('Epsilon');
+  });
+
+  it('select: eq/neq (scalar), matching the MCP\'s workflow/select op list exactly', async () => {
+    expect(await titles({ filter: { field: 'state', op: 'eq', value: opts['Doing'] } })).toEqual(
+      expect.arrayContaining(['Beta', 'Gamma']),
+    );
+    const notDoing = await titles({ filter: { field: 'state', op: 'neq', value: opts['Doing'] } });
+    expect(notDoing).toContain('Alpha');
+    expect(notDoing).toContain('Delta');
+    expect(notDoing).not.toContain('Beta');
+    expect(notDoing).not.toContain('Gamma');
+  });
+
+  it('select: not_empty (previously only is_empty was offered)', async () => {
+    const result = await titles({ filter: { field: 'state', op: 'not_empty' } });
+    expect(result).toEqual(expect.arrayContaining(['Alpha', 'Beta', 'Gamma', 'Delta']));
+    expect(result).not.toContain('Epsilon');
+  });
+
+  it('number: not_empty', async () => {
+    const result = await titles({ filter: { field: 'estimate', op: 'not_empty' } });
+    expect(result).toEqual(expect.arrayContaining(['Alpha', 'Beta', 'Gamma', 'Delta']));
+    expect(result).not.toContain('Epsilon');
+  });
+
+  it('date: eq ("on") and not_empty', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(await titles({ filter: { field: 'due', op: 'eq', value: today } })).toEqual(
+      expect.arrayContaining(['Beta']),
+    );
+    const dated = await titles({ filter: { field: 'due', op: 'not_empty' } });
+    expect(dated).toEqual(expect.arrayContaining(['Beta', 'Gamma', 'Delta']));
+    expect(dated).not.toContain('Alpha');
+  });
+
+  it('multi_select: not_empty', async () => {
+    const result = await titles({ filter: { field: 'tags', op: 'not_empty' } });
+    expect(result).toEqual(expect.arrayContaining(['Beta', 'Gamma']));
+    expect(result).not.toContain('Alpha');
+    expect(result).not.toContain('Delta');
+  });
+
+  it('user: eq/neq (scalar shape) and not_empty — the ops the panel now shares byte-for-byte with the MCP', async () => {
+    const assignedToMe = await titles({ filter: { field: 'assignee', op: 'eq', value: 'me' } });
+    expect(assignedToMe).toEqual(['Beta']);
+    const notMe = await titles({ filter: { field: 'assignee', op: 'neq', value: 'me' } });
+    expect(notMe).not.toContain('Beta');
+    expect(notMe).toContain('Epsilon');
+    const assigned = await titles({ filter: { field: 'assignee', op: 'not_empty' } });
+    expect(assigned).toEqual(expect.arrayContaining(['Beta']));
+    expect(assigned).not.toContain('Epsilon');
+  });
+
+  it('checkbox: neq', async () => {
+    const result = await titles({ filter: { field: 'urgent_flag', op: 'neq', value: true } });
+    expect(result).not.toContain('Delta');
+    expect(result).toContain('Alpha');
+    expect(result).toContain('Epsilon'); // unset counts as false, so distinct from true
   });
 });

@@ -40,7 +40,7 @@ export function FreeGuestTip({
   if (dismissed) return null;
 
   return (
-    <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-3 py-2 text-[12px] text-ink">
+    <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-3 py-2 text-label text-ink">
       <span className="flex-1">
         {children}
         {href && (

@@ -70,6 +70,11 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
     ...(isAdmin ? [{ href: `${base}/export`, label: 'Export' }] : []),
+    // #618 — admin-only, matching the restore endpoints' own @MinRole('admin')
+    // gate: a non-admin gets no nav entry, not a restore button that 403s.
+    ...(isAdmin ? [{ href: `${base}/trash`, label: 'Trash' }] : []),
+    // #727 — admin-only, matching audit-log.controller.ts's own @MinRole('admin').
+    ...(isAdmin ? [{ href: `${base}/audit-log`, label: 'Audit log' }] : []),
   ];
   const allLinks = [...personal, ...workspaceLinks];
 
@@ -86,7 +91,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-[13px] ${
+                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-body ${
                   active
                     ? 'bg-active font-medium text-ink'
                     : 'text-ink-secondary hover:bg-hover'
@@ -120,7 +125,7 @@ function SettingsNavGroup({
 }) {
   return (
     <div className="mb-4">
-      <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+      <p className="px-2 pb-1 text-meta font-semibold uppercase tracking-wider text-faint">
         {title}
       </p>
       {links.map((link) => {
@@ -129,7 +134,7 @@ function SettingsNavGroup({
           <Link
             key={link.href}
             href={link.href}
-            className={`block rounded px-2 py-1 text-[13px] ${
+            className={`block rounded px-2 py-1 text-body ${
               active
                 ? 'bg-active font-medium text-ink'
                 : 'text-ink-secondary hover:bg-hover'

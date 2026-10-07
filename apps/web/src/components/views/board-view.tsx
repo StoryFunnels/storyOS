@@ -16,13 +16,14 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { API_URL } from '@/lib/api';
+import { coverImageUrl, isUrlCoverField } from './cover-fields';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
 import {
@@ -36,7 +37,9 @@ import type { DateGranularity } from './date-buckets';
 import { RelationChip } from '../table-view/relation-cell';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
+  recordCountKey,
   useDatabase,
+  useGroupedRecordCount,
   useMembers,
   useRecordMutations,
   useRecordsInfinite,
@@ -45,18 +48,51 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { ViewQueryError } from './query-error';
+import { boardGroupIsReadOnly } from './groupable-fields';
+import { groupCountLabel } from './paginated-count';
 
 const NO_VALUE = '__none__';
+
+interface NumberBin {
+  label: string;
+  min: number | null;
+  max: number | null;
+}
+
+/** #498 — which configured bin a value falls in, `[min, max)`, max exclusive. */
+function binIndexFor(value: number, bins: NumberBin[]): number | null {
+  for (let i = 0; i < bins.length; i++) {
+    const bin = bins[i]!;
+    if ((bin.min === null || value >= bin.min) && (bin.max === null || value < bin.max)) return i;
+  }
+  return null;
+}
+
+/**
+ * #498 — a number written back by a drop must re-bucket into the SAME column
+ * it was dropped in (the same guarantee #307 gives dates via bucketStartISO).
+ * The bin's own floor always satisfies `[min, max)` for that bin by
+ * construction, so it's the one value guaranteed to resolve back to it.
+ */
+function representativeNumberForBin(bin: NumberBin): number {
+  if (bin.min !== null) return bin.min;
+  if (bin.max !== null) return bin.max - 1;
+  return 0;
+}
 
 export function BoardView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   personalFilter,
 }: {
   ws: string;
   db: string;
+  /** #499 — named on every move so the server can refuse a re-group write
+   * when this view's group field is read-only for grouping (text/lookup). */
+  viewId: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
@@ -65,6 +101,9 @@ export function BoardView({
   const database = useDatabase(ws, db);
   const qc = useQueryClient();
   const groupField = database.data?.fields.find((f) => f.id === config.group_by_field_id);
+  // #499 — a card lands in the right column but can never be dragged to a
+  // different one: text/lookup grouping is single-valued, just not writable.
+  const groupIsReadOnly = groupField ? boardGroupIsReadOnly(groupField) : false;
   // #307 — period per column when grouping by a date. Month is the roadmap default;
   // an unset/legacy config therefore renders sensibly rather than not at all.
   const granularity: DateGranularity = isDateGranularity(config.group_by_granularity)
@@ -122,6 +161,18 @@ export function BoardView({
       if (groupField.type === 'relation') return (raw as LinkChip[] | undefined)?.[0]?.id ?? NO_VALUE;
       // #307: a date field groups into periods, so the column id is the bucket key.
       if (groupField.type === 'date') return dateBucketKey(raw, granularity) ?? NO_VALUE;
+      // #498: the column id is the bin's INDEX, not the raw number — several
+      // distinct numbers share one column, unlike every other groupable type.
+      if (groupField.type === 'number') {
+        const bins = (groupField.config?.['bins'] as NumberBin[] | undefined) ?? [];
+        const idx = typeof raw === 'number' ? binIndexFor(raw, bins) : null;
+        return idx === null ? NO_VALUE : String(idx);
+      }
+      // #499: text/lookup have no fixed option list — the value itself IS the
+      // column id, same shape as a select's option id.
+      if (groupField.type === 'text' || groupField.type === 'lookup') {
+        return raw === null || raw === undefined || raw === '' ? NO_VALUE : String(raw);
+      }
       return (raw as string | null | undefined) ?? NO_VALUE;
     },
     [groupField, granularity],
@@ -160,11 +211,33 @@ export function BoardView({
               label: m.user.name,
               color: OPTION_COLORS.gray!,
             }))
-          : (targets.data ?? []).map((t) => ({
-              id: t.id,
-              label: t.title || 'Untitled',
-              color: OPTION_COLORS.gray!,
-            }));
+          : groupField.type === 'number'
+            // #498 — one column per configured bin, in order. Unlike every other
+            // axis, the schema (not the data) is the source of truth for which
+            // columns exist: an empty bin is still a real, offered column.
+            ? ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? []).map((bin, i) => ({
+                id: String(i),
+                label: bin.label,
+                color: OPTION_COLORS.gray!,
+              }))
+            : groupField.type === 'text' || groupField.type === 'lookup'
+              // #499 — no fixed option list, so columns come from whatever
+              // distinct values are actually present, same as #307's date axis.
+              ? Array.from(
+                  new Set(
+                    rows
+                      .map((r) => r.values[groupField.apiName])
+                      .filter((v): v is string | number => v !== null && v !== undefined && v !== ''),
+                  ),
+                )
+                  .map(String)
+                  .sort()
+                  .map((v) => ({ id: v, label: v, color: OPTION_COLORS.gray! }))
+              : (targets.data ?? []).map((t) => ({
+                  id: t.id,
+                  label: t.title || 'Untitled',
+                  color: OPTION_COLORS.gray!,
+                }));
 
     const buckets = new Map<string, RecordRow[]>();
     for (const def of defs) buckets.set(def.id, []);
@@ -178,7 +251,7 @@ export function BoardView({
         label:
           groupField.type === 'date'
             ? 'No date'
-            : groupField.type === 'select' || groupField.type === 'workflow'
+            : groupField.type === 'select' || groupField.type === 'workflow' || groupField.type === 'number'
               ? 'No value'
               : 'Unassigned',
         color: OPTION_COLORS.gray!,
@@ -204,12 +277,47 @@ export function BoardView({
           hide_empty_groups: config.hide_empty_groups,
           hide_empty_no_value_group: config.hide_empty_no_value_group,
         },
-        { groupType: groupField?.type ?? '' },
+        { groupType: groupField?.type ?? '', hasMore: Boolean(records.hasNextPage) },
       ),
-    [columns, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, groupField],
+    [
+      columns,
+      config.column_sort,
+      config.hide_empty_groups,
+      config.hide_empty_no_value_group,
+      groupField,
+      records.hasNextPage,
+    ],
   );
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
+
+  // #750/#784 — the board's real per-column totals, one query rather than
+  // reading however many pages have scrolled into view (see groupCountLabel's
+  // own comment on why that undercounts). Same filter AST as the board's own
+  // records query, so the two can never disagree about which rows count.
+  const groupedCounts = useGroupedRecordCount(
+    ws,
+    db,
+    {
+      group_by: groupField?.apiName ?? '',
+      ...(groupField?.type === 'date' ? { group_by_granularity: granularity } : {}),
+      ...(queryBody.filter ? { filter: queryBody.filter } : {}),
+    },
+    Boolean(groupField),
+  );
+  const trueCounts = useMemo(() => {
+    if (!groupField || !groupedCounts.data) return null;
+    const map = new Map<string, number>();
+    for (const g of groupedCounts.data) {
+      if (g.value == null) continue;
+      // A date group's key is the bucket's START DATE (server-side), not the
+      // client's compact bucket key — re-derive it with the same function
+      // that builds every OTHER date column id, so the two can't drift apart.
+      const key = g.key === null ? NO_VALUE : groupField.type === 'date' ? (dateBucketKey(g.key, granularity) ?? NO_VALUE) : g.key;
+      map.set(key, (map.get(key) ?? 0) + g.value);
+    }
+    return map;
+  }, [groupField, groupedCounts.data, granularity]);
 
   const router = useRouter();
   const [dragging, setDragging] = useState<RecordRow | null>(null);
@@ -257,7 +365,7 @@ export function BoardView({
       if (Object.keys(body).length === 0) return;
       const { error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move',
-        { params: { path: { ws, db, rec } }, body: body as never },
+        { params: { path: { ws, db, rec } }, body: { ...body, view_id: viewId } as never },
       );
       if (error) throw error;
     },
@@ -319,6 +427,9 @@ export function BoardView({
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+      // #750/#784 — a move can change which column a card counts toward,
+      // so the aggregate counts are stale exactly when the row cache is.
+      void qc.invalidateQueries({ queryKey: recordCountKey(ws, db) });
       // A re-link changes the other side of the relation too.
       if (targetDb) {
         void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
@@ -360,24 +471,69 @@ export function BoardView({
     const changesColumn = targetColumn !== currentColumn;
     if (!changesColumn && Object.keys(anchor).length === 0) return;
     if (readOnly) return;
+    // #499 — text/lookup grouping is read-only: a card may still be reordered
+    // within its own column (anchor-only), but never dragged into another.
+    if (changesColumn && groupIsReadOnly) return;
 
     // #307: dropping into a period column writes that period's FIRST day, which is
     // the only value that re-buckets into the same column (see date-buckets tests).
+    // #498: dropping into a bin column writes that bin's own floor — same
+    // "must re-resolve to the same column" guarantee, see representativeNumberForBin.
     const value =
       targetColumn === NO_VALUE
         ? null
         : groupField.type === 'date'
           ? bucketStartISO(targetColumn, granularity)
-          : targetColumn;
+          : groupField.type === 'number'
+            ? representativeNumberForBin(
+                ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? [])[Number(targetColumn)]!,
+              )
+            : targetColumn;
     move.mutate({
       rec: recId,
       ...anchor,
       ...(changesColumn
         ? groupField.type === 'relation'
-          ? { link: value }
+          ? { link: value as string | null }
           : { values: { [groupField.apiName]: value } }
         : {}),
     });
+
+    // Artifact Rule 5 — say what the drop wrote, in the card's own terms, with
+    // an undo. A drop that changes a date/number column writes a REPRESENTATIVE
+    // value (the bucket's first day, the bin's floor — see the comments above),
+    // never the value the user actually saw before dragging, so a silent write
+    // is the one board interaction most worth confirming.
+    if (changesColumn) {
+      const prevRaw = record.values[groupField.apiName];
+      const newLabel = columnLabels.get(targetColumn) ?? targetColumn;
+      const undo = async () => {
+        if (groupField.type === 'relation') {
+          const prevLink = (prevRaw as LinkChip[] | undefined)?.[0]?.id ?? null;
+          const { error } = await api.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+            params: { path: { ws, db, rec: recId, field: groupField.id } },
+            body: { record_ids: prevLink ? [prevLink] : [] },
+          });
+          if (error) throw error;
+        } else {
+          const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move', {
+            params: { path: { ws, db, rec: recId } },
+            body: { values: { [groupField.apiName]: (prevRaw as string | number | null) ?? null }, view_id: viewId } as never,
+          });
+          if (error) throw error;
+        }
+        void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+        void qc.invalidateQueries({ queryKey: recordCountKey(ws, db) });
+      };
+      toast.success(`${groupField.displayName} → ${newLabel}`, {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void undo().catch(() => toast.error('Could not undo'));
+          },
+        },
+      });
+    }
   }
 
   if (!groupField) {
@@ -394,7 +550,22 @@ export function BoardView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-      <div className="flex h-full gap-3 overflow-x-auto p-4">
+      <div className="flex h-full flex-col">
+      {/* Artifact's own flagged defect: "some groupings cannot be dragged, and
+          nothing says so" — #499's read-only grouping (text/lookup) disabled the
+          drag handle with no visible reason, so the only way to learn it was to
+          try. Same border-border-default/text-muted treatment as the rest of the
+          view's inline banners, not a bespoke color. */}
+      {groupIsReadOnly && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-sidebar px-3 py-2 text-body text-ink-secondary">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+          <span>
+            Grouped by <span className="font-medium text-ink">{groupField.displayName}</span> — a{' '}
+            {`${groupField.type} field can't be reordered by dragging between columns.`}
+          </span>
+        </div>
+      )}
+      <div className="flex flex-1 gap-3 overflow-x-auto p-4">
         {shownColumns.map((column) => (
           /*
            * #424 — per COLUMN, not per board. A board groups by a user-chosen
@@ -407,16 +578,32 @@ export function BoardView({
           <BoardColumn
             key={column.id}
             column={column}
+            hasMore={Boolean(records.hasNextPage)}
+            trueCount={trueCounts?.get(column.id)}
             cardFields={cardFields}
             size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
+            dragDisabled={groupIsReadOnly}
             onOpen={openCard}
             onAdd={() =>
               createRecord.mutate(
                 {
                   name: 'Untitled',
-                  ...(column.id !== NO_VALUE ? { [groupField.apiName]: column.id } : {}),
+                  // #499 — lookup is never writable (even at create), so a new
+                  // card in a lookup column lands unassigned rather than erroring.
+                  ...(column.id !== NO_VALUE && groupField.type !== 'lookup'
+                    ? {
+                        [groupField.apiName]:
+                          groupField.type === 'number'
+                            ? representativeNumberForBin(
+                                ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? [])[
+                                  Number(column.id)
+                                ]!,
+                              )
+                            : column.id,
+                      }
+                    : {}),
                 },
                 {
                   // Land on the new record so it can be named right away.
@@ -427,6 +614,24 @@ export function BoardView({
           />
           </ErrorBoundary>
         ))}
+      </div>
+      {/* #755 — the board otherwise never advances past its first page: no
+          affordance meant every column count (and hide_empty_groups) was
+          permanently wrong past 100 records, not just transiently. Same
+          "Load more" idiom list-view.tsx already uses, so reaching "fully
+          loaded" (and the plain count/hide-empty behavior that unlocks) works
+          identically on both surfaces. */}
+      {records.hasNextPage && (
+        <div className="shrink-0 border-t border-border-default px-4 py-2">
+          <button
+            className="rounded px-2 py-1 text-body text-info hover:bg-hover"
+            onClick={() => void records.fetchNextPage()}
+            disabled={records.isFetchingNextPage}
+          >
+            {records.isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
       </div>
       <DragOverlay>
         {dragging && (
@@ -441,20 +646,33 @@ export type CardSize = 'small' | 'medium' | 'large';
 
 function BoardColumn({
   column,
+  hasMore,
+  trueCount,
   cardFields,
   size,
   memberNames,
   memberImages,
   readOnly,
+  dragDisabled,
   onOpen,
   onAdd,
 }: {
   column: { id: string; label: string; color: string; icon?: string | null; rows: RecordRow[] };
+  /** #755 — while more pages remain unloaded, this column's row count can only
+   *  ever be a lower bound; the header must say so rather than read as final. */
+  hasMore: boolean;
+  /** #750/#784 — the real total from the aggregate endpoint, when it has
+   * loaded; falls back to `groupCountLabel`'s loaded-count reading until then
+   * (or if the query errors), never a wrong number in place of a slow one. */
+  trueCount?: number;
   cardFields: Field[];
   size: CardSize;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
+  /** #499 — separate from `readOnly`: a text/lookup-grouped board has full
+   * write access otherwise, it just can never move a card between columns. */
+  dragDisabled: boolean;
   onOpen: (row: RecordRow, event: MouseEvent) => void;
   onAdd: () => void;
 }) {
@@ -471,7 +689,7 @@ function BoardColumn({
       )}
     >
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+        <span className="flex items-center gap-1.5 text-label font-medium text-ink">
           {/* #215: the option's icon where it has one, the colour dot otherwise.
               Not both — two markers for one option reads as two things. The icon
               is tinted with the option's colour so the header still carries the
@@ -484,7 +702,9 @@ function BoardColumn({
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
           )}
           {column.label}
-          <span className="text-faint">{column.rows.length}</span>
+          <span className="text-faint">
+            {trueCount !== undefined ? trueCount : groupCountLabel(column.rows.length, hasMore)}
+          </span>
         </span>
         {!readOnly && (
           <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">
@@ -500,7 +720,7 @@ function BoardColumn({
             cardFields={cardFields}
             size={size}
             memberNames={memberNames} memberImages={memberImages}
-            disabled={readOnly}
+            disabled={readOnly || dragDisabled}
             onOpen={(e) => onOpen(row, e)}
           />
         ))}
@@ -544,9 +764,9 @@ function DraggableCard({
 }
 
 const SIZE_STYLES: Record<CardSize, { pad: string; title: string; clamp: string; gap: string }> = {
-  small: { pad: 'p-2', title: 'text-[12px]', clamp: 'line-clamp-1', gap: 'gap-1' },
-  medium: { pad: 'p-2.5', title: 'text-[13px]', clamp: 'line-clamp-2', gap: 'gap-1.5' },
-  large: { pad: 'p-3', title: 'text-[13px]', clamp: 'line-clamp-3', gap: 'gap-2' },
+  small: { pad: 'p-2', title: 'text-label', clamp: 'line-clamp-1', gap: 'gap-1' },
+  medium: { pad: 'p-2.5', title: 'text-body', clamp: 'line-clamp-2', gap: 'gap-1.5' },
+  large: { pad: 'p-3', title: 'text-body', clamp: 'line-clamp-3', gap: 'gap-2' },
 };
 
 /** The warm palette (option colors), used to give each card field its own stable hue. */
@@ -602,7 +822,14 @@ export function Card({
       className={cn(
         'cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card hover:border-border-strong',
         s.pad,
-        overlay && 'shadow-[0_4px_12px_rgba(15,23,41,0.15)]',
+        /* #631 — `overlay` is the cursor-following ghost, NOT a dragged-in-place
+           row, which is what --shadow-lifted already names ("something detached
+           from the page: the <DragPreview> ghosts that follow the cursor"). This
+           was the fifth such ghost and the only one still on a literal, because
+           it predates DragPreview. #409's comment claims DragPreview "matches
+           board-view"; it did not (4px/12px at 0.15 vs 8px/24px at 0.25). Now it
+           does. */
+        overlay && 'shadow-[var(--shadow-lifted)]',
       )}
     >
       <CardCover row={row} cover={cover} />
@@ -642,6 +869,12 @@ function CardCover({
   cover?: { field: Field; ws: string; db: string };
 }) {
   if (!cover) return null;
+  const alt = row.title || 'Untitled';
+  // #825 — a URL/text field holds the image's address itself.
+  if (isUrlCoverField(cover.field)) {
+    const url = coverImageUrl(row.values[cover.field.apiName]);
+    return url ? <UrlCoverImage key={url} src={url} alt={alt} /> : null;
+  }
   const files = row.values[cover.field.apiName];
   const first = Array.isArray(files) ? (files[0] as { id?: string; has_thumbnail?: boolean } | undefined) : undefined;
   if (!first?.id || !first.has_thumbnail) return null;
@@ -652,15 +885,58 @@ function CardCover({
          server — the image 404s and the card shows an empty box. Matches how
          AttachmentsStrip builds its thumbnail URLs. */
       src={`${API_URL}/api/v1/workspaces/${cover.ws}/databases/${cover.db}/records/${row.id}/attachments/${first.id}/thumbnail`}
-      alt=""
+      /* #754 — was alt="", correct for a DECORATIVE image but not here: on a
+         gallery card the picture is the content (that's the reason to choose
+         the view), so a screen-reader user got nothing from the card's main
+         element. Simplest defensible choice per #754 AC2: both board and
+         gallery cards get the title, rather than the component taking a
+         per-caller distinction neither ticket asked for. */
+      alt={alt}
       loading="lazy"
-      className="mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover"
+      className={COVER_IMG_CLASS}
     />
   );
 }
 
+const COVER_IMG_CLASS = 'mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover';
+
+/**
+ * #825 — a cover read from a URL. A text/URL field is not guaranteed to hold an
+ * image, so a failed load falls back to this CARD's no-cover rendering (nothing
+ * at all, exactly what a card with no value shows) rather than a broken-image
+ * icon. State is per card: one bad URL cannot blank the gallery. The caller keys
+ * this by `src`, so editing the URL gets a fresh attempt.
+ */
+function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} className={COVER_IMG_CLASS} />;
+}
+
 /** One field value on a card: self-colored types render their own chip; everything
  * else gets a muted pill with the field's stable colored triangle (MN-089). */
+/**
+ * #765 — the permanent record number badge, shared by list and feed (the only
+ * two views that still render it inline — board/calendar/gallery never show
+ * it at all, per #702). Same "#" + `text-faint` treatment already established
+ * everywhere else this number appears as a standalone marker: `cells.tsx`'s
+ * own id-column cell, `mentions.tsx`, `collection-section.tsx`'s relation
+ * chips, and the record page header itself. List previously had no "#"
+ * prefix and feed had no size/color classes — this is the one definition of
+ * the glyph, not of the layout: callers still own their own sizing/position
+ * (`className`), since that genuinely differs (a fixed gutter slot vs. an
+ * inline footer item).
+ *
+ * `table-view.tsx`'s own gutter is deliberately NOT a third caller: since
+ * #739 it shows a different concept entirely — the view-relative row INDEX
+ * (1, 2, 3…), never stored, never hideable — while the permanent number lives
+ * in an ordinary "ID" column there instead. Unifying markup across a concept
+ * that split in two would be the wrong fix, not a missed case.
+ */
+export function RecordNumberBadge({ number, className }: { number: number; className?: string }) {
+  return <span className={cn('tabular-nums text-faint', className)}>#{number}</span>;
+}
+
 export function CardFieldChip({
   field,
   value,
@@ -682,7 +958,7 @@ export function CardFieldChip({
         {ids.map((id) => (
           <span
             key={id}
-            className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary"
+            className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary"
           >
             <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
             <span className="max-w-24 truncate">{memberNames.get(id) ?? '—'}</span>
@@ -692,9 +968,13 @@ export function CardFieldChip({
     );
   }
   if (field.type === 'checkbox') {
+    /* #812 — a card is not a form: a boolean reads as a chip, drawn by the shared
+       CellDisplay glyph, and only when true (the field name says what is true).
+       An unticked box on a card was an inert control that looked tickable. */
+    if (value !== true) return null;
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary">
-        <input type="checkbox" checked={value === true} readOnly className="pointer-events-none h-3 w-3" />
+      <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
         {field.displayName}
       </span>
     );
@@ -720,7 +1000,7 @@ export function CardFieldChip({
   }
 
   const color = fieldColor(field.id);
-  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary';
+  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary';
   return (
     <span className={pill}>
       <Triangle color={color} />

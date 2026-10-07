@@ -119,11 +119,11 @@ export function AttachmentEditor({
   }
 
   return (
-    <div className="min-w-[220px] rounded-[var(--radius-control)] border border-border-strong bg-card p-2 shadow-[0_4px_12px_rgba(15,23,41,0.15)]">
+    <div className="min-w-[220px] rounded-[var(--radius-control)] border border-border-strong bg-card p-2 shadow-[var(--shadow-popover)]">
       {files.length > 0 && (
         <ul className="mb-2 flex flex-col gap-1">
           {files.map((f) => (
-            <li key={f.id} className="flex items-center gap-1.5 text-[12px]">
+            <li key={f.id} className="flex items-center gap-1.5 text-label">
               <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
               <span className="min-w-0 flex-1 truncate" title={f.filename}>
                 {f.filename}
@@ -155,18 +155,18 @@ export function AttachmentEditor({
           disabled={busy}
           onClick={() => input.current?.click()}
           className={cn(
-            'rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] hover:bg-hover',
+            'rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label hover:bg-hover',
             busy && 'opacity-50',
           )}
         >
           {busy ? 'Working…' : files.length ? 'Add another' : 'Upload'}
         </button>
-        <button type="button" onClick={onCancel} className="px-1 text-[12px] text-muted hover:text-ink">
+        <button type="button" onClick={onCancel} className="px-1 text-label text-muted hover:text-ink">
           Done
         </button>
       </div>
       {files.length > 1 && (
-        <p className="mt-1.5 text-[11px] text-faint">The first file is the one a gallery card shows.</p>
+        <p className="mt-1.5 text-meta text-faint">The first file is the one a gallery card shows.</p>
       )}
     </div>
   );

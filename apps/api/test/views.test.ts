@@ -165,6 +165,69 @@ describe('views backend (MN-020)', () => {
   });
 });
 
+/**
+ * #659/#289 — `__sys_number` is the ONE `hidden_field_ids` entry with no
+ * stored field row. Before this ticket it was triple-rejected: the zod
+ * schema required a real uuid, `validateConfig` 422'd it as an unknown field
+ * id, and even past both of those `cleanViewConfig` would have stripped it
+ * back out on the very next read. All three are exercised here together
+ * because fixing only one and still hitting either of the others looks
+ * identical from a passing-test's point of view — a request that never got
+ * this far.
+ */
+describe('#659 — the synthetic number-column id round-trips through view config', () => {
+  let tableDbId: string;
+  let tableViewId: string;
+
+  beforeAll(async () => {
+    tableDbId = (
+      await inject('POST', `/workspaces/${wsId}/databases`, {
+        space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+        name: 'Number Column Table',
+      })
+    ).json().id;
+    tableViewId = (await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`)).json().views[0].id;
+  });
+
+  it('accepts __sys_number in hidden_field_ids (was a 422 before this ticket)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['__sys_number'], card_field_ids: [], column_widths: {} },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it('survives a read — cleanViewConfig no longer strips it as a dangling reference', async () => {
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual(['__sys_number']);
+  });
+
+  it('an unrelated dangling field id is still dropped — the fix is scoped to this one id, not a blanket exemption', async () => {
+    await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['__sys_number', '11111111-1111-1111-1111-111111111111'], card_field_ids: [], column_widths: {} },
+    });
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual(['__sys_number']);
+  });
+
+  it('still rejects a genuinely invalid hidden_field_ids entry (schema loosened, not opened up)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['not-a-uuid-or-a-system-id'], card_field_ids: [], column_widths: {} },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('clearing it back out removes it from the stored config', async () => {
+    await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} },
+    });
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual([]);
+  });
+});
+
 describe('view rename / duplicate / default (MN-241)', () => {
   // Own database so earlier tests' field deletions can't affect this block.
   let vdb: string;
@@ -479,5 +542,89 @@ describe('#427/#428 — board column preferences round-trip', () => {
     expect(saved.column_sort).toBe('alpha');
     expect(saved.hide_empty_groups).toBe(true);
     expect(saved.hide_empty_no_value_group).toBe(true);
+  });
+});
+
+/**
+ * #470 — calendar_mode / calendar_end_date_field_id round-trip. Own database
+ * so this block can delete a field to test the dangling-reference cleanup
+ * without disturbing the shared fixtures other describe blocks in this file
+ * still rely on.
+ */
+describe('#470 — calendar day/week mode config round-trips', () => {
+  let cdb: string;
+  let startFieldId: string;
+  let endFieldId: string;
+  let viewId: string;
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    cdb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Calendar470' })).json().id;
+    startFieldId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${cdb}/fields`, { display_name: 'Start', type: 'date' })
+    ).json().id;
+    endFieldId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${cdb}/fields`, { display_name: 'End', type: 'date' })
+    ).json().id;
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${cdb}/views`, {
+      name: 'Week view',
+      type: 'calendar',
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+      },
+    });
+    viewId = created.json().id;
+  });
+
+  it('calendar_mode is a plain preference that passes through unconditionally, same as column_sort', async () => {
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_mode: 'week',
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_mode).toBe('week');
+  });
+
+  it('calendar_end_date_field_id round-trips when it names a real field', async () => {
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_mode: 'week',
+        calendar_end_date_field_id: endFieldId,
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_end_date_field_id).toBe(endFieldId);
+  });
+
+  it('rejects an unknown calendar_end_date_field_id at write time (validateConfig)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_end_date_field_id: '11111111-1111-1111-1111-111111111111',
+      },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('drops calendar_end_date_field_id defensively at read time once its field is deleted (#227/#391\'s own bug class, applied to this new key)', async () => {
+    await inject('DELETE', `/workspaces/${wsId}/databases/${cdb}/fields/${endFieldId}`);
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_end_date_field_id).toBeUndefined();
+    // calendar_mode is untouched by the deletion — it names no field at all.
+    expect(saved.calendar_mode).toBe('week');
   });
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
-import { filterSchema } from './query';
+import { AUTOMATION_TOP_N_LIMIT_CEILING, filterSchema, sortSchema } from './query';
 
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
 export const creatableFieldTypeSchema = z.enum([
@@ -27,6 +27,11 @@ export const creatableFieldTypeSchema = z.enum([
   'rollup',
   'button',
   'formula',
+  // #571 — a field whose value is computed by an LLM call rather than typed
+  // or aggregated: a prompt referencing the record's own fields (and, via an
+  // existing relation, related-record fields the same one-level-deep reach
+  // rollup/lookup already have), with a free-text or fixed-choice output.
+  'ai',
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
 
@@ -45,6 +50,8 @@ export const NON_IMPORTABLE_FIELD_TYPES = [
   // #391: a CSV cell cannot become a file. An import that "created" an
   // attachment field would produce a column that is empty for every row.
   'attachment',
+  // #571: an ai field's value is computed by an LLM call, never a cell value.
+  'ai',
 ] as const;
 
 /**
@@ -66,6 +73,48 @@ export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
 );
 
 /**
+ * #657 — the ONE list of field types a sort can target, shared by
+ * apps/api/src/records/records.service.ts (validateSorts) and
+ * apps/web/src/components/views/view-toolbar.ts (its own `SORTABLE`).
+ *
+ * Moved here because the two were two hand-maintained arrays, each carrying
+ * a comment claiming to mirror the other, and they had already drifted:
+ * `user` was in the api's set but missing from web's (ticket #662) — the
+ * exact same #375/#399 drift shape this package already exists to close.
+ * Spans BOTH creatable field types (text, select, …) and system/computed
+ * ones (id, created_by, formula, relation, …) that `creatableFieldTypeSchema`
+ * deliberately excludes, so it cannot be derived FROM that schema the way
+ * `IMPORTABLE_FIELD_TYPES` above is — it is its own list, just a single one
+ * now instead of two.
+ *
+ * NOTE: `relation` and `user` are here because a SINGLE-valued one is
+ * sortable; a multi-valued one is refused at validation time by checking
+ * the field's own `config.multi` (set on `user` at field-create time, and
+ * derived from the relation's cardinality+side for `relation` — see
+ * RecordsService.fieldDefs) — this list alone doesn't capture that half.
+ */
+export const SORTABLE_FIELD_TYPES = [
+  'id',
+  'title',
+  'text',
+  'number',
+  'date',
+  'url',
+  'email',
+  'select',
+  'workflow',
+  'checkbox',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'user',
+  'formula',
+  'rollup',
+  'relation',
+] as const;
+
+/**
  * #399 — DERIVED from the one shared palette, never a second hardcoded list.
  *
  * This list and the container ones had drifted: the five colours at the end
@@ -75,12 +124,88 @@ export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
  */
 export const OPTION_COLORS = PALETTE;
 
+/**
+ * #229 — `unique` rejects a create/edit that would duplicate an existing live
+ * record's value for this field; `unique_normalize` (default on) folds case and
+ * trims whitespace before comparing, so "SKU-1" and " sku-1 " collide. Multiple
+ * empty/absent values are always permitted regardless of either flag — see
+ * FieldsService's uniqueness scan and RecordsService's write-path enforcement.
+ */
+export const uniqueConfigFields = {
+  unique: z.boolean().default(false),
+  unique_normalize: z.boolean().default(true),
+};
+export const textConfigSchema = z.object({
+  multiline: z.boolean().default(false),
+  ...uniqueConfigFields,
+});
 
-export const textConfigSchema = z.object({ multiline: z.boolean().default(false) });
+/**
+ * #579 — per-FIELD config (Ievgen, 2026-09-05), not per-view: the same bins
+ * apply everywhere this field is grouped by.
+ *
+ * CHOSEN INTERPRETATION, flagged for web to confirm rather than assumed
+ * silently: bins are CONTIGUOUS, not merely non-overlapping — each bin's `max`
+ * must equal the next bin's `min` exactly, so every number either falls in
+ * exactly one bin or in nobody's board at all (no silent gap a record could
+ * fall through). `min`/`max` are both nullable to mean "unbounded on this
+ * side," and only the first bin may leave `min` null, only the last may leave
+ * `max` null — an unbounded gap in the MIDDLE would be indistinguishable from
+ * a mistake. Each bin's range is `[min, max)` — max exclusive — so a shared
+ * boundary value belongs to exactly one bin, never both or neither.
+ */
+export const numberBinSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  min: z.number().nullable(),
+  max: z.number().nullable(),
+});
+export const numberBinsSchema = z
+  .array(numberBinSchema)
+  .min(1)
+  .max(20)
+  .superRefine((bins, ctx) => {
+    bins.forEach((bin, i) => {
+      if (bin.min !== null && bin.max !== null && bin.min >= bin.max) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): min must be less than max`,
+          path: [i, 'min'],
+        });
+      }
+      if (bin.min === null && i !== 0) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): only the first bin may leave min unbounded`,
+          path: [i, 'min'],
+        });
+      }
+      if (bin.max === null && i !== bins.length - 1) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): only the last bin may leave max unbounded`,
+          path: [i, 'max'],
+        });
+      }
+      const prev = bins[i - 1];
+      if (prev && prev.max !== null && bin.min !== null && prev.max !== bin.min) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}") must start exactly where bin ${i - 1} ("${prev.label}") ends — got ${bin.min}, expected ${prev.max}`,
+          path: [i, 'min'],
+        });
+      }
+    });
+  });
+export type NumberBin = z.infer<typeof numberBinSchema>;
+
 export const numberConfigSchema = z.object({
   precision: z.number().int().min(0).max(10).optional(),
   format: z.enum(['plain', 'percent', 'currency']).default('plain'),
   currency_code: z.string().length(3).optional(),
+  /** #579 — absent = not configured for board grouping yet (ungrouped/refused). */
+  bins: numberBinsSchema.optional(),
+  /** #229 — see textConfigSchema's uniqueConfigFields doc; unique_normalize is a no-op for numbers (kept for a uniform config shape across both unique-able types). */
+  ...uniqueConfigFields,
 });
 export const dateConfigSchema = z.object({
   include_time: z.boolean().default(false),
@@ -138,6 +263,22 @@ export const actionSchema = z.discriminatedUnion('type', [
     database_id: z.uuid(),
     values: z.record(z.string(), z.unknown()).default({}),
     link_via_relation_field_id: z.uuid().optional(),
+    /**
+     * #230 — match-or-create on a unique key instead of always inserting.
+     * `key_field_id` must be a field on `database_id` marked unique (#229);
+     * the interpolated `values[key_field's api_name]` is the match value,
+     * via the SAME RecordsService.upsert() the REST/MCP upsert endpoint
+     * uses. `on_match: 'skip'` leaves the existing record untouched rather
+     * than reapplying `values` — the "updates-or-skips per config" half of
+     * this ticket's AC that 'update' alone (the endpoint's only mode)
+     * doesn't cover.
+     */
+    upsert: z
+      .object({
+        key_field_id: z.uuid(),
+        on_match: z.enum(['update', 'skip']).default('update'),
+      })
+      .optional(),
   }),
   /**
    * #246 — create a DYNAMIC number of records in one action, so the "one Day
@@ -164,7 +305,9 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({
     ...gated,
     type: z.literal('notify_user'),
-    // '@me' or the api_name of a user field on this record
+    // '@me', '@member:<userId>' (#730 — a specific workspace member, validated
+    // server-side against active membership), or the api_name of a user field
+    // on this record
     user: z.string().min(1).max(100),
     message: z.string().min(1).max(500),
   }),
@@ -231,7 +374,10 @@ export const actionSchema = z.discriminatedUnion('type', [
      * Further caps the agent's own declared Scopes for this run only — can
      * only narrow, never widen (ADR-0010 §2's least-privilege guarantee).
      */
-    tool_scope: z.array(z.enum(['read', 'write', 'admin'])).max(3).optional(),
+    tool_scope: z
+      .array(z.enum(['read', 'write', 'admin']))
+      .max(3)
+      .optional(),
     /**
      * Phase A supports exactly one target: the record that fired this rule or
      * button. There is no other addressable target yet — databases aren't
@@ -317,6 +463,41 @@ export const actionSchema = z.discriminatedUnion('type', [
       .max(10)
       .optional(),
   }),
+  /**
+   * MN-257 (ticket #42) — publish to LinkedIn or X from a record. Durable-
+   * queued like send_email/http_request (job-runner.service.ts's registered
+   * 'post_social' executor); `text`/`link` are {Field}-templated the same way
+   * add_comment's `body_template` is, rendered once before the job is
+   * enqueued (or before an approval snapshot freezes) — the executor itself
+   * never touches interpolation.
+   *
+   * `target` picks both the provider (linkedin_org/linkedin_member → the
+   * `linkedin` connection provider; x → the `x` connection provider) and, for
+   * LinkedIn, which actor posts as (the member vs. their organization page).
+   * `connection_id` must be a connection on the matching provider — checked
+   * at save time by AutomationActionsService.validate(), which also gates
+   * linkedin_org/linkedin_member behind env().LINKEDIN_ACTIONS_ENABLED (#42's
+   * E2E requirement) — `x` carries no such flag, it's bring-your-own-tier and
+   * always available once connected.
+   *
+   * `media_field_id` (optional) names an attachment field on this database;
+   * its first attachment is uploaded alongside the post. `result_field_id`
+   * (optional) is where the published post's URL is written back after a
+   * successful send — also DOUBLES as the dedup key: if it already holds a
+   * non-empty value, the executor skips the post rather than publishing a
+   * second time (see post-social.action.ts).
+   */
+  z.object({
+    ...gated,
+    type: z.literal('post_social'),
+    connection_id: z.uuid(),
+    target: z.enum(['linkedin_org', 'linkedin_member', 'x']),
+    /** {Field Name}/{payload.…} tokens are interpolated from the triggering record. */
+    text: z.string().min(1).max(3000),
+    media_field_id: z.uuid().optional(),
+    link: z.string().max(500).optional(),
+    result_field_id: z.uuid().optional(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 
@@ -355,11 +536,14 @@ export const formulaConfigSchema = z.object({
  */
 export const rollupConfigSchema = z.object({
   relation_field_id: z.uuid(),
-  op: z.enum(['count', 'sum', 'avg', 'min', 'max', 'first', 'last']),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max', 'first', 'last', 'collect']),
   /**
    * For count/sum/avg/min/max: the number field to AGGREGATE.
    * For first/last (#286): the field to RETURN from the winning record — any
    * type, or omitted entirely to return a link (chip) to the record itself.
+   * For collect (#234): the ATTACHMENT field to gather across every matching
+   * related record (required, unlike count) — a list has no "winner" to omit
+   * one in favor of, so unlike first/last there is no bare-relation-chip mode.
    */
   target_field_api_name: z.string().trim().min(1).nullish(),
   /**
@@ -397,6 +581,48 @@ export const titleConfigSchema = z.object({
   result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
 });
 export type TitleConfig = z.infer<typeof titleConfigSchema>;
+
+/**
+ * AI-computed field (#571). `prompt` uses the SAME `{Field Name}` token
+ * syntax automation actions already interpolate — reuse, not a second
+ * template language. `output` is either free text or a fixed set of
+ * classification choices (Baserow/Attio's own AI-field shape).
+ *
+ * `dependency_field_ids` is COMPILED at save (mirrors formula's `ast`, never
+ * client-supplied): every field id the prompt's tokens resolved to, used both
+ * to refuse a cyclic AI-field-depends-on-AI-field configuration at save time
+ * and to decide which record writes should re-trigger this field at write
+ * time (FieldsService.assertAiFieldConfig / AiFieldSubscriber).
+ */
+export const aiFieldConfigSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  output: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('text') }),
+    z.object({
+      kind: z.literal('choice'),
+      options: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
+    }),
+  ]),
+  dependency_field_ids: z.array(z.uuid()).optional(),
+});
+export type AiFieldConfig = z.infer<typeof aiFieldConfigSchema>;
+
+/**
+ * The raw `{Field Name}` tokens in a prompt — display names, not yet
+ * resolved to field ids (that needs a live field list, so it happens in
+ * FieldsService.assertAiFieldConfig). Deliberately the SAME token shape
+ * `{index}`/`{changesSummary}`/`{payload.…}` etc. sit alongside in
+ * automation templates, but this only recognizes plain field-name tokens —
+ * an AI prompt has no batch index, no changes summary, no inbound webhook
+ * payload to reference.
+ */
+export function aiPromptRefs(prompt: string): string[] {
+  const out = new Set<string>();
+  for (const match of prompt.matchAll(/\{([^{}]+)\}/g)) {
+    out.add(match[1]!.trim());
+  }
+  return [...out];
+}
 
 export const emptyConfigSchema = z.object({});
 
@@ -438,6 +664,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   rollup: rollupConfigSchema,
   button: buttonConfigSchema,
   formula: formulaConfigSchema,
+  ai: aiFieldConfigSchema,
 };
 
 export function validateFieldConfig(type: CreatableFieldType, config: unknown) {
@@ -482,7 +709,6 @@ export const changeFieldTypeSchema = z.object({
   dry_run: z.boolean().default(false),
 });
 
-
 export const createOptionSchema = z.object({
   label: z.string().trim().min(1).max(100),
   color: z.enum(OPTION_COLORS).default('gray'),
@@ -518,7 +744,10 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('schedule'),
     every: z.enum(['hour', 'day', 'week']),
-    at: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    at: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .optional(),
     weekday: z.number().int().min(0).max(6).optional(),
   }),
   /**
@@ -529,28 +758,70 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('webhook_received') }),
 ]);
+export type AutomationTrigger = z.infer<typeof automationTriggerSchema>;
 
-export const createAutomationSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  trigger: automationTriggerSchema,
-  condition: z.unknown().optional(),
-  actions: z.array(actionSchema).min(1).max(10),
-  enabled: z.boolean().default(true),
-  /** MN-255: who approves a `require_approval` action this rule fires — a
-   * user id, defaulting to the rule's own creator (the "rule owner") when
-   * omitted. */
-  approverId: z.string().optional(),
-});
+/**
+ * #392 — a SCHEDULED rule's top-N selection: reuses the exact sort spec views
+ * and record queries already share (query.ts's sortSchema), so this is never
+ * a second ordering language. `limit` is optional independently of `sort` —
+ * "just cap it at N, whatever order they come in" is a legitimate (if odd)
+ * request — but `sort` without any real leaderboard use is equally legal;
+ * the pairing isn't enforced because neither half implies the other.
+ * Record-triggered rules don't get this at all: "top five" is meaningless
+ * for a rule that fires on one record, so both fields are rejected outside
+ * a `schedule` trigger (enforced here for a same-call trigger, and against
+ * the EFFECTIVE stored trigger in AutomationsService for a partial update
+ * that changes neither).
+ */
+export const automationSortSchema = z.array(sortSchema).max(3);
+export const automationLimitSchema = z.number().int().min(1).max(AUTOMATION_TOP_N_LIMIT_CEILING);
 
-export const updateAutomationSchema = z.object({
-  name: z.string().trim().min(1).max(100).optional(),
-  trigger: automationTriggerSchema.optional(),
-  condition: z.unknown().nullable().optional(),
-  actions: z.array(actionSchema).min(1).max(10).optional(),
-  enabled: z.boolean().optional(),
-  /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
-  approverId: z.string().nullable().optional(),
-});
+export const createAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    trigger: automationTriggerSchema,
+    condition: z.unknown().optional(),
+    actions: z.array(actionSchema).min(1).max(10),
+    enabled: z.boolean().default(true),
+    /** MN-255: who approves a `require_approval` action this rule fires — a
+     * user id, defaulting to the rule's own creator (the "rule owner") when
+     * omitted. */
+    approverId: z.string().optional(),
+    sort: automationSortSchema.optional(),
+    limit: automationLimitSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.trigger.type !== 'schedule' && (val.sort || val.limit !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sort'],
+        message: 'sort/limit (top-N selection) are only available on a schedule trigger',
+      });
+    }
+  });
+
+export const updateAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    trigger: automationTriggerSchema.optional(),
+    condition: z.unknown().nullable().optional(),
+    actions: z.array(actionSchema).min(1).max(10).optional(),
+    enabled: z.boolean().optional(),
+    /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
+    approverId: z.string().nullable().optional(),
+    /** null clears a previously-set sort/limit; omit to leave unchanged. */
+    sort: automationSortSchema.nullable().optional(),
+    limit: automationLimitSchema.nullable().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.trigger && val.trigger.type !== 'schedule' && (val.sort || val.limit)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sort'],
+        message: 'sort/limit (top-N selection) are only available on a schedule trigger',
+      });
+    }
+  });
 
 /**
  * #203 — the value a field prefills onto a NEW record, or `undefined` when it
@@ -572,7 +843,16 @@ export function fieldDefaultValue(
 ): unknown {
   const cfg = config ?? {};
   if (type === 'checkbox') {
-    return cfg['default'] === true ? true : undefined;
+    // #697 — `cfg['default']` is only ever present when a caller explicitly
+    // configured it: `createFieldSchema`'s superRefine (below) validates
+    // through `checkboxConfigSchema`'s zod `.default(false)` but never
+    // rewrites the persisted config with that normalized result, so an
+    // UNCONFIGURED checkbox field genuinely has no `default` key at all
+    // (`undefined`, correctly left un-filled per AC #5) — distinct from a
+    // field explicitly configured to default to `false`, which used to be
+    // indistinguishable from "not configured" here (`=== true` was the only
+    // truthy branch), silently dropping every `default: false` setting.
+    return cfg['default'] === true || cfg['default'] === false ? cfg['default'] : undefined;
   }
   if (type === 'date') {
     if (cfg['default_today'] !== true) return undefined;
@@ -580,6 +860,18 @@ export function fieldDefaultValue(
     // YYYY-MM-DD, so defaulting must not smuggle a time into it and silently
     // change how every downstream formatter reads that column.
     return cfg['include_time'] === true ? now.toISOString() : now.toISOString().slice(0, 10);
+  }
+  if (type === 'select' || type === 'workflow') {
+    // #475 — a record created with no state is silently unfindable by the
+    // filter every queue runs (`state has [<option>]`), while remaining
+    // visible to an unfiltered page-through: created successfully, invisible
+    // to the only query anyone runs, no signal on either side that anything
+    // is wrong. `default` is an OPTION ID, validated against the field's real
+    // options when it is SET (fields.service.ts create/update), not here —
+    // this resolver only reads what was already validated, same as every
+    // other type it handles.
+    const def = cfg['default'];
+    return typeof def === 'string' && def.length > 0 ? def : undefined;
   }
   return undefined;
 }

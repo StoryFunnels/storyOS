@@ -67,6 +67,8 @@ describe('#451 — seed:agent-uat writes a real environment', () => {
     expect(first.attachments_uploaded, 'real files on real records').toBe(plan.totals.attachments);
     expect(first.templates_applied, 'the agency template, for invoices').toBe(1);
     expect(first.packs_installed, 'the client-portal pack').toBe(1);
+    // #601 — the recipient CONCEPT (#534), not the pack's guest-access shape.
+    expect(first.portal_recipients_created, 'a real portal_recipients row, not just the pack').toBe(1);
 
     const ownerToken = await signIn(plan.owner.email);
     const afterFirst = await inject('GET', '/workspaces', ownerToken);
@@ -81,6 +83,7 @@ describe('#451 — seed:agent-uat writes a real environment', () => {
     expect(second.attachments_uploaded, 'nor re-upload a file').toBe(0);
     expect(second.templates_applied, 'nor re-apply the template').toBe(0);
     expect(second.packs_installed, 'nor re-install the pack').toBe(0);
+    expect(second.portal_recipients_created, 'nor create a duplicate recipient').toBe(0);
 
     const afterSecond = await inject('GET', '/workspaces', ownerToken);
     expect((afterSecond.body as unknown[]).length).toBe(countFirst);
@@ -249,6 +252,14 @@ describe('#451 — seed:agent-uat writes a real environment', () => {
     const guestSpaces = (await inject('GET', `/workspaces/${flagship.id}/spaces`, guestToken)).body as Array<{ name: string }>;
     expect(guestSpaces.map((s) => s.name)).toContain('Client Portal');
     expect(guestSpaces.length).toBeLessThan(spaces.length);
+
+    // #601 — the ACTUAL recipient concept (#534): a portal_recipients row,
+    // reachable through the real admin-only endpoint, not just the pack's
+    // guest-access shape asserted above.
+    const recipients = (await inject('GET', `/workspaces/${flagship.id}/portal-recipients`, ownerToken))
+      .body as Array<{ label: string; token: string }>;
+    expect(recipients.length, 'a real portal_recipients row exists').toBeGreaterThan(0);
+    expect(recipients[0]!.token, 'a signed token, not empty').toBeTruthy();
   }, 300_000);
 
   it('seeds Kai as a separate, document-heavy workspace', async () => {

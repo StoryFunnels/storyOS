@@ -231,6 +231,40 @@ function renderMention(
   return { subject, text, html };
 }
 
+/** #273 — a watcher's `record_changed`, mailed. `summary` is `RecordsService.
+ *  renderChangeSummary`'s own "Field: a → b · …" string, possibly empty. */
+function renderRecordChanged(
+  actorName: string,
+  recordTitle: string,
+  summary: string,
+  url: string,
+): RenderedEmail {
+  const safeActor = escapeHtml(actorName);
+  const safeTitle = escapeHtml(recordTitle);
+  const safeSummary = escapeHtml(summary);
+  const subject = `${actorName} updated "${recordTitle}"`;
+  const text = [
+    `${actorName} updated "${recordTitle}"${summary ? `:\n\n${summary}` : '.'}`,
+    '',
+    `Open: ${url}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${safeActor} updated a record you're watching`,
+    preheader: `${safeActor} updated "${safeTitle}"`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0 0 12px;"><strong>${safeActor}</strong> updated "<strong>${safeTitle}</strong>"${
+        summary
+          ? ':</p>' +
+            `<p class="eo-muted" style="margin: 0 0 12px; padding: 12px; background: ${LIGHT.pageBg}; border-radius: 8px; color: ${LIGHT.textMuted};">${safeSummary}</p>`
+          : '.</p>'
+      }
+    `,
+    cta: { label: 'Open the record', url },
+  });
+  return { subject, text, html };
+}
+
 function renderVerifyEmail(url: string): RenderedEmail {
   const subject = 'Confirm your email';
   const text = [
@@ -322,6 +356,148 @@ function renderAutoReloadFailed(workspaceName: string, billingUrl: string): Rend
   return { subject, text, html };
 }
 
+function renderInviteAccepted(
+  workspaceName: string,
+  memberEmail: string,
+  role: string,
+  membersUrl: string,
+): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const safeEmail = escapeHtml(memberEmail);
+  const safeRole = escapeHtml(role);
+  const subject = `${memberEmail} joined ${workspaceName}`;
+  const text = [
+    `${memberEmail} accepted your invite to ${workspaceName} as ${role}.`,
+    '',
+    `View members: ${membersUrl}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${safeEmail} joined ${safeWorkspace}`,
+    preheader: `${safeEmail} accepted your invite to ${safeWorkspace} as ${safeRole}.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;"><strong>${safeEmail}</strong> accepted your invite to <strong>${safeWorkspace}</strong> as a <strong>${safeRole}</strong>.</p>
+    `,
+    cta: { label: 'View members', url: membersUrl },
+  });
+  return { subject, text, html };
+}
+
+const ONBOARDING_NUDGE_COPY: Record<
+  'guest_invited' | 'second_database' | 'form_published',
+  { subject: string; heading: string; body: string; cta: string }
+> = {
+  guest_invited: {
+    subject: 'Invite a client or teammate — it\'s free',
+    heading: 'Invite a guest for free',
+    body: "Viewers and guests are always free on StoryOS — any paying team can invite unlimited external collaborators at zero cost. If you're working with a client or contractor, give them their own scoped view instead of screen-sharing or exporting.",
+    cta: 'Invite a guest',
+  },
+  second_database: {
+    subject: 'Set up a second database',
+    heading: 'Most teams use more than one database',
+    body: 'A single database covers one thing well, but most StoryOS workspaces end up with a few — one per project, client, or process. Adding a second is a good next step if you\'re still finding your footing.',
+    cta: 'Create a database',
+  },
+  form_published: {
+    subject: 'Turn a database into a public form',
+    heading: 'Collect submissions with a public form',
+    body: "Any database can become a public form or client portal in a couple of clicks — no separate tool, and submissions land straight in your workspace. It's also how new visitors discover StoryOS when you share the link.",
+    cta: 'Create a form',
+  },
+};
+
+function renderOnboardingNudge(
+  milestone: 'guest_invited' | 'second_database' | 'form_published',
+  ctaUrl: string,
+): RenderedEmail {
+  const copy = ONBOARDING_NUDGE_COPY[milestone];
+  const text = [`${copy.body}`, '', `${copy.cta}: ${ctaUrl}`].join('\n');
+  const html = renderBrandedEmail({
+    heading: copy.heading,
+    preheader: copy.body,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;">${escapeHtml(copy.body)}</p>
+    `,
+    cta: { label: copy.cta, url: ctaUrl },
+  });
+  return { subject: copy.subject, text, html };
+}
+
+function renderUsageThreshold(
+  workspaceName: string,
+  metricLabel: string,
+  percentUsed: number,
+  billingUrl: string,
+): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const safeMetric = escapeHtml(metricLabel);
+  const subject = `${workspaceName} has used ${percentUsed}% of its ${metricLabel} for this month`;
+  const text = [
+    `${workspaceName} has used ${percentUsed}% of its monthly ${metricLabel} allowance.`,
+    '',
+    `Review your plan: ${billingUrl}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${percentUsed}% of your ${safeMetric} allowance used`,
+    preheader: `${safeWorkspace} has used ${percentUsed}% of its monthly ${safeMetric} allowance.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;"><strong>${safeWorkspace}</strong> has used <strong>${percentUsed}%</strong> of its monthly <strong>${safeMetric}</strong> allowance.</p>
+    `,
+    cta: { label: 'Review your plan', url: billingUrl },
+  });
+  return { subject, text, html };
+}
+
+const SALES_SIGNAL_COPY: Record<
+  'free_seats_blocked' | 'pro_five_seats' | 'fifth_database',
+  { subject: string; heading: string; body: (workspaceName: string) => string; cta: string }
+> = {
+  free_seats_blocked: {
+    subject: 'Your team is outgrowing the Free plan',
+    heading: 'Ready for another teammate?',
+    body: (name) =>
+      `You tried to add someone new to ${name}, but the Free plan tops out at 2 members. Pro removes that ceiling — seats beyond the first few are billed per member, so you only pay for the team you actually have.`,
+    cta: 'Upgrade to Pro',
+  },
+  pro_five_seats: {
+    subject: "You've outgrown Pro's per-seat pricing",
+    heading: 'Business covers this team size for less',
+    body: (name) =>
+      `${name} just reached 5 members on Pro's per-seat pricing. Business includes 5 seats in its flat price — at this size it's the same team for less, not a bigger bill for more.`,
+    cta: 'Compare plans',
+  },
+  fifth_database: {
+    subject: 'Your workspace is growing',
+    heading: "You're getting real use out of StoryOS",
+    body: (name) =>
+      `${name} has grown to 5 databases — that's the kind of workspace where a bit of help paying for it can be worth exploring, whether that's a plan with more headroom or just talking through what you're building.`,
+    cta: 'See your options',
+  },
+};
+
+function renderSalesSignal(
+  workspaceName: string,
+  reason: 'free_seats_blocked' | 'pro_five_seats' | 'fifth_database',
+  billingUrl: string,
+): RenderedEmail {
+  const copy = SALES_SIGNAL_COPY[reason];
+  const body = copy.body(workspaceName);
+  const text = [body, '', `${copy.cta}: ${billingUrl}`].join('\n');
+  const html = renderBrandedEmail({
+    heading: copy.heading,
+    preheader: body,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0;">${escapeHtml(body)}</p>
+    `,
+    cta: { label: copy.cta, url: billingUrl },
+  });
+  return { subject: copy.subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -331,6 +507,8 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderInvite(input.role, input.acceptUrl, input.workspaceName);
     case 'mention':
       return renderMention(input.actorName, input.recordTitle, input.excerpt, input.url);
+    case 'record-changed':
+      return renderRecordChanged(input.actorName, input.recordTitle, input.summary, input.url);
     case 'verify-email':
       return renderVerifyEmail(input.url);
     case 'reset-password':
@@ -339,5 +517,13 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderTrialReminder(input.workspaceName, input.daysRemaining, input.billingUrl);
     case 'auto-reload-failed':
       return renderAutoReloadFailed(input.workspaceName, input.billingUrl);
+    case 'invite-accepted':
+      return renderInviteAccepted(input.workspaceName, input.memberEmail, input.role, input.membersUrl);
+    case 'onboarding-nudge':
+      return renderOnboardingNudge(input.milestone, input.ctaUrl);
+    case 'usage-threshold':
+      return renderUsageThreshold(input.workspaceName, input.metricLabel, input.percentUsed, input.billingUrl);
+    case 'sales-signal':
+      return renderSalesSignal(input.workspaceName, input.reason, input.billingUrl);
   }
 }

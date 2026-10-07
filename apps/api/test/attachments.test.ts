@@ -149,3 +149,105 @@ describe('attachments (MN-029)', () => {
     expect(download.statusCode).toBe(404);
   });
 });
+
+/**
+ * #473 AC2/AC3 — attachments are now RECORD-scoped, via the same
+ * RecordsService.assertRecordAccess a record grant (#472) already reaches the
+ * record's own field values through. Before this, AttachmentsController only
+ * checked database/space access plus the record's existence — a record grant's
+ * boundary stopped at the record's values and never reached its files.
+ */
+describe('attachments respect a RECORD-scoped grant, not just database access (#473)', () => {
+  let app2: NestFastifyApplication;
+  let owner: { token: string; email: string };
+  let guest: { token: string; email: string };
+  let guestId: string;
+  let ws: string;
+  let db: string;
+  let recA: string;
+  let recB: string;
+
+  async function as(token: string, method: string, url: string, payload?: unknown) {
+    return app2.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  }
+
+  beforeAll(async () => {
+    app2 = await createTestApp();
+    owner = await signUpUser(app2, '473Owner');
+    guest = await signUpUser(app2, '473Guest');
+    guestId = (await as(guest.token, 'GET', '/me')).json().id;
+
+    ws = (await as(owner.token, 'POST', '/workspaces', { name: '473 Attachments WS' })).json().id;
+    db = (await as(owner.token, 'POST', `/workspaces/${ws}/databases`, {
+      space_id: (await as(owner.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id,
+      name: 'Briefs 473',
+    })).json().id;
+    recA = (await as(owner.token, 'POST', `/workspaces/${ws}/databases/${db}/records`, { values: {} })).json().id;
+    recB = (await as(owner.token, 'POST', `/workspaces/${ws}/databases/${db}/records`, { values: {} })).json().id;
+
+    // Invite the guest with a record grant on recA ONLY — no space/database
+    // access at all, matching #472's "zero broader grant" scenario exactly.
+    const invite = await as(owner.token, 'POST', `/workspaces/${ws}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ record_id: recA, role: 'editor' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(guest.token, 'POST', '/invites/accept', { token });
+
+    await upload2(recA);
+    await upload2(recB);
+  });
+
+  afterAll(async () => {
+    await app2.close();
+  });
+
+  async function upload2(recordId: string) {
+    return app2.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${ws}/databases/${db}/records/${recordId}/attachments`,
+      headers: { ...authed(owner.token), 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: multipartBody('f.txt', 'text/plain', Buffer.from('x')),
+    });
+  }
+
+  it('the guest CAN list and download attachments on recA, the record they were actually granted', async () => {
+    const list = await as(guest.token, 'GET', `/workspaces/${ws}/databases/${db}/records/${recA}/attachments`);
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.json().data).toHaveLength(1);
+
+    const attId = list.json().data[0].id;
+    const download = await as(guest.token, 'GET', `/workspaces/${ws}/databases/${db}/records/${recA}/attachments/${attId}/download`);
+    expect(download.statusCode).toBe(200);
+  });
+
+  it('the SAME guest CANNOT list or download recB\'s attachments — the record grant does not leak to a sibling record', async () => {
+    const list = await as(guest.token, 'GET', `/workspaces/${ws}/databases/${db}/records/${recB}/attachments`);
+    expect(list.statusCode).toBe(404);
+
+    const ownerList = await as(owner.token, 'GET', `/workspaces/${ws}/databases/${db}/records/${recB}/attachments`);
+    const attId = ownerList.json().data[0].id;
+    const download = await as(guest.token, 'GET', `/workspaces/${ws}/databases/${db}/records/${recB}/attachments/${attId}/download`);
+    expect(download.statusCode).toBe(404);
+  });
+
+  it('upload/delete on recA still require editor rank, not just presence of a grant', async () => {
+    const viewerGuest = await signUpUser(app2, '473ViewerGuest');
+    const invite = await as(owner.token, 'POST', `/workspaces/${ws}/invites`, {
+      email: viewerGuest.email,
+      role: 'guest',
+      grants: [{ record_id: recA, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(viewerGuest.token, 'POST', '/invites/accept', { token });
+
+    const uploadRes = await app2.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${ws}/databases/${db}/records/${recA}/attachments`,
+      headers: { ...authed(viewerGuest.token), 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: multipartBody('nope.txt', 'text/plain', Buffer.from('x')),
+    });
+    expect(uploadRes.statusCode).toBe(403);
+  });
+});

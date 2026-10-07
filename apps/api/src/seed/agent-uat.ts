@@ -16,6 +16,10 @@
  * and touches nothing else. To start over, drop the database yourself — that
  * should be a decision, not a flag someone reaches for by habit.
  */
+// #658: MUST be the first import — see main.ts's own comment. Without this,
+// apps/api/.env is never read and DATABASE_URL silently falls back to the
+// shared founder dev database.
+import '../config/load-env';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';

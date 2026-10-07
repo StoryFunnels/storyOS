@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal, Pin, Plus } from 'lucide-react';
@@ -18,7 +19,7 @@ import { EditFieldDialog } from '@/components/table-view/edit-field-dialog';
 import { useDeleteField } from '@/components/table-view/field-dialog-shared';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
-import { zonesOf } from './entity-field-utils';
+import { hidesWhenEmpty, zonesOf } from './entity-field-utils';
 import type { Zone } from './entity-field-utils';
 
 const ZONE_LABEL: Record<Zone, string> = { top: 'top strip', sidebar: 'sidebar', body: 'main body' };
@@ -51,11 +52,13 @@ export function FieldPicker({
   if (candidates.length === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink" title={label}>
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip label={label}>
+        <DropdownMenuTrigger asChild>
+          <button className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink" aria-label={label}>
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
         {candidates.map((f) => (
           <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>
@@ -82,7 +85,7 @@ export function TopStripAdd({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-default px-2 py-1.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-default px-2 py-1.5 text-label text-muted hover:border-border-strong hover:text-ink"
           title="Pin a field to the top strip"
         >
           <Pin className="h-3 w-3" /> {empty ? 'Pin a field' : 'Pin'}
@@ -90,7 +93,7 @@ export function TopStripAdd({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
         {candidates.length === 0 ? (
-          <p className="px-2 py-1.5 text-[12px] text-faint">All fields already pinned.</p>
+          <p className="px-2 py-1.5 text-label text-faint">All fields already pinned.</p>
         ) : (
           candidates.map((f) => (
             <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>
@@ -110,12 +113,20 @@ export function FieldMenu({
   field,
   onToggleZone,
   collection = false,
+  hideZoneToggle = false,
 }: {
   ws: string;
   db: string;
   field: Field;
   onToggleZone: (field: Field, zone: Zone) => void;
   collection?: boolean;
+  /** #780 — field zoning (top/sidebar/body placement) is hidden now that every
+   * scalar field renders in one unified area; toggling a zone nobody can see
+   * anymore would be confusing, so the record page's own unified field row
+   * passes this to suppress just those three items. `onToggleZone` itself
+   * still works and is passed through unchanged — this only hides the menu
+   * entries, per "hide the UI, don't touch the stored data or the code". */
+  hideZoneToggle?: boolean;
 }) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
@@ -133,17 +144,21 @@ export function FieldMenu({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink group-hover:opacity-100"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip label="Options">
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label={`Options for ${field.displayName}`}
+              className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
           {!collection &&
+            !hideZoneToggle &&
             (['top', 'sidebar', 'body'] as Zone[]).map((z) => (
               <DropdownMenuItem
                 key={z}
@@ -160,11 +175,13 @@ export function FieldMenu({
             onSelect={() =>
               setConfig.mutate({
                 fieldId: field.id,
-                config: { hide_when_empty: field.config?.['hide_when_empty'] !== true },
+                // Writes an EXPLICIT boolean either way: "Always show" must be a stored
+                // `false`, because for a collection the unset default is hide (#783).
+                config: { hide_when_empty: !hidesWhenEmpty(field) },
               })
             }
           >
-            {field.config?.['hide_when_empty'] === true ? 'Always show (even empty)' : 'Hide when empty'}
+            {hidesWhenEmpty(field) ? 'Always show (even empty)' : 'Hide when empty'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } })}>
             Hide on record page

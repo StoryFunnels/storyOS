@@ -24,6 +24,11 @@
  *
  *     pnpm --filter @storyos/api icons:migrate
  */
+// #658: MUST be the first import — see main.ts's own comment. Without this,
+// apps/api/.env is never read and DATABASE_URL silently falls back to the
+// shared founder dev database — dangerous here specifically, since this
+// script MUTATES existing rows rather than only creating new ones.
+import '../config/load-env';
 import { eq } from 'drizzle-orm';
 import { isEmojiShaped, resolveMigratedIcon } from '@storyos/schemas/icons';
 import { env } from '../config/env';

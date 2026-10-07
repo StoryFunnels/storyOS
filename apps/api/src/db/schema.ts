@@ -74,6 +74,8 @@ export const fieldType = pgEnum('field_type', [
   'rollup',
   'button',
   'formula',
+  // #571 — a field computed by an LLM call, not typed or aggregated.
+  'ai',
   'created_at',
   'updated_at',
   'created_by',
@@ -109,6 +111,57 @@ export const workspaces = pgTable('workspaces', {
   /** #400 — one line: what this company is doing here. Null = never described. */
   description: text('description'),
   settings: jsonb('settings').notNull().default({}),
+  /**
+   * #650 AC1 — onboarding-milestone nudge emails, one sent-at column per
+   * milestone (same atomic claim-then-act shape as billingSubscriptions'
+   * trialReminder23/29SentAt — see OnboardingNudgeService). Null = not yet
+   * sent (or the milestone has already been reached and never will be).
+   */
+  onboardingNudgeGuestInvitedSentAt: timestamp('onboarding_nudge_guest_invited_sent_at', { withTimezone: true }),
+  onboardingNudgeSecondDatabaseSentAt: timestamp('onboarding_nudge_second_database_sent_at', { withTimezone: true }),
+  onboardingNudgeFormPublishedSentAt: timestamp('onboarding_nudge_form_published_sent_at', { withTimezone: true }),
+  /**
+   * #650 AC2 — fired ONCE per workspace lifetime, on the first of three real
+   * events (a blocked Free seat-add, a Pro workspace reaching 5 billable
+   * seats, or a Free/Pro workspace's 5th database) — see SalesSignalService.
+   * `salesSignalReason` records WHICH one, so AdminWorkspaceSummary's flag is
+   * actionable rather than a bare boolean. Null = not yet fired.
+   */
+  salesSignalSentAt: timestamp('sales_signal_sent_at', { withTimezone: true }),
+  salesSignalReason: text('sales_signal_reason'),
+  /**
+   * #817 — set ONCE, when `workspace_activated` is claimed (see
+   * WorkspaceActivationEventsService). Doubles as the exactly-once guard: the
+   * sweep only ever considers workspaces where this is null. Released (set back to
+   * null) if the analytics send itself fails, so an outage delays the event
+   * instead of losing it. Never set on an instance with analytics unconfigured.
+   */
+  activatedAt: timestamp('activated_at', { withTimezone: true }),
+  ...timestamps,
+});
+
+/**
+ * #742 finding 04 — a presentational-only tier ABOVE spaces in the sidebar
+ * (Otto's 2026-09-24 ruling: "Groups are presentational only, with no access
+ * semantics, so they are not a container in the sense line 68 forbids").
+ * Deliberately the same shape as `spaceFolders` below (named, coloured,
+ * ordered, workspace-scoped) rather than a denormalized column on `spaces` —
+ * a group is an entity with its own identity (rename, reorder, delete), not
+ * a per-space attribute.
+ *
+ * NO ACCESS CHECK MAY EVER KEY ON THIS TABLE (the tripwire from D1/S2). Grep
+ * `apps/api/src/access/` for "group" before touching this again — if that
+ * grep stops coming back empty, the tripwire has fired and this needs to go
+ * to Otto before another line is written.
+ */
+export const spaceGroups = pgTable('space_groups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  color: text('color'),
+  position: integer('position').notNull().default(0),
   ...timestamps,
 });
 
@@ -124,6 +177,10 @@ export const spaces = pgTable(
     slug: text('slug').notNull(),
     icon: text('icon'),
     color: text('color'),
+    /** #742 finding 04 — optional presentational group; null = ungrouped, rendered
+     *  at the top level exactly as spaces are today. Deleting the group falls the
+     *  space back to ungrouped rather than cascading (same shape as folderId below). */
+    groupId: uuid('group_id').references(() => spaceGroups.id, { onDelete: 'set null' }),
     /** #400 — one line: what this area of work is. Null = never described. */
     description: text('description'),
     position: integer('position').notNull().default(0),
@@ -139,6 +196,16 @@ export const spaces = pgTable(
     /** Plain text like `createdBy` — the auth `user` table isn't in this schema, and
      *  #291 requires an EXPLICIT hard delete on member removal, not a DB cascade. */
     ownerUserId: text('owner_user_id'),
+    /**
+     * #453 — structural soft-delete. Same shape as `fields`/`records`/
+     * `spaceDocuments`/`comments`: nullable, no default, no companion
+     * `deletedBy`. Deleting a space marks this instead of removing the row, and
+     * cascades the same mark onto every live database/view/document beneath it
+     * (see `SpacesService.remove`) — so nothing under a soft-deleted space is
+     * silently orphaned-but-live. Every read filters via `notDeleted()`
+     * (`apps/api/src/db/soft-delete.ts`), the ONE place this predicate lives.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -175,8 +242,10 @@ export const accessGrants = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull(),
     /**
-     * Exactly one of spaceId/databaseId — now enforced by a CHECK, not just the
-     * service (MN-125). Highest grant wins.
+     * Exactly one of spaceId/databaseId/recordId — enforced by a CHECK, not just
+     * the service (MN-125, widened by #472). Highest grant wins across all three:
+     * `AccessService.effectiveForRecord` takes the max rank among a matching
+     * space grant, a matching database grant, and a matching record grant.
      */
     spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
     /**
@@ -184,6 +253,13 @@ export const accessGrants = pgTable(
      * database being deleted — a dangling row that could match a recycled id.
      */
     databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    /**
+     * #472 — record-scoped grants. Same MN-125 lesson applied on arrival rather
+     * than learned again: a real FK (a dangling grant matching a recycled record
+     * id is exactly the databaseId bug repeating a third time), cascaded so
+     * deleting the record removes its grants rather than orphaning them.
+     */
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
     role: accessRole('role').notNull(),
     createdBy: text('created_by'),
     ...timestamps,
@@ -205,8 +281,21 @@ export const accessGrants = pgTable(
     uniqueIndex('access_grants_user_database_uq')
       .on(t.userId, t.databaseId)
       .where(sql`${t.databaseId} IS NOT NULL`),
-    /** The scope XOR the service always claimed, now actually enforced. */
-    check('access_grants_scope_xor', sql`(${t.spaceId} IS NULL) <> (${t.databaseId} IS NULL)`),
+    /** #472 — third scope, matching the two above exactly. */
+    uniqueIndex('access_grants_user_record_uq')
+      .on(t.userId, t.recordId)
+      .where(sql`${t.recordId} IS NOT NULL`),
+    /**
+     * #472 — widened from "exactly one of two" to "exactly one of three". The
+     * `(a IS NULL) <> (b IS NULL)` idiom the two-column version used only
+     * expresses exactly-one-of-two; it doesn't extend to three columns by
+     * chaining more `<>`s (that tests parity, not "exactly one"), so this
+     * counts non-null columns instead — the general form.
+     */
+    check(
+      'access_grants_scope_xor',
+      sql`(CASE WHEN ${t.spaceId} IS NULL THEN 0 ELSE 1 END) + (CASE WHEN ${t.databaseId} IS NULL THEN 0 ELSE 1 END) + (CASE WHEN ${t.recordId} IS NULL THEN 0 ELSE 1 END) = 1`,
+    ),
   ],
 );
 
@@ -284,6 +373,8 @@ export const databases = pgTable(
      * whatever you like. Mirrors `fields.isSystem`.
      */
     isSystem: boolean('is_system').notNull().default(false),
+    /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],
@@ -371,6 +462,8 @@ export const views = pgTable(
      * null = an ordinary shared view (every view today).
      */
     ownerUserId: text('owner_user_id'),
+    /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -415,7 +508,20 @@ export const records = pgTable(
      * Rollup is NOT materialized here yet — see docs/architecture/record-storage.md.
      */
     computedValues: jsonb('computed_values').notNull().default({}),
-    /** Fractional-index rank, one per database (ADR-0005). */
+    /**
+     * Fractional-index rank, one per database (ADR-0005).
+     *
+     * #480/#487 — collated "C" (plain byte order) in the database, by a raw
+     * migration (0082) rather than this builder: drizzle-orm 0.45's `text()`
+     * has no `.collate()` option to express it here, so `db:generate` would
+     * never emit it and there is nothing to keep in sync between this line
+     * and the migration. The fractional-indexing library assumes byte-order
+     * comparison; the database's default collation (en_US.UTF-8 on the
+     * instance this was measured on) disagreed with it, so `ORDER BY position`
+     * returned a different order than the keys were generated in, and a
+     * `lastPosition()` read anchored new keys off the wrong "maximum",
+     * producing outright duplicates across a multi-chunk bulk create.
+     */
     position: text('position').notNull().default('a0'),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
@@ -525,6 +631,40 @@ export const documents = pgTable('documents', {
   ...timestamps,
 });
 
+/**
+ * #677 (Gap 2) — real version history for a record's document, the same
+ * "snapshot the full prior state before the write lands" shape
+ * `record_versions` already uses (MN-231), not a second design. One row per
+ * saved edit: the FULL prior content + the document's own `version` counter
+ * at that point (so a restore knows what optimistic-concurrency value it is
+ * superseding). `documents` itself has no `workspace_id` column (it's keyed
+ * off `record_id` alone) — carried here explicitly, same as `record_versions`,
+ * for tenant-scoped retention pruning later.
+ */
+export const documentVersions = pgTable(
+  'document_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id'),
+    // #677 — same badge as record_versions/record_field_changes; one shape
+    // for "who made this write", not a third variant.
+    source: changeSource('source').notNull().default('human'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
+    content: jsonb('content'),
+    /** The document's own `documents.version` counter AT THIS SNAPSHOT. */
+    version: integer('version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('document_versions_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
 /** Standalone rich docs living in a space, independent of any record (MN-095). */
 export const spaceDocuments = pgTable(
   'space_documents',
@@ -563,6 +703,19 @@ export const comments = pgTable(
     body: jsonb('body').notNull(),
     /** Extracted server-side from body, never trusted from the client (D4). */
     mentions: text('mentions').array().notNull().default([]),
+    /**
+     * #734 — WHO posted this comment: same vocabulary/columns
+     * activity_events.source/agent_id/agent_name already use (#481/#541),
+     * not a second shape. Deliberately NULLABLE with NO default, same
+     * reasoning as activity_events' own source column: every comment
+     * written before this shipped genuinely has no captured provenance, and
+     * a `NOT NULL DEFAULT 'human'` would retcon every historical agent/mcp
+     * comment into a false claim about a person. Null reads honestly as
+     * "not captured" and must never be treated as 'human'.
+     */
+    source: changeSource('source'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
     editedAt: timestamp('edited_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
@@ -610,6 +763,18 @@ export const apiTokens = pgTable('api_tokens', {
    * pre-#357 behaviour, unchanged for every token that already exists.
    */
   origin: changeSource('origin'),
+  /**
+   * #541 — WHICH configured Agent (a record in the workspace's "Agents"
+   * database) this token acts on behalf of, if any. Deliberately NOT a
+   * foreign key: an Agent is an ordinary StoryOS record, soft-deletable (and,
+   * per this ticket's own AC, its historical attribution must survive that
+   * deletion) — a hard FK would either block the delete or cascade it into
+   * silently rewriting history, either of which this ticket exists to
+   * prevent. Resolved fresh from the AGENT'S CURRENT owner on every request
+   * (auth.guard.ts), never trusted from this column's stale snapshot alone —
+   * this is only the pointer, not the authority.
+   */
+  agentId: uuid('agent_id'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -701,6 +866,16 @@ export const automations = pgTable(
      * Defaults to `createdBy` (the rule owner) when null — see
      * ApprovalsService.approverFor(). */
     approverId: text('approver_id'),
+    /**
+     * #392 — a SCHEDULED rule's optional top-N selection: `sort` mirrors
+     * query.ts's sortSchema (`{field, direction}[]`, max 3), `topNLimit` its
+     * hard-ceiling-checked count. Both null for every rule that predates this
+     * (and for every non-schedule trigger, enforced at the service layer) —
+     * tickInner() falls back to its original unsorted `.limit(500)` exactly
+     * when both are null, so an existing rule's selection is unchanged.
+     */
+    sort: jsonb('sort'),
+    topNLimit: integer('top_n_limit'),
     ...timestamps,
   },
   (t) => [index('automations_database_idx').on(t.databaseId, t.enabled)],
@@ -728,6 +903,12 @@ export const automationRuns = pgTable(
     effects: jsonb('effects'),
     depth: integer('depth').notNull().default(0),
     durationMs: integer('duration_ms'),
+    /** #392 — this record's 1-based rank in its rule's top-N selection this
+     * tick (null for every run that isn't a sorted scheduled selection) —
+     * "why did it pick those" answered directly on the run row rather than
+     * requiring a re-derivation from the rule's current (possibly since-
+     * changed) sort spec. */
+    selectionRank: integer('selection_rank'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -907,9 +1088,40 @@ export const activityEvents = pgTable(
     /** Contract-grade type names — this table is the future webhook outbox (ADR-0004). */
     type: text('type').notNull(),
     payload: jsonb('payload').notNull().default({}),
+    /**
+     * #481 — WHAT kind of actor made this write, same vocabulary
+     * `record_field_changes.source` already uses. Deliberately NULLABLE with NO
+     * default: every row written before this column existed genuinely has no
+     * source, and a `NOT NULL DEFAULT 'human'` would retcon every historical
+     * automation/agent write into a false claim about a person — the exact bug
+     * this column exists to fix, applied retroactively to the whole table. Null
+     * reads honestly as "not captured"; it must never be treated as 'human'.
+     */
+    source: changeSource('source'),
+    /**
+     * #541 — WHICH configured Agent made this write, when `source = 'agent'`
+     * AND the acting token was minted for a specific Agent record
+     * (`api_tokens.agent_id`). Null for every human/automation/mcp write, and
+     * for an agent write whose token predates this ticket or wasn't
+     * agent-scoped — same honest-absence rule `source` itself already uses.
+     * No FK, same reason as `api_tokens.agent_id`: an Agent record can be
+     * soft-deleted and history must not be rewritten when that happens.
+     */
+    agentId: uuid('agent_id'),
+    /** #541 — the Agent's `title` AT WRITE TIME, denormalized. The whole point
+     * of AC "attribution survives rename/delete": `agentId` alone would still
+     * resolve to a NAME today by joining live, but a rename or delete would
+     * silently change what a HISTORICAL row appears to say. This snapshot is
+     * what makes the sentence "Agent X did this" permanently true regardless
+     * of what happens to the Agent record afterward. */
+    agentName: text('agent_name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('activity_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('activity_record_created_idx').on(t.recordId, t.createdAt),
+    // #541 AC — "queryable in bulk for a date range" for one agent.
+    index('activity_agent_created_idx').on(t.agentId, t.createdAt),
+  ],
 );
 
 /**
@@ -932,6 +1144,14 @@ export const recordVersions = pgTable(
       .notNull()
       .references(() => records.id, { onDelete: 'cascade' }),
     actorId: text('actor_id'),
+    // #677 (Gap 1) — was missing entirely: `actor_id` alone cannot tell a
+    // human apart from an agent (same plain text column either way). Mirrors
+    // record_field_changes's own existing badge exactly (source/agentId/
+    // agentName, same "no FK, snapshotted not re-resolved" reasoning) rather
+    // than inventing a second shape for the same concept.
+    source: changeSource('source').notNull().default('human'),
+    agentId: uuid('agent_id'),
+    agentName: text('agent_name'),
     title: text('title').notNull(),
     values: jsonb('values').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -978,6 +1198,11 @@ export const recordFieldChanges = pgTable(
     fieldId: uuid('field_id'),
     actorUserId: text('actor_user_id'),
     source: changeSource('source').notNull().default('human'),
+    /** #541 — see activity_events.agent_id's doc comment; same rule, same
+     * "no FK, resolved fresh, snapshotted for history" reasoning. */
+    agentId: uuid('agent_id'),
+    /** #541 — see activity_events.agent_name's doc comment. */
+    agentName: text('agent_name'),
     /** null for a create, or for a field that had no previous value. */
     oldValue: jsonb('old_value'),
     newValue: jsonb('new_value'),
@@ -990,6 +1215,8 @@ export const recordFieldChanges = pgTable(
     index('record_field_changes_db_field_created_idx').on(t.databaseId, t.fieldId, t.createdAt),
     // Retention pruning walks this one, per plan window.
     index('record_field_changes_ws_created_idx').on(t.workspaceId, t.createdAt),
+    // #541 AC — "queryable in bulk for a date range" for one agent.
+    index('record_field_changes_agent_created_idx').on(t.agentId, t.createdAt),
   ],
 );
 
@@ -1074,6 +1301,14 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
    */
   trialReminder23SentAt: timestamp('trial_reminder_23_sent_at', { withTimezone: true }),
   trialReminder29SentAt: timestamp('trial_reminder_29_sent_at', { withTimezone: true }),
+  /**
+   * #817 — claimed ONCE, the first time a workspace is a PAYING subscription
+   * (`status = 'active'`: not a trial, not a plan change). Same atomic
+   * claim-then-act shape as the trial reminders above; released if the analytics
+   * send fails. A workspace that cancels and resubscribes does not fire again:
+   * "started" is the first time ever, which is what a funnel stage means.
+   */
+  subscriptionStartedAt: timestamp('subscription_started_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -1595,6 +1830,68 @@ export const automationJobs = pgTable(
 );
 
 /**
+ * #694 — durable bulk record operations (update/delete), the remaining half
+ * of #653's chunking AC that #653 itself explicitly did not build.
+ * Deliberately NOT routed through `automationJobs`/`JobRunnerService`: that
+ * table models "call one registered executor for one automation action" (a
+ * `kind` string dispatching to a function), whereas a bulk op is "apply the
+ * SAME operation to N record ids, in chunks, tracking exactly which have
+ * been attempted" — a different shape that would have forced payload/
+ * status semantics onto a table that already means something specific.
+ * Confirmed via #694's own research this needed a genuine new mechanism,
+ * not a reuse.
+ *
+ * `cursor` is the resumability guarantee AC #3 asks for: it's the count of
+ * `recordIds` already attempted (success or failure, both recorded before
+ * the cursor advances), persisted after EVERY chunk — not just at the end —
+ * so a process that dies mid-run leaves an accurate stopping point for the
+ * next tick to resume from, rather than relying on retries being idempotent
+ * (the weaker guarantee #653's own synchronous endpoints settled for).
+ */
+export const bulkRecordJobs = pgTable(
+  'bulk_record_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id').notNull(),
+    source: text('source').notNull().default('human'),
+    op: text('op').notNull(), // 'update' | 'delete'
+    /** Frozen at enqueue — the exact set this job will process, in order. */
+    recordIds: jsonb('record_ids').notNull(),
+    /** Only for op = 'update'. */
+    values: jsonb('values'),
+    /** How many of recordIds have been ATTEMPTED so far (success or failure) —
+     *  the resumability cursor, not just a progress display number. */
+    cursor: integer('cursor').notNull().default(0),
+    succeeded: integer('succeeded').notNull().default(0),
+    /** Array<{record_id, message}> — never lost when the job keeps going after
+     *  a chunk partially fails (#653/#686's own "never silent partial
+     *  completion" bar, extended to a durable job). */
+    failed: jsonb('failed').notNull().default([]),
+    /** Array<{record_id, version_id}> — only for op = 'update'; the same
+     *  shape #653's synchronous batchUpdate already returns, so undo works
+     *  identically whether the edit ran synchronously or as a job. */
+    restorable: jsonb('restorable').notNull().default([]),
+    /** queued | running | succeeded | partially_failed | failed */
+    status: text('status').notNull().default('queued'),
+    /** Set when claimed; the reaper reverts a job stuck 'running' past its
+     *  budget back to 'queued' so an API restart never strands it mid-run —
+     *  same convention as automationJobs.startedAt. */
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('bulk_record_jobs_claim_idx').on(t.status),
+    index('bulk_record_jobs_database_idx').on(t.databaseId),
+  ],
+);
+
+/**
  * MN-255 — the approval gate. A `require_approval` action stops here instead
  * of running: `actionSnapshot` is the FULLY RENDERED action (every {Field}/
  * {payload} token already interpolated, at request time — see
@@ -1638,6 +1935,63 @@ export const approvals = pgTable(
     ...timestamps,
   },
   (t) => [index('approvals_workspace_status_expiry_idx').on(t.workspaceId, t.status, t.expiresAt)],
+);
+
+/**
+ * #542 Phase 2 — a workspace-DECLARED gate over an action class, the thing
+ * ticket #542 itself distinguishes from `AgentsService`'s existing per-agent
+ * `approval_policy` field: that one is a checkbox an agent's OWNER sets on
+ * that one agent's own record, so an agent whose owner forgot to check it
+ * sails straight through. This table is the operator's own rule, checked
+ * regardless of what any individual agent declares about itself — "the
+ * platform stops the agent, not the prompt."
+ *
+ * Only one action class exists today: 'delete_records'. The column is text,
+ * not an enum, so adding 'publish'/'spend' (Phase 3, per this ticket's own
+ * phasing) never needs a migration, only a new value.
+ *
+ * Scope is workspace by default (`space_id`/`database_id` both null); a
+ * narrower row at either level overrides the workspace default for that
+ * scope — resolution is database beats space beats workspace, most-specific
+ * wins, mirroring the `access_grants` precedent for scoped rows.
+ *
+ * `approver_id` is REQUIRED and validated at write time (ActionGatesService)
+ * to be a real admin of the workspace — deliberately not resolved dynamically
+ * at check time the way `approvals.approver_id` falls back through a rule's
+ * owner, because ticket #542's own AC demands a gate can never exist with no
+ * one able to clear it: naming a real admin up front is what makes that
+ * refusal possible to enforce at declaration time rather than discovered
+ * later as a lockout.
+ */
+export const actionGatePolicies = pgTable(
+  'action_gate_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    actionClass: text('action_class').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    approverId: text('approver_id').notNull(),
+    createdBy: text('created_by').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    // Scope columns are part of the key (not a partial unique index on the
+    // nullable columns alone) so Postgres treats NULL-vs-NULL as distinct
+    // rows the same way it already does for every other nullable-scope
+    // uniqueness constraint in this schema (e.g. access_grants) — two
+    // different admins can't accidentally collide on "the workspace-wide
+    // delete_records policy" only because both left space/database null,
+    // but a single workspace-wide row per action class is still the
+    // intended shape, enforced by ActionGatesService's own upsert-by-scope
+    // lookup rather than the DB constraint (Postgres can't express "unique
+    // including NULLs as equal" without a separate partial index per scope
+    // shape, which isn't worth the complexity for an admin-only write path).
+    index('action_gate_policies_workspace_class_idx').on(t.workspaceId, t.actionClass),
+  ],
 );
 
 /** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its
@@ -2119,7 +2473,168 @@ export const tyronMessages = pgTable(
     tokensOut: integer('tokens_out'),
     /** Which model answered. From env, never hardcoded — so a tier change is visible here. */
     model: text('model'),
+    /**
+     * #352 — 'byo' when this turn ran on the WORKSPACE's own connected AI
+     * credential, 'managed' when it ran on StoryOS's own key. `model` alone
+     * doesn't reliably say this: a workspace's own key can be configured
+     * with the same model tag the managed path uses, and the AC is explicit
+     * that "which AI is answering" must never be inferred or left ambiguous.
+     * Null on user messages and on a failed model call, same convention as
+     * tokensIn/tokensOut/model.
+     */
+    source: text('source'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('tyron_messages_thread_idx').on(t.threadId, t.createdAt)],
+);
+
+/**
+ * #534 — a named external party who can read their own slice of published
+ * portal content, WITHOUT a user account, an invitation flow, or a billable
+ * seat. Foundation table for the portal epic (#19); everything else in it
+ * binds to this entity. Identity and lifecycle ONLY — row scoping, magic-link
+ * delivery, branding, write-back, activity logging and entitlement are all
+ * filed as separate tickets and deliberately do not exist here yet.
+ *
+ * FIRST-CLASS TABLE, not a user-visible database — decided here, per the
+ * ticket's explicit ask to record why. A user-visible database would let a
+ * customer's own formula or automation touch this row, and this row IS a
+ * portal's access-control boundary: a recipient revoked by clearing `revokedAt`
+ * from a database view, or a token edited by a paste, is a security bug wearing
+ * a UI feature's clothes. Precedent for exactly this shape already exists in
+ * this schema — `access_grants` is a first-class table for the same reason
+ * (its own MN-125 comment). A read-only mirror INTO a user-visible database is
+ * still open for later (the epic's admin UI, #19), but the row of record — the
+ * thing that actually gates access — stays here, editable only through the API
+ * this ticket adds.
+ *
+ * Deliberately NOT a membership: a recipient never authenticates as a
+ * workspace member, never appears in `memberships`, and nothing in
+ * `AccessService.isBillable`/`billableUserIds` (schema.ts:43) can see it — so
+ * creating any number of recipients changes no seat count by construction,
+ * not by a check someone has to remember to add. This sits ALONGSIDE the guest
+ * tier (#238), not in place of it: guests are real, authenticated users for a
+ * client's own staff working IN the workspace; recipients are for the client
+ * themselves, reading OUT.
+ */
+export const portalRecipients = pgTable(
+  'portal_recipients',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    email: text('email'),
+    /**
+     * #535 — which entity in the workspace this recipient IS, for a
+     * relation-typed recipient-scope rule (e.g. a portal recipient who IS a
+     * row in a Clients database). `set null` rather than cascade: the
+     * recipient (and its token/audit trail) survives the linked record being
+     * deleted — it just stops resolving any scope rule until re-linked, which
+     * is the fail-closed direction (see public-views.service.ts).
+     */
+    linkedRecordId: uuid('linked_record_id').references(() => records.id, { onDelete: 'set null' }),
+    /**
+     * #602 — no secret is stored per recipient at all. The bearer credential
+     * is `id.tokenVersion.hmac(id, tokenVersion, BETTER_AUTH_SECRET)` (see
+     * portal-recipient-token.ts), a pure function of this counter and the
+     * server-wide secret — re-derivable on every read, never persisted.
+     * `rotate()` bumps this by one, which instantly and atomically invalidates
+     * every previously-minted token (their embedded version stops matching)
+     * without needing to store or compare an old value.
+     */
+    tokenVersion: integer('token_version').notNull().default(1),
+    /**
+     * Null = active. Revocation is a timestamp, not a delete: the row (and
+     * whatever it may end up scoped to, once #534's row-scoping sibling
+     * exists) stays addressable for audit, matching `records.deletedAt`'s
+     * soft-delete shape elsewhere in this schema. Every read path this ticket
+     * adds re-checks this column live, on every request — there is no cache
+     * and no session to expire, so revocation is immediate by construction
+     * rather than by a TTL someone picked.
+     */
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** #602 — refused the same way a revoked token is (fail closed). Null = never expires. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('portal_recipients_workspace_idx').on(t.workspaceId)],
+);
+
+/** #537 — did the request get content, or was it turned away (and why)? */
+export const portalAccessOutcome = pgEnum('portal_access_outcome', ['served', 'rejected']);
+
+/**
+ * #537 — one row per resolved-or-attempted portal-recipient access: "what did
+ * each client actually see and did". Deliberately NOT the same table as
+ * #454's workspace `activity_events` — a recipient isn't a workspace member
+ * and never appears in `memberships`, and this log's own visibility rule
+ * ("visible to workspace members who administer the portal, not to
+ * recipients themselves") is the opposite direction from an audit log a
+ * member reads about THEMSELVES; keeping them separate tables means neither
+ * has to carry a column or a visibility branch the other doesn't need.
+ *
+ * `recipientId` has NO cascade-on-delete concern: `portal_recipients` rows
+ * are never hard-deleted (revocation is `revokedAt`, per that table's own
+ * comment), so a revoked recipient's history survives by construction — the
+ * ticket's own AC — without this table doing anything special to preserve
+ * it. `viewId` has no FK at all, the same "no-FK decision" #454's
+ * `activity_events.actorId` and `record_field_changes.fieldId` already use:
+ * a later view deletion must never orphan-block or cascade-delete a
+ * historical access record, and a reader who wants the view's current name
+ * can resolve it live and fall back to "(deleted view)" exactly like a
+ * deleted field's name does in the audit log.
+ *
+ * PRIVACY BOUNDARY, decided on the ticket: no IP address, no user-agent
+ * string, by design — there is no column for either here, so there is
+ * nothing to accidentally start capturing later by adding one field to an
+ * existing row shape. The operator's actual question is "did they look",
+ * which needs neither.
+ */
+export const portalAccessLog = pgTable(
+  'portal_access_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id')
+      .notNull()
+      .references(() => portalRecipients.id, { onDelete: 'cascade' }),
+    /** The published view accessed. No FK — see the table's own doc comment. */
+    viewId: uuid('view_id').notNull(),
+    outcome: portalAccessOutcome('outcome').notNull(),
+    /** Why, when `outcome = 'rejected'`. Null for a served access. */
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('portal_access_log_recipient_idx').on(t.recipientId, t.createdAt),
+    index('portal_access_log_view_idx').on(t.viewId, t.createdAt),
+    index('portal_access_log_workspace_idx').on(t.workspaceId, t.createdAt),
+  ],
+);
+
+/**
+ * One install of a built-in TEMPLATE (definitions.ts's 23 — a different
+ * registry from the Business Packs marketplace `pack_installs` above) — #585,
+ * the gallery's per-card install count. No FK to `workspaces`: unlike
+ * `pack_installs`, this row's only purpose is a durable count for social
+ * proof ("N installs" on the gallery, mirroring Teable's own pattern per the
+ * ticket), which must survive the installing workspace being deleted later —
+ * a template that helped 200 people start shouldn't read as 199 the day one
+ * of them closes their account. No uninstall tracking either: a template
+ * apply has no reverse action the way a pack install/uninstall pair does, so
+ * there is nothing to subtract.
+ */
+export const templateInstalls = pgTable(
+  'template_installs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    installedBy: text('installed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('template_installs_slug_idx').on(t.slug)],
 );

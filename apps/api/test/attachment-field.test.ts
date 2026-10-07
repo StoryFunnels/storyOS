@@ -102,6 +102,23 @@ describe('attachment fields (#391)', () => {
     expect(files[0]!.size).toBeGreaterThan(0);
   });
 
+  it('#712 — getByNumber (by-number lookup) resolves the same chip GET-by-uuid does, not a raw id or undefined', async () => {
+    // #712 was filed suspecting single-record fetch never resolved attachment
+    // chips (only list()/query() did), and specifically named getByNumber()
+    // as sharing get()'s call shape. A live re-check (2026-09-16, on the
+    // ticket) could not reproduce the gap for GET-by-uuid; this closes the
+    // getByNumber() half of AC3, which had no test either way.
+    const rec = await newRecord('By-number check');
+    const upl = await upload(rec.id, 'by-number.png', coverId);
+    expect(upl.statusCode, upl.body).toBe(201);
+    const number = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`)).json().number;
+    const byNumber = await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/by-number/${number}`);
+    expect(byNumber.statusCode, byNumber.body).toBe(200);
+    const files = byNumber.json().values['cover'] as Array<Record<string, unknown>>;
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ filename: 'by-number.png', mime: 'image/png', has_thumbnail: true });
+  });
+
   it("keeps two kinds of file apart — the ticket's opening complaint", async () => {
     const videoId = (
       await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {

@@ -85,7 +85,7 @@ describe('computeTileValue', () => {
 
 describe('defaultTileLabel', () => {
   it('labels count generically', () => {
-    expect(defaultTileLabel('count')).toBe('Count of records');
+    expect(defaultTileLabel('count')).toBe('Count of items');
   });
   it('labels numeric ops with the field display name', () => {
     expect(defaultTileLabel('sum', 'Amount')).toBe('Sum of Amount');
@@ -110,7 +110,7 @@ describe('formatTileValue', () => {
 });
 
 /**
- * #387 — the founder's dashboard showed two tiles both headed "Count of records",
+ * #387 — the founder's dashboard showed two tiles both headed "Count of items",
  * reading 383 and 5. The only way to tell them apart was the database dropdown in
  * the editor beneath each, which #385's view mode hides. These assertions are the
  * reason the two tickets ship together.
@@ -126,7 +126,7 @@ describe('defaultBlockLabel (#387)', () => {
   });
 
   it('leads with the database, because that is the distinguishing part', () => {
-    // "Count of records" repeats across every count tile; the source does not.
+    // "Count of items" repeats across every count tile; the source does not.
     expect(defaultBlockLabel({ sourceName: 'Invoices', op: 'count' })).toMatch(/^Invoices/);
   });
 

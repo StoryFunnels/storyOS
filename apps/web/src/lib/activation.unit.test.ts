@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildActivationSteps,
   completedCount,
+  ESTABLISHED_DATABASE_FLOOR,
   isActivationComplete,
+  isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
   withWorkspaceDismissed,
@@ -116,5 +118,38 @@ describe('per-workspace dismissal helpers', () => {
     const dismissed = withWorkspaceDismissed(undefined, 'w1');
     expect(isWorkspaceDismissed(dismissed, 'w1')).toBe(true);
     expect(isWorkspaceDismissed(dismissed, 'w2')).toBe(false);
+  });
+});
+
+describe('isEstablishedWorkspace (#723)', () => {
+  const done = buildActivationSteps(ALL_DONE, { ws: 'w1' });
+  const partial = buildActivationSteps(EMPTY, { ws: 'w1' });
+
+  it('is true only when all three signals hold', () => {
+    expect(isEstablishedWorkspace(done, 0, ESTABLISHED_DATABASE_FLOOR)).toBe(true);
+  });
+
+  it('is false while onboarding is still loading (no steps yet)', () => {
+    // The load case, not a hypothetical: `steps` is [] until /onboarding
+    // resolves, and a true here would flash three empty blocks on every visit.
+    expect(isEstablishedWorkspace([], 0, 50)).toBe(false);
+  });
+
+  it('is false when the checklist is unfinished, however many databases exist', () => {
+    expect(isEstablishedWorkspace(partial, 0, 50)).toBe(false);
+  });
+
+  it('is false while sample data is still present', () => {
+    // Sample records are the signature of a fresh install, so one is enough.
+    expect(isEstablishedWorkspace(done, 1, 50)).toBe(false);
+  });
+
+  it('is false just below the floor — five is one template install (agency)', () => {
+    expect(isEstablishedWorkspace(done, 0, ESTABLISHED_DATABASE_FLOOR - 1)).toBe(false);
+  });
+
+  it('keeps the floor above what any single template creates', () => {
+    // agency 5, creators 4, dev 3, marketing 2, people 2, calendar 1, youtube 1.
+    expect(ESTABLISHED_DATABASE_FLOOR).toBeGreaterThan(5);
   });
 });

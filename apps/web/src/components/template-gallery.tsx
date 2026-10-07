@@ -4,7 +4,25 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import posthog from 'posthog-js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Blocks, BookOpen, Bug, Kanban, Megaphone, Newspaper, Filter, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  Blocks,
+  BookOpen,
+  Bug,
+  CalendarDays,
+  ClipboardList,
+  Kanban,
+  Map,
+  Megaphone,
+  Network,
+  Newspaper,
+  Filter,
+  Palmtree,
+  Target,
+  TrendingUp,
+  Users,
+  Video,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -13,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { guestInviteHref } from '@/lib/guest-invite';
 import { cn } from '@/lib/utils';
+import { SchemaMap, ViewThumbnail } from '@/components/template-preview';
 
 export interface TemplatePreview {
   databases: Array<{ name: string; fields: Array<{ name: string; type: string }> }>;
@@ -26,6 +45,8 @@ export interface TemplateSummary {
   category: 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
   scope: 'pack' | 'database';
   guide?: string | null;
+  /** #585 — real installs across every workspace, never an estimate. */
+  install_count?: number;
   preview: TemplatePreview;
 }
 export interface TemplateIntent {
@@ -56,6 +77,14 @@ export const TEMPLATE_ICONS: Record<string, typeof Kanban> = {
   'author-studio': BookOpen,
   'dev-project': Bug,
   'solo-dev': Bug,
+  meetings: ClipboardList,
+  'customer-journey': Map,
+  'event-planning': CalendarDays,
+  'video-production': Video,
+  'campaigns-hq': Target,
+  'sales-crm': TrendingUp,
+  'org-chart': Network,
+  'time-off': Palmtree,
 };
 
 const CATEGORIES = [
@@ -109,7 +138,7 @@ export function TemplateCard({
   selected,
   onClick,
 }: {
-  template: { slug: string; name: string; description: string };
+  template: { slug: string; name: string; description: string; install_count?: number };
   selected?: boolean;
   onClick: () => void;
 }) {
@@ -125,8 +154,18 @@ export function TemplateCard({
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
       <span>
-        <span className="block text-[13px] font-medium text-ink">{template.name}</span>
-        <span className="block text-[12px] text-muted">{template.description}</span>
+        <span className="flex items-baseline gap-1.5">
+          <span className="block text-body font-medium text-ink">{template.name}</span>
+          {/* #585 — a brand-new template with zero installs shows no badge at
+              all rather than an embarrassing "0 installs"; the badge only
+              ever appears once it has something real to say. */}
+          {Boolean(template.install_count) && (
+            <span className="shrink-0 text-meta text-faint">
+              {template.install_count} {template.install_count === 1 ? 'install' : 'installs'}
+            </span>
+          )}
+        </span>
+        <span className="block text-label text-muted">{template.description}</span>
       </span>
     </button>
   );
@@ -150,7 +189,7 @@ function GuideText({ markdown }: { markdown: string }) {
       {blocks.map((block, i) => {
         if (block.startsWith('## ')) {
           return (
-            <p key={i} className="text-[12px] font-semibold uppercase tracking-wider text-faint">
+            <p key={i} className="text-label font-semibold uppercase tracking-wider text-faint">
               {block.slice(3)}
             </p>
           );
@@ -158,7 +197,7 @@ function GuideText({ markdown }: { markdown: string }) {
         const lines = block.split('\n');
         if (lines.every((l) => l.startsWith('- '))) {
           return (
-            <ul key={i} className="flex list-disc flex-col gap-1 pl-4 text-[13px] text-ink-secondary">
+            <ul key={i} className="flex list-disc flex-col gap-1 pl-4 text-body text-ink-secondary">
               {lines.map((l, j) => (
                 <li key={j}>{inline(l.slice(2))}</li>
               ))}
@@ -171,40 +210,6 @@ function GuideText({ markdown }: { markdown: string }) {
           </p>
         );
       })}
-    </div>
-  );
-}
-
-function PreviewPanel({ preview }: { preview: TemplatePreview }) {
-  return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-      <div>
-        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">Databases</p>
-        <div className="flex flex-col gap-1.5">
-          {preview.databases.map((db) => (
-            <div key={db.name}>
-              <p className="text-[13px] font-medium text-ink">{db.name}</p>
-              <p className="text-[12px] text-muted">
-                {db.fields.map((f) => f.name).join(' · ')}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-      {preview.relations.length > 0 && (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Relations</p>
-          <p className="text-[12px] text-muted">{preview.relations.join('  ·  ')}</p>
-        </div>
-      )}
-      {preview.views.length > 0 && (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Views</p>
-          <p className="text-[12px] text-muted">
-            {preview.views.map((v) => `${v.name} (${v.type})`).join(' · ')}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
@@ -275,7 +280,12 @@ export function TemplateGalleryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={selected ? selected.name : 'Templates'} className="max-w-xl">
+      {/* #663 — wider than max-w-xl: the detail screen now leads with view
+          thumbnails and a schema map, which need room to be legible. */}
+      <DialogContent
+        title={selected ? selected.name : 'Templates'}
+        className={selected ? 'max-w-3xl' : 'max-w-xl'}
+      >
         {!selected ? (
           <div className="flex flex-col gap-3">
             <div className="flex gap-1">
@@ -284,7 +294,7 @@ export function TemplateGalleryDialog({
                   key={c.value}
                   type="button"
                   className={cn(
-                    'rounded-[var(--radius-control)] px-2.5 py-1 text-[12px]',
+                    'rounded-[var(--radius-control)] px-2.5 py-1 text-label',
                     category === c.value
                       ? 'bg-primary text-[var(--text-on-dark)]'
                       : 'text-muted hover:bg-hover',
@@ -305,19 +315,57 @@ export function TemplateGalleryDialog({
           <div className="flex flex-col gap-4">
             <button
               type="button"
-              className="flex items-center gap-1 self-start text-[12px] text-muted hover:text-ink"
+              className="flex items-center gap-1 self-start text-label text-muted hover:text-ink"
               onClick={() => setSlug(null)}
             >
               <ArrowLeft className="h-3 w-3" /> All templates
             </button>
-            <p className="-mt-2 text-[13px] text-ink-secondary">{selected.description}</p>
-            <div className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto">
-              {selected.guide && (
-                <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-3">
-                  <GuideText markdown={selected.guide} />
+            <p className="-mt-2 text-body text-ink-secondary">{selected.description}</p>
+            {/* #663 — VISUAL FIRST. What you get, drawn, before a word of prose:
+                the views you would land in, then the databases behind them. The
+                guide is still here and still useful — it is just no longer the
+                surface you have to read in order to decide. */}
+            <div className="flex max-h-[55vh] flex-col gap-4 overflow-y-auto pr-1">
+              {selected.preview.views.length > 0 && (
+                <div>
+                  <p className="mb-2 text-meta font-medium uppercase tracking-wider text-faint">
+                    You get {selected.preview.views.length}{' '}
+                    {selected.preview.views.length === 1 ? 'view' : 'views'}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {selected.preview.views.map((v) => (
+                      <ViewThumbnail
+                        key={`${v.database ?? ''}-${v.name}`}
+                        name={v.name}
+                        type={v.type}
+                        database={v.database}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
-              <PreviewPanel preview={selected.preview} />
+              {selected.preview.databases.length > 0 && (
+                <div>
+                  <p className="mb-2 text-meta font-medium uppercase tracking-wider text-faint">
+                    {selected.preview.databases.length}{' '}
+                    {selected.preview.databases.length === 1 ? 'database' : 'databases'}
+                  </p>
+                  <SchemaMap
+                    databases={selected.preview.databases}
+                    relations={selected.preview.relations}
+                  />
+                </div>
+              )}
+              {selected.guide && (
+                <details className="rounded-[var(--radius-card)] border border-border-default bg-card p-3">
+                  <summary className="cursor-pointer text-body font-medium text-ink-secondary">
+                    How this works
+                  </summary>
+                  <div className="mt-2">
+                    <GuideText markdown={selected.guide} />
+                  </div>
+                </details>
+              )}
             </div>
 
             {selected.scope === 'pack' ? (
@@ -350,7 +398,7 @@ export function TemplateGalleryDialog({
               </div>
             )}
 
-            <label className="flex items-center gap-2 text-[13px] text-ink">
+            <label className="flex items-center gap-2 text-body text-ink">
               <input
                 type="checkbox"
                 checked={includeSamples}

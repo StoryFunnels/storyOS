@@ -240,6 +240,96 @@ describe('#418 GDPR erasure reaches the Members projection', () => {
   });
 });
 
+describe('#463 GDPR erasure clears custom Members columns, not just the fixed four', () => {
+  it('a custom column survives BEFORE erasure and is cleared AFTER — enumerated, not hardcoded', async () => {
+    const dbId = (await membersDb())!.id;
+    // An admin can add any column to Members today (ADR-0017 §7 — no write
+    // protection). This is exactly what admins are free to do, and the AC
+    // requires this specific reproduction: a custom column populated for a
+    // real member, still present right before the erasure runs.
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Home address',
+      type: 'text',
+    });
+
+    const victim = await signUpUser(app, 'CustomColumnVictim');
+    const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: victim.email,
+      role: 'member',
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(victim.token, 'POST', '/invites/accept', { token });
+    await settle();
+
+    const before = await rowFor(dbId, victim.email);
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${before!.id}`, {
+      values: { home_address: '12 Rue des Lilas, 75011 Paris, France' },
+    });
+
+    const populated = await rowFor(dbId, victim.email);
+    // BEFORE: the custom value really is there — a test that skips this would
+    // pass just as happily against a projection that never populated it.
+    expect(populated!.values['home_address']).toBe('12 Rue des Lilas, 75011 Paris, France');
+
+    const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json() as Array<{
+      id: string;
+      user: { email: string };
+    }>;
+    const membershipId = members.find((m) => m.user.email === victim.email)!.id;
+    const anon = await as(admin.token, 'POST', `/workspaces/${wsId}/members/${membershipId}/gdpr/anonymize`);
+    expect(anon.statusCode, anon.body).toBeLessThan(300);
+    await settle();
+
+    const erased = (await memberRows(dbId)).find((r) => r.title === 'Deleted user');
+    expect(erased, 'the row must still survive the erasure').toBeTruthy();
+    // AFTER: the custom column is gone — cleared, not merely blank because it
+    // was never checked. A hardcoded list of four columns would leave this set.
+    expect(erased!.values['home_address']).toBeFalsy();
+    // MUST-KEEP-WORKING, unaffected by the custom-column clearing:
+    expect(String(erased!.values['email'] ?? '')).toContain('@anonymized.invalid');
+    expect(erased!.values['active']).toBe(false);
+    expect(erased!.values['user_id']).toBeTruthy();
+  });
+
+  it('erasePii is idempotent — a second run on an already-cleared row does not error or resurrect anything', async () => {
+    const membersService = app.get(MembersDbService);
+    const dbId = (await membersDb())!.id;
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Desk number',
+      type: 'text',
+    });
+
+    const victim = await signUpUser(app, 'IdempotentErasure');
+    const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: victim.email,
+      role: 'member',
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(victim.token, 'POST', '/invites/accept', { token });
+    await settle();
+
+    const row = await rowFor(dbId, victim.email);
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${row!.id}`, {
+      values: { desk_number: '4B' },
+    });
+
+    const userId = row!.values['user_id'] as string;
+    // Two direct calls, mirroring the shape a person belonging to more than one
+    // workspace produces (one erasePii event per membership) — the second call
+    // must not throw on a column its own first run already nulled.
+    await expect(
+      membersService.erasePii(wsId, userId, 'deleted-x@anonymized.invalid', true),
+    ).resolves.not.toThrow();
+    await expect(
+      membersService.erasePii(wsId, userId, 'deleted-x@anonymized.invalid', true),
+    ).resolves.not.toThrow();
+
+    const erased = await memberRows(dbId).then((rows) => rows.find((r) => r.title === 'Deleted user'));
+    expect(erased!.values['desk_number']).toBeFalsy();
+    expect(erased!.values['user_id']).toBeTruthy();
+  });
+});
+
 describe('#419 a profile change reaches the Members projection', () => {
   it('an avatar change refreshes the row', async () => {
     const dbId = (await membersDb())!.id;

@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -6,22 +7,36 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  isFormFieldVisible,
   visibleFormFields,
+  type FilterNode,
   type FormVisibilityRule,
   type PublicFormVisibilityRule,
 } from '@storyos/schemas';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { BillingService } from '../billing/billing.service';
 import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
+import { databases, fields, memberships, records, relations, selectOptions, user, views } from '../db/schema';
+import { PortalActivityService } from '../portal/portal-activity.service';
+import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
+import { compileFilter } from '../records/query-compiler';
+import { cleanFilterNode } from '../views/views.service';
 
-/** Field types a public form can render/accept (MN-101, MN-224: relation + user). */
+/** Field types a public form can render/accept (MN-101, MN-224: relation + user;
+ *  #710: attachment, multipart-only — see `submit`'s `file` parameter).
+ *  #758 — `rich_text` deliberately absent: the API used to accept it here while
+ *  neither the public renderer nor the in-app builder ever produced a valid
+ *  block-array value for it (a plain-string submit 422s), and the sidebar
+ *  builder (`FORM_FIELD_TYPES`) never offered it — reachable only by a
+ *  pre-#224 form whose `card_field_ids` happened to include one. Dropped here
+ *  the same way a second attachment field is dropped below, rather than
+ *  rendering a control that's a guaranteed dead end. */
 const SUPPORTED = new Set([
   'title',
   'text',
-  'rich_text',
   'number',
   'date',
   'checkbox',
@@ -32,6 +47,7 @@ const SUPPORTED = new Set([
   'workflow',
   'user',
   'relation',
+  'attachment',
 ]);
 
 interface FormFieldCfg {
@@ -41,6 +57,14 @@ interface FormFieldCfg {
   help?: string;
   /** #263 — show this field only when an earlier answer matches. */
   visible_when?: FormVisibilityRule;
+  /** #500 — `required` only bites when this also holds (or is unset). */
+  required_when?: FormVisibilityRule;
+  /** #501 — narrows a relation field's picker; compiled against the relation's
+   *  TARGET database (never this form's own) — see `searchRelationCandidates`. */
+  relation_filter?: FilterNode;
+  /** #716 — never rendered; `value` is stamped server-side on every submission. */
+  hidden?: boolean;
+  value?: unknown;
 }
 
 /**
@@ -55,6 +79,9 @@ export class FormsService {
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
     private readonly billing: BillingService,
+    private readonly portalRecipients: PortalRecipientsService,
+    private readonly portalActivity: PortalActivityService,
+    private readonly attachments: AttachmentsService,
   ) {}
 
   /** Resolve a public token → its view + form config + database, or 404. */
@@ -73,6 +100,7 @@ export class FormsService {
       submit_text?: string;
       success_message?: string;
       redirect_url?: string;
+      theme?: Record<string, unknown>;
     };
     if (form.access !== 'link' && form.access !== 'public') {
       throw new NotFoundException('Form not found'); // members-only is not public
@@ -89,8 +117,15 @@ export class FormsService {
     return { view, form, database };
   }
 
-  /** The renderable form definition — no workspace internals leak beyond the fields. */
-  async getDefinition(token: string) {
+  /**
+   * The renderable form definition — no workspace internals leak beyond the
+   * fields. `includeHidden` defaults to false: a `hidden` field (#716) is
+   * never rendered to anyone, so the safe default excludes it entirely from
+   * the returned `fields` array, not merely from what's marked visible.
+   * `submit()` is the one caller that passes `true` — it needs a hidden
+   * field's stored `value` to stamp it onto the record being created.
+   */
+  async getDefinition(token: string, opts: { includeHidden?: boolean } = {}) {
     const { view, form, database } = await this.resolve(token);
     const fieldRows = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, database.id), isNull(fields.deletedAt)),
@@ -109,6 +144,20 @@ export class FormsService {
     let chosen = orderIds
       .map((id) => byId.get(id))
       .filter((f): f is (typeof fieldRows)[number] => Boolean(f) && SUPPORTED.has(f!.type));
+
+    // #710 — a public form supports at most ONE attachment field: the global
+    // multipart plugin caps a request at one file (app.setup.ts's `files: 1`,
+    // shared with the authenticated upload path, not a limit invented here).
+    // A second configured attachment field is dropped rather than rendered
+    // broken — the same silent-drop convention the relation case below uses
+    // for a field that can't actually work.
+    let seenAttachment = false;
+    chosen = chosen.filter((f) => {
+      if (f.type !== 'attachment') return true;
+      if (seenAttachment) return false;
+      seenAttachment = true;
+      return true;
+    });
 
     const selectIds = chosen
       .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
@@ -157,6 +206,7 @@ export class FormsService {
         target_database_name: string | null;
         target_database_color: string | null;
         single: boolean;
+        relation_filter?: FilterNode;
       }
     >();
     const targetDbIds = new Set<string>();
@@ -173,6 +223,7 @@ export class FormsService {
         target_database_name: null,
         target_database_color: null,
         single,
+        relation_filter: cfgById.get(f.id)?.relation_filter,
       });
     }
     if (targetDbIds.size) {
@@ -220,13 +271,21 @@ export class FormsService {
     // rather than merely intended, and it makes a rule cycle impossible by
     // construction (a field can never control itself or anything before it).
     const visibleWhenByField = new Map<string, PublicFormVisibilityRule>();
+    // #500 — `required_when` is translated by the exact same earlier-only rule,
+    // since it's the same rule shape gating a different thing (required, not shown).
+    const requiredWhenByField = new Map<string, PublicFormVisibilityRule>();
     const seenApiNames = new Set<string>();
-    for (const f of chosen) {
-      const rule = cfgById.get(f.id)?.visible_when;
+    const translateEarlierRule = (rule: FormVisibilityRule | undefined): PublicFormVisibilityRule | undefined => {
       const controller = rule ? chosen.find((c) => c.id === rule.field_id) : undefined;
-      if (rule && controller && seenApiNames.has(controller.apiName)) {
-        visibleWhenByField.set(f.id, { field: controller.apiName, op: rule.op, value: rule.value });
-      }
+      if (!rule || !controller || !seenApiNames.has(controller.apiName)) return undefined;
+      return { field: controller.apiName, op: rule.op, value: rule.value };
+    };
+    for (const f of chosen) {
+      const cfg = cfgById.get(f.id);
+      const visibleWhen = translateEarlierRule(cfg?.visible_when);
+      if (visibleWhen) visibleWhenByField.set(f.id, visibleWhen);
+      const requiredWhen = translateEarlierRule(cfg?.required_when);
+      if (requiredWhen) requiredWhenByField.set(f.id, requiredWhen);
       seenApiNames.add(f.apiName);
     }
 
@@ -237,6 +296,12 @@ export class FormsService {
       success_message: form.success_message ?? null,
       redirect_url: form.redirect_url ?? null,
       hide_branding: hideBranding,
+      // #711 phase 1 — how an EMBEDDED form should look on the host's page.
+      // Served to an unauthenticated visitor because it IS the presentation of
+      // the thing they were sent; it carries no workspace data. `?? null`
+      // rather than `?? {}`: an unthemed form must emit no style attribute at
+      // all, and the renderer distinguishes absent from empty (spec §2).
+      theme: form.theme ?? null,
       fields: chosen.map((f) => ({
         field_id: f.id,
         api_name: f.apiName,
@@ -251,6 +316,8 @@ export class FormsService {
         // dangling reference the renderer can't evaluate would hide the field
         // forever. Dropping only the DANGLING case, not merely-unconfigured ones.
         visible_when: visibleWhenByField.get(f.id),
+        // #500 — same dangling/forward-reference dropping as visible_when above.
+        required_when: requiredWhenByField.get(f.id),
         options: optsByField.get(f.id),
         relation: f.type === 'relation' ? relationInfoByField.get(f.id) : undefined,
         members: f.type === 'user' ? workspaceMembers : undefined,
@@ -258,7 +325,15 @@ export class FormsService {
         // exactly: the record write path rejects an array for a non-multi user
         // field (and vice versa), see coerce() in record-values.ts.
         multi: f.type === 'user' ? (f.config as { multi?: boolean }).multi === true : undefined,
-      })),
+        // #758 — the setting already exists on `text` fields (field-dialog's
+        // checkbox writes it); this is the first renderer to read it back.
+        multiline: f.type === 'text' ? (f.config as { multiline?: boolean }).multiline === true : undefined,
+        // #716 — present on every entry so `visibleFormFields`/submit() can
+        // read it; filtered out of the array entirely below unless the
+        // caller explicitly asked for hidden fields (submit() only).
+        hidden: cfgById.get(f.id)?.hidden ?? false,
+        value: cfgById.get(f.id)?.hidden ? cfgById.get(f.id)?.value : undefined,
+      })).filter((f) => opts.includeHidden || !f.hidden),
     };
   }
 
@@ -277,8 +352,27 @@ export class FormsService {
 
   /** Candidate records for a public form's relation field (title search, MN-224). */
   async searchRelationCandidates(token: string, fieldId: string, q?: string) {
-    const { target_database_id } = await this.resolveRelationField(token, fieldId);
-    const page = await this.records.list(target_database_id, { limit: 20, q });
+    const { target_database_id, relation_filter } = await this.resolveRelationField(token, fieldId);
+    if (!relation_filter) {
+      const page = await this.records.list(target_database_id, { limit: 20, q });
+      return page.data.map((r) => ({ id: r.id, title: r.title, number: r.number }));
+    }
+    // #501 — narrows the picker to the form owner's stored filter, compiled
+    // against the TARGET database's live fields. Defensively cleaned first
+    // (same as a view's own `filters`, cleanFilterNode) so a field the target
+    // database has since dropped degrades to a narrower-but-working filter
+    // rather than throwing at a public, unauthenticated visitor.
+    const targetFields = await this.records.fieldDefs(target_database_id);
+    const liveApiNames = new Set(targetFields.map((f) => f.api_name));
+    const cleaned = cleanFilterNode(relation_filter, liveApiNames) as typeof relation_filter | undefined;
+    const page = await this.records.query(
+      target_database_id,
+      { filter: cleaned, sorts: [], q, limit: 20 },
+      // No signed-in visitor to resolve a "me" condition against — compileFilter
+      // only reads this for user/created_by/updated_by conditions, where it
+      // will simply never match a real id rather than crashing.
+      '',
+    );
     return page.data.map((r) => ({ id: r.id, title: r.title, number: r.number }));
   }
 
@@ -299,31 +393,140 @@ export class FormsService {
     return { id: created.id, title: created.title, number: created.number };
   }
 
-  /** Validate + create a record from a public submission (anonymous author). */
-  async submit(token: string, values: Record<string, unknown>, honeypot?: string) {
+  /**
+   * #538 — resolve a portal recipient's bearer token against the form's OWN
+   * view (`config.share.recipient_scope_field_api_name` — the SAME key
+   * `PublicViewsService` reads for the read side, so a view is a portal
+   * consistently for both reading and writing rather than needing a second,
+   * form-specific config to stay in sync with the first). Returns undefined
+   * for an ordinary (non-portal) public form. Throws (and logs, once a real
+   * recipient row exists to attribute the rejection to) on every failure
+   * mode: wrong workspace, a scope field that no longer exists, or a
+   * recipient with no usable value for it — fail CLOSED, same posture as the
+   * read path's `IMPOSSIBLE_CONDITION`, because a write has no safe "matches
+   * nothing" degradation to fall back on.
+   */
+  private async resolvePortalScope(
+    view: typeof views.$inferSelect,
+    database: typeof databases.$inferSelect,
+    recipientToken: string | undefined,
+  ): Promise<
+    | { recipient: Awaited<ReturnType<PortalRecipientsService['resolveByToken']>>; scopeFieldApiName: string; scopeFieldType: string; stampValue: unknown }
+    | undefined
+  > {
+    const share = ((view.config as Record<string, unknown>).share ?? {}) as { recipient_scope_field_api_name?: string };
+    const scopeFieldApiName = share.recipient_scope_field_api_name;
+    if (!scopeFieldApiName) return undefined;
+
+    if (!recipientToken) throw new ForbiddenException('recipient required');
+    const recipient = await this.portalRecipients.resolveByToken(recipientToken);
+
+    const reject = async (reason: string) => {
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: recipient.id,
+        viewId: view.id,
+        outcome: 'rejected',
+        reason,
+      });
+      throw new ForbiddenException('invalid recipient');
+    };
+    // Defense in depth, same check as the read path: a recipient token is
+    // only ever minted for one workspace.
+    if (recipient.workspaceId !== database.workspaceId) await reject('recipient belongs to a different workspace');
+
+    const defs = await this.records.fieldDefs(database.id);
+    const scopeField = defs.find((f) => f.api_name === scopeFieldApiName);
+    if (!scopeField) await reject('portal scope field no longer exists');
+
+    const stampValue = scopeField!.type === 'relation' ? recipient.linkedRecordId ?? null : recipient.email ?? null;
+    if (stampValue == null) await reject('recipient has no usable value for the portal scope field');
+
+    return {
+      recipient,
+      scopeFieldApiName,
+      scopeFieldType: scopeField!.type,
+      stampValue: scopeField!.type === 'relation' ? [stampValue] : stampValue,
+    };
+  }
+
+  /**
+   * Validate + create (or, portal-scoped, edit) a record from a public
+   * submission (anonymous author).
+   *
+   * #538 — `recipientToken`/`recordId` are both new and both optional: an
+   * ordinary public form never supplies either, so its behavior is byte-for-
+   * byte unchanged (MUST KEEP WORKING). Editing is a portal-only capability —
+   * `recordId` on a form whose view isn't portal-scoped is a 422, not a
+   * silent no-op or a generic write.
+   *
+   * #710 — `file` is new and optional: an ordinary JSON submission never
+   * supplies it, so that path is byte-for-byte unchanged (MUST KEEP WORKING).
+   * An attachment field has no representation in `records.values` at all
+   * (files live in the separate `attachments` table, keyed by record+field —
+   * see AttachmentsService) — it is handled entirely out of band from
+   * `values`/`clean` below, never written into the record's jsonb.
+   */
+  async submit(
+    token: string,
+    values: Record<string, unknown>,
+    honeypot?: string,
+    recipientToken?: string,
+    recordId?: string,
+    file?: { filename: string; mime: string; data: Buffer },
+  ) {
     // Bots fill hidden fields — accept and silently drop so they don't retry.
     if (honeypot && honeypot.trim() !== '') return { ok: true };
 
-    const def = await this.getDefinition(token);
-    const { database } = await this.resolve(token);
+    // #716 — includeHidden: true, since this is the ONE caller that needs a
+    // hidden field's stored `value` to stamp it below. Every other caller of
+    // getDefinition() (the public GET, resolveRelationField) uses the safe
+    // default (false) — a hidden field is never rendered or searchable.
+    const def = await this.getDefinition(token, { includeHidden: true });
+    const { view, database } = await this.resolve(token);
+
+    const portal = await this.resolvePortalScope(view, database, recipientToken);
+    if (!portal && recordId) {
+      throw new UnprocessableEntityException('this form does not support editing a record');
+    }
 
     // #263 — resolve which fields the submitted answers actually reveal. This is
     // the SAME evaluator the renderer uses (packages/schemas), so the browser and
     // the server can't drift into disagreeing about what was on screen.
     const visible = visibleFormFields(def.fields, values);
     const visibleNames = new Set(visible.map((f) => f.api_name));
+    const attachmentField = visible.find((f) => f.type === 'attachment');
+
+    // #710 — a file with nowhere to go is a submitter-facing mistake worth
+    // naming, not a silent drop: the file would otherwise vanish with no
+    // signal anyone chose that.
+    if (file && !attachmentField) {
+      throw new UnprocessableEntityException('this form has no attachment field');
+    }
 
     // Enforce the form's own required flags (a form concern, not a DB constraint)
     // — but only for fields the submitter could actually SEE. A required field
     // hidden by its own rule would otherwise make the form unsubmittable, which
     // is the obvious way conditional forms break.
+    // #500 — `required` alone is no longer the full story: a field's own
+    // required_when (the SAME evaluator visibility already trusts) can turn its
+    // required-ness off even while the field itself stays visible. Independently
+    // re-derived here rather than trusting a client claim, same reasoning as
+    // `visible` above.
+    // #710 — attachment is excluded from this values-keyed check: its answer
+    // never lives in `values` (file bytes aren't JSON), so it's checked
+    // separately against `file` right below instead.
     const missing = visible
-      .filter((f) => f.required)
+      .filter((f) => f.type !== 'attachment')
+      .filter((f) => f.required && isFormFieldVisible(f.required_when, values))
       .filter((f) => {
         const v = values[f.api_name];
         return v == null || v === '' || (Array.isArray(v) && v.length === 0);
       })
       .map((f) => f.label);
+    if (attachmentField?.required && isFormFieldVisible(attachmentField.required_when, values) && !file) {
+      missing.push(attachmentField.label);
+    }
     if (missing.length) {
       throw new UnprocessableEntityException(`Required: ${missing.join(', ')}`);
     }
@@ -331,12 +534,167 @@ export class FormsService {
     // Only accept values for fields the form exposes AND the rules reveal (#263):
     // a hidden field's value is refused server-side, so hiding is a real gate and
     // not merely a client-side courtesy a crafted POST could walk straight past.
-    const allowed = visibleNames;
+    // #710 — the attachment field's api_name is excluded even though it's
+    // visible: it has no jsonb representation (see the method doc comment),
+    // so letting it through here would try to write a bogus value into a
+    // column shape that doesn't exist for that type.
+    const allowed = new Set([...visibleNames].filter((name) => name !== attachmentField?.api_name));
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) if (allowed.has(k)) clean[k] = v;
 
+    // #716 AC1 — THE VALUE IS APPLIED SERVER-SIDE FROM STORED CONFIG AND IS
+    // NEVER ACCEPTED FROM THE SUBMISSION BODY. A hidden field's api_name is
+    // never in `allowed` above (it's excluded from `visible`/`visibleNames`
+    // by visibleFormFields, #716), so nothing the client submitted under
+    // that key ever reached `clean` — this unconditionally stamps the real,
+    // stored value in, the same "server always wins" pattern the portal
+    // scope-stamp below already uses. Runs before enforceRelationFilters so
+    // a stamped relation value gets the same relation_filter check as any
+    // other relation value in `clean`; existence/cross-database validation
+    // for it happens both here (RecordsService.create's ordinary relation-
+    // write path, same as any visible relation field) and, per AC4, at
+    // config-save time (views.service.ts's validateConfig).
+    for (const f of def.fields) {
+      if (!f.hidden || f.value === undefined) continue;
+      // A relation field's write path (RecordsService.planLinks) always
+      // expects an array, even for a single-valued (cardinality one_to_many,
+      // side a) field — the single-vs-multi distinction is enforced by
+      // cardinality, not by the wire shape.
+      clean[f.api_name] = f.type === 'relation' && !Array.isArray(f.value) ? [f.value] : f.value;
+    }
+
+    // #501 (Vera's AC5 finding) — a relation_filter narrows the SEARCH endpoint
+    // only; nothing stopped a crafted POST naming a filtered-out id directly,
+    // skipping the search step entirely. Re-derive the same filter here and
+    // reject any submitted id that doesn't satisfy it, server-side, before the
+    // record (and its link) is ever created.
+    // #716 — visible fields PLUS hidden ones, so a stamped fixed relation
+    // value gets the same relation_filter check as any visible relation
+    // value in `clean` (config-save time separately validates the value
+    // exists at all — this covers a filter narrower than "exists").
+    await this.enforceRelationFilters(
+      def.fields.filter((f) => visibleNames.has(f.api_name) || f.hidden),
+      clean,
+    );
+
+    // #538 — the scope field is NEVER client-controlled: whatever the client
+    // submitted for it (present, absent, or forged) is discarded and replaced
+    // with the server-derived value. This is what makes "cannot alter the
+    // attribution" hold even if the operator's own form happens to expose
+    // that field, and even though it was already dropped once above by the
+    // visible-fields allowlist if the operator DIDN'T expose it.
+    if (portal) clean[portal.scopeFieldApiName] = portal.stampValue;
+
+    if (portal && recordId) {
+      // #538 — a relation field's value lives in `record_links`, not the raw
+      // `records.values` jsonb (that only holds scalar field values); reading
+      // the raw row directly, as `enforceRelationFilters` does for scalar
+      // relation-id INPUTS, would see nothing for it. `RecordsService.get()`
+      // is the same projection/attachLinks pipeline the read API uses (no
+      // membership — same "no signed-in visitor" posture as the public views
+      // read path), so a relation scope field resolves to real linked-record
+      // ids here exactly as `enforceRelationFilters` and `getPublicView`
+      // already trust it to.
+      let target: Awaited<ReturnType<RecordsService['get']>> | undefined;
+      try {
+        target = await this.records.get(database.id, recordId);
+      } catch {
+        target = undefined;
+      }
+      const currentScopeVal = target?.values[portal.scopeFieldApiName];
+      const ownsRecord =
+        portal.scopeFieldType === 'relation'
+          ? (Array.isArray(currentScopeVal) ? currentScopeVal : currentScopeVal != null ? [currentScopeVal] : [])
+              .map((v) => (v && typeof v === 'object' && 'id' in v ? (v as { id: string }).id : v))
+              .includes(portal.recipient.linkedRecordId)
+          : currentScopeVal === portal.recipient.email;
+      if (!target || !ownsRecord) {
+        await this.portalActivity.record({
+          workspaceId: database.workspaceId,
+          recipientId: portal.recipient.id,
+          viewId: view.id,
+          outcome: 'rejected',
+          reason: target ? 'record does not belong to this recipient' : 'record not found',
+        });
+        throw new NotFoundException('Record not found');
+      }
+      const updated = await this.records.update(database.workspaceId, database.id, recordId, clean, null);
+      if (file && attachmentField) {
+        await this.attachments.upload(database.workspaceId, updated.id, file, null, attachmentField.field_id, 'human');
+      }
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: portal.recipient.id,
+        viewId: view.id,
+        outcome: 'served',
+        reason: 'portal form edit',
+      });
+      return { ok: true, id: updated.id };
+    }
+
     // Anonymous author: createdBy/actor is null (renders as a deactivated user).
     const created = await this.records.create(database.workspaceId, database.id, clean, null);
+    // #710 — attached to the just-created record, same reuse of the
+    // authenticated upload path (size cap, storage, thumbnail) noted above.
+    if (file && attachmentField) {
+      await this.attachments.upload(database.workspaceId, created.id, file, null, attachmentField.field_id, 'human');
+    }
+    if (portal) {
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: portal.recipient.id,
+        viewId: view.id,
+        outcome: 'served',
+        reason: 'portal form create',
+      });
+    }
     return { ok: true, id: created.id };
+  }
+
+  /**
+   * #501 — the write-path counterpart to `searchRelationCandidates`'s read-path
+   * narrowing. Re-derives each visible relation field's `relation_filter` the
+   * SAME way (cleaned against the target database's live fields) and rejects
+   * any submitted id that isn't both present in the target database and a
+   * match for the filter. A field with no filter, or one that cleans away to
+   * nothing (dangling reference), is left unrestricted — same degrade as the
+   * search path.
+   */
+  private async enforceRelationFilters(
+    visibleFields: Awaited<ReturnType<FormsService['getDefinition']>>['fields'],
+    clean: Record<string, unknown>,
+  ) {
+    for (const f of visibleFields) {
+      if (f.type !== 'relation' || !f.relation?.relation_filter) continue;
+      const raw = clean[f.api_name];
+      if (raw == null) continue;
+      const ids = (Array.isArray(raw) ? raw : [raw]).filter((v): v is string => typeof v === 'string');
+      if (!ids.length) continue;
+
+      const targetDefs = await this.records.fieldDefs(f.relation.target_database_id);
+      const liveApiNames = new Set(targetDefs.map((d) => d.api_name));
+      const cleaned = cleanFilterNode(f.relation.relation_filter, liveApiNames) as FilterNode | undefined;
+      if (!cleaned) continue;
+      const byApiName = new Map(targetDefs.map((d) => [d.api_name, d]));
+      const condition = compileFilter(cleaned, { defs: byApiName, currentUserId: '' });
+
+      const matches = await this.db
+        .select({ id: records.id })
+        .from(records)
+        .where(
+          and(
+            eq(records.databaseId, f.relation.target_database_id),
+            isNull(records.deletedAt),
+            inArray(records.id, ids),
+            condition,
+          ),
+        );
+      const matchedIds = new Set(matches.map((m) => m.id));
+      if (ids.some((id) => !matchedIds.has(id))) {
+        throw new UnprocessableEntityException(
+          `"${f.label ?? f.api_name}" contains a value that is not allowed`,
+        );
+      }
+    }
   }
 }

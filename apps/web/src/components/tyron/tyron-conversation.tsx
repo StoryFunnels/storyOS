@@ -5,8 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
 import { AgentAvatar } from './agent-avatar';
 import { useRememberedThread } from '@/lib/tyron-thread';
+import { takePendingBuild } from '@/lib/pending-build';
 import { composerHeight } from './composer-height';
 import { ThreadMenu } from './thread-menu';
 import { StarterCards } from './starter-cards';
@@ -39,6 +41,14 @@ export function TyronConversation({ ws }: { ws: string }) {
    * lost; it was unreachable.
    */
   const { threadId, setThreadId, hydrated } = useRememberedThread(ws);
+  /*
+   * #217 — read (and clear) exactly once, on this component's own mount.
+   * The layout already forced the panel `full` on the same signal
+   * (`peekPendingBuild`, read-only there); this is the ONE consumption, so a
+   * later remount of this same conversation (closing/reopening the panel)
+   * never re-triggers a build the user did not ask for twice.
+   */
+  const [pendingBuild] = useState<string | null>(() => takePendingBuild(ws));
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -216,7 +226,7 @@ export function TyronConversation({ ws }: { ws: string }) {
           the buttons could live one row higher would spread the state for a
           cosmetic gain. */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-default px-3 py-1.5">
-        <span className="min-w-0 truncate text-[12px] text-muted" title={thread.data?.title}>
+        <span className="min-w-0 truncate text-label text-muted" title={thread.data?.title}>
           {thread.data?.title ?? 'New conversation'}
         </span>
         <ThreadMenu ws={ws} threadId={threadId} onPick={setThreadId} />
@@ -236,7 +246,7 @@ export function TyronConversation({ ws }: { ws: string }) {
            * build a workspace to someone who already has one reads as an offer to
            * replace it.
            */
-          <p className="text-[13px] text-muted">Ask about your data, or tell me what to change.</p>
+          <p className="text-body text-muted">Ask about your data, or tell me what to change.</p>
         )}
         {/*
          * #363 — OUTSIDE the empty-state branch, and that placement is the fix.
@@ -273,6 +283,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               onAsk={(text) => send.mutate(text)}
               onBuilt={() => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] })}
               busy={send.isPending}
+              autoOpenBuild={pendingBuild ?? undefined}
             />
           </div>
         )}
@@ -287,7 +298,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               <div className="min-w-0">
                 <p
                   className={cn(
-                    'whitespace-pre-wrap text-[13px]',
+                    'whitespace-pre-wrap text-body',
                     m.role === 'assistant' ? 'text-ink' : 'text-ink-secondary',
                   )}
                 >
@@ -308,7 +319,7 @@ export function TyronConversation({ ws }: { ws: string }) {
                   relabelling its own history.
                 */}
                 {m.role === 'assistant' && m.model ? (
-                  <p className="mt-1 text-[11px] text-faint">Answered by {m.model}</p>
+                  <p className="mt-1 text-meta text-faint">Answered by {m.model}</p>
                 ) : null}
               </div>
             </div>
@@ -336,30 +347,30 @@ export function TyronConversation({ ws }: { ws: string }) {
               and Cancel is the quiet one, so the safe action is the easy one.
             */
             <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover p-2">
-              <span className="min-w-0 flex-1 text-[13px] text-ink">{question.message}</span>
+              <span className="min-w-0 flex-1 text-body text-ink">{question.message}</span>
               <button
                 type="button"
                 onClick={() => confirm.mutate(false)}
-                className="rounded-[var(--radius-control)] px-2 py-1 text-[12px] text-muted hover:bg-active hover:text-ink"
+                className="rounded-[var(--radius-control)] px-2 py-1 text-label text-muted hover:bg-active hover:text-ink"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => confirm.mutate(true)}
-                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-[12px] font-medium text-[var(--on-accent,#fff)]"
+                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--on-accent,#fff)]"
               >
                 Yes, do it
               </button>
             </div>
           )}
           {confirm.isError && (
-            <p className="text-[13px] text-error">
+            <p className="text-body text-error">
               {apiErrorMessage(confirm.error, "I couldn't finish that just now.")}
             </p>
           )}
           {send.isError && (
-            <p className="text-[13px] text-error">
+            <p className="text-body text-error">
               {/*
                 `apiErrorMessage` — the SHARED helper, not a hand-rolled reader.
                 The first version of this checked `err.message`, which is not
@@ -379,9 +390,10 @@ export function TyronConversation({ ws }: { ws: string }) {
 
       <div className="shrink-0 border-t border-border-default p-3">
         <div className="flex items-end gap-2">
-          <textarea
+          <Textarea
             ref={composerRef}
             rows={1}
+            size="default"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -394,7 +406,9 @@ export function TyronConversation({ ws }: { ws: string }) {
             }}
             placeholder="Ask Tyron…"
             aria-label="Message Tyron"
-            className="max-h-32 min-h-8 flex-1 resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            // #689 — bespoke min/max-height: a chat composer that grows with
+            // content up to a cap, not a fixed prose box.
+            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
           />
           <button
             type="button"

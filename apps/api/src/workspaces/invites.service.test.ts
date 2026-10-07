@@ -3,13 +3,19 @@ import type { Db } from '../db/client';
 import type { AccessService } from '../access/access.service';
 import type { BillingService } from '../billing/billing.service';
 import type { EntitlementsService } from '../billing/entitlements.service';
+import type { SalesSignalService } from '../billing/sales-signal.service';
 import type { EmailService } from '../mail/email.service';
 import type { MembershipEventsService } from '../events/membership-events.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import { InvitesService, INVITE_TTL_MS } from './invites.service';
 
-/** InvitesService.create() never emits (only accept() does), but the constructor
- *  requires the membership-event bus — a no-op stub satisfies both call sites. */
+/** InvitesService.create() never emits or notifies (only accept() does), but the
+ *  constructor requires both collaborators — no-op stubs satisfy every call site here. */
 const membershipEvents = { emit: () => undefined } as unknown as MembershipEventsService;
+const notifications = { notify: vi.fn().mockResolvedValue(undefined) } as unknown as NotificationsService;
+/** #650 AC2 — create() only calls this on the free-seats-blocked path, none of
+ *  which this file's tests exercise; a no-op stub satisfies the constructor. */
+const salesSignal = { maybeFire: vi.fn().mockResolvedValue(undefined) } as unknown as SalesSignalService;
 
 /** A db stub covering exactly the calls InvitesService.create() makes: the
  * "is there already a pending invite for this address" lookup, then either an
@@ -45,8 +51,10 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as AccessService,
       {} as unknown as BillingService,
       entitlements,
+      salesSignal,
       emailService,
       membershipEvents,
+      notifications,
     );
 
     const result = await service.create('ws1', 'admin1', { email: 'New@Example.com', role: 'member' });
@@ -75,8 +83,10 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as AccessService,
       {} as unknown as BillingService,
       { can: vi.fn() } as unknown as EntitlementsService,
+      salesSignal,
       emailService,
       membershipEvents,
+      notifications,
     );
 
     await expect(service.resend('ws1', 'inv1')).rejects.toMatchObject({ status: 429 });
@@ -106,8 +116,10 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as AccessService,
       {} as unknown as BillingService,
       { can: vi.fn() } as unknown as EntitlementsService,
+      salesSignal,
       emailService,
       membershipEvents,
+      notifications,
     );
 
     const result = await service.resend('ws1', 'inv1');
@@ -123,8 +135,10 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as AccessService,
       {} as unknown as BillingService,
       entitlements,
+      salesSignal,
       emailService,
       membershipEvents,
+      notifications,
     );
 
     await expect(

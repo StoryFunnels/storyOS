@@ -28,7 +28,7 @@ StoryOS is a connected-database work OS, open source and API-first. You define d
 - **Databases & fields** — text, rich text, number, checkbox, date, select, multi-select, URL, email, person, relation, lookup, rollup, formula, button. Schema changes are runtime API calls, not migrations.
 - **Relations** — first-class, paired on both sides (a Project sees its Tasks, a Task sees its Project), one-to-many or many-to-many, across spaces.
 - **Lookups & rollups** — surface a related record's field, or aggregate related records (count / sum / avg / min / max).
-- **Formulas** — `{Allocation} - {Days Used}`, `days_between(today(), {Due})`, 19 functions, 5-level chains. [Docs →](docs/product/formulas.md)
+- **Formulas** — `{Allocation} - {Days Used}`, `days_between(today(), {Due})`, 30+ functions, 5-level chains. [Docs →](https://docs.storyos.dev/concepts/formulas/)
 - **Views** — table (virtualized, inline editing, multi-select batch edits), kanban with drag-and-drop, and calendar with drag-to-reschedule. Saved filters and sorts per view.
 - **Entity pages** — every record is a page: fields, rich-text description, attachments, comments with @mentions, and a full activity trail.
 
@@ -37,17 +37,17 @@ StoryOS is a connected-database work OS, open source and API-first. You define d
 
 **Working in it**
 - **Templates** — 19 installable packs (client work, sales CRM, content pipeline, social calendar, meetings, org chart, time off, dev project…), each with sample data and a built-in guide. [Library →](docs/product/template-library.md)
-- **Automations & buttons** — trigger on record changes or a schedule; buttons run actions with one click. [Docs →](docs/product/automations.md)
+- **Automations & buttons** — trigger on record changes or a schedule; buttons run actions with one click. [Docs →](https://docs.storyos.dev/concepts/automations/)
 - **Cmd+K** — palette with search, navigation, and recents. Inbox and My Work views for notifications and assignments.
 - **Guests & granular access** — invite a client into exactly one space with viewer → commenter → editor → creator grants. Everything else is invisible to them.
-- **CSV import** — with type inference, relation matching by title, and a dry run. [Migrate your data →](docs/product/migrate-data.md)
+- **CSV import** — with type inference, relation matching by title, and a dry run. [Migrate your data →](https://docs.storyos.dev/guides/migrate-data/)
 
 ![Template gallery](docs/assets/template-gallery.png)
 ![Content calendar](docs/assets/calendar-view.png)
 
 **Integrations**
 - **GitHub** — import & refresh Issues and PRs; PRs auto-link to issues referenced by `#N` in the title or the issue number in the branch name. Your token stays on your server.
-- **Linear** — one-shot migration: each team becomes a space with Issues, Sprints, and Projects; states, priorities, sub-issues, and links preserved; idempotent re-import. [Mapping table →](docs/product/migrate-from-linear.md)
+- **Linear** — one-shot migration: each team becomes a space with Issues, Sprints, and Projects; states, priorities, sub-issues, and links preserved; idempotent re-import. [Mapping table →](https://docs.storyos.dev/guides/migrate-from-linear/)
 
 ![Integrations](docs/assets/integrations.png)
 
@@ -103,8 +103,9 @@ or required.
 | [packages/schemas](packages/schemas/) | Shared zod schemas + the formula engine |
 | [packages/sdk](packages/sdk/) | Typed client generated from the OpenAPI spec |
 | [packages/mcp](packages/mcp/) | **MCP server** — use StoryOS from Claude / any MCP client ([setup](packages/mcp/README.md)) |
+| [apps/docs](apps/docs/) | The public docs site — **[docs.storyos.dev](https://docs.storyos.dev)**. Product guides, concepts, API and MCP reference. |
 | [docs/self-hosting.md](docs/self-hosting.md) | Install, configure, backup, upgrade |
-| [docs/product/](docs/product/) | Vision, formulas, automations, templates, migration guides |
+| [docs/product/](docs/product/) | **Internal** — vision, planning, and specs for work not yet built or not meant for a public page. Published product docs live in [apps/docs](apps/docs/) instead; see [docs/product/README.md](docs/product/README.md). |
 | [docs/architecture/](docs/architecture/) | Meta-model, record storage, API conventions, auth |
 | [docs/decisions/](docs/decisions/) | ADRs — the decisions we don't relitigate |
 | [docs/api/](docs/api/) | API guides: auth, querying, build an MCP server |

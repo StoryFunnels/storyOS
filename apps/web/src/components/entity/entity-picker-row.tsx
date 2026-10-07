@@ -45,12 +45,12 @@ export function EntityPickerRow({
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[13px] text-ink transition-colors',
+        'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink transition-colors',
         active ? 'bg-accent-soft' : 'hover:bg-hover',
       )}
     >
       {icon != null && (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[13px] text-muted">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-body text-muted">
           {icon}
         </span>
       )}
@@ -61,7 +61,7 @@ export function EntityPickerRow({
         )}
       </span>
       {idChip != null && idChip !== '' && (
-        <span className="ml-2 shrink-0 tabular-nums text-[11px] text-faint">#{idChip}</span>
+        <span className="ml-2 shrink-0 tabular-nums text-meta text-faint">#{idChip}</span>
       )}
       {trailing != null && <span className="ml-1.5 shrink-0">{trailing}</span>}
     </button>

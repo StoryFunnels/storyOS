@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 // Leaf module, not cells.tsx: this value is read at MODULE SCOPE below, and
 // importing it from cells.tsx forms a cycle that leaves it in its temporal dead
 // zone on any route where cells.tsx evaluates first (see option-colors.ts).
@@ -87,7 +88,7 @@ export function IconColorPicker({
     <div className="flex w-72 flex-col gap-2">
       <div className="flex items-center gap-2">
         <IconPreview icon={icon} color={color} />
-        <p className="flex-1 text-[12px] font-medium text-muted">Icon</p>
+        <p className="flex-1 text-label font-medium text-muted">Icon</p>
       </div>
 
       <Input
@@ -161,14 +162,14 @@ export function IconColorPicker({
             );
           })}
           {icons.length === 0 && brandIcons.length === 0 && (
-            <p className="col-span-8 p-2 text-[12px] text-muted">No matches.</p>
+            <p className="col-span-8 p-2 text-label text-muted">No matches.</p>
           )}
         </div>
       </div>
 
       {showColor && (
       <div className="border-t border-border-default pt-2">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Background</p>
+        <p className="mb-1 text-meta font-medium uppercase tracking-wider text-muted">Background</p>
         <div className="flex gap-1">
           {COLOR_NAMES.map((c) => (
             <button
@@ -189,7 +190,7 @@ export function IconColorPicker({
       )}
       <button
         type="button"
-        className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
+        className="self-start text-label text-muted underline-offset-2 hover:underline"
         onClick={() => onChange({ icon: null, color: null })}
       >
         {showColor ? 'Remove icon & color' : 'Remove icon'}
@@ -212,7 +213,7 @@ function CatChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-full px-2 py-0.5 text-[11px]',
+        'rounded-full px-2 py-0.5 text-meta',
         active ? 'bg-accent-soft font-medium text-ink' : 'text-muted hover:bg-hover',
       )}
     >
@@ -226,10 +227,19 @@ function IconPreview({ icon, color }: { icon: string | null; color: string | nul
   const hex = color ? OPTION_COLORS[color] : null;
   return (
     <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
-      style={hex ? { backgroundColor: `${hex}22`, color: hex } : undefined}
+      className="option-tint flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
+      /* #638 — same tint-plus-own-colour pattern as OptionChip, so it takes the
+         same shared derivation. Lower severity here (the content is a 20px icon,
+         and WCAG's threshold for non-text graphics is 3:1 rather than 4.5), but
+         a second mechanism for one identical case is how these drift apart. */
+      style={
+        hex
+          ? ({ backgroundColor: `${hex}22`, ['--option-color' as string]: hex } as CSSProperties)
+          : undefined
+      }
     >
-      <EntityIcon icon={icon} color={color} size={20} fallback={<span className="text-faint">?</span>} />
+      <EntityIcon icon={icon} color={color} size={20} /* #637: decorative — a "no icon yet" glyph, carrying no affordance. */
+        fallback={<span className="text-faint">?</span>} />
     </div>
   );
 }
@@ -354,7 +364,7 @@ export function EntityIcon({
     return (
       <span
         className={cn(
-          'inline-flex w-4 shrink-0 items-center justify-center text-[14px] leading-none',
+          'inline-flex w-4 shrink-0 items-center justify-center text-prose leading-none',
           className,
         )}
         style={size ? { fontSize: size } : undefined}

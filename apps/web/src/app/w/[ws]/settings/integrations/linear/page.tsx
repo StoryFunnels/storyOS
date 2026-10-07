@@ -125,7 +125,7 @@ export default function LinearIntegrationPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link
         href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
@@ -133,12 +133,12 @@ export default function LinearIntegrationPage() {
         <ArrowDownToLine className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Linear (import)</h1>
         {config.data?.has_key && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
             connected
           </span>
         )}
       </div>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 text-body text-muted">
         One-shot migration: each Linear team becomes a space with Issues, Sprints (from cycles) and
         Projects — states and priorities mapped, sub-issues and links preserved. Re-import updates
         instead of duplicating. Preview first, then import.
@@ -172,8 +172,8 @@ export default function LinearIntegrationPage() {
         <div className="mb-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-4 sm:flex-row sm:items-center">
           <Sparkles className="h-5 w-5 shrink-0 text-ink" />
           <div className="flex-1">
-            <p className="text-[13px] font-semibold text-ink">You&apos;re already connected.</p>
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body font-semibold text-ink">You&apos;re already connected.</p>
+            <p className="text-body text-ink-secondary">
               Nothing else to fill in — click Preview import to see what would come in from Linear.
             </p>
           </div>
@@ -239,7 +239,7 @@ export default function LinearIntegrationPage() {
           </Button>
         </div>
         {preview && (
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-canvas p-3 text-[13px] text-ink-secondary">
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-canvas p-3 text-body text-ink-secondary">
             {preview.map((t) => (
               <p key={t.key}>
                 <strong>{t.name}</strong> ({t.key}): {t.issues} issues, {t.sprints} sprints,{' '}
@@ -252,7 +252,7 @@ export default function LinearIntegrationPage() {
           </div>
         )}
         {imported && (
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             Done: <strong>{imported.issues}</strong> issues, <strong>{imported.sprints}</strong>{' '}
             sprints, <strong>{imported.projects}</strong> projects. Assignee names landed in a text
             field — invite your team and reassign from there.

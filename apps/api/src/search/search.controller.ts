@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, records, selectOptions, spaces } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AuthGuard } from '../auth/auth.guard';
 import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
@@ -53,25 +54,16 @@ export class SearchController {
     }));
   }
 
-  /** Databases the caller may see, or null for members/admins (= all). */
+  /**
+   * Databases the caller may see, or null for members/admins (= all).
+   *
+   * #469 — this used to compute the guest/space/database intersection inline,
+   * a second copy of the same logic mentions.service.ts also carried inline.
+   * Both now go through AccessService.visibleDatabaseIds.
+   */
   private async visibleDatabaseIds(req: WorkspaceRequest): Promise<string[] | null> {
-    const visibility = await this.access.guestVisibility(req.membership);
-    if (!visibility) return null;
-    const rows = await this.db.query.databases.findMany({
-      where: and(
-        eq(databases.workspaceId, req.membership.workspaceId),
-        visibility.spaceIds.size > 0 && visibility.databaseIds.size > 0
-          ? or(
-              inArray(databases.spaceId, [...visibility.spaceIds]),
-              inArray(databases.id, [...visibility.databaseIds]),
-            )
-          : visibility.spaceIds.size > 0
-            ? inArray(databases.spaceId, [...visibility.spaceIds])
-            : inArray(databases.id, [...visibility.databaseIds.size ? visibility.databaseIds : new Set([''])]),
-      ),
-      columns: { id: true },
-    });
-    return rows.map((r) => r.id);
+    const ids = await this.access.visibleDatabaseIds(req.membership);
+    return ids === null ? null : [...ids];
   }
 
   @Get('search')
@@ -81,7 +73,12 @@ export class SearchController {
     if (!query) return { records: [], places: [] };
     const workspaceId = req.membership.workspaceId;
     const visible = await this.visibleDatabaseIds(req);
-    if (visible !== null && visible.length === 0) return { records: [], places: [] };
+    // #474 phase 4 — a record-scoped grant (#472) names one record, not a
+    // whole database: OR'd in alongside `visible` below so that record is
+    // findable without widening the whole database into scope.
+    const recordGrantIds = await this.access.guestRecordGrantIds(req.membership);
+    const hasRecordGrants = Boolean(recordGrantIds?.size);
+    if (visible !== null && visible.length === 0 && !hasRecordGrants) return { records: [], places: [] };
 
     // LIKE metacharacters must be neutralised for both the match and the ranking
     // predicates below — a title containing "%" must not turn into a wildcard.
@@ -112,7 +109,14 @@ export class SearchController {
           eq(databases.workspaceId, workspaceId),
           isNull(records.deletedAt),
           sql`${records.title} ILIKE ${pattern}`,
-          ...(visible !== null ? [inArray(records.databaseId, visible)] : []),
+          ...(visible !== null
+            ? [
+                or(
+                  visible.length ? inArray(records.databaseId, visible) : sql`false`,
+                  hasRecordGrants ? inArray(records.id, [...recordGrantIds!]) : sql`false`,
+                ),
+              ]
+            : []),
         ),
       )
       // #252 — rank by RELEVANCE, not just recency: an exact title match beats a
@@ -134,20 +138,37 @@ export class SearchController {
       )
       .limit(15);
 
-    const databaseRows = await this.db.query.databases.findMany({
-      where: and(
-        eq(databases.workspaceId, workspaceId),
-        sql`${databases.name} ILIKE ${pattern}`,
-        ...(visible !== null ? [inArray(databases.id, visible)] : []),
-      ),
-      columns: { id: true, name: true, icon: true },
-      limit: 5,
-    });
+    const databaseRows = await this.db
+      .select({
+        id: databases.id,
+        name: databases.name,
+        icon: databases.icon,
+        // #516 — the same #178 enrichment recordRows already carries (the owning
+        // space's name + the database's colour), so two same-named databases in
+        // different spaces read distinctly instead of two identical "Database" rows.
+        database_color: databases.color,
+        space_name: spaces.name,
+      })
+      .from(databases)
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
+      .where(
+        and(
+          eq(databases.workspaceId, workspaceId),
+          sql`${databases.name} ILIKE ${pattern}`,
+          notDeleted(databases.deletedAt),
+          ...(visible !== null ? [inArray(databases.id, visible)] : []),
+        ),
+      )
+      .limit(5);
 
     let spaceRows: Array<{ id: string; name: string; icon: string | null }> = [];
     if (visible === null) {
       spaceRows = await this.db.query.spaces.findMany({
-        where: and(eq(spaces.workspaceId, workspaceId), sql`${spaces.name} ILIKE ${pattern}`),
+        where: and(
+          eq(spaces.workspaceId, workspaceId),
+          sql`${spaces.name} ILIKE ${pattern}`,
+          notDeleted(spaces.deletedAt),
+        ),
         columns: { id: true, name: true, icon: true },
         limit: 5,
       });
@@ -169,15 +190,21 @@ export class SearchController {
   @ApiOperation({ summary: 'Records across databases assigned to me or created by me (MN-049, #36)' })
   async myWork(@Req() req: WorkspaceRequest, @Query('tab') tab?: string) {
     const mode = tab === 'created' ? 'created' : 'assigned';
-    const visible = await this.visibleDatabaseIds(req);
-    if (visible !== null && visible.length === 0) return { groups: [] };
+    // #474 phase 4 — `visibleDatabaseIds` alone would skip a database where
+    // the guest's only access is a record-scoped grant (#472), the same gap
+    // phase 3 closed for relation chips. `reachableDatabaseIds` widens which
+    // databases are even considered; `visibleRecordIds` per database below
+    // then narrows which ROWS within a record-scoped-only one are visible.
+    const reachable = await this.access.reachableDatabaseIds(req.membership);
+    if (reachable !== null && reachable.size === 0) return { groups: [] };
 
     const dbRows = await this.db.query.databases.findMany({
       where: and(
         eq(databases.workspaceId, req.membership.workspaceId),
-        ...(visible !== null ? [inArray(databases.id, visible)] : []),
+        notDeleted(databases.deletedAt),
+        ...(reachable !== null ? [inArray(databases.id, [...reachable])] : []),
       ),
-      columns: { id: true, name: true, icon: true, color: true },
+      columns: { id: true, name: true, icon: true, color: true, spaceId: true },
     });
 
     const groups: Array<{
@@ -197,9 +224,21 @@ export class SearchController {
         if (userFields.length === 0) continue;
         predicate = or(...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`));
       }
+      // #474 phase 4 — this database may be reachable ONLY via a
+      // record-scoped grant (reachableDatabaseIds widened the set above);
+      // visibleRecordIds narrows to exactly the granted rows in that case,
+      // and stays null (no extra filter) for a fully-visible database.
+      const recordScope = reachable !== null ? await this.access.visibleRecordIds(req.membership, database) : null;
+      if (recordScope && recordScope.ids.size === 0) continue;
+
       // Full rows so we can project values (status/priority/assignee/…) for dense rows (MN-072).
       const rows = await this.db.query.records.findMany({
-        where: and(eq(records.databaseId, database.id), isNull(records.deletedAt), predicate),
+        where: and(
+          eq(records.databaseId, database.id),
+          isNull(records.deletedAt),
+          predicate,
+          ...(recordScope ? [inArray(records.id, [...recordScope.ids])] : []),
+        ),
         orderBy: [desc(records.updatedAt)],
         limit: 50,
       });
@@ -209,10 +248,11 @@ export class SearchController {
       const projected = await this.recordsService.attachLinks(
         rows.map((r) => this.recordsService.project(r, defs)),
         defs,
+        req.membership,
       );
       const byId = new Map(projected.map((p) => [p.id, p]));
       groups.push({
-        database,
+        database: { id: database.id, name: database.name, icon: database.icon, color: database.color },
         fields: await this.denseFields(database.id),
         records: rows.map((r) => ({
           id: r.id,
@@ -230,7 +270,11 @@ export class SearchController {
   @ApiOperation({ summary: 'Records the caller touched most recently (from activity)' })
   async recent(@Req() req: WorkspaceRequest) {
     const visible = await this.visibleDatabaseIds(req);
-    if (visible !== null && visible.length === 0) return { records: [] };
+    // #474 phase 4 — same OR-in-the-record-grant treatment as /search: a
+    // record-scoped grant (#472) names one record, not a whole database.
+    const recordGrantIds = await this.access.guestRecordGrantIds(req.membership);
+    const hasRecordGrants = Boolean(recordGrantIds?.size);
+    if (visible !== null && visible.length === 0 && !hasRecordGrants) return { records: [] };
 
     const rows = await this.db
       .select({
@@ -270,7 +314,14 @@ export class SearchController {
         and(
           inArray(records.id, ids),
           isNull(records.deletedAt),
-          ...(visible !== null ? [inArray(records.databaseId, visible)] : []),
+          ...(visible !== null
+            ? [
+                or(
+                  visible.length ? inArray(records.databaseId, visible) : sql`false`,
+                  hasRecordGrants ? inArray(records.id, [...recordGrantIds!]) : sql`false`,
+                ),
+              ]
+            : []),
         ),
       )
       .limit(10);

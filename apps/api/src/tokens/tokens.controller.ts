@@ -15,6 +15,10 @@ const createTokenSchema = z.object({
   scope: tokenScopeSchema.default('admin'),
   /** Withhold run_button even from a write-scoped token. */
   allow_run_button: z.boolean().default(true),
+  /** #541 — mints this token FOR a specific Agent record, so its writes
+   * carry a real agent identity rather than only the coarse `origin` flavor.
+   * Only the agent's own owner or a workspace admin may set this. */
+  agent_id: z.uuid().optional(),
 });
 class CreateTokenDto extends createZodDto(createTokenSchema) {}
 
@@ -54,6 +58,10 @@ export class TokensController {
       body.name,
       body.scope,
       body.allow_run_button,
+      // #541 — an agent-scoped token IS an agent's credential; unset (the
+      // ordinary personal-token path) stays exactly as it was.
+      body.agent_id ? 'agent' : undefined,
+      body.agent_id,
     );
   }
 

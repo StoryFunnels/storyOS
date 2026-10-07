@@ -6,6 +6,7 @@ import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
 import { PreferencesService } from '../users/preferences.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 import {
   csvHeaderLine,
   csvRecordLine,
@@ -93,6 +94,7 @@ export class ExportService {
     databaseId: string,
     viewId: string | undefined,
     currentUserId: string,
+    membership?: Membership,
   ): Promise<{ databaseName: string; generate: () => AsyncGenerator<string> }> {
     const { database, config, exportFields, labels, userNames } = await this.prepare(
       databaseId,
@@ -128,6 +130,7 @@ export class ExportService {
               cursor,
             },
             currentUserId,
+            membership,
           );
           if (page.data.length === 0) break;
           let chunk = '';

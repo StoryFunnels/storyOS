@@ -8,7 +8,8 @@ import {
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, databases, memberships, spaces, views } from '../db/schema';
+import { accessGrants, databases, memberships, records, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
@@ -47,6 +48,8 @@ export const ACCESS_RANK: Record<EffectiveRole, number> = {
 export interface GrantInput {
   space_id?: string;
   database_id?: string;
+  /** #472 — third scope: one specific record. */
+  record_id?: string;
   role: GrantRole;
 }
 
@@ -112,6 +115,157 @@ export class AccessService {
   }
 
   /**
+   * #562 — `effectiveForDatabase`, batched across many databases in ONE grants
+   * fetch rather than one per row: `DatabasesService.list()` needs `my_access`
+   * per row for a write-access-only picker, and calling `effectiveForDatabase`
+   * per database would re-run `guestGrants`'s own DB query once per row for
+   * every guest viewer of the list. admin/member never touch the grants table
+   * at all (same workspace-wide fast path `effectiveForDatabase` takes), so
+   * the batching only matters for guests — but it's correct for every role.
+   */
+  async effectiveForDatabases(
+    membership: Membership,
+    databaseRows: ReadonlyArray<{ id: string; spaceId: string }>,
+  ): Promise<Map<string, EffectiveRole | null>> {
+    if (membership.role === 'admin') return new Map(databaseRows.map((d) => [d.id, 'admin' as const]));
+    if (membership.role === 'member') return new Map(databaseRows.map((d) => [d.id, 'creator' as const]));
+    const grants = await this.guestGrants(membership);
+    return new Map(
+      databaseRows.map((d) => {
+        let best: EffectiveRole | null = null;
+        for (const grant of grants) {
+          if (grant.databaseId === d.id || grant.spaceId === d.spaceId) {
+            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+          }
+        }
+        return [d.id, best];
+      }),
+    );
+  }
+
+  /**
+   * #472 — effective role for one RECORD: the max of a matching space grant, a
+   * matching database grant (both via `effectiveForDatabase`) and a matching
+   * RECORD grant — "highest grant wins" extended to the third scope, not a
+   * separate rule. A guest with no space/database grant at all can still reach
+   * a record they hold a direct record-scoped grant on; one who already has a
+   * database grant is unaffected (their existing rank wins if it's higher).
+   */
+  async effectiveForRecord(
+    membership: Membership,
+    record: { id: string; databaseId: string; spaceId: string },
+  ): Promise<EffectiveRole | null> {
+    const fromDatabase = await this.effectiveForDatabase(membership, {
+      id: record.databaseId,
+      spaceId: record.spaceId,
+    });
+    if (membership.role !== 'guest') return fromDatabase;
+    const grants = await this.guestGrants(membership);
+    let best = fromDatabase;
+    for (const grant of grants) {
+      if (grant.recordId === record.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
+        best = grant.role;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * #674 — `effectiveForRecord`, batched across many records (possibly
+   * spanning many DIFFERENT databases) in ONE grants fetch, the same
+   * relationship `effectiveForDatabases` already has to `effectiveForDatabase`.
+   * Needed for hierarchy activity aggregation, which walks a relation tree
+   * that can cross database boundaries (Epic → Story → Task) and must not
+   * issue one grants query per record reached.
+   *
+   * Replicates `effectiveForRecord`'s exact three-way max (space grant,
+   * database grant, record grant) — admin/member short-circuit exactly as
+   * every other `effectiveFor*` does; only the guest path fetches grants,
+   * once, then resolves every record against that one list in memory.
+   */
+  async effectiveForRecords(
+    membership: Membership,
+    recordRows: ReadonlyArray<{ id: string; databaseId: string; spaceId: string }>,
+  ): Promise<Map<string, EffectiveRole | null>> {
+    if (membership.role === 'admin') return new Map(recordRows.map((r) => [r.id, 'admin' as const]));
+    if (membership.role === 'member') return new Map(recordRows.map((r) => [r.id, 'creator' as const]));
+    const grants = await this.guestGrants(membership);
+    return new Map(
+      recordRows.map((r) => {
+        let best: EffectiveRole | null = null;
+        for (const grant of grants) {
+          if (grant.databaseId === r.databaseId || grant.spaceId === r.spaceId) {
+            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+          }
+        }
+        for (const grant of grants) {
+          if (grant.recordId === r.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
+            best = grant.role;
+          }
+        }
+        return [r.id, best];
+      }),
+    );
+  }
+
+  /**
+   * #474 — the record-level counterpart to `guestVisibility`: does this guest
+   * have any reason to be inside this DATABASE at all, even with NO space or
+   * database grant? A record-scoped grant (#472) alone must not 404 the
+   * whole database (that would make a record grant unreachable through any
+   * list/query surface, only through a direct `GET /records/:rec` the guest
+   * already happens to have the id for) — but it must not unlock the whole
+   * database either. Two separate callers use this for two separate jobs:
+   * the ENTRY gate (`DatabasesService.assertAccess`, via `bestRole` — "is
+   * `min` satisfied at all") and the DATA narrowing (`RecordsService`'s
+   * list/query paths, via `ids` — "which rows may actually come back").
+   *
+   * null = no record-level narrowing needed — admin/member, or a guest who
+   * already holds a space/database grant here (today's unchanged behavior:
+   * they see every record, same as before this method existed).
+   *
+   * A non-null result with an EMPTY `ids` set means the guest has no grant
+   * reaching this database at all (record, database, or space) — callers
+   * must treat that as "matches nothing," not "no restriction."
+   */
+  async visibleRecordIds(
+    membership: Membership,
+    database: { id: string; spaceId: string },
+  ): Promise<{ ids: Set<string>; bestRole: GrantRole | null } | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    const hasBroaderGrant = grants.some(
+      (g) => g.databaseId === database.id || g.spaceId === database.spaceId,
+    );
+    if (hasBroaderGrant) return null;
+    const recordGrants = grants.filter(
+      (g): g is typeof g & { recordId: string } => Boolean(g.recordId),
+    );
+    if (recordGrants.length === 0) return { ids: new Set(), bestRole: null };
+    // A grant's recordId has no databaseId of its own (schema.ts:200-206's
+    // three scopes are mutually exclusive columns) — resolve which of this
+    // guest's record grants actually belong to THIS database.
+    const rows = await this.db.query.records.findMany({
+      where: and(
+        inArray(
+          records.id,
+          recordGrants.map((g) => g.recordId),
+        ),
+        eq(records.databaseId, database.id),
+        notDeleted(records.deletedAt),
+      ),
+      columns: { id: true },
+    });
+    const ids = new Set(rows.map((r) => r.id));
+    let bestRole: GrantRole | null = null;
+    for (const g of recordGrants) {
+      if (!ids.has(g.recordId)) continue;
+      if (!bestRole || ACCESS_RANK[g.role] > ACCESS_RANK[bestRole]) bestRole = g.role;
+    }
+    return { ids, bestRole };
+  }
+
+  /**
    * Effective role for a SPACE (MN-124). null = no access (render as 404).
    *
    * Space delete had no per-scope check at all — only `@MinRole('member')` — so
@@ -124,7 +278,7 @@ export class AccessService {
     // at the space at all, which made every personal space readable by every member
     // and admin by construction.
     const space = await this.db.query.spaces.findFirst({
-      where: eq(spaces.id, spaceId),
+      where: and(eq(spaces.id, spaceId), notDeleted(spaces.deletedAt)),
       columns: { personal: true, ownerUserId: true },
     });
     if (space && !this.canSeePersonal(membership, space)) return null;
@@ -143,7 +297,11 @@ export class AccessService {
   /** Asserts a space role, 404-ing rather than leaking existence (MN-124). */
   async assertSpace(membership: Membership, spaceId: string, min: EffectiveRole) {
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+      where: and(
+        eq(spaces.id, spaceId),
+        eq(spaces.workspaceId, membership.workspaceId),
+        notDeleted(spaces.deletedAt),
+      ),
     });
     if (!space) throw new NotFoundException('Space not found');
     const effective = await this.effectiveForSpace(membership, spaceId);
@@ -171,12 +329,78 @@ export class AccessService {
     const result = new Set(visibility.spaceIds);
     if (visibility.databaseIds.size > 0) {
       const rows = await this.db.query.databases.findMany({
-        where: inArray(databases.id, [...visibility.databaseIds]),
+        where: and(inArray(databases.id, [...visibility.databaseIds]), notDeleted(databases.deletedAt)),
         columns: { spaceId: true },
       });
       rows.forEach((r) => result.add(r.spaceId));
     }
     return result;
+  }
+
+  /**
+   * #469 — Databases a guest can see: directly granted + those inside a granted
+   * space (mirrors `visibleSpaceIds`). null = sees every database (member/admin).
+   *
+   * This computation existed as three drifting copies before this ticket —
+   * inline in `mentions.service.ts` `backlinks()`, again inline in
+   * `search.controller.ts`, and nowhere at all in the two relation-chip readers
+   * that leaked a guest's denied database's record titles. All three call sites
+   * now go through this one.
+   */
+  async visibleDatabaseIds(membership: Membership): Promise<Set<string> | null> {
+    const visibility = await this.guestVisibility(membership);
+    if (!visibility) return null;
+    const rows = await this.db.query.databases.findMany({
+      where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+      columns: { id: true, spaceId: true },
+    });
+    return new Set(
+      rows
+        .filter((d) => visibility.spaceIds.has(d.spaceId) || visibility.databaseIds.has(d.id))
+        .map((d) => d.id),
+    );
+  }
+
+  /**
+   * #474 phase 4 — every record id this guest holds a DIRECT record-scoped
+   * grant (#472) on, workspace-wide. For a query that spans multiple
+   * databases and can't call `visibleRecordIds` once per database ahead of
+   * time (global search, /recent) — the caller ORs this in alongside its
+   * existing `visibleDatabaseIds`-based database filter, so a record-scoped-
+   * only grant surfaces exactly that record without widening to its whole
+   * database. null for admin/member (unrestricted, same as every other
+   * guest-only primitive here).
+   */
+  async guestRecordGrantIds(membership: Membership): Promise<Set<string> | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    return new Set(grants.map((g) => g.recordId).filter((v): v is string => Boolean(v)));
+  }
+
+  /**
+   * #474 phase 4 — every database a guest can reach AT ALL: `visibleDatabaseIds`
+   * (full access) UNION any database containing a record they hold a direct
+   * record-scoped grant on. Deliberately NOT the same thing as "every record
+   * in this database is visible" — a database appearing here purely via a
+   * record-scoped grant still needs `visibleRecordIds` to narrow which rows
+   * within it are actually visible. This exists so a per-database loop (e.g.
+   * My Work) knows which databases to consider at all before doing that
+   * per-record narrowing — `visibleDatabaseIds` alone would skip a database
+   * where the guest's only access is a record grant, same class of gap #474
+   * phase 3 fixed for relation chips. null for admin/member.
+   */
+  async reachableDatabaseIds(membership: Membership): Promise<Set<string> | null> {
+    const broad = await this.visibleDatabaseIds(membership);
+    if (broad === null) return null;
+    const recordGrantIds = await this.guestRecordGrantIds(membership);
+    if (!recordGrantIds || recordGrantIds.size === 0) return broad;
+    const rows = await this.db.query.records.findMany({
+      where: and(inArray(records.id, [...recordGrantIds]), notDeleted(records.deletedAt)),
+      columns: { databaseId: true },
+    });
+    const merged = new Set(broad);
+    for (const r of rows) merged.add(r.databaseId);
+    return merged;
   }
 
   assertRank(effective: EffectiveRole | null, min: EffectiveRole, what = 'resource') {
@@ -223,22 +447,43 @@ export class AccessService {
   // --- Grants management (admin) ---
 
   private async validateScope(workspaceId: string, input: GrantInput) {
-    const hasSpace = Boolean(input.space_id);
-    const hasDb = Boolean(input.database_id);
-    if (hasSpace === hasDb) {
-      throw new UnprocessableEntityException('Provide exactly one of space_id / database_id');
+    const scopeCount = [input.space_id, input.database_id, input.record_id].filter(Boolean).length;
+    if (scopeCount !== 1) {
+      throw new UnprocessableEntityException('Provide exactly one of space_id / database_id / record_id');
     }
     if (input.space_id) {
       const space = await this.db.query.spaces.findFirst({
-        where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, workspaceId)),
+        where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
       });
       if (!space) throw new NotFoundException('Space not found');
     }
     if (input.database_id) {
       const database = await this.db.query.databases.findFirst({
-        where: and(eq(databases.id, input.database_id), eq(databases.workspaceId, workspaceId)),
+        where: and(
+          eq(databases.id, input.database_id),
+          eq(databases.workspaceId, workspaceId),
+          notDeleted(databases.deletedAt),
+        ),
       });
       if (!database) throw new NotFoundException('Database not found');
+    }
+    if (input.record_id) {
+      // #472 — a record's workspace isn't denormalized onto the row, so this
+      // joins through its (live) database the same way every other
+      // record-scoped lookup in this codebase resolves workspace ownership.
+      const [row] = await this.db
+        .select({ id: records.id })
+        .from(records)
+        .innerJoin(databases, eq(databases.id, records.databaseId))
+        .where(
+          and(
+            eq(records.id, input.record_id),
+            eq(databases.workspaceId, workspaceId),
+            isNull(records.deletedAt),
+            notDeleted(databases.deletedAt),
+          ),
+        );
+      if (!row) throw new NotFoundException('Record not found');
     }
   }
 
@@ -254,6 +499,7 @@ export class AccessService {
         user_id: g.userId,
         space_id: g.spaceId,
         database_id: g.databaseId,
+        record_id: g.recordId,
         role: g.role,
       })),
     };
@@ -276,6 +522,16 @@ export class AccessService {
      * rows — reads took a max and failed safe, but revoke then removed only one
      * of them and reported success while access silently persisted.
      */
+    const upsertTarget = input.space_id
+      ? [accessGrants.userId, accessGrants.spaceId]
+      : input.database_id
+        ? [accessGrants.userId, accessGrants.databaseId]
+        : [accessGrants.userId, accessGrants.recordId];
+    const upsertTargetWhere = input.space_id
+      ? sql`${accessGrants.spaceId} IS NOT NULL`
+      : input.database_id
+        ? sql`${accessGrants.databaseId} IS NOT NULL`
+        : sql`${accessGrants.recordId} IS NOT NULL`;
     const [row] = await this.db
       .insert(accessGrants)
       .values({
@@ -283,16 +539,13 @@ export class AccessService {
         userId: input.user_id,
         spaceId: input.space_id,
         databaseId: input.database_id,
+        recordId: input.record_id,
         role: input.role,
         createdBy,
       })
       .onConflictDoUpdate({
-        target: input.space_id
-          ? [accessGrants.userId, accessGrants.spaceId]
-          : [accessGrants.userId, accessGrants.databaseId],
-        targetWhere: input.space_id
-          ? sql`${accessGrants.spaceId} IS NOT NULL`
-          : sql`${accessGrants.databaseId} IS NOT NULL`,
+        target: upsertTarget,
+        targetWhere: upsertTargetWhere,
         set: { role: input.role, updatedAt: new Date() },
       })
       .returning();
@@ -319,7 +572,9 @@ export class AccessService {
 
     const sameScope = grant.spaceId
       ? eq(accessGrants.spaceId, grant.spaceId)
-      : eq(accessGrants.databaseId, grant.databaseId!);
+      : grant.databaseId
+        ? eq(accessGrants.databaseId, grant.databaseId)
+        : eq(accessGrants.recordId, grant.recordId!);
     const gone = await this.db
       .delete(accessGrants)
       .where(

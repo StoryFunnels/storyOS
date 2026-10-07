@@ -109,6 +109,10 @@ export class AutoLinkService {
               actorId,
               type: 'relation.linked' as const,
               payload: { relation_id: relation.id, other: { id: row.toRecordId, title: meta?.bTitle ?? '' }, auto: true },
+              // #481 — the auto-link engine runs unattended off a matching-value
+              // scan, never a specific request; always 'automation', never
+              // threaded from a caller because there isn't one.
+              source: 'automation' as const,
             },
             {
               workspaceId,
@@ -116,6 +120,7 @@ export class AutoLinkService {
               actorId,
               type: 'relation.linked' as const,
               payload: { relation_id: relation.id, other: { id: row.fromRecordId, title: meta?.aTitle ?? '' }, auto: true },
+              source: 'automation' as const,
             },
           ];
         });

@@ -10,11 +10,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
+import type { WorkspaceRef } from './token-scope';
 
 interface Token {
   id: string;
   name: string;
   token_prefix: string;
+  workspace_id: string | null;
   last_used_at: string | null;
   created_at: string;
 }
@@ -33,6 +37,41 @@ export default function ApiSettingsPage() {
     },
   });
 
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces');
+      if (error) throw error;
+      return data as unknown as WorkspaceRef[];
+    },
+  });
+  const confirm = useConfirm();
+  const [showOthers, setShowOthers] = useState(false);
+
+  // Until the workspace list resolves we cannot tell which tokens are "here", so
+  // render nothing rather than flash the unfiltered list this ticket removes.
+  const currentId = currentWorkspaceId(ws, workspaces.data);
+  const { here, elsewhere } = currentId ? splitTokens(tokens.data ?? [], currentId) : { here: [], elsewhere: [] };
+  const visible = showOthers ? [...here, ...elsewhere] : here;
+  const ready = tokens.isSuccess && currentId !== null;
+  const currentName = workspaceLabel(currentId, workspaces.data);
+
+  async function onRevoke(token: Token) {
+    // A token from another workspace is somebody's automation, not this
+    // workspace's — name both, because revoke is immediate and unrecoverable.
+    if (token.workspace_id !== currentId) {
+      const owner = workspaceLabel(token.workspace_id, workspaces.data);
+      const ok = await confirm({
+        title: `Revoke “${token.name}”?`,
+        message: `This token belongs to ${owner}, not ${currentName}. Anything using it stops working immediately, and it cannot be recovered — you would have to create a new token and update wherever it was used.`,
+        confirmLabel: 'Revoke token',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    revoke.mutate(token.id);
+  }
+
   const revoke = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await api.DELETE('/api/v1/me/tokens/{token}', {
@@ -49,16 +88,17 @@ export default function ApiSettingsPage() {
         <h1 className="text-lg font-semibold text-ink">API tokens</h1>
         <CreateTokenDialog ws={ws} />
       </div>
-      <p className="mb-4 text-[13px] text-muted">
-        Create a token to let an outside tool or script work in this workspace on your behalf —
-        for example a scheduled job or a script you wrote. Most people never need one.
+      <p className="mb-4 text-body text-muted">
+        {showOthers
+          ? 'Showing every token on your account, across all your workspaces. A token only works in the workspace it was created for. New tokens are created for this workspace.'
+          : 'Create a token to let an outside tool or script work in this workspace on your behalf — for example a scheduled job or a script you wrote. Most people never need one.'}
       </p>
 
       <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+        <summary className="cursor-pointer select-none text-body font-medium text-ink">
           Advanced / Developer
         </summary>
-        <p className="mt-2 text-[13px] text-muted">
+        <p className="mt-2 text-body text-muted">
           A personal access token acts as you — anything you can do in the app, the token can do
           through the API. Send it as{' '}
           <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
@@ -69,18 +109,27 @@ export default function ApiSettingsPage() {
         </p>
       </details>
 
+      {ready && elsewhere.length > 0 && (
+        <label className="mb-3 flex items-center gap-2 text-body text-ink-secondary">
+          <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
+          Show tokens from my other workspaces ({elsewhere.length})
+        </label>
+      )}
+
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {(tokens.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">No tokens yet.</p>
+        {!ready && <p className="px-4 py-6 text-body text-muted">Loading…</p>}
+        {ready && visible.length === 0 && (
+          <p className="px-4 py-6 text-body text-muted">No tokens in this workspace yet.</p>
         )}
-        {(tokens.data ?? []).map((token) => (
+        {ready && visible.map((token) => (
           <div
             key={token.id}
             className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
           >
             <div>
               <p className="text-sm font-medium text-ink">{token.name}</p>
-              <p className="text-[12px] text-muted">
+              <p className="text-label text-muted">
+                {showOthers && <>{workspaceLabel(token.workspace_id, workspaces.data)} · </>}
                 <code>{token.token_prefix}</code> · created{' '}
                 {fmt.date(token.created_at)} ·{' '}
                 {token.last_used_at
@@ -88,7 +137,7 @@ export default function ApiSettingsPage() {
                   : 'never used'}
               </p>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => revoke.mutate(token.id)}>
+            <Button variant="ghost" size="sm" onClick={() => void onRevoke(token)}>
               Revoke
             </Button>
           </div>
@@ -135,7 +184,7 @@ function CreateTokenDialog({ ws }: { ws: string }) {
       <DialogContent title="Create API token">
         {created ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-warning">
+            <p className="text-body text-warning">
               Copy it now — this token is shown only once.
             </p>
             <div className="flex gap-2">

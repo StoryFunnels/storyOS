@@ -34,6 +34,11 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/markdown',
+    reason:
+      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) and for PDF export to reuse — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+  },
+  {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
     reason:
       /*
@@ -79,6 +84,11 @@ export const EXCLUDED: CoverageRule[] = [
        * to the publishing act itself.
        */
       "#446 — submitting a pack to the marketplace publishes this workspace's schema under its name, for review by others. An agent may build the manifest (export_pack) and read its status (list_pack_submissions); pressing submit is a human act, the same line #442 draws for publishing a shared skill (ADR-0010).",
+  },
+  {
+    match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/action-gates(\/\{id\})?/,
+    reason:
+      "#542 Phase 2 — declaring, enabling/disabling or reconfiguring an action-class gate is the platform's own restraint on an agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could disable the very gate meant to constrain it — the same self-widening-blast-radius line #441 draws for grants. The read half is reachable (list_action_gates): an agent can see what applies to it, it just cannot change it.",
   },
   {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
@@ -151,18 +161,34 @@ export const EXCLUDED: CoverageRule[] = [
     reason:
       'Credential-bearing third-party configuration (Slack tokens, GitHub installations, Linear keys) and provider-specific surfaces such as submitting PR reviews. Storing or rotating someone else\'s credential, and speaking on their behalf on another platform, are separate trust decisions from working inside StoryOS.',
   },
+  /*
+   * #491 — narrowed from the whole `/connections` surface to its credential
+   * -bearing half. GET (list) moved to `list_connections`: `present()` on the
+   * API side never returns a secret, so no read path here can leak one — the
+   * same shape as `list_sources` already exposing what is connected. What
+   * stays deferred is everything that STORES, ROTATES or TESTS someone's
+   * credential, or hands one to a third party (the OAuth start redirect):
+   * that trust decision is unchanged from before #491.
+   */
   {
-    match: '/api/v1/workspaces/{ws}/connections',
+    match:
+      /^(POST|DELETE) \/api\/v1\/workspaces\/\{ws\}\/connections(\/\{id\}\/(test|resume)|\/\{id\})?$|^GET \/api\/v1\/workspaces\/\{ws\}\/connections\/oauth\/\{provider\}\/start$/,
     reason:
-      'Connection credentials — the same trust decision as integrations. `list_sources` already exposes what is connected, without the auth material.',
+      '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
   },
   {
-    match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers)$/,
-    reason: 'Instance root, liveness probe and sign-in configuration. Infrastructure, not workspace capability.',
+    match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers|\/api\/v1\/build-info)$/,
+    reason:
+      'Instance root, liveness probe, sign-in configuration, and build-info (#553 — "what commit is this deployment serving", reachable through /api/* since bare `/` is not — see docker/Caddyfile). Infrastructure, not workspace capability.',
   },
   {
     match: '/api/v1/referrals',
     reason: 'Growth/referral attribution tied to a human account.',
+  },
+  {
+    match: 'GET /api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}',
+    reason:
+      "#39 — a single version's diff PREVIEW against the record's current values, built specifically for the web UI's confirm-before-restoring dialog. An agent has no equivalent need for a dry-run: get_history(kind:'versions') already lists every version id, get_history(kind:'fields') already gives readable before/after for the same data, and restore_version applies a restore directly — there is no \"show me before I confirm\" step in a tool call the way there is in a click. Mirroring this as a tool would be exactly the false parity coverage.ts's own docstring warns against.",
   },
   {
     match: '/api/v1/workspaces/{ws}/onboarding',
@@ -238,38 +264,35 @@ export const DEFERRED: CoverageRule[] = [
       "#443 — creating a subscription returns its live signing secret in the response body (shown once, never listed again), and a tool result is transcript. Redacting it is not an option: no read path can return it afterwards. Make the subscription in-app; list_webhooks / update_webhook / delete_webhook / list_webhook_deliveries manage and debug it. Outbound calls in general are reachable via create_automation's send_webhook action.",
   },
   {
-    match: /\/automations\/\{id\}\/(test|last-payload|regenerate-hook)/,
+    // #684 — narrowed from `(test|last-payload|regenerate-hook)`. Otto's
+    // review (2026-09-10) caught that the bundled rule gave only ONE of the
+    // three a real reason: `regenerate-hook` mints a token (the same
+    // secret-in-a-transcript objection as POST /webhooks above), but `test`
+    // and `last-payload` have no credential or safety objection at all —
+    // bundling them meant an agent could BUILD a webhook_received rule via
+    // MCP and never dry-run or debug it, a capability gap wearing a decision
+    // as its disguise. Those two are now reached (test_automation,
+    // get_automation_last_payload); only the token-minting one stays here.
+    match: /\/automations\/\{id\}\/regenerate-hook/,
     reason:
-      /*
-       * #443 asked whether this should MERGE with the webhook-subscription rule
-       * above. Decided: NO, keep them separate, because they point in opposite
-       * directions and one reason cannot be true of both.
-       *
-       * Above is OUTBOUND — StoryOS calling someone else's endpoint. This is
-       * INBOUND — a `webhook_received` trigger, i.e. someone else calling us:
-       * dry-running a rule, reading the last payload we RECEIVED, and rotating
-       * the token that authenticates the caller. A merged rule would have to
-       * describe both and would accurately describe neither, which is the
-       * "rule pointing at the wrong thing" failure #390 documents.
-       *
-       * They do share one property, noted here so the pair stays consistent if
-       * either moves: `regenerate-hook` mints a token, so it is deferred for the
-       * same secret-in-a-transcript reason as POST /webhooks above.
-       */
-      '#406 — automation dry-run, last received payload, and hook-token rotation. INBOUND (a webhook_received trigger), deliberately kept separate from the outbound-subscription rule above: one reason cannot describe both directions (#443 decided this rather than leaving two rules to drift). Rule CRUD is already covered; `regenerate-hook` additionally mints a token, so it carries the same secret-in-a-transcript objection.',
+      '#406 — rotates a webhook_received rule\'s token + secret, returned in the response body, shown once, never listed again (the same secret-in-a-transcript objection as POST /webhooks above). Do this in-app.',
   },
   {
-    match: /\/fields\/\{field\}\/usage$/,
-    reason: '#406 — how many records carry a value for a field; the number you want before deleting one.',
+    // #683 — narrowed from #682's own narrowing (GET .../workspaces/{ws} |
+    // POST .../workspaces): the GET half (the single-workspace getter) is
+    // reached now, by get_workspace. Creating a workspace stays deferred —
+    // plan-gated, Ievgen's call, not a default extension of this lane's api
+    // sanction.
+    match: /^POST \/api\/v1\/workspaces$/,
+    reason: "#406 — creating a workspace is plan-gated and worth deciding deliberately, not a default agent capability.",
   },
   {
-    match: /^(GET|POST) \/api\/v1\/workspaces(\/\{ws\})?$/,
+    // #677 (Gap 2) — the list and restore halves of document version history
+    // ARE reached (get_history kind:"document_versions", restore_document_
+    // version). Only the diff-PREVIEW endpoint is deferred, narrowly.
+    match: /\/document\/versions\/\{version\}$/,
     reason:
-      '#406 — reading one workspace\'s details and creating a workspace. `list_workspaces` covers the common case; creation is plan-gated and worth deciding deliberately.',
-  },
-  {
-    match: /\/spaces\/\{space\}\/documents/,
-    reason: '#406 — documents that live in a space rather than on a record.',
+      '#677 — a block-level diff preview against the current document, built for a UI\'s "confirm before restoring" dialog. An agent has a cheaper path to the same decision: list versions (get_history kind:"document_versions" — cheap metadata, no full content), then restore, which is itself recorded as a new version and so is undoable — the same reasoning restore_version already applies to record snapshots, which also has no separate diff-preview tool. Revisit if an agent workflow ever needs "show me what changed" without committing to a restore.',
   },
 ];
 

@@ -4,6 +4,19 @@ import { createStoryOSClient } from '@storyos/sdk';
 // the localhost default is for `pnpm dev` where web and api run on separate ports.
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+/**
+ * #566 — the base URL for a server-side (Node) fetch to the API, e.g. from a
+ * Server Component's `generateMetadata`. NEVER reuse `API_URL` for this: in a
+ * same-origin docker-compose deploy it's `''` (relative, resolved by the
+ * BROWSER against the current page) — `fetch('' + '/api/v1/...')` from inside
+ * the web container's own Node process has no page to resolve against and
+ * throws. `API_INTERNAL_URL` is the container's direct route to the `api`
+ * service over the compose network (`http://api:3001`, set in
+ * docker-compose.yml, mirroring the `mcp` service's own `STORYOS_URL`), so a
+ * server-side call never round-trips back out through the public proxy.
+ */
+export const SERVER_API_URL = process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 // The hosted MCP endpoint shown on the connect pages (#163). Self-host operators
 // set NEXT_PUBLIC_MCP_URL to THEIR own MCP origin at build time (like API_URL);
 // hosted defaults to mcp.storyos.dev so the hosted app is unchanged.

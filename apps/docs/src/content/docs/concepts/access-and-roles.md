@@ -23,6 +23,16 @@ invite a client into exactly one space.
 - The **last admin** cannot demote or remove themselves.
 - Removed or deactivated users keep their historical authorship in comments and activity.
 
+### Restricting a specific member's access
+
+**Members are workspace-wide by design — there's no per-space member restriction, and none is
+planned in the near term.** If you don't want someone touching a particular space, the answer
+isn't a policy on their membership; it's a different kind of person entirely: invite them as a
+**guest** scoped to only the spaces they need, instead of adding them as a member. A guest at
+`contributor` can add and edit records without ever being able to delete anything — the rung
+exists specifically for "let them contribute, but don't let them destroy" — and, per the billing
+section below, `viewer`/`commenter` guests cost nothing either way.
+
 ## Guest scoping
 
 Guests are invited to one or more specific [spaces](/getting-started/concepts/):
@@ -34,6 +44,58 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
 
 This is what lets you drop a client into their project space to check status and leave comments,
 while every other client's work stays invisible.
+
+## Who counts toward billing
+
+**Settings → Billing** shows **Billable seats** — admins and members always count; a guest counts
+only once their grant reaches `contributor` or higher. **A viewer or commenter guest is free**,
+whatever the total member count on the Members page looks like — pending invites don't count
+either, whether they resolve to a paid role or not. The billing page names exactly this rule in
+its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
+than left to look like a discrepancy.
+
+## Pending invitations
+
+An invite that hasn't been accepted shows a **Pending** badge on Settings → Members, with
+**Resend invitation** and **Revoke**.
+
+**Resending mints a fresh link — the old one stops working.** It's not a reminder email pointing
+at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the
+original link left in an old email thread no longer gets anyone in.
+
+**Throttled to one resend per minute**, per invite — a repeat click inside that window is refused
+with a plain "wait a minute" message rather than silently sending twice.
+
+## Sharing beyond a space: access grants
+
+Space scoping decides which **spaces** a guest can see at all. **Access grants** are the finer
+tool underneath it, and they come in three scopes:
+
+| Scope | Reaches |
+|---|---|
+| **Space** | Every database in that space |
+| **Database** | One database |
+| **Record** | One record |
+
+Each grant carries a **role** — `viewer`, `commenter`, `contributor`, `editor`, or `creator` — the
+same ladder at every scope, not a second set of names to learn. A grant is exactly one scope;
+there's no such thing as a grant that's both space- and database-scoped.
+
+**Where more than one grant applies, the highest wins.** A record-scoped `editor` grant beats a
+database-scoped `viewer` grant on that same record, in either order you'd naturally check them.
+
+**Record-scoped grants reach only that one record's read and write** — sharing one record does not
+extend to other records it links to. Restricting what a record grant alone lets someone find
+through search or a list is a separate, not-yet-built piece; this scope answers "can they open and
+edit this specific record", not "what shows up when they search."
+
+**Space- and database-scoped grants have a real UI: Manage Access.** Open it from a space's own
+page, or a database's `⋯` menu. It lists **Members** (workspace-wide, unconditional) separately
+from **Guests** — each guest's grant level is a dropdown, right there, editable without leaving the
+dialog. **Record-scoped grants have no UI yet** — creating or revoking one is still a direct REST
+API call. No MCP tool creates or removes a grant at any scope; that stays a human decision made
+directly against the API, not something an agent does on its own. The MCP `list_grants` tool can
+still read existing grants, record scope included.
 
 ## Personal access tokens
 

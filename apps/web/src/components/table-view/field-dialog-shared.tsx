@@ -35,7 +35,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — stable identity across renders. */
+const NAME_MODE_OPTIONS = [
+  { value: 'freetext' as const, label: 'Free text' },
+  { value: 'computed' as const, label: 'Computed' },
+];
 import { OPTION_COLORS } from './cells';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { FormulaEditor } from './formula-editor';
@@ -199,10 +206,10 @@ function TypeButtonGrid({
               {/* #321: a type with a plainLabel leads with the plain phrase and
                   shows its real name underneath, so the jargon stays findable
                   without being the first thing a newcomer has to decode. */}
-              <span className="block text-[13px] font-medium text-ink">
+              <span className="block text-body font-medium text-ink">
                 {t.plainLabel ?? t.label}
               </span>
-              <span className="block truncate text-[11px] text-muted">
+              <span className="block truncate text-meta text-muted">
                 {disabledReason ?? (t.plainLabel ? t.label : t.description)}
               </span>
             </span>
@@ -238,7 +245,7 @@ export function TypePicker({
       <TypeButtonGrid types={basic} value={value} onChange={onChange} disabledTypes={disabledTypes} />
       <button
         type="button"
-        className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+        className="flex w-fit items-center gap-1 text-label font-medium text-muted hover:text-ink"
         aria-expanded={showAdvanced}
         onClick={() => setShowAdvanced((s) => !s)}
       >
@@ -345,6 +352,7 @@ export function ConfigEditor({
   ws,
   db,
   fields,
+  options,
 }: {
   type: string;
   config: Record<string, unknown>;
@@ -355,6 +363,10 @@ export function ConfigEditor({
   ws?: string;
   db?: string;
   fields?: Field[];
+  /** #504 — a select/workflow field's live options, for the default-option
+   * picker below. Only meaningful once the field (and its options) already
+   * exist, so omitted at create time — see the picker's own comment. */
+  options?: Array<{ id: string; label: string }>;
 }) {
   const set = (key: string, value: unknown) => onChange({ ...config, [key]: value });
 
@@ -395,7 +407,7 @@ export function ConfigEditor({
 
   if (type === 'text') {
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.multiline)}
@@ -408,7 +420,7 @@ export function ConfigEditor({
   if (type === 'date') {
     return (
       <div className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-body text-ink">
           <input
             type="checkbox"
             checked={Boolean(config.include_time)}
@@ -421,7 +433,7 @@ export function ConfigEditor({
          * about a day and silently wrong after that; "today" is the only date
          * default that stays true, and it resolves server-side at insert.
          */}
-        <label className="flex items-center gap-2 text-[13px] text-ink">
+        <label className="flex items-center gap-2 text-body text-ink">
           <input
             type="checkbox"
             checked={Boolean(config.default_today)}
@@ -435,7 +447,7 @@ export function ConfigEditor({
   if (type === 'checkbox') {
     // #203 — two states, so a literal default is the whole story here.
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.default)}
@@ -447,7 +459,7 @@ export function ConfigEditor({
   }
   if (type === 'user') {
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={Boolean(config.multi)}
@@ -461,48 +473,83 @@ export function ConfigEditor({
     const format = (config.format as string) ?? 'plain';
     const precision = config.precision;
     return (
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label>Format</Label>
-          <select
-            className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-            value={format}
-            onChange={(e) => set('format', e.target.value)}
-          >
-            <option value="plain">Plain</option>
-            <option value="percent">Percent</option>
-            <option value="currency">Currency</option>
-          </select>
-        </div>
-        {format === 'currency' && (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label>Currency</Label>
-            <Input
-              className="w-20 uppercase"
-              placeholder="USD"
-              maxLength={3}
-              value={(config.currency_code as string) ?? ''}
-              onChange={(e) => set('currency_code', e.target.value.toUpperCase() || undefined)}
-            />
+            <Label>Format</Label>
+            <select
+              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+              value={format}
+              onChange={(e) => set('format', e.target.value)}
+            >
+              <option value="plain">Plain</option>
+              <option value="percent">Percent</option>
+              <option value="currency">Currency</option>
+            </select>
           </div>
-        )}
-        <div className="flex flex-col gap-1.5">
-          <Label>Decimals</Label>
-          <select
-            className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-            value={precision === undefined ? 'auto' : String(precision)}
-            onChange={(e) =>
-              set('precision', e.target.value === 'auto' ? undefined : Number(e.target.value))
-            }
-          >
-            <option value="auto">Auto</option>
-            {[0, 1, 2, 3, 4].map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+          {format === 'currency' && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Currency</Label>
+              <Input
+                className="w-20 uppercase"
+                placeholder="USD"
+                maxLength={3}
+                value={(config.currency_code as string) ?? ''}
+                onChange={(e) => set('currency_code', e.target.value.toUpperCase() || undefined)}
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <Label>Decimals</Label>
+            <select
+              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+              value={precision === undefined ? 'auto' : String(precision)}
+              onChange={(e) =>
+                set('precision', e.target.value === 'auto' ? undefined : Number(e.target.value))
+              }
+            >
+              <option value="auto">Auto</option>
+              {[0, 1, 2, 3, 4].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        <NumberBinsEditor bins={config.bins as NumberBin[] | undefined} onChange={(bins) => set('bins', bins)} />
+      </div>
+    );
+  }
+  // #504 — config.default (an option id) already works end-to-end server-side
+  // (fields.service.ts create/update, fieldDefaultValue()); this was the only
+  // place left with no control to set it. Edit-time only: a freshly-created
+  // field's options are still local drafts with no id yet (create() resolves
+  // a default by LABEL instead — see that PR's own note), a different enough
+  // shape that it's out of scope here rather than silently half-built.
+  if ((type === 'select' || type === 'workflow') && options) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Label>Default option</Label>
+        <select
+          className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+          value={(config.default as string) ?? ''}
+          // #504 — must be `null`, not `undefined`: the save path JSON.stringifies
+          // the whole config, which silently DROPS an undefined key rather than
+          // sending it. A dropped key survives the server's shallow config merge
+          // (`{ ...field.config, ...restored }`) unchanged — "None" would visibly
+          // save yet leave the old default in place. Reproduced and reported by
+          // Vera; assertSelectDefaultOption already treats an explicit null as
+          // "clear, valid", so null is what needs to actually reach the request.
+          onChange={(e) => set('default', e.target.value || null)}
+        >
+          <option value="">None</option>
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
     );
   }
@@ -513,7 +560,7 @@ export function ConfigEditor({
     // number, there's nothing to format.
     if (config.result_type !== 'number') return null;
     return (
-      <label className="flex items-center gap-2 text-[13px] text-ink">
+      <label className="flex items-center gap-2 text-body text-ink">
         <input
           type="checkbox"
           checked={config.format === 'percent'}
@@ -524,6 +571,146 @@ export function ConfigEditor({
     );
   }
   return null;
+}
+
+interface NumberBin {
+  label: string;
+  min: number | null;
+  max: number | null;
+}
+
+/**
+ * #498 — bins are how a number field groups a board: one column per bin, in
+ * order. The server (`numberBinsSchema`) requires them CONTIGUOUS — bin i+1's
+ * `min` must equal bin i's `max` exactly, `[min, max)` with max exclusive —
+ * rather than merely non-overlapping, so a number always falls in exactly one
+ * bin or in nobody's board at all.
+ *
+ * Editing every bin's both edges independently would let a user construct a
+ * gap or overlap the server then rejects with a confusing error. Instead this
+ * editor makes contiguity the ONLY representable state: you name each bin and
+ * set its upper edge; the next bin's floor is that edge, not a separate field.
+ * The first bin is always open on the low end, the last always open on the
+ * high end — matching the only two edges the schema allows to be unbounded.
+ */
+function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; onChange: (bins: NumberBin[]) => void }) {
+  const configured = bins !== undefined && bins.length > 0;
+
+  if (!configured) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Label>Board grouping</Label>
+        <p className="text-body text-muted">
+          Not configured — a board can&rsquo;t group by this field until it has bins.
+        </p>
+        <button
+          type="button"
+          className="w-fit rounded-[var(--radius-control)] border border-border-default px-3 py-1.5 text-sm text-ink hover:bg-hover"
+          onClick={() =>
+            onChange([
+              { label: 'Low', min: null, max: 50 },
+              { label: 'High', min: 50, max: null },
+            ])
+          }
+        >
+          Configure bins
+        </button>
+      </div>
+    );
+  }
+
+  // Every bin but the last carries its own upper edge; the last is always
+  // open-ended, so only its label is editable.
+  const setLabel = (i: number, label: string) => {
+    const next = bins.slice();
+    next[i] = { ...next[i]!, label };
+    onChange(next);
+  };
+  const setEdge = (i: number, raw: string) => {
+    const value = raw === '' ? null : Number(raw);
+    if (raw !== '' && !Number.isFinite(value)) return;
+    const next = bins.slice();
+    next[i] = { ...next[i]!, max: value };
+    // The next bin's floor is THIS bin's new edge — contiguous by construction.
+    if (next[i + 1]) next[i + 1] = { ...next[i + 1]!, min: value };
+    onChange(next);
+  };
+  const addBin = () => {
+    // Insert a fresh bin just before the open-ended last one, splitting off
+    // its floor as the new bin's edge.
+    const last = bins[bins.length - 1]!;
+    const prevEdge = bins.length > 1 ? bins[bins.length - 2]!.max : null;
+    const newEdge = prevEdge === null ? 0 : prevEdge + 1;
+    onChange([
+      ...bins.slice(0, -1),
+      { label: 'New bin', min: last.min, max: newEdge },
+      { ...last, min: newEdge },
+    ]);
+  };
+  const removeBin = (i: number) => {
+    if (bins.length <= 1) return;
+    const removingLast = i === bins.length - 1;
+    const next = bins.slice(0, i).concat(bins.slice(i + 1));
+    if (removingLast) {
+      // The bin that's now last must become the open-ended end.
+      if (next.length > 0) next[next.length - 1] = { ...next[next.length - 1]!, max: null };
+    } else if (i > 0) {
+      // Re-stitch the seam: the bin that now follows the removed one takes
+      // over its floor, so the run stays contiguous.
+      next[i] = { ...next[i]!, min: bins[i - 1]!.max };
+    } else {
+      next[0] = { ...next[0]!, min: null };
+    }
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Board grouping bins</Label>
+      <div className="flex flex-col gap-1.5">
+        {bins.map((bin, i) => {
+          const isLast = i === bins.length - 1;
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                className="flex-1"
+                placeholder="Label"
+                value={bin.label}
+                onChange={(e) => setLabel(i, e.target.value)}
+              />
+              <span className="text-label text-faint">up to</span>
+              {isLast ? (
+                <span className="w-20 text-body text-muted">everything else</span>
+              ) : (
+                <Input
+                  className="w-20"
+                  type="number"
+                  value={bin.max ?? ''}
+                  onChange={(e) => setEdge(i, e.target.value)}
+                />
+              )}
+              <button
+                type="button"
+                className="text-faint hover:text-error disabled:opacity-30"
+                disabled={bins.length <= 1}
+                onClick={() => removeBin(i)}
+                title="Remove bin"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="w-fit text-body text-accent hover:underline"
+        onClick={addBin}
+      >
+        + Add bin
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -557,30 +744,21 @@ function TitleNameConfig({
   return (
     <div className="flex flex-col gap-2">
       <Label>Name</Label>
-      <div className="inline-flex w-fit rounded-[var(--radius-control)] border border-border-default p-0.5">
-        {(
-          [
-            ['freetext', 'Free text'],
-            ['computed', 'Computed'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={cn(
-              'rounded px-2.5 py-1 text-[12px]',
-              mode === value ? 'bg-active font-medium text-ink' : 'text-muted hover:text-ink',
-            )}
-            onClick={() =>
-              onChange(value === 'computed' ? { name_mode: 'computed', source } : { name_mode: 'freetext' })
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* #738 — adopts the primitive's `sm` (px-2/py-0.5), which is 4px
+          shorter than the px-2.5/py-1 this site hand-rolled. Recorded as a
+          deliberate decision, not a silent round: `sm` is what the other two
+          subtle groups already use, and a third padding for one call site is
+          the drift this primitive exists to stop. */}
+      <Segmented
+        label="Name mode"
+        value={mode}
+        onChange={(value) =>
+          onChange(value === 'computed' ? { name_mode: 'computed', source } : { name_mode: 'freetext' })
+        }
+        options={NAME_MODE_OPTIONS}
+      />
       {mode === 'freetext' ? (
-        <p className="text-[12px] text-faint">
+        <p className="text-label text-faint">
           Each record’s name is typed in by hand — the classic editable title.
         </p>
       ) : (
@@ -592,7 +770,7 @@ function TitleNameConfig({
             expression={source}
             onChange={(next) => onChange({ name_mode: 'computed', source: next })}
           />
-          <p className="text-[12px] text-faint">
+          <p className="text-label text-faint">
             The name is generated from this template on every save and can’t be edited
             directly. Records fall back to <code className="text-muted">#id</code> when the
             template is empty. References this record’s own fields only.

@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -11,8 +11,11 @@ import { ApprovalsService } from './approvals.service';
 class RejectApprovalDto extends createZodDto(z.object({ reason: z.string().max(2000).optional() })) {}
 
 /**
- * MN-255 — the approval gate's REST surface. Read is any workspace member
- * (`@RequiresScope('read')`); approve/reject are human-only: a PAT needs
+ * MN-255 — the approval gate's REST surface. Read requires only 'read' token
+ * scope (`@RequiresScope('read')`), but #654 scopes the ROWS themselves to
+ * the caller's visible databases — an admin/member sees everything
+ * (unrestricted, unchanged), a guest sees only approvals whose database they
+ * hold a grant on. Approve/reject are human-only: a PAT needs
  * `admin` scope to get past AuthGuard at all (`@RequiresScope('admin')`),
  * and — for BOTH a session and a PAT — `assertHuman` below additionally
  * requires the caller be the approval's own approver or a workspace admin.
@@ -31,7 +34,7 @@ export class ApprovalsController {
   @RequiresScope('read')
   @ApiOperation({ summary: 'List approvals for this workspace, optionally filtered by status' })
   list(@Req() req: WorkspaceRequest, @Query('status') status?: string) {
-    return this.approvals.list(req.membership.workspaceId, status);
+    return this.approvals.list(req.membership, status);
   }
 
   @Post(':id/approve')
@@ -54,8 +57,14 @@ export class ApprovalsController {
     const approval = await this.approvals.get(req.membership.workspaceId, id);
     const isAdmin = req.membership.role === 'admin';
     const isApprover = approval.approverId === req.user.id;
-    if (!isAdmin && !isApprover) {
-      throw new ForbiddenException("Only this approval's approver or a workspace admin can decide it");
-    }
+    if (isAdmin || isApprover) return;
+    // #691 — the named approver check above is authoritative on its own
+    // (it can be a guest with only a record-scoped grant, no general
+    // database access); this only decides what a FAILED check looks like.
+    // A caller who can't even see this approval's database gets the same
+    // 404 a wrong id would give, not a 403 that confirms something exists.
+    const visible = await this.approvals.visibleToMembership(req.membership, approval);
+    if (!visible) throw new NotFoundException('Approval not found');
+    throw new ForbiddenException("Only this approval's approver or a workspace admin can decide it");
   }
 }

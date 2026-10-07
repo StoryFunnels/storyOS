@@ -99,36 +99,28 @@ is the remaining phase — it lands with the cloud tier (see MN-069).
 
 ## Configure
 
-> Not published to npm yet — run it from this repo's build. (Once published, the
-> `npx -y @storyos/mcp` form below becomes the one-liner.)
-
 **1. Get a token** — in StoryOS, sidebar → **API tokens** → create one for the
 workspace you want. Copy the `mn_pat_…` (shown once; scoped to that workspace).
+Without this, the server starts and immediately exits with `fatal STORYOS_TOKEN
+is required` — that's the config check working, not a broken install.
 
-**2. Build the package** (once):
-
-```bash
-pnpm install
-pnpm --filter @storyos/mcp build      # → packages/mcp/dist/index.js
-```
-
-**3a. Claude Code**
+**2a. Claude Code**
 
 ```bash
 claude mcp add storyos \
   -e STORYOS_URL=https://app.storyos.dev \
   -e STORYOS_TOKEN=mn_pat_xxx \
-  -- node /ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js
+  -- npx -y @storyos/mcp
 ```
 
-**3b. Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`)
+**2b. Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`)
 
 ```json
 {
   "mcpServers": {
     "storyos": {
-      "command": "node",
-      "args": ["/ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@storyos/mcp"],
       "env": {
         "STORYOS_URL": "https://app.storyos.dev",
         "STORYOS_TOKEN": "mn_pat_xxx"
@@ -139,11 +131,17 @@ claude mcp add storyos \
 ```
 
 `STORYOS_URL` is `https://app.storyos.dev` for the cloud box, or
-`http://localhost:3001` for local dev (the default). Restart Claude, then ask it to
-"list my StoryOS databases".
+`http://localhost:3001` for local dev. Restart Claude, then ask it to "list my
+StoryOS databases".
 
-**Once published to npm**, replace the command with `npx -y @storyos/mcp` (no build,
-no path).
+**Running from this repo instead** (contributing, or testing an unreleased
+change): build first, then swap the command/args above for `node` +
+`/ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js`.
+
+```bash
+pnpm install
+pnpm --filter @storyos/mcp build      # → packages/mcp/dist/index.js
+```
 
 ## Hosted (Streamable HTTP) — no local process
 

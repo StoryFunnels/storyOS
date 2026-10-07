@@ -1,4 +1,5 @@
 import type { FormVisibilityRule } from '@storyos/schemas';
+import type { FilterNode } from './filter-config';
 
 /**
  * Pure state logic for the form-fields sidebar builder (#224). Kept dependency-free
@@ -12,16 +13,20 @@ export interface FormFieldCfg {
   help?: string;
   /** #263 — show this field only when an earlier answer matches. */
   visible_when?: FormVisibilityRule;
+  /** #500 — `required` above only bites when this also holds (or is unset). */
+  required_when?: FormVisibilityRule;
+  /** #501 — narrows a relation field's picker; meaningful only for a
+   *  `type: 'relation'` field, compiled against its TARGET database. */
+  relation_filter?: FilterNode;
 }
 
 /**
  * Field types a form (public or in-app) can render/accept — mirrors the API's
- * SUPPORTED set in apps/api/src/forms/forms.service.ts, minus `rich_text`.
- * `rich_text` is technically accepted server-side but neither the public form
- * renderer nor the old in-app builder ever produced a valid block-array value
- * for it (a plain-string submit 422s) — excluded here so the new sidebar never
- * offers a type that's a guaranteed dead end. Kept in one place so the sidebar
- * never offers a type the backend would silently drop.
+ * SUPPORTED set in apps/api/src/forms/forms.service.ts exactly. `rich_text`
+ * is absent from both (#758): it used to be server-accepted while neither
+ * renderer ever produced a valid block-array value for it (a plain-string
+ * submit 422s) and the sidebar never offered it — a guaranteed dead end,
+ * removed at the source rather than merely excluded here.
  */
 export const FORM_FIELD_TYPES = new Set([
   'title',
@@ -38,7 +43,20 @@ export const FORM_FIELD_TYPES = new Set([
   'multi_select',
   'user',
   'relation',
+  // #724 — added by #710 server-side; missing here for one release, so a form
+  // could accept an attachment via the API but never actually offer the field.
+  'attachment',
 ]);
+
+/**
+ * #724 — the server (forms.service.ts) accepts at most one configured
+ * attachment field per form, silently dropping a second at render time. The
+ * builder shouldn't let a second one be created in the first place — this is
+ * the pure check; the caller decides how to surface the refusal.
+ */
+export function canAddFormField(selectedTypes: string[], fieldType: string): boolean {
+  return !(fieldType === 'attachment' && selectedTypes.includes('attachment'));
+}
 
 /**
  * Which field ids make up the form, in order (#224). `config.form.fields` is the

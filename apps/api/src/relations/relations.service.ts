@@ -5,13 +5,15 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AutoLinkRules, RelationCardinality } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import { findFieldByRef } from '../fields/field-ref';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, recordLinks, records, relations } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { slugify } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { isComparableType } from './auto-link';
@@ -68,6 +70,8 @@ export class RelationsService {
       where: and(
         eq(databases.workspaceId, membership.workspaceId),
         inArray(databases.id, [input.database_a_id, input.database_b_id]),
+        // #453: a soft-deleted database is not a valid relation target.
+        notDeleted(databases.deletedAt),
       ),
     });
     const dbA = dbs.find((d) => d.id === input.database_a_id);
@@ -299,10 +303,11 @@ export class RelationsService {
 
     const dbIds = [...new Set(rows.flatMap((r) => [r.databaseAId, r.databaseBId]))];
     const dbRows = await this.db.query.databases.findMany({
-      // No soft-delete column on `databases` — a deleted database is a real
-      // delete and its relations cascade with it, so a missing row here means
-      // the edge is already gone. Filtered below rather than joined away.
-      where: inArray(databases.id, dbIds),
+      // #453: `databases` now carries `deletedAt`, so a soft-deleted database's
+      // relations are filtered here explicitly — the row is no longer removed
+      // by an FK cascade, so a missing row would mean something else entirely
+      // (the database's own workspace deletion, which really does cascade).
+      where: and(inArray(databases.id, dbIds), notDeleted(databases.deletedAt)),
       columns: { id: true, name: true, spaceId: true },
     });
     const byId = new Map(dbRows.map((d) => [d.id, d]));
@@ -462,8 +467,34 @@ export class RelationsService {
     return { field, relation, record, side, targetDatabaseId };
   }
 
-  async listLinks(databaseId: string, recordId: string, fieldId: string) {
-    const { relation, side } = await this.resolveLinkContext(databaseId, recordId, fieldId);
+  /**
+   * #469 — `membership` optional and omitted by every internal caller (none
+   * exist today; the record-detail links panel is the only reader). Passed
+   * from the controller, a target database the caller cannot read returns an
+   * empty list rather than the denied database's record titles — the same
+   * bound `attachLinks` (records.service.ts) applies to the relation chip this
+   * endpoint feeds.
+   */
+  async listLinks(databaseId: string, recordId: string, fieldId: string, membership?: Membership) {
+    const { relation, side, targetDatabaseId } = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    // #474 phase 3 — non-null only for a guest with no broader (space/db)
+    // grant on the target database; same primitive attachLinks (records.
+    // service.ts) uses, so this endpoint and the chip it feeds agree.
+    let recordScope: { ids: Set<string> } | null = null;
+    if (membership) {
+      const targetDb = await this.db.query.databases.findFirst({
+        where: eq(databases.id, targetDatabaseId),
+        columns: { id: true, spaceId: true },
+      });
+      if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+        // #474 phase 3 — fall through to record-scoped grants (#472) before
+        // concluding "no access", the same fallback DatabasesService.
+        // assertAccess already uses — effectiveForDatabase alone doesn't
+        // know about them.
+        recordScope = await this.access.visibleRecordIds(membership, targetDb);
+        if (!recordScope || recordScope.ids.size === 0) return { data: [] };
+      }
+    }
     const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
@@ -472,7 +503,12 @@ export class RelationsService {
       .from(recordLinks)
       .innerJoin(records, eq(records.id, otherCol))
       .where(
-        and(eq(recordLinks.relationId, relation.id), eq(myCol, recordId), isNull(records.deletedAt)),
+        and(
+          eq(recordLinks.relationId, relation.id),
+          eq(myCol, recordId),
+          isNull(records.deletedAt),
+          recordScope ? inArray(records.id, [...recordScope.ids]) : undefined,
+        ),
       )
       .orderBy(asc(records.title))
       .limit(200);
@@ -487,6 +523,7 @@ export class RelationsService {
     relation: Relation,
     record: { id: string; title: string },
     targets: Array<{ id: string; title: string }>,
+    source: ChangeSource = 'human',
   ) {
     const events = targets.flatMap((target) => [
       {
@@ -495,6 +532,7 @@ export class RelationsService {
         actorId,
         type,
         payload: { relation_id: relation.id, other: target },
+        source,
       },
       {
         workspaceId,
@@ -502,9 +540,28 @@ export class RelationsService {
         actorId,
         type,
         payload: { relation_id: relation.id, other: { id: record.id, title: record.title } },
+        source,
       },
     ]);
     if (events.length) await tx.insert(activityEvents).values(events);
+  }
+
+  /**
+   * #238 — addLinks/replaceLinks/removeLinks checked `editor` on the record's
+   * OWN database (LinksController.assertDb) but never on the relation's OTHER
+   * side. A guest with editor on database A could link database A's record to
+   * arbitrary ids in database B they hold no grant on at all, and the response
+   * (via listLinks) then echoed back database B's record titles — the same
+   * leak class #469 closed for the read side, reopened here on the write side.
+   */
+  private async assertTargetAccess(membership: Membership, targetDatabaseId: string) {
+    const targetDb = await this.db.query.databases.findFirst({
+      where: eq(databases.id, targetDatabaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!targetDb || (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+      throw new NotFoundException('Database not found');
+    }
   }
 
   private async loadTargets(targetDatabaseId: string, ids: string[]) {
@@ -529,8 +586,11 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     const targets = await this.loadTargets(ctx.targetDatabaseId, targetIds);
 
     if (ctx.relation.cardinality === 'one_to_many' && ctx.side === 'a') {
@@ -563,6 +623,7 @@ export class RelationsService {
         ctx.relation,
         { id: ctx.record.id, title: ctx.record.title },
         targets,
+        source,
       );
     });
     // MN-267: the dedicated Links API (this method) writes record_links directly,
@@ -602,8 +663,11 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (targetIds.length && membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     if (ctx.relation.cardinality === 'one_to_many' && ctx.side === 'a' && targetIds.length > 1) {
       throw new ConflictException('This record can link to only one target (one-to-many)');
     }
@@ -617,6 +681,27 @@ export class RelationsService {
     let removedIds: string[] = [];
 
     await this.db.transaction(async (tx) => {
+      // #686 — replaceLinks is delete-then-insert, and the insert had no
+      // onConflictDoNothing (unlike addLinks' insert above, which is safely
+      // conflict-tolerant because ADD never claims to clear anything first).
+      // Two concurrent PUTs for the SAME (relation, record) can both delete
+      // nothing-yet-committed, then both insert an overlapping target,
+      // hitting record_links_uq as an unhandled 500. onConflictDoNothing
+      // alone would silence the error but let the two requests' target sets
+      // MERGE (whichever half of each didn't conflict survives) rather than
+      // the whole-set replace PUT promises. A transaction-scoped advisory
+      // lock keyed to this exact (relation, record) pair forces genuine
+      // serialization: the second PUT waits for the first's delete+insert to
+      // fully commit, then runs its own delete+insert against a clean,
+      // already-committed base — converging on exactly ONE full requested
+      // set, never a 500, never a mixture. Auto-released at commit/rollback,
+      // no manual unlock needed (same hashtext() keying convention as
+      // AutomationsService.tickInner's and GithubService's per-key locks,
+      // but xact-scoped+blocking here since a foreground PUT must wait its
+      // turn rather than skip like those background ticks do).
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`link-replace:${ctx.relation.id}:${recordId}`}))`,
+      );
       const removed = await tx
         .delete(recordLinks)
         .where(and(eq(recordLinks.relationId, ctx.relation.id), eq(myCol, recordId)))
@@ -635,16 +720,26 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           removedTargets,
+          source,
         );
       }
       if (targets.length) {
-        await tx.insert(recordLinks).values(
-          targets.map((t) => ({
-            relationId: ctx.relation.id,
-            fromRecordId: ctx.side === 'a' ? recordId : t.id,
-            toRecordId: ctx.side === 'a' ? t.id : recordId,
-          })),
-        );
+        // Defense in depth alongside the advisory lock above: addLinks
+        // doesn't take this lock (its own insert is already
+        // onConflictDoNothing-safe), so it could in principle still race a
+        // row into existence between this delete and this insert. Matching
+        // that same tolerance here means the rare cross-function overlap
+        // degrades to "keep the existing row" rather than a 500.
+        await tx
+          .insert(recordLinks)
+          .values(
+            targets.map((t) => ({
+              relationId: ctx.relation.id,
+              fromRecordId: ctx.side === 'a' ? recordId : t.id,
+              toRecordId: ctx.side === 'a' ? t.id : recordId,
+            })),
+          )
+          .onConflictDoNothing();
         await this.writeLinkEvents(
           tx as unknown as Db,
           workspaceId,
@@ -653,6 +748,7 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           targets,
+          source,
         );
       }
     });
@@ -682,8 +778,11 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = ctx.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
@@ -714,6 +813,7 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           removedTargets,
+          source,
         );
       }
     });

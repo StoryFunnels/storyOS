@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Blocks, CheckCircle2, Circle, X } from 'lucide-react';
+import { CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
@@ -12,13 +12,17 @@ import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
 import {
   buildActivationSteps,
   completedCount,
+  isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
   withWorkspaceDismissed,
   type OnboardingState,
 } from '@/lib/activation';
-import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
+import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
+import { takePendingShare } from '@/lib/pending-share';
+import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
+import { WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -59,7 +63,19 @@ export default function WorkspaceHome() {
     refetchOnWindowFocus: true,
   });
 
-  const registry = useTemplateRegistry();
+  /*
+   * #217 — the wizard's last step, offered exactly once: right after landing
+   * in a workspace just built by the describe-your-work step. `false` on
+   * both the server and the first client render (same hydration dance as
+   * `useTyronPanel`/`useRememberedThread`), then flips true post-mount if
+   * `/new-workspace` left the flag — never on a later visit to this page,
+   * whether the prompt was used or skipped.
+   */
+  const [showShare, setShowShare] = useState(false);
+  useEffect(() => {
+    if (takePendingShare(ws)) setShowShare(true);
+  }, [ws]);
+
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
@@ -82,11 +98,22 @@ export default function WorkspaceHome() {
   const steps = gs ? buildActivationSteps(gs, { ws, firstDbId: firstDb?.id }) : [];
   const showChecklist = shouldShowChecklist(steps, dismissed);
 
+  // #723 — show live work instead of a template wall, but only once this
+  // workspace has clearly been used. The predicate and its floor live in
+  // activation.ts next to the checklist logic they depend on, and are unit
+  // tested there; see the comments on `isEstablishedWorkspace`.
+  const established = isEstablishedWorkspace(steps, sampleCount, databases.data?.length ?? 0);
+
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-10">
+    /* #663 — LEFT-ALIGNED, and no longer capped at 672px. `mx-auto max-w-2xl`
+       was the single class that made this page two narrow columns floating in
+       the middle of a wide viewport while the sidebar's content sat hard left.
+       max-w-6xl still stops prose from running to absurd measures on an
+       ultrawide, but the content now starts where the eye already is. */
+    <div className="max-w-6xl p-4 sm:p-10">
       {sampleCount > 0 && (
         <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
-          <span className="text-[13px] text-ink">
+          <span className="text-body text-ink">
             This workspace contains {sampleCount} sample records to explore.
           </span>
           <Button size="sm" variant="secondary" onClick={() => removeSamples.mutate()}>
@@ -103,10 +130,12 @@ export default function WorkspaceHome() {
         sidebar.
       </p>
 
+      {showShare && <ShareWorkspaceCard ws={ws} onDone={() => setShowShare(false)} />}
+
       {showChecklist && (
         <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
+            <p className="text-label font-medium uppercase tracking-wider text-faint">
               Getting started · {completedCount(steps)}/{steps.length}
             </p>
             <button
@@ -128,11 +157,11 @@ export default function WorkspaceHome() {
                   <Circle className="h-4 w-4 text-faint" />
                 )}
                 {step.href && !step.done ? (
-                  <Link href={step.href} className="text-[13px] text-ink underline-offset-2 hover:underline">
+                  <Link href={step.href} className="text-body text-ink underline-offset-2 hover:underline">
                     {step.label}
                   </Link>
                 ) : (
-                  <span className="text-[13px] text-ink-secondary">{step.label}</span>
+                  <span className="text-body text-ink-secondary">{step.label}</span>
                 )}
               </div>
             ))}
@@ -140,45 +169,24 @@ export default function WorkspaceHome() {
         </div>
       )}
 
+      {/* #723 — the eighteen-card template gallery is now ONE link, for new and
+          established workspaces alike. It was the page's largest element and
+          its least repeatable: a template is installed once, then the grid
+          keeps the same footprint forever, which is most of the empty-feeling
+          space in the screenshot that opened this ticket. The gallery dialog is
+          unchanged and one click away. */}
       {canInstall && (
-        <div className="mt-8">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
-              Start something new
-            </p>
-            <button
-              type="button"
-              className="text-[12px] text-muted underline-offset-2 hover:underline"
-              onClick={() => {
-                setGallerySlug(undefined);
-                setGalleryOpen(true);
-              }}
-            >
-              Browse all templates
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(registry.data?.intents ?? []).map((intent) => {
-              const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
-              return (
-                <button
-                  key={intent.id}
-                  type="button"
-                  className="flex items-start gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-3 text-left hover:bg-hover"
-                  onClick={() => {
-                    setGallerySlug(intent.template);
-                    setGalleryOpen(true);
-                  }}
-                >
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                  <span>
-                    <span className="block text-[13px] font-medium text-ink">{intent.label}</span>
-                    <span className="block text-[12px] text-muted">{intent.description}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="mt-6">
+          <button
+            type="button"
+            className="text-body text-ink underline-offset-2 hover:underline"
+            onClick={() => {
+              setGallerySlug(undefined);
+              setGalleryOpen(true);
+            }}
+          >
+            Start something new →
+          </button>
           {galleryOpen && (
             <TemplateGalleryDialog
               key={gallerySlug ?? 'all'}
@@ -192,8 +200,10 @@ export default function WorkspaceHome() {
         </div>
       )}
 
+      {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} />}
+
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
-        <p className="mt-6 text-[13px] text-muted">
+        <p className="mt-6 text-body text-muted">
           Create your first database from the sidebar — hover a space and hit “+”.
         </p>
       )}

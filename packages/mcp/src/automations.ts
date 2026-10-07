@@ -208,8 +208,10 @@ export function resolveActionFieldRefs(
   }
   if (type === 'notify_user') {
     const ref = action.user as string | undefined;
-    if (ref && ref !== '@me' && ref !== 'me') {
-      // A person field, addressed by name or api_name; @me stays verbatim.
+    // #730 — '@member:<id>' targets a specific workspace member (find the id
+    // via list_members) and, like '@me', is not a field reference to resolve.
+    if (ref && ref !== '@me' && ref !== 'me' && !/^@member:/.test(ref)) {
+      // A person field, addressed by name or api_name.
       action = { ...action, user: findField(detail.fields, ref, { types: ['user'], kind: 'person' }).apiName };
     }
     return { ...action };
@@ -286,6 +288,9 @@ export interface AutomationRow {
   nextDueAt?: string | null;
   createdBy?: string | null;
   hookToken?: string | null;
+  /** #392 — schedule-only top-N selection; null on every rule that doesn't use it. */
+  sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+  topNLimit?: number | null;
   [k: string]: unknown;
 }
 
@@ -319,6 +324,9 @@ export function readableAutomation(
     failure_streak: row.failureStreak ?? 0,
     next_due_at: row.nextDueAt ?? null,
     created_by: row.createdBy ?? null,
+    // #392 — a schedule-only top-N selection; both null on every other rule.
+    sort: row.sort ?? null,
+    limit: row.topNLimit ?? null,
   };
   if (opts.lastRun !== undefined) out.last_run = opts.lastRun;
   if (row.hookToken && opts.workspaceSlug) {

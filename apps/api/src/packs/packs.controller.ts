@@ -1,4 +1,13 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -12,6 +21,7 @@ import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.gu
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { MarketplaceService } from './marketplace.service';
 import { PACK_REGISTRY } from './registry';
+import { packWorkflow } from './pack-workflow';
 import { PacksService } from './packs.service';
 
 /**
@@ -64,15 +74,28 @@ export class PacksRegistryController {
   @Get('registry')
   @ApiOperation({ summary: 'The built-in Business Pack gallery' })
   registry() {
-    return PACK_REGISTRY.map(({ manifest, ...card }) => ({
-      ...card,
-      preview: {
-        databases: manifest.databases.length,
-        views: manifest.views.length,
-        automations: manifest.automations.length,
-        agents: manifest.agents.length,
-      },
-    }));
+    return PACK_REGISTRY.map((entry) => {
+      const { manifest, ...card } = entry;
+      return {
+        ...card,
+        // #824: the hero is the workflow, read from the pack's own manifest.
+        workflow: packWorkflow(entry),
+        // #824: the two marks that replaced boilerplate highlight copy. Derived from
+        // the manifest, so a pack without an agent never claims one.
+        marks: {
+          agent: manifest.agents.length > 0,
+          notifies: manifest.automations.some((a) =>
+            a.actions.some((x) => x.type === 'notify_user'),
+          ),
+        },
+        preview: {
+          databases: manifest.databases.length,
+          views: manifest.views.length,
+          automations: manifest.automations.length,
+          agents: manifest.agents.length,
+        },
+      };
+    });
   }
 
   @Get('registry/:slug')

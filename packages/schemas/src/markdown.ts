@@ -54,6 +54,8 @@ interface Block {
   type: string;
   props?: Record<string, unknown>;
   content?: Inline[] | TableContent;
+  /** BlockNote nests blocks: a list item's sub-items, a toggle's body. */
+  children?: Block[];
 }
 
 // ---------- blocks → markdown ----------
@@ -110,47 +112,121 @@ function tableToMarkdown(content: TableContent): string {
 }
 
 const LIST_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
+/** Blocks that render as a Markdown list item, and so nest their children by marker width. */
+const LIST_LIKE = new Set([...LIST_TYPES, 'toggleListItem']);
+/** Beyond this a document is malformed or hostile; flatten rather than overflow the stack. */
+const MAX_NESTING = 64;
 
-/** Render a BlockNote document (or a stray string) as Markdown. */
-export function blocksToMarkdown(blocks: unknown): string {
-  if (typeof blocks === 'string') return blocks;
-  if (!Array.isArray(blocks)) return '';
+/** Every descendant of `blocks` in document order, with their own `children` removed.
+ * Iterative on purpose: this is the path for a tree too deep to recurse into. */
+function flattenSubtree(blocks: unknown[]): Block[] {
+  const out: Block[] = [];
+  const stack: unknown[] = [...blocks].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop() as Block;
+    out.push({ ...block, children: [] });
+    const kids = Array.isArray(block.children) ? (block.children as unknown[]) : [];
+    for (let k = kids.length - 1; k >= 0; k--) stack.push(kids[k]);
+  }
+  return out;
+}
+
+/** Indent every non-empty line (blank lines stay blank, so no trailing whitespace). */
+function indentLines(md: string, indent: string): string {
+  if (!indent) return md;
+  return md
+    .split('\n')
+    .map((l) => (l ? indent + l : l))
+    .join('\n');
+}
+
+/** A URL that survives `![..](url)`: the parser's URL group stops at whitespace or ")". */
+function markdownUrl(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
+/** Alt/label text: no brackets (they would end the link early) and no line breaks. */
+function markdownLabel(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/[[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+}
+
+/** One block's own Markdown, WITHOUT its children (renderBlocks adds those). */
+function ownMarkdown(block: Block, ordinal: number): string {
+  const text = inlineToMarkdown(block.content);
+  switch (block.type) {
+    case 'heading':
+      return `${'#'.repeat(Math.min(6, Math.max(1, Number(block.props?.level ?? 1))))} ${text}`;
+    case 'bulletListItem':
+      return `- ${text}`;
+    case 'numberedListItem':
+      return `${ordinal}. ${text}`;
+    case 'checkListItem':
+      return `- [${block.props?.checked ? 'x' : ' '}] ${text}`;
+    // #822: a toggle has no Markdown form, so it is a bullet — its TITLE and (via
+    // renderBlocks) its BODY survive, as a nested list. The type is lost; the
+    // content, which used to vanish entirely, is not.
+    case 'toggleListItem':
+      return `- ${text}`;
+    case 'quote':
+      return `> ${text}`;
+    case 'codeBlock': {
+      const lang = typeof block.props?.language === 'string' ? block.props.language : '';
+      return `\`\`\`${lang}\n${text}\n\`\`\``;
+    }
+    // #308: without this a table serialised to its bare text and was lost on the
+    // way OUT too — a table made in the editor never survived being read back.
+    case 'table':
+      return tableToMarkdown(block.content as TableContent);
+    // #822: images, dividers and files used to serialise to nothing at all.
+    case 'image': {
+      const url = markdownUrl(block.props?.url);
+      // Never `![](...)` with no URL, and never an empty image: emit nothing.
+      if (!url) return '';
+      return `![${markdownLabel(block.props?.caption) || markdownLabel(block.props?.name)}](${url})`;
+    }
+    case 'divider':
+      return '---';
+    case 'file':
+    case 'video':
+    case 'audio': {
+      const url = markdownUrl(block.props?.url);
+      if (!url) return '';
+      return `[${markdownLabel(block.props?.caption) || markdownLabel(block.props?.name) || url}](${url})`;
+    }
+    default:
+      return text;
+  }
+}
+
+function renderBlocks(blocks: unknown[], depth: number): string {
   let result = '';
   let ordinal = 0; // running number for consecutive numbered-list items
   blocks.forEach((raw, idx) => {
     const block = raw as Block;
-    const text = inlineToMarkdown(block.content);
     ordinal = block.type === 'numberedListItem' ? ordinal + 1 : 0;
-    let md: string;
-    switch (block.type) {
-      case 'heading':
-        md = `${'#'.repeat(Math.min(6, Math.max(1, Number(block.props?.level ?? 1))))} ${text}`;
-        break;
-      case 'bulletListItem':
-        md = `- ${text}`;
-        break;
-      case 'numberedListItem':
-        md = `${ordinal}. ${text}`;
-        break;
-      case 'checkListItem':
-        md = `- [${block.props?.checked ? 'x' : ' '}] ${text}`;
-        break;
-      case 'quote':
-        md = `> ${text}`;
-        break;
-      case 'codeBlock': {
-        const lang = typeof block.props?.language === 'string' ? block.props.language : '';
-        md = `\`\`\`${lang}\n${text}\n\`\`\``;
-        break;
+    let md = ownMarkdown(block, ordinal);
+
+    // #822: descend into children. Before this, only a block's own `content` was
+    // read, so anything nested — and a toggle's whole body — silently vanished.
+    const children = Array.isArray(block.children) ? (block.children as unknown[]) : [];
+    if (children.length > 0) {
+      // Past MAX_NESTING the subtree is flattened into one level instead of recursed into:
+      // depth is given up, content is not.
+      const rendered = renderBlocks(depth < MAX_NESTING ? children : flattenSubtree(children), depth + 1);
+      if (LIST_LIKE.has(block.type)) {
+        // Nest at the parent's marker width (CommonMark): `- ` is 2, `1. ` is 3, `10. ` is 4.
+        const width = block.type === 'numberedListItem' ? `${ordinal}. `.length : 2;
+        const firstChild = (children[0] as Block).type;
+        // A sub-item continues the list on the next line; anything else needs a blank line first.
+        md += (LIST_LIKE.has(firstChild) ? '\n' : '\n\n') + indentLines(rendered, ' '.repeat(width));
+      } else {
+        // Markdown cannot express a child of a paragraph/heading/quote. Keep the CONTENT
+        // after it at the same level and say so: depth is lost there, content is not.
+        md += '\n\n' + rendered;
       }
-      // #308: without this a table serialised to its bare text and was lost on the
-      // way OUT too — a table made in the editor never survived being read back.
-      case 'table':
-        md = tableToMarkdown(block.content as TableContent);
-        break;
-      default:
-        md = text;
     }
+
     if (idx > 0) {
       // Keep adjacent list items on consecutive lines; blank line between other blocks.
       const prevType = (blocks[idx - 1] as Block).type;
@@ -159,6 +235,13 @@ export function blocksToMarkdown(blocks: unknown): string {
     result += md;
   });
   return result;
+}
+
+/** Render a BlockNote document (or a stray string) as Markdown. */
+export function blocksToMarkdown(blocks: unknown): string {
+  if (typeof blocks === 'string') return blocks;
+  if (!Array.isArray(blocks)) return '';
+  return renderBlocks(blocks, 0);
 }
 
 // ---------- markdown → blocks ----------
@@ -238,32 +321,81 @@ function isSeparatorRow(line: string): boolean {
   return parts.length > 0 && parts.every((p) => /^:?-{1,}:?$/.test(p));
 }
 
+/** A line that is only `![alt](url)` — an image BLOCK. One inside a sentence stays text. */
+const IMAGE_LINE_RE = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/;
+const RULE_RE = /^(-{3,}|\*{3,}|_{3,})$/;
+
+/** Leading indentation, a tab counting as four spaces. */
+function leadingSpaces(line: string): number {
+  let n = 0;
+  for (const ch of line) {
+    if (ch === ' ') n++;
+    else if (ch === '\t') n += 4;
+    else break;
+  }
+  return n;
+}
+
+/** Strip up to `n` columns of leading whitespace (used to dedent a nested code fence's body). */
+function dedent(line: string, n: number): string {
+  let cut = 0;
+  let cols = 0;
+  while (cut < line.length && cols < n && (line[cut] === ' ' || line[cut] === '\t')) {
+    cols += line[cut] === '\t' ? 4 : 1;
+    cut++;
+  }
+  return line.slice(cut);
+}
+
 export function markdownToBlocks(markdown: string): Block[] {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
+  // #822: list items still open, shallowest first, each with the column its marker
+  // sat in. Depth comes from THIS stack, not a fixed indent width, so 2-space, 3-space
+  // and 4-space nesting all read back as nesting.
+  const open: Array<{ lead: number; block: Block }> = [];
+  const place = (block: Block, lead: number, isList = false) => {
+    while (open.length > 0 && open[open.length - 1]!.lead >= lead) open.pop();
+    const parent = open[open.length - 1];
+    if (parent) (parent.block.children ??= []).push(block);
+    else blocks.push(block);
+    if (isList) open.push({ lead, block });
+  };
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i]!;
+    const raw = lines[i]!;
+
+    if (raw.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // An indented line nests only when a list item is open ABOVE it. With none, it stays
+    // exactly what it always was — a literal-text paragraph — so this cannot change how a
+    // document that never nested is read.
+    let lead = leadingSpaces(raw);
+    const nested = lead > 0 && open.some((e) => e.lead < lead);
+    const line = nested ? raw.trimStart() : raw;
+    if (!nested) lead = 0;
 
     const fence = line.match(/^```(\w*)\s*$/);
     if (fence) {
       const code: string[] = [];
+      const closing = nested ? /^\s*```\s*$/ : /^```\s*$/;
       i++;
-      while (i < lines.length && !/^```\s*$/.test(lines[i]!)) {
-        code.push(lines[i]!);
+      while (i < lines.length && !closing.test(lines[i]!)) {
+        code.push(nested ? dedent(lines[i]!, lead) : lines[i]!);
         i++;
       }
       i++; // consume closing fence
-      blocks.push({
-        type: 'codeBlock',
-        props: fence[1] ? { language: fence[1] } : {},
-        content: [text(code.join('\n'))],
-      });
-      continue;
-    }
-
-    if (line.trim() === '') {
-      i++;
+      place(
+        {
+          type: 'codeBlock',
+          props: fence[1] ? { language: fence[1] } : {},
+          content: [text(code.join('\n'))],
+        },
+        lead,
+      );
       continue;
     }
 
@@ -288,33 +420,41 @@ export function markdownToBlocks(markdown: string): Block[] {
         rows.push({ cells: padded });
         i++;
       }
-      blocks.push({
-        type: 'table',
-        content: {
-          type: 'tableContent',
-          columnWidths: Array.from({ length: cols }, () => undefined),
-          headerRows: 1,
-          rows,
+      place(
+        {
+          type: 'table',
+          content: {
+            type: 'tableContent',
+            columnWidths: Array.from({ length: cols }, () => undefined),
+            headerRows: 1,
+            rows,
+          },
         },
-      });
+        lead,
+      );
       continue;
     }
 
     let m: RegExpMatchArray | null;
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-      blocks.push({ type: 'heading', props: { level: m[1]!.length }, content: parseInline(m[2]!) });
+      place({ type: 'heading', props: { level: m[1]!.length }, content: parseInline(m[2]!) }, lead);
     } else if ((m = line.match(/^[-*]\s+\[([ xX])\]\s+(.*)$/))) {
-      blocks.push({ type: 'checkListItem', props: { checked: m[1]!.toLowerCase() === 'x' }, content: parseInline(m[2]!) });
+      place({ type: 'checkListItem', props: { checked: m[1]!.toLowerCase() === 'x' }, content: parseInline(m[2]!) }, lead, true);
     } else if ((m = line.match(/^[-*+]\s+(.*)$/))) {
-      blocks.push({ type: 'bulletListItem', content: parseInline(m[1]!) });
+      place({ type: 'bulletListItem', content: parseInline(m[1]!) }, lead, true);
     } else if ((m = line.match(/^\d+\.\s+(.*)$/))) {
-      blocks.push({ type: 'numberedListItem', content: parseInline(m[1]!) });
+      place({ type: 'numberedListItem', content: parseInline(m[1]!) }, lead, true);
     } else if ((m = line.match(/^>\s?(.*)$/))) {
-      blocks.push({ type: 'quote', content: parseInline(m[1]!) });
-    } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-      // horizontal rule — BlockNote core has no HR block; skip it.
+      place({ type: 'quote', content: parseInline(m[1]!) }, lead);
+    } else if (RULE_RE.test(line.trim())) {
+      // #822: this branch used to SKIP the rule ("BlockNote core has no HR block").
+      // It does — `divider`, in BlockNote 0.51.4's default blocks — so a rule is now
+      // kept, which is also what makes blocksToMarkdown's `---` round-trip.
+      place({ type: 'divider' }, lead);
+    } else if ((m = line.trim().match(IMAGE_LINE_RE))) {
+      place({ type: 'image', props: { url: m[2]!, caption: m[1]! } }, lead);
     } else {
-      blocks.push({ type: 'paragraph', content: parseInline(line) });
+      place({ type: 'paragraph', content: parseInline(line) }, lead);
     }
     i++;
   }

@@ -2,9 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, databases, notifications, records, user, userPreferences } from '../db/schema';
+import { comments, databases, memberships, notifications, records, user, userPreferences } from '../db/schema';
 import { DEFAULT_PREFERENCES, mergePreferences } from '../users/preferences.constants';
 import type { UserPreferences } from '../users/preferences.constants';
+import { AccessService } from '../access/access.service';
 
 export type NotificationType =
   | 'assigned'
@@ -82,7 +83,21 @@ export type NotificationType =
    * silently stopped. Deduped to once/calendar-month via the source's own
    * `cursor.cap_notified_month`, not this service's 60s burst-collapse.
    */
-  | 'source_run_cap_reached';
+  | 'source_run_cap_reached'
+  /**
+   * #650 AC3 — a guest/member accepted the invite sent by `actorId`. Sent to
+   * the inviter only; not an opt-out ping, same reasoning as
+   * `connection_error`/`automation_disabled` — it's a one-off "this thing you
+   * did completed" heads-up, not a recurring stream a user would want to mute.
+   */
+  | 'invite_accepted'
+  /**
+   * #650 AC3 — a metered usage counter (currently: non-AI automation runs)
+   * crossed a warn-before-the-cap threshold this billing period. Not an
+   * opt-out ping, same reasoning as `send_email_cap_reached` — it explains
+   * why the workspace is about to lose a capability, not an FYI to mute.
+   */
+  | 'usage_threshold_reached';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text
@@ -135,7 +150,10 @@ interface NotifyInput {
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
   async notify(input: NotifyInput): Promise<void> {
     let recipients = [...new Set(input.recipients)]
@@ -143,6 +161,8 @@ export class NotificationsService {
       .slice(0, 20);
     if (recipients.length === 0) return;
     recipients = await this.filterByPreference(recipients, input.type);
+    if (recipients.length === 0) return;
+    recipients = await this.filterByAccess(input, recipients);
     if (recipients.length === 0) return;
     try {
       for (const userId of recipients) {
@@ -208,6 +228,57 @@ export class NotificationsService {
     } catch (error) {
       this.logger.warn(`preference read failed, delivering anyway: ${String(error)}`);
       return recipients;
+    }
+  }
+
+  /**
+   * #690 — this was the one producer-side check every call site assumed
+   * someone else was doing: none of comments.service.ts, records.service.ts,
+   * mentions.service.ts, agents.service.ts, automations/actions.service.ts,
+   * send-email.action.ts, approvals.service.ts, or billing consult
+   * AccessService before calling notify(). A guest (or, once #474/#565 land,
+   * a restricted member) with NO grant on the triggering database still got
+   * notified and had the mentioning text stored as `snippet`, readable
+   * forever via GET /notifications regardless of whether their access to the
+   * source is ever granted.
+   *
+   * Fails CLOSED on error, unlike filterByPreference's fail-open: a
+   * preference check failing just means an opt-out courtesy didn't apply,
+   * but an access check failing here is exactly the leak this exists to
+   * close — silently delivering anyway would defeat the whole point.
+   *
+   * A bare notification (no databaseId — trial reminders, connection
+   * errors) has nothing to check access against and is left alone.
+   */
+  private async filterByAccess(input: NotifyInput, recipients: string[]): Promise<string[]> {
+    if (!input.databaseId) return recipients;
+    try {
+      const database = await this.db.query.databases.findFirst({
+        where: eq(databases.id, input.databaseId),
+        columns: { id: true, spaceId: true },
+      });
+      if (!database) return [];
+      const memberRows = await this.db.query.memberships.findMany({
+        where: and(eq(memberships.workspaceId, input.workspaceId), inArray(memberships.userId, recipients)),
+      });
+      const membershipByUser = new Map(memberRows.map((m) => [m.userId, m]));
+      const allowed: string[] = [];
+      for (const userId of recipients) {
+        const membership = membershipByUser.get(userId);
+        if (!membership) continue;
+        const effective = input.recordId
+          ? await this.access.effectiveForRecord(membership, {
+              id: input.recordId,
+              databaseId: database.id,
+              spaceId: database.spaceId,
+            })
+          : await this.access.effectiveForDatabase(membership, database);
+        if (effective) allowed.push(userId);
+      }
+      return allowed;
+    } catch (error) {
+      this.logger.warn(`notification access check failed, dropping all recipients: ${String(error)}`);
+      return [];
     }
   }
 

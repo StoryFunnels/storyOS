@@ -57,6 +57,7 @@ export class AutomationsController {
       body as never,
       req.user.id,
       req.membership.role,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -76,6 +77,7 @@ export class AutomationsController {
       body as never,
       req.user.id,
       req.membership.role,
+      req.auth?.source ?? 'human',
     );
   }
 

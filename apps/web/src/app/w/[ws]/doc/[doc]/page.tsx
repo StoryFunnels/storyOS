@@ -85,7 +85,13 @@ function DocEditor({
   });
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    // #643 — design-system.md specifies 16px/1.6/narrow-centered for entity-page
+    // prose; this page shipped at 14px/1.5/full-width instead. Widened from
+    // max-w-3xl (768px) so a table or code block (which must stay full width,
+    // not capped to the prose measure) has real room — the prose itself is
+    // narrowed separately below, scoped to `.doc-prose` in globals.css so the
+    // record panel's description (same BlockNote CSS) is untouched.
+    <div className="doc-prose mx-auto max-w-5xl px-8 py-8">
       {/* #262 — the title lives in an <input>, and an input's VALUE is not
           printed reliably across engines (WebKit drops it entirely). Mirrored
           into a print-only heading so a printed document is not untitled. */}
@@ -93,6 +99,18 @@ function DocEditor({
         {title || 'Untitled'}
       </h1>
       <div className="mb-4 flex items-start gap-2" data-print="hide">
+        {/* #675 — this placeholder STAYS faint, and it is measured rather than
+            a taste call. At text-3xl (30px) it is WCAG LARGE TEXT (>=24px), so the bar is
+            3:1, not 4.5 — and this input is bg-transparent over --bg-app,
+            where --text-faint measures 3.22:1 in light and 4.24:1 in dark
+            (measured live, both themes). It already passes.
+
+            Which leaves the design question, and it points the same way: the
+            "Untitled" ghost is not an instruction, it is the ABSENCE of a
+            title. Darkening it would make an untitled document look like one
+            actually titled "Untitled" — trading a passing ratio for a worse
+            product. The placeholder->muted rule (#637) is about instructions
+            at body size; it is not about every string in a placeholder. */}
         <input
           className="w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
           placeholder="Untitled"

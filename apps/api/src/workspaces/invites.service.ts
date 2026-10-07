@@ -11,7 +11,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { invites, memberships, workspaces } from '../db/schema';
+import { invites, memberships, user, workspaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import type { GrantInput } from '../access/access.service';
 import { env } from '../config/env';
@@ -20,7 +20,9 @@ import type { AuthedUser } from '../auth/auth.guard';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { SalesSignalService } from '../billing/sales-signal.service';
 import { MembershipEventsService } from '../events/membership-events.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** #177: throttle repeat resends of the same pending invite. There's no
@@ -44,8 +46,10 @@ export class InvitesService {
     private readonly access: AccessService,
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
+    private readonly salesSignal: SalesSignalService,
     private readonly emailService: EmailService,
     private readonly membershipEvents: MembershipEventsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async create(
@@ -58,6 +62,10 @@ export class InvitesService {
     if (invitedRoleIsBillable(input.role, input.grants)) {
       const allowed = await this.entitlements.can(workspaceId, 'add_seat');
       if (!allowed) {
+        // #650 AC2 — hooked at the EXISTING rejection, not a new detection
+        // path. Fire-and-forget: a sales-touch failing must never be the
+        // reason an admin can't see why their invite was refused.
+        void this.salesSignal.maybeFire(workspaceId, 'free_seats_blocked');
         throw new HttpException(
           'Free plan is limited to 2 members — upgrade to Pro to invite more.',
           HttpStatus.PAYMENT_REQUIRED,
@@ -234,6 +242,13 @@ export class InvitesService {
     // and retry, not a reason to leave someone unable to join.
     await this.billing.syncSeatQuantity(invite.workspaceId).catch(() => undefined);
 
+    // #650 AC2 — a billable role just became a real, active seat (billableUserIds
+    // only counts active memberships, so this is the actual crossing point, not
+    // invite creation). Never throws; fire-and-forget like the sync above.
+    if (invitedRoleIsBillable(invite.role, invite.grants as GrantInput[] | undefined)) {
+      void this.salesSignal.checkSeatCrossing(invite.workspaceId);
+    }
+
     // #128: a joined member/guest projects into the Members system database.
     // Emitted after the membership is committed and isolated inside the bus, so
     // it never blocks or fails the accept — the membership is the source of
@@ -244,6 +259,45 @@ export class InvitesService {
       userId: user.id,
     });
 
+    // #650 AC3 — tell the inviter their invite was accepted. Awaited (it's one
+    // notification insert + a fire-and-forget email handoff, not a network
+    // round trip) but errors never fail the accept — same reasoning as the
+    // billing sync above. `invitedBy` is nullable (a legacy/system-created
+    // invite has none) so this is a no-op then.
+    if (invite.invitedBy) {
+      await this.notifyInviteAccepted(invite.invitedBy, invite.workspaceId, user, invite.role).catch(() => undefined);
+    }
+
     return { workspace_id: membership.workspaceId, role: membership.role };
+  }
+
+  private async notifyInviteAccepted(
+    inviterId: string,
+    workspaceId: string,
+    accepted: AuthedUser,
+    role: MembershipRole,
+  ): Promise<void> {
+    await this.notifications.notify({
+      workspaceId,
+      actorId: accepted.id,
+      type: 'invite_accepted',
+      recipients: [inviterId],
+      snippet: `${accepted.email} joined as ${role}`,
+    });
+
+    const inviter = await this.db.query.user.findFirst({ where: eq(user.id, inviterId) });
+    if (!inviter) return;
+    const workspace = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    await this.emailService.send(
+      {
+        kind: 'invite-accepted',
+        to: inviter.email,
+        workspaceName: workspace?.name ?? 'StoryOS',
+        memberEmail: accepted.email,
+        role,
+        membersUrl: `${env().WEB_URL.replace(/\/$/, '')}/w/${workspace?.slug ?? ''}/settings/members`,
+      },
+      workspaceId,
+    );
   }
 }

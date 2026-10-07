@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Maximize2, UserPlus } from 'lucide-react';
@@ -11,10 +11,12 @@ import { useDateFormat } from '@/lib/preferences';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { CommentComposer } from '../entity/panels';
-import { CardFieldChip } from './board-view';
+import { dayBucket } from '../inbox-panel';
+import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { CellEditor, OptionChip, richTextPreview, optionColor } from '../table-view/cells';
+import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
-import type { Field } from '../table-view/use-table-data';
+import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { feedActionFields } from './feed-actions';
@@ -53,6 +55,14 @@ export function FeedView({
       { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
     );
 
+  // #702 — feed was found rendering `row.number` unconditionally too, the same
+  // defect #701 fixed for list view: one field, opposite defaults depending on
+  // which view type you're looking at. Same shared decision, not a third copy.
+  const numberHidden = useMemo(() => {
+    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
+    return isNumberColumnHidden(config.hidden_field_ids, real?.id);
+  }, [config.hidden_field_ids, database.data]);
+
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.name])),
@@ -78,6 +88,32 @@ export function FeedView({
     [database.data, config.card_field_ids],
   );
   const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
+  /*
+   * #790 (F1/F2) — the footer used to print row.created_at unconditionally,
+   * regardless of what the view actually sorts by: sort by Priority and the
+   * footer still shows creation dates in an order they don't explain. "The
+   * date is there to explain the position; any other date is decoration
+   * pretending to be an explanation."
+   *
+   * Resolves the ACTUAL sort field (falls back to created_at, matching the
+   * server's own unsorted default) and asks whether it's chronological. Day
+   * breaks (F2) are gated on this too, per the artifact's own constraint:
+   * "you cannot bucket by day when the order is Priority" — so grouping only
+   * ever applies when there is a real time axis to group by.
+   */
+  const sortField = database.data?.fields.find((f) => f.apiName === (config.sorts[0]?.field ?? 'created_at'));
+  const CHRONOLOGICAL = new Set(['date', 'created_at', 'updated_at']);
+  const isChronologicalSort = sortField ? CHRONOLOGICAL.has(sortField.type) : false;
+  // Only ever resolves a value for an ACTUALLY chronological sort field — a
+  // Priority/Name sort must fall through to plain created_at below, not print
+  // "Priority" beside whatever a select option's raw id happens to parse as.
+  const dateOf = (row: RecordRow): string | null => {
+    if (!isChronologicalSort || !sortField) return null;
+    if (sortField.type === 'created_at') return row.created_at;
+    if (sortField.type === 'updated_at') return row.updated_at;
+    const raw = row.values[sortField.apiName];
+    return typeof raw === 'string' ? raw : null;
+  };
   // Quick-actions row (#76): which select/checkbox/user field each action edits,
   // derived purely from the schema — omitted entirely when the database has none.
   const { statusField, checkboxField, userField } = useMemo(
@@ -102,13 +138,26 @@ export function FeedView({
   return (
     <div className="h-full overflow-auto">
       <div className="flex max-w-2xl flex-col gap-3 px-4 py-4">
-        {rows.map((row) => {
+        {rows.map((row, i) => {
           const preview = richField ? richTextPreview(row.values[richField.apiName], 280) : '';
           const author = row.created_by;
           const dot = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
+          // #790 (F2) — a day break header, only while sorted by a real
+          // chronological field (a non-time sort has nothing to bucket by).
+          const rowDate = dateOf(row);
+          const bucket = isChronologicalSort && rowDate ? dayBucket(rowDate) : null;
+          const prevDate = i > 0 ? dateOf(rows[i - 1]!) : null;
+          const prevBucket = isChronologicalSort && prevDate ? dayBucket(prevDate) : null;
+          const showDayBreak = bucket !== null && bucket !== prevBucket;
           return (
+            <Fragment key={row.id}>
+            {showDayBreak && (
+              <div className="mt-2 flex items-center gap-2 px-1 text-label font-semibold text-ink first:mt-0">
+                {bucket}
+                <span className="h-px flex-1 bg-border-default" />
+              </div>
+            )}
             <div
-              key={row.id}
               onClick={(e) =>
                 openRecord(
                   { db, rec: recordSegment(row), title: row.title, number: row.number },
@@ -119,8 +168,8 @@ export function FeedView({
               style={dot ? { borderLeftColor: dot, borderLeftWidth: 3 } : undefined}
               className="cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-4 hover:border-border-strong"
             >
-              <p className="text-[15px] font-semibold text-ink">{row.title || 'Untitled'}</p>
-              {preview && <p className="mt-1.5 line-clamp-4 text-[13px] text-ink-secondary">{preview}</p>}
+              <p className="text-title font-semibold text-ink">{row.title || 'Untitled'}</p>
+              {preview && <p className="mt-1.5 line-clamp-4 text-body text-ink-secondary">{preview}</p>}
               {cardFields.length > 0 && (
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   {cardFields.map((field) => {
@@ -132,12 +181,26 @@ export function FeedView({
                   })}
                 </div>
               )}
-              <div className="mt-3 border-t border-border-default pt-2 text-[11px] text-faint">
+              {/* #706 tail — MUTED, not faint. This line is the card's provenance: who
+                  wrote it and when. globals.css reserves faint for "genuinely
+                  decorative text"; a name and a date are prose. Measured on a white
+                  card: faint 3.44:1 (fails AA), muted 5.73:1 (passes). */}
+              <div className="mt-3 border-t border-border-default pt-2 text-meta text-muted">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {author && <Avatar userId={author} name={memberNames.get(author) ?? '?'} image={memberImages?.get(author)} size={16} />}
                   {author && <span>{memberNames.get(author) ?? 'Someone'}</span>}
                   <span>·</span>
-                  <span>{fmt.date(row.created_at)}</span>
+                  {/* #790 (F1) — prints the field actually being sorted by, not
+                      always created_at: labeled when it isn't the default
+                      ("Updated 3 Mar", "Due 14 Mar"), plain when it is (the
+                      common case, unchanged from before). A date shown here
+                      that isn't what the view is ordered by is decoration
+                      pretending to be an explanation. */}
+                  <span>
+                    {sortField && sortField.apiName !== 'created_at' && rowDate
+                      ? `${sortField.displayName} ${fmt.date(rowDate)}`
+                      : fmt.date(row.created_at)}
+                  </span>
                   {/* Quick-actions (#76): change status, complete, assign, open — all
                       optimistic writes via the records API, no navigation required. */}
                   <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -175,12 +238,12 @@ export function FeedView({
                         e.stopPropagation();
                         openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
                       }}
-                      className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-faint hover:bg-hover hover:text-ink"
+                      className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-muted hover:bg-hover hover:text-ink"
                       title="Open"
                     >
                       <Maximize2 className="h-3 w-3" /> Open
                     </Link>
-                    {row.number !== null && <span className="tabular-nums">#{row.number}</span>}
+                    {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="text-meta" />}
                   </div>
                 </div>
                 {canComment && (
@@ -190,11 +253,12 @@ export function FeedView({
                 )}
               </div>
             </div>
+            </Fragment>
           );
         })}
         {records.hasNextPage && (
           <button
-            className="self-center rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            className="self-center rounded px-2 py-1 text-body text-info hover:bg-hover"
             onClick={() => void records.fetchNextPage()}
             disabled={records.isFetchingNextPage}
           >
@@ -232,7 +296,9 @@ function StatusAction({
         className="rounded-full px-1.5 py-0.5 hover:bg-hover"
         title={`Change ${field.displayName}`}
       >
-        {option ? <OptionChip option={option} /> : <span className="text-faint">{field.displayName}</span>}
+        {/* #706 tail — muted: this is the ONLY label on a button
+            (title={`Change ${field.displayName}`}), not a decorative placeholder. */}
+        {option ? <OptionChip option={option} /> : <span className="text-muted">{field.displayName}</span>}
       </button>
       {editing && (
         <CellEditor
@@ -311,6 +377,10 @@ function AssignAction({
         onClick={() => setEditing((v) => !v)}
         className={cn(
           'flex items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-hover',
+          // #706 tail — DELIBERATELY FAINT, do not "fix" this one. When nobody is
+          // assigned the button's entire content is a bare UserPlus icon with no
+          // text, so it is judged at 3:1 for non-text graphics, not 4.5:1. #665
+          // kept nine sites of exactly this shape for the same reason.
           ids.length === 0 && 'text-faint',
         )}
         title={`Assign ${field.displayName}`}

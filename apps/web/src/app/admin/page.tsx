@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -238,7 +240,10 @@ export default function AdminPage() {
   const cancelRun = useMutation({
     mutationFn: async (row: AdminRunRow) => {
       setCancelingId(row.id);
-      await api.POST(`/api/v1/admin/runs/${row.workspaceId}/${row.id}/cancel` as never, {} as never);
+      await api.POST(
+        `/api/v1/admin/runs/${row.workspaceId}/${row.id}/cancel` as never,
+        {} as never,
+      );
     },
     onSettled: () => {
       setCancelingId(null);
@@ -258,9 +263,12 @@ export default function AdminPage() {
 
   const reviewSubmission = useMutation({
     mutationFn: async (input: { id: string; action: 'approve' | 'reject'; notes?: string }) => {
-      const { error } = await api.POST(`/api/v1/admin/packs/submissions/${input.id}/review` as never, {
-        body: { action: input.action, notes: input.notes },
-      } as never);
+      const { error } = await api.POST(
+        `/api/v1/admin/packs/submissions/${input.id}/review` as never,
+        {
+          body: { action: input.action, notes: input.notes },
+        } as never,
+      );
       if (error) throw error;
     },
     onSuccess: (_data, input) => {
@@ -271,14 +279,14 @@ export default function AdminPage() {
   });
 
   if (overview.isLoading || costs.isLoading) {
-    return <div className="p-8 text-[13px] text-muted">Loading…</div>;
+    return <div className="p-8 text-body text-muted">Loading…</div>;
   }
 
   if (overview.isError || costs.isError) {
     return (
       <div className="mx-auto max-w-2xl p-8">
         <h1 className="mb-2 text-lg font-semibold text-ink">Admin</h1>
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Platform admin access required. If you believe this is a mistake, ask an existing platform
           admin to grant you access.
         </p>
@@ -288,12 +296,15 @@ export default function AdminPage() {
 
   const o = overview.data!;
   const c = costs.data!;
+
   const flagged = c.workspaces.filter((w) => w.belowMarginFloor);
 
   return (
     <div className="mx-auto max-w-5xl p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Admin</h1>
-      <p className="mb-6 text-[13px] text-muted">Instance overview, plus MN-194 cost &amp; margin.</p>
+      <p className="mb-6 text-body text-muted">
+        Instance overview, plus MN-194 cost &amp; margin.
+      </p>
 
       <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Workspaces" value={String(o.totalWorkspaces)} />
@@ -305,27 +316,32 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Cost &amp; Margin</h2>
-          <span className="text-[12px] text-faint">
-            Margin floor: {c.marginFloorPercent}% · Fixed infra: {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo
-            (allocated below)
+          <span className="text-label text-muted">
+            Margin floor: {c.marginFloorPercent}% · Fixed infra:{' '}
+            {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo (allocated below)
           </span>
         </div>
-        <p className="mb-3 text-[13px] text-muted">
+        <p className="mb-3 text-body text-muted">
           Hosted calls, storage, and email are measured from real usage counters. AI cost is
-          <strong className="text-ink"> estimated — pending MN-214r&apos;s real managed-AI runtime</strong>;
-          today it is $0 for every workspace because no managed run has executed yet.
+          <strong className="text-ink">
+            {' '}
+            estimated — pending MN-214r&apos;s real managed-AI runtime
+          </strong>
+          ; today it is $0 for every workspace because no managed run has executed yet.
         </p>
 
         {flagged.length > 0 && (
-          <div className="mb-3 rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 p-3 text-[13px] text-ink">
-            {flagged.length} paying workspace{flagged.length === 1 ? '' : 's'} below the {c.marginFloorPercent}%
-            margin floor — see flagged rows below.
+          <div className="mb-3 rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 p-3 text-body text-ink">
+            {flagged.length} paying workspace{flagged.length === 1 ? '' : 's'} below the{' '}
+            {c.marginFloorPercent}% margin floor — see flagged rows below.
           </div>
         )}
 
-        <h3 className="mb-1 mt-4 text-[13px] font-medium text-ink-secondary">Blended margin by plan</h3>
+        <h3 className="mb-1 mt-4 text-body font-medium text-ink-secondary">
+          Blended margin by plan
+        </h3>
         <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
-          <table className="w-full text-left text-[13px]">
+          <table className="w-full text-left text-body">
             <thead className="bg-hover text-ink-secondary">
               <tr>
                 <Th>Plan</Th>
@@ -347,7 +363,9 @@ export default function AdminPage() {
                   <Td>{usd(p.variableCostCents)}</Td>
                   <Td>{usd(p.allocatedFixedCostCents)}</Td>
                   <Td>{usd(p.totalCostCents)}</Td>
-                  <Td className={p.marginCents < 0 ? 'text-error' : undefined}>{usd(p.marginCents)}</Td>
+                  <Td className={p.marginCents < 0 ? 'text-error' : undefined}>
+                    {usd(p.marginCents)}
+                  </Td>
                   <Td>{pct(p.marginPercent)}</Td>
                 </tr>
               ))}
@@ -356,17 +374,17 @@ export default function AdminPage() {
         </div>
 
         <div className="mb-1 mt-6 flex items-baseline justify-between">
-          <h3 className="text-[13px] font-medium text-ink-secondary">Per-workspace</h3>
+          <h3 className="text-body font-medium text-ink-secondary">Per-workspace</h3>
           <button
             type="button"
             onClick={() => downloadCsv(c.workspaces)}
-            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover"
+            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover"
           >
             Download CSV
           </button>
         </div>
         <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
-          <table className="w-full text-left text-[13px]">
+          <table className="w-full text-left text-body">
             <thead className="bg-hover text-ink-secondary">
               <tr>
                 <Th>Workspace</Th>
@@ -391,11 +409,13 @@ export default function AdminPage() {
                   <Td>{usd(w.storageCostCents)}</Td>
                   <Td>{usd(w.emailCostCents)}</Td>
                   <Td>{usd(w.aiCostCents)}</Td>
-                  <Td className={w.marginCents < 0 ? 'text-error' : undefined}>{usd(w.marginCents)}</Td>
+                  <Td className={w.marginCents < 0 ? 'text-error' : undefined}>
+                    {usd(w.marginCents)}
+                  </Td>
                   <Td>{pct(w.marginPercent)}</Td>
                   <Td>
                     {w.belowMarginFloor && (
-                      <span className="rounded-full bg-error/10 px-2 py-0.5 text-[11px] font-medium text-error">
+                      <span className="rounded-full bg-error/10 px-2 py-0.5 text-meta font-medium text-error">
                         Below floor
                       </span>
                     )}
@@ -410,18 +430,20 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Runs</h2>
-          <span className="text-[12px] text-faint">#300/MN-216c — every workspace, read-only + kill-switch</span>
+          <span className="text-label text-muted">
+            #300/MN-216c — every workspace, read-only + kill-switch
+          </span>
         </div>
-        <p className="mb-3 text-[13px] text-muted">
-          Agent runs across every workspace. Cancel is a status flip only — it never touches what the
-          run has already applied.
+        <p className="mb-3 text-body text-muted">
+          Agent runs across every workspace. Cancel is a status flip only — it never touches what
+          the run has already applied.
         </p>
 
-        {runs.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
-        {runs.isError && <p className="text-[13px] text-muted">Could not load runs.</p>}
+        {runs.isLoading && <p className="text-body text-muted">Loading…</p>}
+        {runs.isError && <p className="text-body text-muted">Could not load runs.</p>}
         {runs.data && (
           <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
-            <table className="w-full text-left text-[13px]">
+            <table className="w-full text-left text-body">
               <thead className="bg-hover text-ink-secondary">
                 <tr>
                   <Th>Workspace</Th>
@@ -438,7 +460,7 @@ export default function AdminPage() {
               <tbody>
                 {runs.data.length === 0 && (
                   <tr>
-                    <Td className="text-faint">No runs on this instance yet.</Td>
+                    <Td className="text-muted">No runs on this instance yet.</Td>
                   </tr>
                 )}
                 {runs.data.map((r) => {
@@ -473,7 +495,7 @@ export default function AdminPage() {
                                 return;
                               cancelRun.mutate(r);
                             }}
-                            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+                            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
                           >
                             {cancelRun.isPending && cancelingId === r.id ? 'Canceling…' : 'Cancel'}
                           </button>
@@ -491,35 +513,44 @@ export default function AdminPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
-          <span className="text-[12px] text-faint">MN-220 — submissions awaiting (or having had) review</span>
+          <span className="text-label text-muted">
+            MN-220 — submissions awaiting (or having had) review
+          </span>
         </div>
-        <p className="mb-3 text-[13px] text-muted">
+        <p className="mb-3 text-body text-muted">
           v1 is curated: nothing here is listed on the marketplace until approved.
         </p>
 
-        {packSubmissions.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
-        {packSubmissions.isError && <p className="text-[13px] text-muted">Could not load submissions.</p>}
+        {packSubmissions.isLoading && <p className="text-body text-muted">Loading…</p>}
+        {packSubmissions.isError && (
+          <p className="text-body text-muted">Could not load submissions.</p>
+        )}
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
-              <p className="text-[13px] text-faint">No submissions yet.</p>
+              <p className="text-body text-muted">No submissions yet.</p>
             )}
             {packSubmissions.data.map((s) => (
-              <div key={s.id} className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
+              <div
+                key={s.id}
+                className="rounded-[var(--radius-control)] border border-border-default bg-card p-3"
+              >
                 <div className="flex items-center justify-between">
-                  <p className="text-[13px] font-medium text-ink">
-                    {s.name} v{s.version} <span className="text-faint">({s.slug})</span>
+                  <p className="text-body font-medium text-ink">
+                    {s.name} v{s.version} <span className="text-muted">({s.slug})</span>
                   </p>
                   <SubmissionStatusBadge status={s.status} />
                 </div>
-                <p className="mt-0.5 text-[12px] text-muted">{s.summary}</p>
-                <p className="mt-1 text-[12px] text-faint">
+                <p className="mt-0.5 text-label text-muted">{s.summary}</p>
+                <p className="mt-1 text-label text-muted">
                   {s.vertical} · {s.license}
                   {s.attribution ? ` · by ${s.attribution}` : ''} · submitted{' '}
                   {new Date(s.submitted_at).toLocaleDateString()}
                 </p>
                 {s.review_notes && (
-                  <p className="mt-1 text-[12px] text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>
+                  <p className="mt-1 text-label text-ink-secondary">
+                    &ldquo;{s.review_notes}&rdquo;
+                  </p>
                 )}
                 {s.status === 'pending' && (
                   <div className="mt-2 flex gap-2">
@@ -527,7 +558,7 @@ export default function AdminPage() {
                       type="button"
                       disabled={reviewSubmission.isPending}
                       onClick={() => reviewSubmission.mutate({ id: s.id, action: 'approve' })}
-                      className="rounded-[var(--radius-control)] bg-success/10 px-2 py-1 text-[12px] font-medium text-success hover:bg-success/20 disabled:opacity-50"
+                      className="rounded-[var(--radius-control)] bg-success/10 px-2 py-1 text-label font-medium text-success hover:bg-success/20 disabled:opacity-50"
                     >
                       Approve &amp; publish
                     </button>
@@ -535,10 +566,11 @@ export default function AdminPage() {
                       type="button"
                       disabled={reviewSubmission.isPending}
                       onClick={() => {
-                        const notes = window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
+                        const notes =
+                          window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
                         reviewSubmission.mutate({ id: s.id, action: 'reject', notes });
                       }}
-                      className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+                      className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
                     >
                       Reject
                     </button>
@@ -607,13 +639,16 @@ function BillingSection() {
 
   const setPlanMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await api.POST(`/api/v1/admin/workspaces/${activeWorkspaceId}/plan` as never, {
-        body: {
-          plan,
-          reason: planReason,
-          expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : undefined,
-        },
-      } as never);
+      const { error } = await api.POST(
+        `/api/v1/admin/workspaces/${activeWorkspaceId}/plan` as never,
+        {
+          body: {
+            plan,
+            reason: planReason,
+            expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : undefined,
+          },
+        } as never,
+      );
       if (error) throw error;
     },
     onSuccess: () => {
@@ -632,7 +667,9 @@ function BillingSection() {
         {
           body: {
             includedSeats: includedSeats ? Number(includedSeats) : undefined,
-            automationRunsPerMonth: automationRunsPerMonth ? Number(automationRunsPerMonth) : undefined,
+            automationRunsPerMonth: automationRunsPerMonth
+              ? Number(automationRunsPerMonth)
+              : undefined,
             maxWorkspaces: maxWorkspaces ? Number(maxWorkspaces) : undefined,
             reason: overrideReason,
             expires_at: overrideExpiresAt ? new Date(overrideExpiresAt).toISOString() : undefined,
@@ -674,28 +711,28 @@ function BillingSection() {
     <section className="mb-8">
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-medium text-ink">Billing</h2>
-        <span className="text-[12px] text-faint">
+        <span className="text-label text-muted">
           #304 — comp/Enterprise grants; never touches live Stripe
         </span>
       </div>
-      <p className="mb-3 text-[13px] text-muted">
-        Sets this workspace&apos;s plan and entitlement overrides directly in StoryOS&apos;s own tables —
-        no Stripe subscription is ever created, changed, or canceled here. Every change requires a reason
-        and is recorded below.
+      <p className="mb-3 text-body text-muted">
+        Sets this workspace&apos;s plan and entitlement overrides directly in StoryOS&apos;s own
+        tables — no Stripe subscription is ever created, changed, or canceled here. Every change
+        requires a reason and is recorded below.
       </p>
 
       <div className="mb-4">
-        <label className="mb-1 block text-[12px] text-ink-secondary" htmlFor="billing-workspace">
+        <label className="mb-1 block text-label text-ink-secondary" htmlFor="billing-workspace">
           Workspace
         </label>
-        {workspaces.isLoading && <p className="text-[13px] text-muted">Loading workspaces…</p>}
-        {workspaces.isError && <p className="text-[13px] text-muted">Could not load workspaces.</p>}
+        {workspaces.isLoading && <p className="text-body text-muted">Loading workspaces…</p>}
+        {workspaces.isError && <p className="text-body text-muted">Could not load workspaces.</p>}
         {workspaces.data && (
           <select
             id="billing-workspace"
             value={activeWorkspaceId}
             onChange={(e) => setWorkspaceId(e.target.value)}
-            className="h-9 w-full max-w-md rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-[13px] text-ink"
+            className="h-9 w-full max-w-md rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-body text-ink"
           >
             {workspaces.data.map((w) => (
               <option key={w.id} value={w.id}>
@@ -706,37 +743,46 @@ function BillingSection() {
         )}
       </div>
 
-      {billing.isLoading && activeWorkspaceId && <p className="text-[13px] text-muted">Loading billing…</p>}
-      {billing.isError && <p className="text-[13px] text-muted">Could not load billing for this workspace.</p>}
+      {billing.isLoading && activeWorkspaceId && (
+        <p className="text-body text-muted">Loading billing…</p>
+      )}
+      {billing.isError && (
+        <p className="text-body text-muted">Could not load billing for this workspace.</p>
+      )}
 
       {b && (
         <>
           <div className="mb-4 rounded-[var(--radius-control)] border border-border-default bg-card p-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body">
               <span>
                 Plan: <strong className="text-ink">{PLAN_LABEL[b.plan] ?? b.plan}</strong>
               </span>
-              <span className="text-faint">
-                Stripe: {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
+              <span className="text-muted">
+                Stripe:{' '}
+                {b.stripeSubscriptionId ? b.stripeSubscriptionId : 'none (not Stripe-backed)'}
               </span>
               {b.currentPeriodEnd && (
-                <span className="text-faint">Until {new Date(b.currentPeriodEnd).toLocaleDateString()}</span>
+                <span className="text-muted">
+                  Until {new Date(b.currentPeriodEnd).toLocaleDateString()}
+                </span>
               )}
             </div>
             {b.override ? (
-              <div className="mt-2 border-t border-border-default pt-2 text-[13px]">
+              <div className="mt-2 border-t border-border-default pt-2 text-body">
                 <p className="font-medium text-ink">Active entitlement override</p>
-                <p className="mt-0.5 text-[12px] text-muted">
+                <p className="mt-0.5 text-label text-muted">
                   {b.override.includedSeats !== null && <>Seats: {b.override.includedSeats} · </>}
                   {b.override.automationRunsPerMonth !== null && (
                     <>Automation runs/mo: {b.override.automationRunsPerMonth} · </>
                   )}
-                  {b.override.maxWorkspaces !== null && <>Max workspaces: {b.override.maxWorkspaces} · </>}
+                  {b.override.maxWorkspaces !== null && (
+                    <>Max workspaces: {b.override.maxWorkspaces} · </>
+                  )}
                   {b.override.expiresAt
                     ? `expires ${new Date(b.override.expiresAt).toLocaleDateString()}`
                     : 'never expires'}
                 </p>
-                <p className="mt-0.5 text-[12px] text-ink-secondary">
+                <p className="mt-0.5 text-label text-ink-secondary">
                   &ldquo;{b.override.reason}&rdquo; — {b.override.createdBy}
                 </p>
                 <button
@@ -748,7 +794,7 @@ function BillingSection() {
                     if (
                       !(await confirm({
                         title: 'Clear entitlement override?',
-                        message: `${b.override ? PLAN_LABEL[b.plan] ?? b.plan : ''} plan defaults apply immediately once cleared.`,
+                        message: `${b.override ? (PLAN_LABEL[b.plan] ?? b.plan) : ''} plan defaults apply immediately once cleared.`,
                         confirmLabel: 'Clear override',
                         danger: true,
                       }))
@@ -756,13 +802,13 @@ function BillingSection() {
                       return;
                     clearOverrideMutation.mutate(reason.trim());
                   }}
-                  className="mt-2 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+                  className="mt-2 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
                 >
                   {clearOverrideMutation.isPending ? 'Clearing…' : 'Clear override'}
                 </button>
               </div>
             ) : (
-              <p className="mt-2 border-t border-border-default pt-2 text-[12px] text-faint">
+              <p className="mt-2 border-t border-border-default pt-2 text-label text-muted">
                 No entitlement override — plan defaults apply.
               </p>
             )}
@@ -785,37 +831,40 @@ function BillingSection() {
                 setPlanMutation.mutate();
               }}
             >
-              <p className="mb-2 text-[13px] font-medium text-ink">Change plan</p>
-              <select
+              <p className="mb-2 text-body font-medium text-ink">Change plan</p>
+              <Select
+                size="sm"
                 value={plan}
                 onChange={(e) => setPlan(e.target.value as (typeof PLAN_IDS)[number])}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                className="mb-2 w-full"
               >
                 {PLAN_IDS.map((p) => (
                   <option key={p} value={p}>
                     {PLAN_LABEL[p]}
                   </option>
                 ))}
-              </select>
-              <input
+              </Select>
+              <Input
                 type="text"
                 required
                 placeholder="Reason (required, audited)"
                 value={planReason}
                 onChange={(e) => setPlanReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="date"
                 value={planExpiresAt}
                 onChange={(e) => setPlanExpiresAt(e.target.value)}
                 title="Expires (optional — record-keeping only, not auto-enforced)"
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                size="sm"
+                className="mb-2 w-full"
               />
               <button
                 type="submit"
                 disabled={setPlanMutation.isPending || !planReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-[12px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
               >
                 {setPlanMutation.isPending ? 'Setting…' : 'Set plan'}
               </button>
@@ -829,7 +878,8 @@ function BillingSection() {
                 if (
                   !(await confirm({
                     title: 'Set entitlement override?',
-                    message: 'Only the fields you fill in are changed; the rest keep whatever is already set.',
+                    message:
+                      'Only the fields you fill in are changed; the rest keep whatever is already set.',
                     confirmLabel: 'Save override',
                   }))
                 )
@@ -837,59 +887,64 @@ function BillingSection() {
                 setOverrideMutation.mutate();
               }}
             >
-              <p className="mb-2 text-[13px] font-medium text-ink">Entitlement override</p>
-              <input
+              <p className="mb-2 text-body font-medium text-ink">Entitlement override</p>
+              <Input
                 type="number"
                 min={1}
                 placeholder="Included seats"
                 value={includedSeats}
                 onChange={(e) => setIncludedSeats(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="number"
                 min={1}
                 placeholder="Automation runs / month"
                 value={automationRunsPerMonth}
                 onChange={(e) => setAutomationRunsPerMonth(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="number"
                 min={1}
                 placeholder="Max workspaces"
                 value={maxWorkspaces}
                 onChange={(e) => setMaxWorkspaces(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="text"
                 required
                 placeholder="Reason (required, audited)"
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                size="sm"
+                className="mb-2 w-full"
               />
-              <input
+              <Input
                 type="date"
                 value={overrideExpiresAt}
                 onChange={(e) => setOverrideExpiresAt(e.target.value)}
                 title="Expires (optional — lazily enforced on read, never auto-swept)"
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                size="sm"
+                className="mb-2 w-full"
               />
               <button
                 type="submit"
                 disabled={setOverrideMutation.isPending || !overrideReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-[12px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
               >
                 {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
               </button>
             </form>
           </div>
 
-          <h3 className="mb-1 mt-4 text-[13px] font-medium text-ink-secondary">Audit trail</h3>
+          <h3 className="mb-1 mt-4 text-body font-medium text-ink-secondary">Audit trail</h3>
           <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
-            <table className="w-full text-left text-[13px]">
+            <table className="w-full text-left text-body">
               <thead className="bg-hover text-ink-secondary">
                 <tr>
                   <Th>When</Th>
@@ -901,7 +956,7 @@ function BillingSection() {
               <tbody>
                 {b.auditTrail.length === 0 && (
                   <tr>
-                    <Td className="text-faint">No changes recorded for this workspace yet.</Td>
+                    <Td className="text-muted">No changes recorded for this workspace yet.</Td>
                   </tr>
                 )}
                 {b.auditTrail.map((e) => (
@@ -928,10 +983,17 @@ function SubmissionStatusBadge({ status }: { status: PackSubmissionRow['status']
       : status === 'rejected'
         ? 'bg-error/10 text-error'
         : 'bg-warning/10 text-warning';
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${tone}`}>{status}</span>
+  );
 }
 
 function StatusBadge({ status }: { status: string | null }) {
+  // #706 — KEEPS --text-faint deliberately. This em-dash is a placeholder for
+  // the ABSENCE of a status, not text carrying a status: it says "nothing here"
+  // and reading it more clearly tells you nothing more. Genuinely decorative,
+  // which is what globals.css #326 reserves faint for. Do not "finish the job"
+  // by moving it — faint clears the 3:1 that a non-text graphic is judged at.
   if (!status) return <span className="text-faint">—</span>;
   const tone =
     status === 'Failed'
@@ -941,13 +1003,15 @@ function StatusBadge({ status }: { status: string | null }) {
         : status === 'Canceled'
           ? 'bg-hover text-ink-secondary'
           : 'bg-warning/10 text-warning';
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${tone}`}>{status}</span>
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
-      <p className="text-[12px] text-faint">{label}</p>
+      <p className="text-label text-muted">{label}</p>
       <p className="text-lg font-semibold text-ink">{value}</p>
     </div>
   );

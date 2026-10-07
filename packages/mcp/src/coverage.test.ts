@@ -109,6 +109,30 @@ describe('every API operation is reached, excluded, or deferred (#397)', () => {
     ).toEqual([]);
   });
 
+  /**
+   * #682 — the blind spot the "no rule is dead weight" check above cannot
+   * see: THAT check only asks whether a rule matches SOME operation, so a
+   * rule stays alive as long as it matches at least one route in the spec —
+   * even if a tool has since started reaching every single one of them. That
+   * is exactly what happened to `/spaces/{space}/documents`'s old DEFERRED
+   * entry ("documents that live in a space rather than on a record"): the
+   * route it named got a real tool (`list_documents`/`create_document`)
+   * built for it, but the rule kept matching that same now-covered route, so
+   * it read as "a genuine future gap" long after it stopped being one.
+   *
+   * This is the DEFERRED-side twin of the EXCLUDED check just above — same
+   * shape of contradiction (a rule saying "not reachable yet" about
+   * something a tool already reaches), checked for the other list.
+   */
+  it('a deferred entry never turns out to be already-covered', () => {
+    const contradictory = [...called].filter((op) => findRule(op, DEFERRED));
+    expect(
+      contradictory,
+      'Deferred as a future gap, yet a tool already calls it — the ticket is done, remove the entry:\n' +
+        contradictory.join('\n'),
+    ).toEqual([]);
+  });
+
   it('reports the audit numbers, so the gap is COUNTED and not estimated', () => {
     const covered = operations.filter((op) => called.has(op));
     const excluded = operations.filter((op) => !called.has(op) && findRule(op, EXCLUDED));

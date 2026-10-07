@@ -109,7 +109,10 @@ describe('#432 — relations, where the rule is subtlest', () => {
       sourceTargetDatabaseId: 'db-epics',
     });
     expect(plan.state).toBe('blocking');
-    expect(plan.ambiguousWith).toEqual(['Epic', 'Secondary epic']);
+    expect(plan.ambiguousWith).toEqual([
+      { field_id: 'd-epic', display_name: 'Epic' },
+      { field_id: 'd-epic2', display_name: 'Secondary epic' },
+    ]);
     expect(plan.reason).toMatch(/more than one/i);
   });
 });
@@ -152,5 +155,80 @@ describe('#432 — blocking is not a warning', () => {
     b.addWarning({ message: 'a warning' });
     expect(b.build()).not.toHaveProperty('blocking');
     expect(b.isBlocked).toBe(false);
+  });
+});
+
+describe('#605 — an explicit override wins over auto-match, ambiguity, and skip-by-omission', () => {
+  it('redirects a field to a destination auto-match would NOT have chosen', () => {
+    // "Note" auto-matches by name; overriding to "Company Name" instead.
+    const plan = planField(src('note', 'text', 'Note'), DESTS, { hasValue: true, override: 'd-company' });
+    expect(plan.state).toBe('mapped');
+    expect(plan.to).toEqual({ kind: 'existing', field_id: 'd-company' });
+  });
+
+  it('resolves an ambiguous relation by naming the SPECIFIC candidate (the ambiguousWith field_id)', () => {
+    const many = [
+      ...DESTS,
+      dest({ id: 'd-epic2', displayName: 'Secondary epic', type: 'relation', targetDatabaseId: 'db-epics' }),
+    ];
+    // First confirm it's genuinely ambiguous without an override...
+    const ambiguous = planField(src('epic', 'relation', 'Epic'), many, {
+      hasValue: true,
+      sourceTargetDatabaseId: 'db-epics',
+    });
+    expect(ambiguous.state).toBe('blocking');
+    const chosen = ambiguous.ambiguousWith!.find((c) => c.display_name === 'Secondary epic')!;
+
+    // ...then resolve it by naming that exact candidate's field_id.
+    const resolved = planField(src('epic', 'relation', 'Epic'), many, {
+      hasValue: true,
+      sourceTargetDatabaseId: 'db-epics',
+      override: chosen.field_id,
+    });
+    expect(resolved.state).toBe('mapped');
+    expect(resolved.to).toEqual({ kind: 'relation', field_id: 'd-epic2' });
+  });
+
+  it('refuses (blocking, not silently ignored) an override naming a field that does not exist in the destination', () => {
+    const plan = planField(src('note', 'text', 'Note'), DESTS, { hasValue: true, override: 'no-such-field' });
+    expect(plan.state).toBe('blocking');
+    expect(plan.reason).toMatch(/does not exist/i);
+  });
+
+  it('refuses an override sending a relation source to a NON-relation destination', () => {
+    const plan = planField(src('epic', 'relation', 'Epic'), DESTS, {
+      hasValue: true,
+      sourceTargetDatabaseId: 'db-epics',
+      override: 'd-note', // a text field, not a relation
+    });
+    expect(plan.state).toBe('blocking');
+    expect(plan.reason).toMatch(/only be mapped to a relation field/i);
+  });
+
+  it('refuses an override sending a scalar source to a relation destination', () => {
+    const plan = planField(src('note', 'text', 'Note'), DESTS, { hasValue: true, override: 'd-epic' });
+    expect(plan.state).toBe('blocking');
+    expect(plan.reason).toMatch(/cannot be mapped to a relation field/i);
+  });
+
+  it('refuses an override naming a relation destination that targets the WRONG database', () => {
+    const plan = planField(src('epic', 'relation', 'Epic'), DESTS, {
+      hasValue: true,
+      sourceTargetDatabaseId: 'db-something-else', // the source actually points elsewhere
+      override: 'd-epic', // targets db-epics
+    });
+    expect(plan.state).toBe('blocking');
+    expect(plan.reason).toMatch(/same database/i);
+  });
+
+  it('refuses an override naming an UNWRITABLE destination (formula) — same rule as auto-match', () => {
+    const plan = planField(src('note', 'text', 'Note'), DESTS, { hasValue: true, override: 'd-calc' });
+    expect(plan.state).toBe('blocking');
+  });
+
+  it('MUST KEEP WORKING: with no override, auto-match/ambiguity/skip-by-omission behave exactly as before', () => {
+    const matched = planField(src('note', 'text', 'Note'), DESTS, { hasValue: true });
+    expect(matched.state).toBe('mapped');
+    expect(matched.to).toEqual({ kind: 'existing', field_id: 'd-note' });
   });
 });

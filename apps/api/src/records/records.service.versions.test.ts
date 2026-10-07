@@ -27,7 +27,15 @@ const baseRow = {
 function makeDb(opts: {
   row?: typeof baseRow | null;
   version?: { id: string; recordId: string; title: string; values: unknown } | null;
-  versionRows?: Array<{ id: string; title: string; actorId: string | null; createdAt: Date }>;
+  versionRows?: Array<{
+    id: string;
+    title: string;
+    actorId: string | null;
+    createdAt: Date;
+    source?: string;
+    agentId?: string | null;
+    agentName?: string | null;
+  }>;
 }) {
   const inserted: Array<{ table: string; values: unknown }> = [];
   const updated: Array<{ table: string; patch: unknown }> = [];
@@ -89,6 +97,17 @@ function makeService(db: Db) {
     // an unlimited window keeps them honest either way (a 0 would silently
     // disable capture and make a future capture test pass for the wrong reason).
     { getLimits: vi.fn().mockResolvedValue({ historyRetentionDays: Infinity }) } as never,
+    // #469: these unit tests never exercise a guest-scoped call (membership is
+    // always omitted), so AccessService is never consulted.
+    { effectiveForDatabase: vi.fn() } as never,
+    // #273: these unit tests never exercise notifyWatchers' email leg.
+    { notify: vi.fn() } as never,
+    // #599: these unit tests never exercise duplicate(), so AttachmentsService
+    // is never consulted.
+    { duplicateAll: vi.fn() } as never,
+    // #542 Phase 2: these unit tests never exercise a delete path, so the
+    // action-class gate is never consulted.
+    { check: vi.fn().mockResolvedValue({ held: false }) } as never,
   );
 }
 
@@ -148,20 +167,89 @@ describe('RecordsService.restoreVersion', () => {
 
     expect(result.title).toBe('Old title');
   });
+
+  it('#677 — threads source/agentId/agentName through to BOTH the snapshot and the activity event', async () => {
+    const { db, inserted } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: 'Old title', values: { field_a: 'old value' } },
+    });
+    const service = makeService(db);
+    await service.restoreVersion(WORKSPACE_ID, DATABASE_ID, RECORD_ID, 'v1', ACTOR_ID, 'agent', 'agent-1', 'Bot');
+
+    const versionSnapshot = inserted.find((i) => i.table === 'record_versions');
+    expect(versionSnapshot?.values).toMatchObject({ source: 'agent', agentId: 'agent-1', agentName: 'Bot' });
+    const activity = inserted.find((i) => i.table === 'activity_events');
+    expect(activity?.values).toMatchObject({ source: 'agent', agentId: 'agent-1', agentName: 'Bot' });
+  });
+
+  it('#677 — defaults to source: human with no agent badge when the caller passes nothing extra', async () => {
+    const { db, inserted } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: 'Old title', values: { field_a: 'old value' } },
+    });
+    const service = makeService(db);
+    await service.restoreVersion(WORKSPACE_ID, DATABASE_ID, RECORD_ID, 'v1', ACTOR_ID);
+
+    const versionSnapshot = inserted.find((i) => i.table === 'record_versions');
+    expect(versionSnapshot?.values).toMatchObject({ source: 'human', agentId: undefined, agentName: undefined });
+  });
+});
+
+describe('RecordsService.getVersion (#39 — restore preview)', () => {
+  it('throws NotFoundException when the version does not exist (or belongs to another record)', async () => {
+    const { db } = makeDb({ version: null });
+    const service = makeService(db);
+    await expect(service.getVersion(DATABASE_ID, RECORD_ID, 'missing-version')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('previews an empty diff when the version snapshot matches the current row', async () => {
+    const { db } = makeDb({
+      version: { id: 'v1', recordId: RECORD_ID, title: baseRow.title, values: baseRow.values },
+    });
+    const service = makeService(db);
+    const result = await service.getVersion(DATABASE_ID, RECORD_ID, 'v1');
+    expect(result.preview).toEqual([]);
+    expect(result.id).toBe('v1');
+  });
+
+  it('previews each differing field named from the CURRENT record\'s perspective (restoring goes current → old)', async () => {
+    const { db, inserted, updated } = makeDb({
+      version: {
+        id: 'v1',
+        recordId: RECORD_ID,
+        title: 'Old title',
+        values: { field_a: 'old value' },
+      },
+    });
+    const service = makeService(db);
+    const result = await service.getVersion(DATABASE_ID, RECORD_ID, 'v1');
+
+    // Same direction restoreVersion's own diff logs: current -> old, since
+    // that is what applying this restore will actually change.
+    const titleEntry = result.preview.find((p) => p.field_id === null);
+    expect(titleEntry).toMatchObject({ current_display: baseRow.title, restored_display: 'Old title' });
+
+    const fieldEntry = result.preview.find((p) => p.field_name === '(deleted field)');
+    expect(fieldEntry).toMatchObject({ current_display: 'current value', restored_display: 'old value' });
+
+    // Read-only: previewing must never write anything, unlike restoreVersion.
+    expect(inserted).toHaveLength(0);
+    expect(updated).toHaveLength(0);
+  });
 });
 
 describe('RecordsService.listVersions', () => {
-  it('maps rows to the public shape and reports no next cursor on the last page', async () => {
+  it('maps rows to the public shape — including #677 attribution — and reports no next cursor on the last page', async () => {
     const rows = [
-      { id: 'v2', title: 'B', actorId: ACTOR_ID, createdAt: new Date('2026-07-02T00:00:00Z') },
-      { id: 'v1', title: 'A', actorId: ACTOR_ID, createdAt: new Date('2026-07-01T00:00:00Z') },
+      { id: 'v2', title: 'B', actorId: ACTOR_ID, createdAt: new Date('2026-07-02T00:00:00Z'), source: 'agent', agentId: 'agent-1', agentName: 'Bot' },
+      { id: 'v1', title: 'A', actorId: ACTOR_ID, createdAt: new Date('2026-07-01T00:00:00Z'), source: 'human', agentId: null, agentName: null },
     ];
     const { db } = makeDb({ versionRows: rows });
     const service = makeService(db);
     const result = await service.listVersions(RECORD_ID, 50);
     expect(result.data).toEqual([
-      { id: 'v2', title: 'B', actor_id: ACTOR_ID, created_at: rows[0]!.createdAt },
-      { id: 'v1', title: 'A', actor_id: ACTOR_ID, created_at: rows[1]!.createdAt },
+      { id: 'v2', title: 'B', actor_id: ACTOR_ID, source: 'agent', agent_id: 'agent-1', agent_name: 'Bot', created_at: rows[0]!.createdAt },
+      { id: 'v1', title: 'A', actor_id: ACTOR_ID, source: 'human', agent_id: null, agent_name: null, created_at: rows[1]!.createdAt },
     ]);
     expect(result.has_more).toBe(false);
     expect(result.next_cursor).toBeNull();

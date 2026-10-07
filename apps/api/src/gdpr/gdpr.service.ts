@@ -8,6 +8,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { MembershipEventsService } from '../events/membership-events.service';
+import { MembersDbService } from '../members/members-db.service';
 import {
   account,
   accessGrants,
@@ -30,6 +31,9 @@ import {
   workspaceFiles,
 } from '../db/schema';
 
+/** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
 /**
  * GDPR data-subject tooling (MN-233): export everything held about a user and
  * erase/anonymize them. Identity is a tombstone — the `user` row's PII is wiped
@@ -51,6 +55,8 @@ export class GdprService {
      * graph and a direct dependency would close a cycle.
      */
     private readonly membershipEvents: MembershipEventsService,
+    /** #494 — reads the subject's own Members row for the export payload. */
+    private readonly membersDb: MembersDbService,
   ) {}
 
   /** Resolve a workspace membership id to its user id (404 if not a member). */
@@ -111,8 +117,57 @@ export class GdprService {
   }
 
   /**
+   * #493 — the one piece of "does erasure reach every isSystem database"
+   * that's actually fixable without inventing content-scanning: a `user`-type
+   * field (system OR admin-added, on ANY database in the workspace — the
+   * Agentic OS pack included, if one is ever added there) is a real,
+   * structurally-identifiable reference to a specific person, unlike free
+   * text. `userFieldReferences` already finds every hit for the EXPORT path;
+   * this clears them for erasure, generalizing #463's "enumerate and null"
+   * past Members to every database at once — a narrower, more principled fix
+   * than three more copies of the same patch. Leaves the value's OTHER
+   * elements alone on a multi-user field (an array), and never touches
+   * `createdBy`/`updatedBy` or free-text content — both deliberately excluded
+   * everywhere else in this file, for the same audit-lineage reason.
+   */
+  private async clearUserFieldReferences(
+    tx: Tx,
+    refs: { record_id: string; database_id: string; field_id: string }[],
+    userId: string,
+  ): Promise<number> {
+    let cleared = 0;
+    for (const ref of refs) {
+      const [row] = await tx
+        .select({ values: records.values })
+        .from(records)
+        .where(eq(records.id, ref.record_id));
+      if (!row) continue;
+      const values = { ...(row.values as Record<string, unknown>) };
+      const current = values[ref.field_id];
+      values[ref.field_id] = Array.isArray(current)
+        ? current.filter((v) => v !== userId)
+        : null;
+      await tx.update(records).set({ values }).where(eq(records.id, ref.record_id));
+      cleared++;
+    }
+    return cleared;
+  }
+
+  /**
    * Everything held about the user within this workspace, plus their global
    * profile. Machine-readable JSON; token hashes and secrets are never included.
+   *
+   * #494 — decision, stated rather than left as an unnoticed side effect: this
+   * is addressed by `membershipId`, and `resolveMember` 404s once that row is
+   * gone — so a departed member (erased, or otherwise removed) does NOT get an
+   * export through this endpoint. That is deliberate, not a gap this ticket
+   * introduces: there is no other stable identifier to address a subject-
+   * access request by once the membership itself no longer exists, and
+   * generating one retroactively for someone already erased would work
+   * against the erasure it's supposed to describe. A pre-erasure export is
+   * the intended window for this data — this ticket makes sure the Members
+   * row is actually IN that window (see `members_row` below), not that the
+   * window stays open forever.
    */
   async export(workspaceId: string, membershipId: string) {
     const member = await this.resolveMember(workspaceId, membershipId);
@@ -258,6 +313,12 @@ export class GdprService {
 
     const userFieldRefs = await this.userFieldReferences(workspaceId, userId);
 
+    // #494 — Members is excluded from workspace export by design (the whole
+    // database IS personal data), which meant a subject-access export never
+    // showed the one row an admin can freely add columns to. null when the
+    // Members database or this person's row doesn't exist.
+    const membersRow = await this.membersDb.getOwnRowForExport(workspaceId, userId);
+
     return {
       schema: 'storyos.gdpr.export/1',
       workspace_id: workspaceId,
@@ -299,6 +360,7 @@ export class GdprService {
       uploaded_attachments: uploadedAttachments,
       uploaded_files: uploadedFiles,
       user_field_references: userFieldRefs,
+      members_row: membersRow,
     };
   }
 
@@ -356,6 +418,11 @@ export class GdprService {
       where: eq(memberships.userId, userId),
       columns: { workspaceId: true },
     });
+
+    // #493 — fetched before the transaction, same pattern as `allMemberships`
+    // above; the actual clearing happens inside it, alongside everything else
+    // this erasure touches.
+    const userFieldRefs = await this.userFieldReferences(workspaceId, userId);
 
     const result = await this.db.transaction(async (tx) => {
       const existing = await tx.query.user.findFirst({
@@ -448,6 +515,8 @@ export class GdprService {
           .returning()
       ).length;
 
+      const userFieldsCleared = await this.clearUserFieldReferences(tx, userFieldRefs, userId);
+
       return {
         anonymized: true,
         already_anonymized: alreadyAnon,
@@ -464,6 +533,7 @@ export class GdprService {
           access_grants: grants,
           favorites: favs,
           notifications: notifs,
+          user_field_references: userFieldsCleared,
         },
       };
     });

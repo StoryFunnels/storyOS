@@ -1,9 +1,10 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
-import { Maximize2, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
@@ -16,6 +17,7 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
+import { EditFieldDialog } from './edit-field-dialog';
 import { HeaderCell } from './header-cell';
 import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
 import { computeRangeBounds, hasCrossedDragThreshold, parseCellDataset, type Cursor } from './range-select';
@@ -23,20 +25,28 @@ import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
   useMembers,
+  useRecordCount,
   useRecordMutations,
   useRecordsInfinite,
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
+import {
+  flattenHierarchy,
+  useHierarchyChildCounts,
+  useHierarchyChildren,
+  useHierarchyExpansion,
+  type HierarchyRow,
+} from './use-hierarchy';
 import type { ViewConfig } from '../views/use-view-state';
-import { databaseNoun, recordHref, recordSegment } from '@/lib/records';
+import { andFilterNodes } from '../views/filter-config';
+import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { systemFieldId } from '@storyos/schemas';
+import { withSystemFields } from '../views/system-fields';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
 import { ViewQueryError } from '../views/query-error';
 
-const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 // #296: how far the pointer has to move before a mousedown-on-a-cell turns into
@@ -44,9 +54,18 @@ const TITLE_WIDTH = 260;
 // PointerSensor below already uses for drag-to-reorder-columns.
 const DRAG_THRESHOLD = 6;
 
-// The public id renders in the row gutter (Airtable-style), not as its own column.
+// #739 — the view-relative row index renders in the gutter; the permanent
+// record number ("ID") is its own column now, computed separately (see
+// `numberEntry` below) and never passed through the STORED-field filter this
+// set applies to, so it's unaffected by `HIDDEN_TYPES` excluding type `id`.
 /**
- * Field types the table never renders as a column.
+ * STORED field-row types the table never renders as a column. Applies only to
+ * `database.data.fields` (real rows) — the raw internal UUID (a genuine
+ * stored `id`-type row) and `created_by` are excluded here because they
+ * render nowhere useful, not because the compiler-level `id` TYPE itself is
+ * forbidden: the synthetic "ID" column (`numberEntry`, api_name `number`)
+ * also carries `type: 'id'` per its registry entry and is added to `fields`
+ * separately, downstream of this filter.
  *
  * #408 — exported so the relationship with `NON_TOGGLABLE` can be ASSERTED
  * rather than assumed. The two lists encode halves of one rule ("what renders"
@@ -60,10 +79,13 @@ export const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // Types with no inline editor. `rollup` was missing, which had two consequences:
 // an empty rollup cell offered a fake "Add <field>" affordance, and double-clicking
 // one opened an editor on a value the server computes and will never accept.
-// created_by/updated_by are system columns for the same reason.
+// created_by/updated_by are system columns for the same reason. #739 — `id`
+// joins them: the only field that ever reaches this code with type `id` is
+// the synthetic "ID" column (HIDDEN_TYPES keeps the raw UUID stored row out
+// of `fields` entirely), and it's exactly as read-only as created_at.
 const NO_EDITOR = new Set([
   'checkbox', 'rich_text', 'lookup', 'rollup', 'button', 'formula',
-  'created_at', 'updated_at', 'created_by', 'updated_by',
+  'created_at', 'updated_at', 'created_by', 'updated_by', 'id',
 ]);
 
 /** #187: empty for the ghost-affordance check — null/blank, or an empty
@@ -87,6 +109,7 @@ function cellFromPoint(x: number, y: number): Cursor | null {
 export function TableView({
   ws,
   db,
+  viewId,
   readOnly,
   schemaEditable = !readOnly,
   queryBody,
@@ -95,9 +118,15 @@ export function TableView({
   onColumnResize,
   config,
   onPatch,
+  autoOpenFieldId,
+  onAutoOpenFieldConsumed,
 }: {
   ws: string;
   db: string;
+  /** #233 — hierarchy expansion state is persisted per-VIEW (sessionStorage),
+   * not per-database; optional so every other call site (there is only one
+   * today) needn't change. */
+  viewId?: string;
   readOnly: boolean;
   schemaEditable?: boolean;
   queryBody?: Record<string, unknown>;
@@ -107,33 +136,104 @@ export function TableView({
   /** View config + patch, so column headers can filter/sort by their field (MN-225). */
   config?: ViewConfig;
   onPatch?: (updates: Partial<ViewConfig>) => void;
+  /** #497 — the ontology diagram's edge deep-link (`?field={id}` on the
+   *  database route): opens this field's Edit dialog on load, independent of
+   *  whichever HeaderCell instance it renders as (and even if the current
+   *  view has it hidden — the point is reaching the relation's config, not
+   *  reproducing the view's own visibility rule). */
+  autoOpenFieldId?: string | null;
+  onAutoOpenFieldConsumed?: () => void;
 }) {
   // #396 — platform-correct: ⌘ on a Mac, Ctrl elsewhere.
   const newRecordTitle = useWithShortcut('New record', 'new-record');
   const database = useDatabase(ws, db);
   // #149 — the operator's word for a row ("task"), not "record".
   const noun = databaseNoun(database.data?.name);
-  const records = useRecordsInfinite(ws, db, queryBody);
-  const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
+  // #739 T8 — density control, three steps on the 4px grid. Undefined = 32,
+  // the pre-#739 hardcoded height.
+  const rowHeight = config?.row_height ?? 32;
 
-  const fields = useMemo(
-    () =>
-      (database.data?.fields ?? []).filter(
-        (f) => !HIDDEN_TYPES.has(f.type) && !(hiddenFieldIds ?? []).includes(f.id),
-      ),
-    [database.data, hiddenFieldIds],
-  );
-  // #289 — the public id renders in the row GUTTER, not as a column, so
-  // hidden_field_ids couldn't reach it and it was the one visible column nobody
-  // could turn off. The Fields picker now offers it via the canonical system-field
-  // id (`__sys_number`), and this is where that choice takes effect. Falls back to
-  // a real `number` field row's id when the database has one.
-  const numberHidden = useMemo(() => {
-    const hidden = new Set(hiddenFieldIds ?? []);
-    if (hidden.has(systemFieldId('number'))) return true;
-    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
-    return real ? hidden.has(real.id) : false;
-  }, [hiddenFieldIds, database.data]);
+  // #233 — hierarchy mode. `hierarchyField` is the "Parent" side field this
+  // view nests by, resolved from config; undefined is the overwhelming
+  // default (flat table), and every branch below collapses to today's exact
+  // behaviour in that case.
+  const hierarchyField = useMemo(() => {
+    if (!config?.hierarchy_field_id) return undefined;
+    return (database.data?.fields ?? []).find((f) => f.id === config.hierarchy_field_id);
+  }, [config?.hierarchy_field_id, database.data]);
+
+  // The TOP-LEVEL query becomes "rows with no parent" when nesting is on —
+  // composed on top of the shared queryBody the same way calendar-view.tsx
+  // already composes its own date-window filter, never by touching
+  // queryBodyFromConfig (shared by every other view type/widget).
+  const rootQueryBody = useMemo(() => {
+    if (!hierarchyField) return queryBody;
+    const filter = andFilterNodes(queryBody?.['filter'], { field: hierarchyField.apiName, op: 'is_empty' });
+    return { ...(queryBody ?? {}), ...(filter ? { filter } : {}) };
+  }, [queryBody, hierarchyField]);
+
+  const records = useRecordsInfinite(ws, db, rootQueryBody);
+  const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
+  // #659 — the persistent "how many rows does this view hold" answer the row
+  // index alone can't give without scrolling to the end. Same filter as the
+  // grid's own query (root-only when nested), so it always matches what's on
+  // screen at the top level.
+  const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter']);
+
+  // #739 — the permanent record number as an ORDINARY column, "ID" in the UI,
+  // `number` in code (T6). Computed via the SAME shared registry helper
+  // view-toolbar.tsx's Fields picker already uses for this — one source, not
+  // a second copy that could disagree about when the synthetic entry applies.
+  // `undefined` when the database happens to have a REAL field literally
+  // named `number` (rare): that real row already flows through the ordinary
+  // ` fields ` list below with no special-casing at all (registry semantics,
+  // real always wins).
+  const numberEntry = useMemo(() => {
+    const liveFields = database.data?.fields ?? [];
+    if (liveFields.some((f) => f.apiName === 'number')) return undefined;
+    return withSystemFields(liveFields).find((f) => f.apiName === 'number');
+  }, [database.data]);
+  // #739 AC3 — the system date columns (Created, Last edited), offered from
+  // Fields off by default (view-toolbar.tsx's matching systemDateEntries).
+  // Rendered here the same way numberEntry is: only when the database has no
+  // REAL stored field of that type, and only once actually made visible.
+  const systemDateEntries = useMemo(() => {
+    const liveFields = database.data?.fields ?? [];
+    return withSystemFields(liveFields).filter(
+      (f) =>
+        (f.type === 'created_at' || f.type === 'updated_at') &&
+        !liveFields.some((real) => real.apiName === f.apiName),
+    );
+  }, [database.data]);
+
+  const fields = useMemo(() => {
+    // HIDDEN_TYPES only ever applies to STORED rows (the raw UUID, created_by)
+    // — numberEntry is synthetic and never passes through it, so its own
+    // type `id` can't collide with the raw UUID's exclusion.
+    //
+    // #739 T3 — rich_text is excluded from RENDERING here too, not just from
+    // the Fields picker's offer list (view-toolbar.tsx): a rich_text field
+    // that simply hasn't been hidden yet (hidden_field_ids doesn't name it)
+    // would otherwise still render as a column despite never being offered
+    // as one — "absent from the list" only holds if it can never appear.
+    const ordinary = (database.data?.fields ?? []).filter(
+      (f) => !HIDDEN_TYPES.has(f.type) && f.type !== 'rich_text' && !(hiddenFieldIds ?? []).includes(f.id),
+    );
+    const numberVisible = numberEntry && !(hiddenFieldIds ?? []).includes(numberEntry.id);
+    const visibleDateEntries = systemDateEntries.filter((f) => !(hiddenFieldIds ?? []).includes(f.id));
+    return [...(numberVisible ? [numberEntry] : []), ...ordinary, ...visibleDateEntries];
+  }, [database.data, hiddenFieldIds, numberEntry, systemDateEntries]);
+  // #497 — looked up against the database's FULL field list, not the current
+  // view's filtered `fields` above: the deep link's whole point is reaching a
+  // relation's config regardless of whether this view happens to hide it.
+  const autoOpenField = autoOpenFieldId
+    ? (database.data?.fields ?? []).find((f) => f.id === autoOpenFieldId)
+    : undefined;
+  // Nothing to show (field deleted, or the id belongs elsewhere) — still clear
+  // the stale param rather than leaving a dead `?field=` in the URL forever.
+  useEffect(() => {
+    if (autoOpenFieldId && database.data && !autoOpenField) onAutoOpenFieldConsumed?.();
+  }, [autoOpenFieldId, database.data, autoOpenField, onAutoOpenFieldConsumed]);
 
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
@@ -148,10 +248,70 @@ export function TableView({
   // CellDisplay already shows on screen, via the same memberNames map.
   const resolveMemberName = useCallback((id: string) => memberNames.get(id) ?? id, [memberNames]);
 
-  const rows = useMemo(
+  const rootRows = useMemo(
     () => (records.data?.pages ?? []).flatMap((page) => page.data),
     [records.data],
   );
+
+  // #233 — expand/collapse state (session-persisted per view), the currently
+  // loaded children of every expanded row (any depth), and the flattened
+  // parent-then-children list this drives everything below from. Every hook
+  // here is called unconditionally (rules of hooks); each one is a documented
+  // no-op when `hierarchyField` is undefined — `expandedIds`/`countIds` are
+  // empty arrays, so `useHierarchyChildren`/`useHierarchyChildCounts` fire no
+  // queries, and `flattenHierarchy` isn't even called.
+  const { expanded, toggle: toggleExpanded, expandAll, collapseAll } = useHierarchyExpansion(
+    hierarchyField ? viewId : undefined,
+  );
+  const expandedIds = useMemo(() => (hierarchyField ? [...expanded] : []), [hierarchyField, expanded]);
+  // #233 — the view's OWN filter, not `rootQueryBody`'s: that one has the
+  // root-scoping `is_empty` condition ANDed in, which would AND against the
+  // `has [parentId]` condition below and always evaluate to zero (a row
+  // can't simultaneously have no parent and have this exact parent). Every
+  // row at every depth still respects the view's real filter/sort — only the
+  // is_empty clause is root-specific and must not leak into child queries.
+  const childrenByParent = useHierarchyChildren(
+    ws,
+    db,
+    hierarchyField,
+    expandedIds,
+    queryBody?.['filter'],
+    (queryBody?.['sorts'] as unknown[]) ?? [],
+  );
+
+  const hierarchyRows: HierarchyRow[] = useMemo(
+    () =>
+      hierarchyField
+        ? flattenHierarchy(rootRows, childrenByParent, expanded)
+        : rootRows.map((row) => ({
+            row,
+            depth: 0,
+            isExpanded: false,
+            childrenLoading: false,
+            hasMoreChildren: false,
+          })),
+    [hierarchyField, rootRows, childrenByParent, expanded],
+  );
+
+  // The rest of this component (virtualizer, selection, cursor, copy/paste,
+  // keyboard nav) is written entirely against a flat `RecordRow[]` and row
+  // INDEX — that contract predates #233 and stays exactly as it was. Nesting
+  // lives entirely upstream of this line: `rows[i]` is simply "the i-th
+  // visible row, parents and currently-expanded children interleaved",
+  // structurally indistinguishable from the pre-#233 flat list to every line
+  // below. `hierarchyRows[i]` (same length, same order) carries the depth/
+  // expansion info those lines don't need.
+  const rows = useMemo(() => hierarchyRows.map((h) => h.row), [hierarchyRows]);
+
+  // Child-count checks (for the expand caret) run against every row CURRENTLY
+  // in `rows` — bounded by however many top-level pages have been fetched
+  // plus whatever's been expanded so far, never the whole database. Skipped
+  // entirely outside hierarchy mode.
+  const hierarchyCountIds = useMemo(() => (hierarchyField ? rows.map((r) => r.id) : []), [hierarchyField, rows]);
+  // #233 — same reasoning as childrenByParent above: the view's own filter,
+  // never rootQueryBody's (its is_empty root-scoping would AND against
+  // `has [id]` and always read zero children for every row).
+  const childCounts = useHierarchyChildCounts(ws, db, hierarchyField, hierarchyCountIds, queryBody?.['filter']);
 
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
@@ -217,15 +377,18 @@ export function TableView({
     (rowIndex: number, shift: boolean) => {
       setSelected((prev) => {
         const next = new Set(prev);
-        const allRows = (records.data?.pages ?? []).flatMap((p) => p.data);
+        // #233 — `rows` is already "every visible row, parents and expanded
+        // children interleaved" (see its own definition above), so a
+        // shift-range here naturally spans into/across a nested group the
+        // same way it always spanned a flat list — no special-casing needed.
         if (shift && anchorRef.current !== null) {
           const [lo, hi] = [Math.min(anchorRef.current, rowIndex), Math.max(anchorRef.current, rowIndex)];
           for (let i = lo; i <= hi; i++) {
-            const id = allRows[i]?.id;
+            const id = rows[i]?.id;
             if (id) next.add(id);
           }
         } else {
-          const id = allRows[rowIndex]?.id;
+          const id = rows[rowIndex]?.id;
           if (!id) return next;
           if (next.has(id)) next.delete(id);
           else next.add(id);
@@ -234,14 +397,14 @@ export function TableView({
         return next;
       });
     },
-    [records.data],
+    [rows],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 20,
   });
 
@@ -642,11 +805,17 @@ export function TableView({
 
   useShortcut('n', () => {
     if (readOnly) return;
+    // #739 — col 0 used to always be the title (the only frozen-by-default
+    // column). With "ID" now also frozen-leading and read-only, hardcoding 0
+    // would land the cursor on a column that refuses to enter edit mode
+    // (`id` is in NO_EDITOR) instead of the record's new name. Find title
+    // explicitly rather than re-deriving frozenCount's own leading-column rule.
+    const nameCol = fields.findIndex((f) => f.type === 'title');
     createRecord.mutate(
       {},
       {
         onSuccess: () => {
-          setCursor({ row: rows.length, col: 0 });
+          setCursor({ row: rows.length, col: nameCol >= 0 ? nameCol : 0 });
           setEditing(true);
           requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length));
         },
@@ -674,7 +843,13 @@ export function TableView({
 
   // #251 — cell renderer extracted so frozen and non-frozen columns share
   // one render path (field-surfaces.md: never duplicate render logic).
-  function renderBodyCell(field: Field, colIndex: number, rowIdx: number, row: RecordRow) {
+  function renderBodyCell(
+    field: Field,
+    colIndex: number,
+    rowIdx: number,
+    row: RecordRow,
+    hierarchyInfo?: HierarchyRow,
+  ) {
     const isCursor = cursor?.row === rowIdx && cursor?.col === colIndex;
     const isCellEditing = isCursor && editing;
     const inRange =
@@ -697,17 +872,33 @@ export function TableView({
         className={cn(
           'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
           isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
-          pinned &&
-            colIndex < frozenCount &&
-            cn(
-              'sticky z-10',
-              colIndex === frozenCount - 1 &&
-                'shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
-              selected.has(row.id)
-                ? 'bg-accent-soft'
-                : 'bg-card group-hover:bg-hover',
-            ),
-          inRange && !isCursor && 'z-10 bg-accent-soft/60',
+          pinned && colIndex < frozenCount
+            ? cn(
+                'sticky z-10',
+                colIndex === frozenCount - 1 &&
+                  'shadow-[var(--shadow-edge-right)]',
+                /*
+                 * #735 — a frozen cell's background must stay OPAQUE in
+                 * every state, including range selection, which none of the
+                 * ticket's three named states (base/hover/selected) covers
+                 * but which breaks the same way: the real bug was TWO
+                 * classes both setting background-color on one element —
+                 * this branch's opaque bg-card/bg-accent-soft, and the
+                 * translucent bg-accent-soft/60 below — with the
+                 * translucent one winning the cascade, so a frozen cell
+                 * mid-range-select let the row's own ground bleed through
+                 * at 40%. Folding range selection into THIS branch (so a
+                 * frozen cell only ever gets one background-color source)
+                 * fixes it; non-frozen cells keep the translucent tint,
+                 * which was never the reported defect.
+                 */
+                inRange && !isCursor
+                  ? 'bg-accent-soft'
+                  : selected.has(row.id)
+                    ? 'bg-accent-soft'
+                    : 'bg-card group-hover:bg-hover',
+              )
+            : inRange && !isCursor && 'z-10 bg-accent-soft/60',
         )}
         onMouseDown={(e) => {
           suppressClickRef.current = false;
@@ -804,6 +995,62 @@ export function TableView({
           field.type !== 'title' &&
           !NO_EDITOR.has(field.type) ? (
           <EmptyFieldAffordance field={field} editable />
+        ) : field.type === 'title' && hierarchyInfo ? (
+          // #233 — the expand caret + indent live ONLY on the title cell, the
+          // one column every row renders regardless of view config, matching
+          // where Notion/Airtable/Wrike put the same affordance. A row with
+          // no children (hasChildren false) still reserves the caret's width
+          // via the empty span, so titles stay vertically aligned across a
+          // mix of leaf and parent rows at the same depth.
+          <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: hierarchyInfo.depth * 16 }}>
+            {hierarchyInfo.isExpanded || (childCounts.get(row.id) ?? 0) > 0 ? (
+              <button
+                type="button"
+                className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleExpanded(row.id);
+                }}
+                aria-label={hierarchyInfo.isExpanded ? `Collapse ${row.title}` : `Expand ${row.title}`}
+                aria-expanded={hierarchyInfo.isExpanded}
+              >
+                <ChevronRight
+                  className={cn('h-3 w-3 transition-transform', hierarchyInfo.isExpanded && 'rotate-90')}
+                />
+              </button>
+            ) : (
+              <span className="h-3 w-3 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1 truncate">
+              <CellDisplay
+                field={field}
+                value={valueOf(row, field)}
+                memberNames={memberNames}
+                memberImages={memberImages}
+                ws={ws}
+              />
+            </div>
+            {/* #233 — the child page-size ceiling (200) is a real limit, not a
+                display choice; naming it here rather than silently truncating
+                matches how the rest of this codebase declares a gap instead
+                of hiding one (dashboard exports, the audit-pack ticket). */}
+            {hierarchyInfo.isExpanded && hierarchyInfo.hasMoreChildren && (
+              <span className="shrink-0 text-meta text-faint" title="Only the first 200 children load inline">
+                200+
+              </span>
+            )}
+            <Link
+              href={recordHref(ws, db, row)}
+              onClick={(e) => {
+                e.stopPropagation();
+                openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
+              }}
+              className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+            >
+              <Maximize2 className="h-3 w-3" /> Open
+            </Link>
+          </div>
         ) : (
           <>
             <CellDisplay
@@ -823,7 +1070,7 @@ export function TableView({
                   e.stopPropagation();
                   openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
                 }}
-                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
               >
                 <Maximize2 className="h-3 w-3" /> Open
               </Link>
@@ -839,6 +1086,27 @@ export function TableView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="relative flex h-full flex-col">
+      {/* #233 — expand/collapse-all, outside the scroll container so it stays
+          reachable regardless of scroll position. "Expand all" opens every
+          row CURRENTLY KNOWN to have children (see useHierarchyExpansion's
+          own comment on why this isn't a full-depth eager expand) — a second
+          click after the newly-revealed rows' own counts land opens the next
+          level down. */}
+      {hierarchyField && (
+        <div className="flex items-center gap-2 border-b border-border-default bg-app px-3 py-1 text-label text-muted">
+          <button
+            type="button"
+            className="hover:text-ink"
+            onClick={() => expandAll(rows.filter((r) => (childCounts.get(r.id) ?? 0) > 0).map((r) => r.id))}
+          >
+            Expand all
+          </button>
+          <span aria-hidden>·</span>
+          <button type="button" className="hover:text-ink" onClick={() => collapseAll()}>
+            Collapse all
+          </button>
+        </div>
+      )}
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto"
@@ -864,8 +1132,15 @@ export function TableView({
         >
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
-            <div className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}>
-              #
+            <div
+              className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-meta font-medium text-faint', pinned && 'sticky left-0 z-30')}
+              // #659 — the persistent total-record-count AC: this gutter header is
+              // sticky in both axes already (pinned left + the header's own sticky
+              // top), so it's always on screen regardless of scroll — the one spot
+              // that never needed new positioning to satisfy "no scrolling required".
+              title={recordCount.data !== undefined ? `${recordCount.data} ${pluralNoun(noun, recordCount.data)}` : undefined}
+            >
+              {recordCount.data ?? '#'}
             </div>
             {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell
@@ -909,7 +1184,17 @@ export function TableView({
                     fields={fields}
                     width={widthOf(field)}
                     readOnly={!schemaEditable}
-                    reorderable={schemaEditable}
+                    // #492 — a system field's position is fixed server-side
+                    // (fields.service.ts's update() refuses a position patch
+                    // for `isSystem` fields, same "schema is fixed" rule as
+                    // its name/type). Before this, the handle rendered anyway
+                    // — a drag visually succeeded, then reverted on the next
+                    // refetch, since table-view.tsx's own reorder mutation
+                    // already filtered system fields out of what it persists.
+                    // A draggable column whose move never sticks is worse
+                    // than one that plainly isn't draggable — disabling the
+                    // handle here matches what the server has always enforced.
+                    reorderable={schemaEditable && !field.isSystem}
                     config={config}
                     onPatch={onPatch}
                     onAddLookup={(id) => setAddingField({ type: 'lookup', relationId: id })}
@@ -923,7 +1208,7 @@ export function TableView({
               </SortableContext>
               <DragPreview>
                 {columnDrag.activeId && (
-                  <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                  <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
                     {columnLabel(columnDrag.activeId) ?? ''}
                   </div>
                 )}
@@ -932,7 +1217,7 @@ export function TableView({
             {schemaEditable && (
               <Dialog open={addingField !== null} onOpenChange={(open) => setAddingField(open ? {} : null)}>
                 <DialogTrigger asChild>
-                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-ink">
+                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-label font-medium text-muted hover:bg-hover hover:text-ink">
                     <Plus className="h-3.5 w-3.5" /> New field
                   </button>
                 </DialogTrigger>
@@ -953,11 +1238,18 @@ export function TableView({
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualItems.map((item) => {
               const row = rows[item.index]!;
+              // #233 — only truthy in hierarchy mode. `hierarchyRows` always
+              // has an entry per row (flat mode just fills in depth-0
+              // defaults, see its own definition above), so this can't be
+              // inferred from truthiness alone — passing it unconditionally
+              // would make every flat table's title cell take the nested
+              // rendering branch below, caret placeholder and all.
+              const hierarchyInfo = hierarchyField ? hierarchyRows[item.index] : undefined;
               return (
                 <div
                   key={row.id}
                   className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-accent-soft' : 'bg-card')}
-                  style={{ top: item.start, height: ROW_HEIGHT }}
+                  style={{ top: item.start, height: rowHeight }}
                 >
                   <div
                     className={cn(
@@ -966,18 +1258,34 @@ export function TableView({
                       selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                     )}
                   >
-                    {/* Public id in the gutter by default (MN-087) — fades to row actions on
-                        hover, and can be hidden entirely from Fields (#289). */}
-                    {row.number !== null && !numberHidden && (
-                      <span
-                        className={cn(
-                          'text-[11px] tabular-nums text-faint',
-                          selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
-                        )}
-                      >
-                        {row.number}
-                      </span>
-                    )}
+                    {/*
+                      #659/#739 — the view-relative row index (1, 2, 3…) is
+                      the gutter's ONLY content: a live position/count
+                      indicator derived straight from this view's own
+                      filtered/sorted row order (`item.index`), so it
+                      recalculates for free whenever that order changes. It
+                      is not a field — never stored, never itself hideable,
+                      never labelled. It fades to row actions on hover.
+
+                      #739 — the permanent record number used to merge into
+                      this same gutter as a small corner badge (#699 AC5).
+                      It's now an ordinary column instead — "ID" in `fields`
+                      below, ordinary Hide-Fields visibility, no special
+                      fade/hover handling of its own — because a value that
+                      renders inside another field's cell isn't a value a
+                      user can point at, filter by, or reason about the same
+                      way as any other column. See the follow-up noted on
+                      #739 for list/feed, which still merge it into their own
+                      gutter and haven't been re-skinned yet.
+                    */}
+                    <span
+                      className={cn(
+                        'flex items-center gap-0.5 text-meta tabular-nums text-faint',
+                        selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
+                      )}
+                    >
+                      {item.index + 1}
+                    </span>
                     <div
                       className={cn(
                         'absolute inset-0 flex items-center justify-center gap-0.5',
@@ -999,20 +1307,22 @@ export function TableView({
                       {/* The labelled "Open" affordance on the title cell is the single way
                           to expand a row (#90) — no duplicate icon here. */}
                       {!readOnly && (
-                        <button
-                          title={`Delete ${noun}`}
-                          className="rounded p-0.5 text-faint hover:text-error"
-                          onClick={() => deleteRecord.mutate(row.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <Tooltip label="Delete">
+                          <button
+                            aria-label={`Delete ${noun}`}
+                            className="rounded p-0.5 text-faint hover:text-error"
+                            onClick={() => deleteRecord.mutate(row.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                   </div>
                   {/* #251 Column virtualization: frozen always, non-frozen windowed.
                        #410 — during drag, preview order so values stay under their headers. */}
                   {fields.slice(0, frozenCount).map((field, i) =>
-                    renderBodyCell(field, i, item.index, row),
+                    renderBodyCell(field, i, item.index, row, hierarchyInfo),
                   )}
                   {colLeftSpacer > 0 && (
                     <div key="__cl" style={{ width: colLeftSpacer, flexShrink: 0 }} />
@@ -1026,7 +1336,7 @@ export function TableView({
                         colIndex: frozenCount + vc.index,
                       }))
                   ).map(({ field, colIndex }) =>
-                    renderBodyCell(field, colIndex, item.index, row),
+                    renderBodyCell(field, colIndex, item.index, row, hierarchyInfo),
                   )}
                   {colRightSpacer > 0 && (
                     <div key="__cr" style={{ width: colRightSpacer, flexShrink: 0 }} />
@@ -1041,7 +1351,7 @@ export function TableView({
             <button
               // #254 — the tooltip names the shortcut, from the shared registry.
               title={newRecordTitle}
-              className="flex h-8 w-full items-center gap-2 px-3 text-[13px] text-muted hover:bg-hover"
+              className="flex h-8 w-full items-center gap-2 px-3 text-body text-muted hover:bg-hover"
               onClick={() => {
                 createRecord.mutate(
                   {},
@@ -1076,6 +1386,13 @@ export function TableView({
           canDelete={atLeast(database.data?.my_access, 'editor')}
           onClear={() => setSelected(new Set())}
         />
+      )}
+      {/* #497 — ontology diagram edge deep-link: opens this field's Edit
+          dialog on load, independent of any single HeaderCell instance. */}
+      {autoOpenField && (
+        <Dialog open onOpenChange={(open) => !open && onAutoOpenFieldConsumed?.()}>
+          <EditFieldDialog ws={ws} db={db} field={autoOpenField} onDone={() => onAutoOpenFieldConsumed?.()} />
+        </Dialog>
       )}
     </div>
   );

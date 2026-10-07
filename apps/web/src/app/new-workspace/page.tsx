@@ -14,7 +14,10 @@ import { AuthCard } from '../(auth)/auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { guestInviteHref } from '@/lib/guest-invite';
+import { setPendingBuild } from '@/lib/pending-build';
+import { setPendingShare } from '@/lib/pending-share';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
 
@@ -25,6 +28,9 @@ interface PackCard {
   highlights: string[];
   /** #351 — already returned by /packs/registry; the picker just never used it. */
   preview: { databases: number; views: number; automations: number; agents: number };
+  /** #824 — the hero; read from the pack's own manifest. */
+  workflow?: { database: string; field: string; stages: string[][] } | null;
+  marks?: { agent: boolean; notifies: boolean };
 }
 
 interface PackEntry extends PackCard {
@@ -94,7 +100,7 @@ function PackChoice({
           the result" was the complaint; four counts answer it at a glance. */}
       <PackVisual pack={pack} />
       <span className="min-w-0">
-        <span className="block truncate text-[13px] font-medium text-ink">{label ?? pack.name}</span>
+        <span className="block truncate text-body font-medium text-ink">{label ?? pack.name}</span>
         {/* #351 — the repeated "Includes databases, views, automations…" line is
             gone from every card. It was identical on all three, so it could not
             help anyone choose; it is said ONCE above the grid instead. The
@@ -105,7 +111,7 @@ function PackChoice({
             cascade, so the clamp silently never applied. Support Inbox's
             six-line summary then ate the card and squeezed the preview above
             from 112px to 43px. The class was present and doing nothing. */}
-        <span className="line-clamp-2 text-[12px] text-muted">{pack.summary}</span>
+        <span className="line-clamp-2 text-label text-muted">{pack.summary}</span>
       </span>
     </button>
   );
@@ -120,6 +126,14 @@ export default function NewWorkspacePage() {
   const router = useRouter();
   const [name, setName] = useState('');
   /**
+   * #217 — Otto's ruling: the AI-build step (#363) is the DEFAULT path, not the
+   * pack picker. "template" is what "template" used to be as the only screen;
+   * it is still reachable, one link away, never removed.
+   */
+  const [mode, setMode] = useState<'describe' | 'template'>('describe');
+  const [description, setDescription] = useState('');
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  /**
    * #351 — NOTHING is pre-selected. `agency-os` used to arrive already marked
    * "✓ Selected", so anyone who scrolled to the button without reading silently
    * accepted a whole workspace template — databases, automations and an agent.
@@ -131,6 +145,7 @@ export default function NewWorkspacePage() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   const registry = useQuery({
     queryKey: ['packs-registry'],
@@ -168,6 +183,49 @@ export default function NewWorkspacePage() {
     return installData as unknown as PackInstallResult;
   }
 
+  /**
+   * #217 — the default path. Creates a bare workspace (Tyron's build (#363)
+   * only runs INSIDE a workspace-scoped thread, so there is no way to build
+   * before one exists), hands the description across the redirect via
+   * `setPendingBuild`, and lands in it — the workspace layout and Tyron's
+   * conversation pick the description back up and run the build there, in
+   * Tyron's full-screen state, the same surface `WorkspaceBuild` already uses
+   * for a reshape from inside an existing workspace.
+   */
+  async function onSubmitDescribe(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setNameError('Give your workspace a name.');
+      nameRef.current?.focus();
+      return;
+    }
+    if (!description.trim()) {
+      setDescriptionError('Tell me what you do — one sentence is enough.');
+      descriptionRef.current?.focus();
+      return;
+    }
+    setNameError(null);
+    setDescriptionError(null);
+    setBusy(true);
+    setError(null);
+    const { data, error: apiError } = await api.POST('/api/v1/workspaces', {
+      body: { name },
+    });
+    if (apiError) {
+      setBusy(false);
+      setError(isErrorEnvelope(apiError) ? apiError.error.message : 'Could not create workspace');
+      return;
+    }
+    const wsId = (data as { id: string }).id;
+    posthog.capture('workspace_created', {
+      has_pack: false,
+      onboarding_path: 'ai_build',
+    });
+    setPendingBuild(wsId, description.trim());
+    setPendingShare(wsId);
+    router.replace(`/w/${wsId}`);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     /*
@@ -200,6 +258,12 @@ export default function NewWorkspacePage() {
       pack_slug: selectedSlug,
       onboarding_path: choice === 'marketplace' ? 'marketplace' : selectedSlug ? 'pack' : 'blank',
     });
+    // #217 — Otto's ruling applies to every onboarding path, not just the AI-
+    // build one: "land in something real, then share it." onSubmitDescribe
+    // already sets this; this sibling path (pack/blank/marketplace) missed it
+    // (Vera, 2026-09-10) — the same one-time share prompt must fire regardless
+    // of which choice created the workspace.
+    setPendingShare(wsId);
 
     if (choice === 'marketplace') {
       router.replace(`/w/${wsId}/packs#community-marketplace`);
@@ -239,9 +303,104 @@ export default function NewWorkspacePage() {
     }
   }
 
+  if (mode === 'describe') {
+    return (
+      <AuthCard title="Create your workspace" wide>
+        <form onSubmit={onSubmitDescribe} noValidate className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="name">Workspace name</Label>
+            <Input
+              id="name"
+              ref={nameRef}
+              autoFocus
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'name-error' : undefined}
+              placeholder="e.g. JCM Agency"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
+            />
+            {nameError && (
+              <p id="name-error" className="text-label text-error">
+                {nameError}
+              </p>
+            )}
+          </div>
+
+          {/*
+           * #217 — the front door. Otto's ruling: the AI build REPLACES the
+           * pack picker as the default, not "seeds from a pack behind the
+           * scenes" and not "runs after it" — a picker asks someone to choose
+           * among our catalogue before they've said anything about their own
+           * work, and #363 already ships the thing that asks the one
+           * question they CAN answer. Same copy as `WorkspaceBuild`'s own
+           * card, since this is the same feature reached one step earlier.
+           */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="description">What do you do?</Label>
+            <p className="text-label text-muted">
+              One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add
+              the views worth having — you can reshape anything afterwards.
+            </p>
+            <Textarea
+              id="description"
+              ref={descriptionRef}
+              rows={3}
+              size="default"
+              aria-invalid={descriptionError ? true : undefined}
+              aria-describedby={descriptionError ? 'description-error' : undefined}
+              placeholder="We run a small design studio — client projects, invoices, and a content calendar."
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (descriptionError) setDescriptionError(null);
+              }}
+              className="min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            />
+            {descriptionError && (
+              <p id="description-error" className="text-label text-error">
+                {descriptionError}
+              </p>
+            )}
+          </div>
+
+          {error && <p className="text-body text-error">{error}</p>}
+
+          <div className="sticky bottom-0 -mx-1 bg-card px-1 pb-1 pt-2">
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Setting things up…' : 'Build my workspace'}
+            </Button>
+          </div>
+
+          {/*
+           * #217/#351 — demoted, not removed. The picker still exists for
+           * anyone who would rather start from a known shape than describe
+           * one; it is one link away instead of the only door.
+           */}
+          <button
+            type="button"
+            onClick={() => setMode('template')}
+            className="text-center text-label text-muted underline-offset-2 hover:text-ink hover:underline"
+          >
+            Start from a template instead
+          </button>
+        </form>
+      </AuthCard>
+    );
+  }
+
   return (
     <AuthCard title="Create your workspace" wide>
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => setMode('describe')}
+          className="self-start text-label text-muted underline-offset-2 hover:text-ink hover:underline"
+        >
+          ← Back
+        </button>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Workspace name</Label>
           <Input
@@ -258,7 +417,7 @@ export default function NewWorkspacePage() {
             }}
           />
           {nameError && (
-            <p id="name-error" className="text-[12px] text-error">
+            <p id="name-error" className="text-label text-error">
               {nameError}
             </p>
           )}
@@ -271,7 +430,7 @@ export default function NewWorkspacePage() {
               three names for one thing a new user has never heard of. And the
               "includes databases, views, automations" line lived on every card,
               identical, so it differentiated nothing; it belongs here, once. */}
-          <p className="text-[12px] text-muted">
+          <p className="text-label text-muted">
             Pick a starting point. Each <span className="text-ink">Business Pack</span> is a
             ready-made set of databases, views and automations for one kind of work — you can change
             anything afterwards, or add more later.
@@ -286,7 +445,7 @@ export default function NewWorkspacePage() {
           {/* Exactly two rows: 2 × 196 + one 8px gap. */}
           <div className="grid max-h-[400px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
             {registry.isError ? (
-              <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
+              <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body text-error">
                 <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
                 <Button
                   type="button"
@@ -333,8 +492,8 @@ export default function NewWorkspacePage() {
             >
               <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
               <span>
-                <span className="block text-[13px] font-medium text-ink">Start empty</span>
-                <span className="block text-[12px] text-muted">
+                <span className="block text-body font-medium text-ink">Start empty</span>
+                <span className="block text-label text-muted">
                   No databases. Build your own from scratch.
                 </span>
               </span>
@@ -352,8 +511,8 @@ export default function NewWorkspacePage() {
             >
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
               <span>
-                <span className="block text-[13px] font-medium text-ink">Browse the marketplace</span>
-                <span className="block text-[12px] text-muted">
+                <span className="block text-body font-medium text-ink">Browse the marketplace</span>
+                <span className="block text-label text-muted">
                   Create the workspace first, then explore packs from other builders.
                 </span>
               </span>
@@ -373,7 +532,7 @@ export default function NewWorkspacePage() {
           </div>
         )}
 
-        {error && <p className="text-[13px] text-error">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         {/* #333: the primary action used to sit below four dense pack cards and
             a "browse all" link, so on a laptop viewport it needed a hunt. Pinned
             to the bottom of the card instead — the pack list above already

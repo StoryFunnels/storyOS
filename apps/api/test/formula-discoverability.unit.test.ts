@@ -55,7 +55,10 @@ describe('relationAggregateExamples (#299)', () => {
       },
     ];
     const names = relationAggregateExamples(noNumbers).map((e) => e.name);
-    expect(names).toEqual(['count']);
+    // #594 — pluck() has no type restriction, so it's offered whenever ANY
+    // related field exists (Tags.Label, a text field, qualifies) even though
+    // sum/avg/min/max still correctly stay absent.
+    expect(names).toEqual(['count', 'pluck']);
     // Because sum({Tags.Label}) is exactly what the typechecker rejects — an
     // example that errors on click is how users conclude a feature is broken.
     expect(() => typecheck(parseFormula('sum({Tags.Label})', noNumbers), noNumbers)).toThrow(

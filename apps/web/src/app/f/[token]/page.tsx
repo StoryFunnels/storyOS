@@ -2,11 +2,19 @@
 
 import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
+import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
+import { embedThemeStyle } from '@/lib/embed-theme';
+import { FileInput } from '@/components/ui/file-input';
+import { Textarea } from '@/components/ui/textarea';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
-const API = process.env.NEXT_PUBLIC_API_URL || '';
+// #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
+// checkout with no .env.local silently resolves every fetch below to a
+// RELATIVE path (hitting the Next.js server itself, not the API), and the
+// resulting 404 renders as "Form not found" — indistinguishable from a
+// genuinely bad token.
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 interface FormField {
   field_id: string;
@@ -24,10 +32,17 @@ interface FormField {
   /** User fields only (#224) — must match the field's own single/multi config;
    * the write path rejects an array for a non-multi field and vice versa. */
   multi?: boolean;
+  /** #758 — `text` fields only; renders a `<textarea>` instead of a single-line
+   * `<input>`. The field's own multiline setting (field-dialog-shared.tsx), read
+   * back for the first time here. */
+  multiline?: boolean;
   /** #263 — show this field only when an earlier answer matches. Keyed by
    * api_name so it lines up with `values`, and evaluated by the SAME shared
    * `visibleFormFields` the server runs on submit. */
   visible_when?: PublicFormVisibilityRule;
+  /** #500 — `required` above only bites when this also holds (or is unset).
+   * Same shape and evaluator as `visible_when`. */
+  required_when?: PublicFormVisibilityRule;
 }
 interface FormDef {
   title: string;
@@ -37,6 +52,8 @@ interface FormDef {
   redirect_url: string | null;
   /** Paid-plan white-label (#269) — hides the "Powered by StoryOS" attribution. */
   hide_branding: boolean;
+  /** #711 — the stored embed theme, or null. Re-validated before it is used. */
+  theme: unknown;
   fields: FormField[];
 }
 
@@ -62,6 +79,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hp, setHp] = useState('');
+  // #724 — kept separate from `values` (which gets JSON.stringify'd directly):
+  // a File object isn't JSON-serializable, and the server never expects the
+  // attachment field's answer inside `values` at all (see forms.service.ts's
+  // submit — the file rides as its own multipart part, matched to whichever
+  // field is type 'attachment' since a form allows at most one).
+  const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetch(`${API}/api/v1/public/forms/${token}`, { credentials: 'omit' })
@@ -78,12 +101,27 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/api/v1/public/forms/${token}`, {
-        method: 'POST',
-        credentials: 'omit',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ values, hp }),
-      });
+      // #724 — a plain JSON POST stays the default (MUST KEEP WORKING per
+      // #710); multipart only kicks in when a file was actually picked, so a
+      // form with an (optional, unfilled) attachment field behaves exactly
+      // as it did before this field type existed.
+      const res = file
+        ? await fetch(`${API}/api/v1/public/forms/${token}`, {
+            method: 'POST',
+            credentials: 'omit',
+            body: (() => {
+              const fd = new FormData();
+              fd.append('payload', JSON.stringify({ values, hp }));
+              fd.append('file', file, file.name);
+              return fd;
+            })(),
+          })
+        : await fetch(`${API}/api/v1/public/forms/${token}`, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ values, hp }),
+          });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error?.message ?? 'Something went wrong. Please try again.');
@@ -100,54 +138,115 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
     }
   }
 
-  const wrap = embed ? 'p-4' : 'min-h-screen bg-[#FAF7F1] px-4 py-12';
+  // #632 — was a hardcoded bg-[#FAF7F1]: the exact LIGHT-mode value of --bg-app,
+  // but a literal hex never flips with the theme. Missed by the ticket's own
+  // "stock Tailwind palette" framing (it's not a neutral-*/gray-* utility), but
+  // the same class of bug — this page cannot follow dark mode until every
+  // color on it, including the outer wrapper, resolves through a token.
+  // #711 — an embedded form renders NAKED: the host already has a container on
+  // their page, and drawing our own card inside it is a card inside a card.
+  // So in embed mode we drop the page background, the wrapper padding, and the
+  // card's surface/border/radius/padding. Inputs keep their own borders — an
+  // input still has to look like an input — and `mx-auto max-w-xl` stays,
+  // because centring and a readable measure are LAYOUT, not chrome: without it
+  // a wide iframe would stretch every text input to its full width.
+  //
+  // `card` is applied at all THREE states below, not just the form. "Form not
+  // found" and "Thank you" carry the same chrome, and the success state is the
+  // one that renders at the most important moment in the flow — an applicant
+  // has just submitted their CV. Fixing only the form would make a white card
+  // reappear in the middle of the host's page exactly then.
+  const wrap = embed ? '' : 'min-h-screen bg-app px-4 py-12';
+  const card = embed ? '' : 'rounded-[var(--radius-modal)] border border-border-default bg-card p-8';
+
+  // #711 phase 1 — the host's own colours, stored on the FORM rather than passed
+  // on the iframe URL, so changing one does not mean re-pasting the embed
+  // snippet into their CMS. Applied only in embed mode: the standalone
+  // /f/{token} page is OURS, and a host's brand colours on it would be neither
+  // theirs nor ours. Undefined when the form carries no theme, so an unthemed
+  // embed renders no style attribute at all rather than an empty one.
+  const themeStyle = embed ? embedThemeStyle(def?.theme) : undefined;
 
   if (status === 'loading') {
-    return <div className={wrap}><p className="mx-auto max-w-xl text-sm text-neutral-500">Loading…</p></div>;
+    return <div className={wrap} style={themeStyle}><p className="mx-auto max-w-xl text-sm text-muted">Loading…</p></div>;
   }
   if (status === 'notfound') {
     return (
-      <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-xl border border-neutral-200 bg-white p-8 text-center">
-          <h1 className="text-lg font-semibold text-neutral-900">Form not found</h1>
-          <p className="mt-2 text-sm text-neutral-500">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
+      <div className={wrap} style={themeStyle}>
+        <div className={`mx-auto max-w-xl text-center ${card}`}>
+          <h1 className="text-lg font-semibold text-ink">Form not found</h1>
+          <p className="mt-2 text-sm text-muted">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
         </div>
       </div>
     );
   }
   if (status === 'done') {
     return (
-      <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-xl border border-neutral-200 bg-white p-8 text-center">
-          <h1 className="text-lg font-semibold text-neutral-900">Thank you</h1>
-          <p className="mt-2 text-sm text-neutral-600">{def?.success_message ?? 'Your response has been submitted.'}</p>
+      <div className={wrap} style={themeStyle}>
+        <div className={`mx-auto max-w-xl text-center ${card}`}>
+          <h1 className="text-lg font-semibold text-ink">Thank you</h1>
+          <p className="mt-2 text-sm text-ink-secondary">{def?.success_message ?? 'Your response has been submitted.'}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={wrap}>
-      <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-5 rounded-xl border border-neutral-200 bg-white p-8">
+    <div className={wrap} style={themeStyle}>
+      <form onSubmit={submit} className={`mx-auto flex max-w-xl flex-col gap-5 ${card}`}>
         <div>
-          <h1 className="text-xl font-semibold text-neutral-900">{def!.title}</h1>
-          {def!.description && <p className="mt-1 text-sm text-neutral-500">{def!.description}</p>}
+          <h1 className="text-xl font-semibold text-ink">{def!.title}</h1>
+          {def!.description && <p className="mt-1 text-sm text-muted">{def!.description}</p>}
         </div>
-        {visibleFormFields(def!.fields, values).map((f) => (
-          <label key={f.field_id} className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-medium text-neutral-800">
+        {visibleFormFields(def!.fields, values).map((f) => {
+          // #500 — `required` alone is no longer the full story: `required_when`
+          // (the SAME evaluator that already gates visibility) can turn a field's
+          // required-ness off even while it stays visible.
+          const requiredNow = f.required && isFormFieldVisible(f.required_when, values);
+          // #724 — the attachment field's answer lives in the separate `file`
+          // state, never in `values` (see the `submit` comment above), so it
+          // gets its own control rather than going through the generic `Input`.
+          const control =
+            f.type === 'attachment' ? (
+              <FileInput required={requiredNow} file={file} onChange={setFile} />
+            ) : (
+              <Input
+                token={token}
+                field={f}
+                required={requiredNow}
+                value={values[f.api_name]}
+                onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
+              />
+            );
+          const labelText = (
+            <span className="text-body font-medium text-ink-secondary">
               {f.label}
-              {f.required && <span className="ml-0.5 text-red-500">*</span>}
+              {requiredNow && <span className="ml-0.5 text-error">*</span>}
             </span>
-            <Input
-              token={token}
-              field={f}
-              value={values[f.api_name]}
-              onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
-            />
-            {f.help && <span className="text-[12px] text-neutral-400">{f.help}</span>}
-          </label>
-        ))}
+          );
+          // #711 — a checkbox reads "[x] I consent", never a caption with a box
+          // on the line below. The column layout is imposed by THIS wrapper, so
+          // it has to be fixed here; styling the input alone cannot move it.
+          // The help text stays beneath the whole row rather than joining it.
+          if (f.type === 'checkbox') {
+            return (
+              <label key={f.field_id} className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-2">
+                  {control}
+                  {labelText}
+                </span>
+                {f.help && <span className="text-label text-muted">{f.help}</span>}
+              </label>
+            );
+          }
+          return (
+            <label key={f.field_id} className="flex flex-col gap-1.5">
+              {labelText}
+              {control}
+              {f.help && <span className="text-label text-muted">{f.help}</span>}
+            </label>
+          );
+        })}
         {/* Honeypot — hidden from humans; bots fill it. */}
         <input
           type="text"
@@ -158,15 +257,20 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           className="absolute left-[-9999px] h-0 w-0 opacity-0"
           aria-hidden
         />
-        {error && <p className="text-[13px] text-red-600">{error}</p>}
+        {error && <p className="text-body text-error">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="mt-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+          className="mt-1 rounded-[var(--radius-control)] bg-primary px-4 py-2.5 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
         >
           {submitting ? 'Submitting…' : def!.submit_text}
         </button>
-        {!def!.hide_branding && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
+        {/* #669 — STAYS faint. Our own attribution, not an affordance the person
+            filling the form needs: nothing they must read to complete it, and
+            it is already suppressible via hide_branding. Measures 3.44:1 on
+            card in light, which clears the 3:1 incidental floor #326 cites for
+            genuinely decorative text. */}
+        {!def!.hide_branding && <p className="text-center text-meta text-faint">Powered by StoryOS</p>}
       </form>
     </div>
   );
@@ -205,16 +309,21 @@ function PublicOptionToggle({
 function Input({
   token,
   field,
+  required,
   value,
   onChange,
 }: {
   token: string;
   field: FormField;
+  /** #500 — the CALLER's currently-evaluated required-ness, not `field.required`
+   * directly: a field can be configured required and still not be required right
+   * now if its `required_when` condition doesn't hold. */
+  required: boolean;
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
   const base =
-    'rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900';
+    'rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none focus:border-accent';
   const t = field.type;
   if (t === 'checkbox') {
     return (
@@ -262,10 +371,10 @@ function Input({
     const multi = field.multi === true;
     const ids = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
     return (
-      <div className="flex flex-col gap-1.5 rounded-lg border border-neutral-300 bg-white p-2.5">
-        {members.length === 0 && <span className="text-[12px] text-neutral-400">No one to pick from</span>}
+      <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card p-2.5">
+        {members.length === 0 && <span className="text-label text-muted">No one to pick from</span>}
         {members.map((m) => (
-          <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-neutral-900">
+          <label key={m.id} className="flex items-center gap-1.5 text-body text-ink">
             <input
               type={multi ? 'checkbox' : 'radio'}
               name={field.field_id}
@@ -284,13 +393,18 @@ function Input({
   if (t === 'relation') {
     return <RelationInput token={token} field={field} value={value} onChange={onChange} />;
   }
-  if (t === 'rich_text') {
+  // #758 — the multiline setting already exists on `text` fields; this is the
+  // read side. `rich_text`'s old textarea branch is gone: the API no longer
+  // serves that type at all (forms.service.ts's SUPPORTED), so it was dead
+  // code reachable only by a legacy card-field selection that predates the
+  // sidebar builder — see the decision recorded there.
+  if (t === 'text' && field.multiline) {
     return (
-      <textarea
-        className={`${base} min-h-24`}
+      <Textarea
+        size="default"
         value={(value as string) ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        required={field.required}
+        required={required}
       />
     );
   }
@@ -301,7 +415,7 @@ function Input({
       className={base}
       value={(value as string) ?? ''}
       onChange={(e) => onChange(t === 'number' ? (e.target.value === '' ? undefined : Number(e.target.value)) : e.target.value)}
-      required={field.required}
+      required={required}
     />
   );
 }
@@ -343,7 +457,7 @@ function RelationInput({
     return () => clearTimeout(timer);
   }, [open, search, token, field.field_id]);
 
-  if (!relation) return <span className="text-[12px] text-neutral-400">This field isn&rsquo;t available</span>;
+  if (!relation) return <span className="text-label text-muted">This field isn&rsquo;t available</span>;
 
   function pick(id: string, title: string) {
     setTitles((m) => ({ ...m, [id]: title }));
@@ -380,13 +494,17 @@ function RelationInput({
 
   return (
     <div className="relative">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card px-2.5 py-1.5">
         {selectedIds.map((id) => (
-          <span key={id} className="flex items-center gap-1 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] text-neutral-900">
+          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink">
             {titles[id] ?? id}
             <button
               type="button"
-              className="text-neutral-400 hover:text-red-600"
+              /* #669 — STAYS faint: an icon-only control, judged as a non-text
+                 graphic at 3:1 rather than 4.5, and it measures 3.44 on card.
+                 Same carve-out as #665's nine sidebar icons; whether that whole
+                 class should move is its own decision, not this PR's. */
+              className="text-faint hover:text-error"
               onClick={() => onChange(selectedIds.filter((i) => i !== id))}
               aria-label="Remove"
             >
@@ -395,7 +513,7 @@ function RelationInput({
           </span>
         ))}
         <input
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-ink outline-none placeholder:text-muted"
           placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
           value={search}
           onFocus={() => setOpen(true)}
@@ -404,32 +522,37 @@ function RelationInput({
       </div>
       {open && (
         <div
-          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
+          // #632 said "no shadow token exists yet anywhere in this codebase … so
+          // this stays a literal value". That stopped being true: #630 built the
+          // elevation scale and #661 moved this very line onto --shadow-popover.
+          // Corrected rather than left, because a comment that contradicts the
+          // line beneath it is worse than no comment (#639's lesson).
+          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]"
           onMouseLeave={() => setOpen(false)}
         >
           {results.map((r) => (
             <button
               key={r.id}
               type="button"
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-neutral-900 hover:bg-neutral-50"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
               onClick={() => pick(r.id, r.title)}
             >
               <span className="truncate">{r.title || 'Untitled'}</span>
-              {selectedIds.includes(r.id) && <span className="text-[11px] text-neutral-400">selected</span>}
+              {selectedIds.includes(r.id) && <span className="text-meta text-muted">selected</span>}
             </button>
           ))}
           {search.trim() && !exactMatch && (
             <button
               type="button"
               disabled={creating}
-              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-ink-secondary hover:bg-hover disabled:opacity-50"
               onClick={createNew}
             >
               + Create “{search.trim()}”
             </button>
           )}
           {!search.trim() && results.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-neutral-400">Type to search…</p>
+            <p className="px-2 py-1.5 text-label text-muted">Type to search…</p>
           )}
         </div>
       )}

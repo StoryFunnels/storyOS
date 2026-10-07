@@ -32,12 +32,37 @@ export interface FieldPlan {
   to: FieldDestination;
   /** Why it blocks, phrased for a person — names the field and what is missing. */
   reason?: string;
-  /** Several equally valid destinations; the dialog must ask rather than guess. */
-  ambiguousWith?: string[];
+  /**
+   * Several equally valid destinations; the dialog must ask rather than
+   * guess. #605 — carries `field_id` (not just a display name) so the
+   * client can NAME its choice back via `CopyRecordInput.override`, keyed
+   * by the same id.
+   */
+  ambiguousWith?: Array<{ field_id: string; display_name: string }>;
 }
 
-/** Types that can never receive a value — the same set the matcher already
- * refuses, imported rather than restated. */
+/**
+ * Types that can never receive a value.
+ *
+ * #477 — this comment used to claim this list was "imported rather than
+ * restated" from column-match.ts's matcher. It was not; it is a second,
+ * hand-maintained copy that had already drifted (missing `relation` and
+ * `attachment`, the exact gap #477 found and fixed in column-match.ts).
+ *
+ * It genuinely CANNOT just import that set now that it's correct: `relation`
+ * belongs in column-match.ts's set because a bare CSV string can never be a
+ * relation value, but `writable` here (below) also gates the
+ * `source.sourceType === 'relation'` branch, which deliberately WANTS
+ * relation-typed destinations — a copied relation's value already IS a
+ * resolved reference, not a raw string, so a relation destination is exactly
+ * the valid target for a relation source. Importing column-match.ts's set
+ * verbatim would silently break relation-to-relation copying.
+ *
+ * `attachment` has no such conflict and arguably belongs here too, but
+ * whether `sourceType === 'attachment'` copying is even exercised anywhere,
+ * and what shape its value takes, is not established — recording that as an
+ * open question on #477 rather than guessing at a fix here.
+ */
 const UNWRITABLE = new Set(['lookup', 'rollup', 'formula', 'button']);
 
 /**
@@ -63,7 +88,14 @@ export function isEmptyValue(value: unknown): boolean {
 export function planField(
   source: SourceField,
   destinations: DestinationField[],
-  opts: { hasValue: boolean; skipped?: boolean; sourceTargetDatabaseId?: string },
+  opts: {
+    hasValue: boolean;
+    skipped?: boolean;
+    sourceTargetDatabaseId?: string;
+    /** #605 — the client naming a SPECIFIC destination field_id, overriding
+     *  auto-match (or resolving an ambiguousWith choice) for this field. */
+    override?: string;
+  },
 ): FieldPlan {
   const base = { sourceKey: source.key, label: source.label };
 
@@ -72,6 +104,47 @@ export function planField(
   }
 
   const writable = destinations.filter((d) => !UNWRITABLE.has(d.type));
+
+  /*
+   * #605 — an explicit override wins over auto-match AND ambiguity: this is
+   * both "let me redirect any field" and "let me name which ambiguous
+   * relation candidate I mean", the same mechanism. Still validated against
+   * the field's own writability/type rules below — an override naming an
+   * invalid destination is refused (blocking), not silently accepted, the
+   * same "refuse, don't drop" posture #430 already established for every
+   * other path through this function.
+   */
+  if (opts.override) {
+    const dest = writable.find((d) => d.id === opts.override);
+    if (!dest) {
+      return {
+        ...base,
+        state: 'blocking',
+        to: { kind: 'skip' },
+        reason: `"${source.label}" was mapped to a destination field that does not exist (or cannot receive a value).`,
+      };
+    }
+    if (source.sourceType === 'relation') {
+      if (dest.type !== 'relation' || dest.targetDatabaseId !== opts.sourceTargetDatabaseId) {
+        return {
+          ...base,
+          state: 'blocking',
+          to: { kind: 'skip' },
+          reason: `"${source.label}" is a relation and can only be mapped to a relation field pointing at the same database.`,
+        };
+      }
+      return { ...base, state: 'mapped', to: { kind: 'relation', field_id: dest.id } };
+    }
+    if (dest.type === 'relation') {
+      return {
+        ...base,
+        state: 'blocking',
+        to: { kind: 'skip' },
+        reason: `"${source.label}" is not a relation and cannot be mapped to a relation field.`,
+      };
+    }
+    return { ...base, state: 'mapped', to: { kind: 'existing', field_id: dest.id } };
+  }
 
   if (source.sourceType === 'relation') {
     /*
@@ -99,7 +172,7 @@ export function planField(
         state: 'blocking',
         to: { kind: 'skip' },
         reason: `"${source.label}" could go to more than one relation — choose which, or skip it.`,
-        ambiguousWith: candidates.map((c) => c.displayName),
+        ambiguousWith: candidates.map((c) => ({ field_id: c.id, display_name: c.displayName })),
       };
     }
     // No candidate. Only a problem if this copy actually carries a value.

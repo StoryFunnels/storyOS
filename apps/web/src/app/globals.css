@@ -46,6 +46,25 @@
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
 
+  /*
+   * #633 — THE FOCUS RING, as a token at last. design-system.md has promised a
+   * `--focus-ring` since MN-014 and it never existed, which is exactly why the
+   * value ended up hardcoded in the rule below.
+   *
+   * Derived from --accent rather than restating it, because the hardcoded
+   * rgba(212, 160, 23, 0.25) was --accent's LIGHT value: in dark mode --accent
+   * lifts to #e0af2b and the ring stayed light-mode gold, making it the one
+   * element in the product that ignored the theme — on the single affordance
+   * that exists for keyboard users.
+   *
+   * 25% and 3px reproduce the previous appearance exactly in light mode, so
+   * this commit changes the MECHANISM and dark mode, not the look. The doc also
+   * asks for a 2px offset; that is a value change and it is not in here.
+   */
+  --focus-ring-width: 3px;
+  --focus-ring-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+
   /* Status */
   --success: #2d7a4f;
   --error: #c0392b;
@@ -64,6 +83,106 @@
   --chart-6: #1f8fa3;
   --chart-7: #c9701f;
   --chart-8: #9a7b4f;
+
+  /*
+   * #630 — THE ELEVATION SCALE. One place, one ink.
+   *
+   * There was no shadow token at all. There were 15 distinct hand-rolled
+   * shadows across 31 call sites, every one on this same rgba(15,23,41,a) ink,
+   * and design-system.md specifies exactly TWO. Read the offsets and a real
+   * scale is visible underneath — 4/12, 8/24, 16/40, 20/50, 24/60 — re-derived
+   * from memory each time, so the 4px/12px popover geometry alone ended up
+   * carrying FOUR different opacities (0.08 x5, 0.1 x1, 0.12 x3, 0.15 x3)
+   * across twelve sites. Nobody chose four; four is what happens without a
+   * token.
+   *
+   * THE INK IS A SEPARATE VARIABLE ON PURPOSE, and this is the load-bearing
+   * part of the file.
+   *
+   * The audit that produced this scale claimed that literal-rgba shadows cannot
+   * adapt to dark mode, so floating surfaces lose their separation from the
+   * page. That claim is REASONED FROM THIS FILE AND HAS NOT BEEN REPRODUCED in
+   * a browser — Vera is walking it on ticket #623. So this scale deliberately
+   * does NOT ship a dark-mode shadow value: --shadow-ink resolves to the same
+   * 15 23 41 in both themes, which is exactly what the 30 call sites already
+   * did. Zero behaviour change, no value defended on unverified reasoning.
+   *
+   * If Vera confirms the problem, the fix is ONE line — override --shadow-ink
+   * in the dark block. If she finds the separation is fine, nothing here needs
+   * reverting. That is the whole reason the ink is factored out rather than
+   * inlined into seven tokens.
+   *
+   * THE NAMES COME FROM READING ALL 30 CALL SITES, not from guessing an
+   * elevation ladder, and the two that share the 8px/24px geometry are the
+   * reason it was worth doing:
+   *
+   *   --shadow-panel  (0.15) is a panel stacked above other chrome — the batch
+   *                   bar's sub-panels, the cell editor.
+   *   --shadow-lifted (0.25) is something detached from the page: the four
+   *                   <DragPreview> ghosts that follow the cursor, and the
+   *                   mobile FAB. Same idea, so one token.
+   *
+   * Collapsing those two would be a taste call on five sites with no evidence,
+   * so both are named.
+   *
+   * THE DRAGGED-IN-PLACE STATE — ANSWERED (ticket #631), and the answer was that
+   * it is not a new elevation. The four sites this block used to reserve turned
+   * out to be TWO different states, not one:
+   *
+   *   board-view's card was gated on `overlay` — the cursor-following ghost,
+   *   which --shadow-lifted already names. It was the fifth such ghost and the
+   *   only one still on a literal, because it predates <DragPreview>. It is now
+   *   on the token, which also makes #409's claim that DragPreview "matches
+   *   board-view" true; at 4px/12px/0.15 against 8px/24px/0.25 it was not.
+   *
+   *   The three view-toolbar rows were the in-place ones, and they get NO
+   *   shadow — the opacity is already the signal, and a shadow on top of it says
+   *   the same thing twice. They keep their dimming rather than taking
+   *   `vacatedSlotClass`: that class fades to 40% behind a floating
+   *   <DragPreview>, and this file has none, so it would fade the row you are
+   *   actively dragging. It becomes right after that conversion, not before.
+   *
+   * So no --shadow-dragging token: it would have named a state that exists only
+   * because one file never adopted #409. Every elevation in the app is now on
+   * this scale except the public form page's, which is ticket #632.
+   */
+  --shadow-ink: 15 23 41;
+  --shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08);
+  --shadow-panel: 0 8px 24px rgb(var(--shadow-ink) / 0.15);
+  --shadow-lifted: 0 8px 24px rgb(var(--shadow-ink) / 0.25);
+  --shadow-overlay: 0 16px 40px rgb(var(--shadow-ink) / 0.22);
+  --shadow-modal: 0 20px 50px rgb(var(--shadow-ink) / 0.15);
+  --shadow-palette: 0 24px 60px rgb(var(--shadow-ink) / 0.28);
+  /* Directional, not elevation: a sticky column's right edge and the inbox
+     drawer's left edge. Same ink, so they belong here rather than staying the
+     last two literals. */
+  --shadow-edge-right: 2px 0 4px -2px rgb(var(--shadow-ink) / 0.12);
+  --shadow-edge-left: -8px 0 24px rgb(var(--shadow-ink) / 0.08);
+
+  /*
+   * #661 — 15 and 31, not 14 and 30. THE AUDIT'S INSTRUMENT WAS HALF-BLIND.
+   *
+   * The original sweep grepped for the Tailwind CLASS utility, `shadow-[`. A
+   * shadow can also be written as an inline style object, and one was:
+   * ui/toaster.tsx passed `boxShadow: '0 4px 16px rgb(15 23 41 / 0.12)'` to
+   * sonner's toastOptions. No class-based grep could ever have seen it, so it
+   * was never counted — and 4px/16px is a FIFTH geometry, in a scale whose whole
+   * claim was to have been read off every call site rather than guessed.
+   *
+   * The scale itself needed nothing: that site's own comment said it wanted to
+   * match "the app's elevated surfaces (dialogs, popovers)", which is
+   * --shadow-popover. Only the count was wrong. Recorded because a figure
+   * produced by an instrument that cannot see half the search space is worth
+   * distrusting even when its conclusion happens to hold.
+   *
+   * THE SCRIM belongs here rather than in the surface block: it is the same ink
+   * as every shadow, and it was hand-copied identically into five files (the
+   * mobile drawer, the command palette, the shortcuts overlay, every dialog, and
+   * form-view's own overlay). Nothing had diverged yet, which is the only good
+   * time to do this — the shadows got their token only after one geometry had
+   * already sprouted four opacities.
+   */
+  --scrim: rgb(var(--shadow-ink) / 0.35);
 
   --radius-control: 6px;
   --radius-card: 8px;
@@ -103,15 +222,16 @@
    * ordering AND the uniqueness, and fails on a raw z-index added to any
    * document-level overlay.
    */
-  --z-sticky: 10;           /* sticky table headers, in-flow toolbars */
-  --z-drawer-backdrop: 20;  /* mobile sidebar scrim */
-  --z-drawer: 30;           /* the mobile sidebar itself */
+  --z-sticky: 10; /* sticky table headers, in-flow toolbars */
+  --z-drawer-backdrop: 20; /* mobile sidebar scrim */
+  --z-drawer: 30; /* the mobile sidebar itself */
   --z-overlay-backdrop: 40; /* a panel's own click-away catcher */
-  --z-overlay: 50;          /* the panel body that backdrop belongs to */
+  --z-overlay: 50; /* the panel body that backdrop belongs to */
   --z-dialog-backdrop: 60;
   --z-dialog: 70;
-  --z-palette: 80;          /* command palette, shortcuts overlay */
-  --z-popover: 90;          /* EVERY portalled popover/menu — above all of the above */
+  --z-palette: 80; /* command palette, shortcuts overlay */
+  --z-popover: 90; /* EVERY portalled popover/menu — above all of the above */
+  --z-tooltip: 95; /* a tooltip labels a control, including one inside a popover or dialog */
   --z-toast: 100;
 }
 
@@ -191,6 +311,59 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
   --font-sans: var(--font-figtree), -apple-system, 'Segoe UI', sans-serif;
+
+  /*
+   * #634 / #624 D1 — THE UI TYPE SCALE. Role names, not t-shirt sizes.
+   *
+   * Values chosen to MATCH what 1,272 arbitrary text-[Npx] call sites already
+   * render, so adopting a token is a rename and not a restyle. Every step keeps
+   * the 1.5 line-height ratio those arbitrary sizes already compute to — that
+   * ratio is what makes the migration provably zero-change.
+   *
+   * Tailwind's own text-xs/sm/base/… are NOT touched. text-sm stays 14px, which
+   * 125 call sites already depend on; redefining it would silently shrink every
+   * Button and Input in the product. Role names also cannot be confused with
+   * Tailwind's — a `text-ui-sm` meaning 12px sitting beside `text-sm` meaning
+   * 14px would be reached for wrongly inside a week.
+   *
+   * Headings stay on Tailwind's named scale (text-lg 36 sites, text-xl 7,
+   * text-2xl 3). So the app ends with a heading scale and a UI scale, which is
+   * normal and is at least written down.
+   *
+   * WHERE THE SCALE DELIBERATELY STOPS (#748, ruled by Otto).
+   *
+   * --text-title (16px) is the top of this scale and it is NOT the ceiling for
+   * a title on screen. This scale is UI CHROME: labels, cell text, menu items,
+   * toolbar copy — the furniture around content. RECORD AND DOCUMENT TITLES ARE
+   * CONTENT, and they are out of scope here ON PURPOSE. They use Tailwind's
+   * heading scale above: a record title is `text-2xl` today
+   * (entity/record-detail.tsx, chosen partly because >=24px is WCAG large text).
+   *
+   * So if you are sizing a title and reach for --text-title, you are in the
+   * wrong scale. Use text-xl/text-2xl. Do NOT snap an existing 24px title down
+   * to 16px to "put it on the scale" — that is a visible design change wearing
+   * the costume of a refactor, which is exactly what #634 avoided when it landed
+   * this scale with zero visual change.
+   *
+   * No display steps were added, and that is a decision rather than an omission:
+   * #624 kept this scale small after measuring real call sites, and two title
+   * sites do not make a scale. A step nothing uses is worse than no step.
+   *
+   * Frozen on ticket #624 so the zero-change claim is checkable against that
+   * record rather than against memory.
+   */
+  --text-micro: 10px;
+  --text-micro--line-height: 1.5;
+  --text-meta: 11px;
+  --text-meta--line-height: 1.5;
+  --text-label: 12px;
+  --text-label--line-height: 1.5;
+  --text-body: 13px;
+  --text-body--line-height: 1.5;
+  --text-prose: 14px;
+  --text-prose--line-height: 1.5;
+  --text-title: 16px;
+  --text-title--line-height: 1.5;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;
@@ -204,13 +377,62 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* #711 — an embedded form paints NO background of its own, so the host's own
+   backdrop shows through the iframe. Without this the rule above paints
+   --bg-app unconditionally, which put a cream band between the host's
+   container and our card: two slightly different creams stacked, visible
+   before any colour is configured.
+
+   Keyed on <html data-embed>, set by the same pre-paint script that pins the
+   theme (lib/theme.tsx), because `body` is an ANCESTOR of the React root and
+   so cannot be styled from the page component. The standalone /f/{token} page
+   has no data-embed and keeps its --bg-app. */
+html[data-embed] body {
+  background: transparent;
+}
+
 ::selection {
   background: var(--accent-soft);
 }
 
+/*
+ * #633 — OUTLINE, NOT BOX-SHADOW, and that is the whole bug.
+ *
+ * box-shadow is the same property the elevation scale uses, and this rule
+ * REPLACED it rather than composing. Reproduced: with the account dropdown's
+ * container focused, its computed box-shadow was only the ring — the popover
+ * shadow was gone; move focus to an item inside and it came back. So a
+ * keyboard user tabbing onto any floating surface made it go flat.
+ *
+ * `outline` is a separate property, so the ring and the elevation now coexist.
+ * It also draws outside the border box like the old 0 0 0 3px spread did, so
+ * with offset 0 the appearance is unchanged in light mode.
+ *
+ * NOTE ON THE ~21 `outline-none` UTILITIES in components: Tailwind emits
+ * utilities into a CSS layer and this rule is unlayered, so unlayered wins
+ * regardless of specificity. Verified in the browser on a bare `outline-none`
+ * input (ui/select-field) and a `focus:outline-none` textarea (tyron) — both
+ * show the ring. That is a behaviour change for the five `focus:outline-none`
+ * sites, and the right one: they were suppressing a browser outline back when
+ * the ring came from box-shadow, and suppressing it now would leave them with
+ * no focus indicator at all.
+ */
 *:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.25);
+  outline: var(--focus-ring);
+  outline-offset: 0;
+}
+
+/* #726 AC3 — components/ui/file-input.tsx layers a real (but invisible,
+   opacity:0) <input type=file> over a decorative, aria-hidden Button, so
+   native keyboard focus/activation/validation all keep working. That means
+   the ELEMENT that legitimately gets :focus-visible is invisible, and the
+   visible Button (tabIndex={-1}) can never match :focus-visible itself —
+   so without this rule, tabbing to the control shows no focus ring at all.
+   Confirmed live: an un-forwarded focus state is exactly invisible, not
+   just subtle. */
+.file-input-root:has(> input:focus-visible) > button {
+  outline: var(--focus-ring);
+  outline-offset: 0;
 }
 
 /* Command palette (⌘K) indeterminate search bar */
@@ -247,6 +469,58 @@ body {
      the specificity tie regardless of source order. Verified in the browser —
      the first attempt targeted `.bn-editor` alone and computed to 16px. */
   font-size: 14px;
+  /* Same element, same reason, added with the rich-text token mapping above:
+     `.bn-default-styles` hard-codes `font-family: Inter, ...` as a LITERAL, not
+     as var(--bn-font-family) like the rest of BlockNote. So remapping the
+     variable correctly (Figtree resolves there now) still left every document
+     body and description field in Inter — which is not even loaded here, so it
+     fell through to the OS font while the app around it stayed Figtree. */
+  font-family: var(--font-sans);
+}
+
+/*
+ * #643 — design-system.md (lines 55, 66) has always specified 16px prose,
+ * 1.6 line-height and a narrow centered column for entity-page prose (the
+ * /doc page); it shipped at the record-panel's 14px/1.5/full-width instead.
+ *
+ * Scoped to `.doc-prose` (set on the /doc page's own wrapper) rather than
+ * changing the `.bn-editor.bn-default-styles` rule above: that rule is
+ * shared with the record panel's description field, and the record panel
+ * deliberately stays at 14px (an 800px-ish panel has no room to spare, and
+ * #642 already tuned that surface on its own terms). Three classes here
+ * beats the two above on specificity regardless of source order, the same
+ * fix the comment above already had to make once.
+ */
+.doc-prose .bn-editor.bn-default-styles,
+.doc-prose .bn-editor .bn-default-styles {
+  font-size: 16px;
+}
+
+/*
+ * #643 — the narrow column applies to PROSE, not to a table, code block or
+ * image: those must keep the full editor width (design-system.md's own
+ * distinction, and this ticket's explicit acceptance criterion). BlockNote
+ * tags every block with `data-content-type`, so the narrowing targets the
+ * text-bearing types by name rather than the editor as a whole — a table
+ * sitting in the same flow is simply not in this list and stays full width.
+ *
+ * line-height lives HERE, not on the editor-level rule above: BlockNote's
+ * own `.bn-block-outer { line-height: 1.5 }` sits directly between the
+ * editor and these blocks and is an explicit rule on an ancestor of THESE
+ * elements, so it wins the inheritance chain over anything set higher up —
+ * verified live (computed 24px/1.5 with line-height only set above). A rule
+ * directly on the block itself is what actually reaches it.
+ */
+.doc-prose [data-content-type='paragraph'],
+.doc-prose [data-content-type='heading'],
+.doc-prose [data-content-type='bulletListItem'],
+.doc-prose [data-content-type='numberedListItem'],
+.doc-prose [data-content-type='checkListItem'],
+.doc-prose [data-content-type='quote'] {
+  max-width: 40rem;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.6;
 }
 
 /*
@@ -283,6 +557,192 @@ body {
 .bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
   width: 16px;
   height: 16px;
+}
+
+/*
+ * THE RICH-TEXT EDITOR FOLLOWS THE DESIGN SYSTEM.
+ *
+ * Reported by Ievgen as "colors inside rich text ... it's not readable", and
+ * measured in a real browser before writing a line of this. BlockNote ships its
+ * own complete theme and StoryOS was overriding only two corners of it (#338's
+ * code blocks, and the "/" menu's row height), so every description field and
+ * every document body was a foreign surface inside a StoryOS card:
+ *
+ *   BlockNote painted            StoryOS token
+ *   dark  surface  #1f1f1f       --bg-card      #171c26   (neutral grey vs warm navy)
+ *   dark  text     #cfcfcf       --text-primary #f3efe7   (grey vs cream)
+ *   light text     #3f3f3f       --text-primary #0f1729   (grey vs navy)
+ *   font           Inter         --font-sans    Figtree
+ *
+ * The font line is the one that surprised me: --bn-font-family asks for Inter,
+ * which is NOT loaded here (only Figtree is), so rich text fell through to the
+ * OS font while the app around it stayed Figtree. Every document body in the
+ * product was set in a different typeface from its own chrome.
+ *
+ * Note the text was never a CONTRAST failure — #cfcfcf on #1f1f1f measures
+ * 10.58:1. It reads as "not readable" because it is dimmer and cooler than the
+ * app's own body text and sits on a visibly different slab. A contrast-only
+ * audit passes this and misses it entirely, which is why the fix is a palette
+ * mapping rather than a ratio tweak.
+ *
+ * BlockNote exposes 42 custom properties, so this is a token mapping in ONE
+ * place rather than a component change — and because our tokens are already
+ * theme-aware, both themes are fixed by the same block with no dark override.
+ * Mapping the variables (rather than overriding rendered rules) also means
+ * BlockNote's own menus, tooltips and hover states come along, which selector
+ * patching would have missed one at a time.
+ */
+/*
+ * THE SELECTOR IS LOAD-BEARING, and the first version of this block did nothing
+ * because I got it wrong. BlockNote sets these variables on
+ *
+ *     .bn-root                              (0,1,0)  light
+ *     .bn-root[data-color-scheme='dark']    (0,2,0)  dark
+ *
+ * and its stylesheet is served AFTER ours, so a plain `.bn-container` (0,1,0)
+ * ties with `.bn-root` and loses on source order — and never stood a chance
+ * against the dark rule. Both selectors below are one step above their
+ * counterpart, so neither outcome depends on which chunk loads first:
+ *
+ *     .bn-root.bn-container                            (0,2,0) > (0,1,0)
+ *     .bn-root.bn-container[data-color-scheme='dark']   (0,2,1) > (0,2,0)
+ *
+ * Same trap, same file: see the `.bn-editor .bn-default-styles` note below,
+ * where a single-class rule computed to 16px for exactly this reason.
+ */
+.bn-root.bn-container,
+.bn-root.bn-container[data-color-scheme='dark'] {
+  --bn-font-family: var(--font-sans);
+
+  /* Editor surface: transparent so the StoryOS card behind it shows through —
+     the wrapper already paints --bg-card, and painting it twice is how a
+     one-pixel seam appears at the rounded corners. */
+  --bn-colors-editor-background: transparent;
+  --bn-colors-editor-text: var(--text-primary);
+
+  --bn-colors-menu-background: var(--bg-card);
+  --bn-colors-menu-text: var(--text-primary);
+  --bn-colors-tooltip-background: var(--bg-card);
+  --bn-colors-tooltip-text: var(--text-secondary);
+
+  --bn-colors-hovered-background: var(--bg-hover);
+  --bn-colors-hovered-text: var(--text-primary);
+  --bn-colors-selected-background: var(--bg-active);
+  --bn-colors-selected-text: var(--text-primary);
+
+  --bn-colors-disabled-background: var(--bg-hover);
+  --bn-colors-disabled-text: var(--text-faint);
+
+  --bn-colors-border: var(--border-default);
+  --bn-colors-side-menu: var(--text-faint);
+
+  /* Shape and depth come from the app's scales, not BlockNote's. */
+  --bn-border-radius-small: var(--radius-chip);
+  --bn-border-radius-medium: var(--radius-control);
+  --bn-border-radius-large: var(--radius-card);
+  --bn-shadow-light: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
+  --bn-shadow-medium: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
+}
+
+/*
+ * RICH-TEXT GUTTERS. Reported as "padding on the left is big" — it is, and 48px
+ * of it is load-bearing. Measured before touching anything.
+ *
+ * BlockNote sets `padding: 54px` on `.bn-editor`. Hovering a block reveals the
+ * side menu at exactly 48px wide: two 24px controls, the insert `+` and the drag
+ * handle, living at x=279..327 while the text starts at x=327. So the left
+ * padding is an AFFORDANCE GUTTER, not decoration. Anything under 48px clips
+ * the drag handle, and the obvious "just remove the padding" fix breaks
+ * reordering — which is why the number is written down here.
+ *
+ * The RIGHT 54px holds nothing, so it goes to 24px: 30px back to every table,
+ * code block and image, which were being squeezed to 690px inside an 800px
+ * panel while prose ran to 97 characters a line.
+ *
+ * WHY THE MEASURE IS NOT CAPPED HERE, since that is the reflex: the padding was
+ * accidentally doing line-length control, so trimming it lengthens prose lines
+ * (97 -> 101 characters at 14px). 101 is at the high end but it is what Notion
+ * and Linear ship for a record body, and capping it would leave a ~200px void
+ * down the right of an 800px panel — trading one kind of wasted space for
+ * another. The measure genuinely does need a cap on the standalone /doc page,
+ * where the column is far wider; that surface is a route file rather than this
+ * one, and it is ticketed with the numbers.
+ *
+ * WHAT THIS DOES NOT FIX, and is the bigger half of the complaint: the text
+ * still starts 55px inside the column while every other section on a record
+ * (CONTACTS, PROJECTS, the title) aligns to the column edge. That is an
+ * ALIGNMENT break, not a padding size, and it is what actually reads as "big
+ * padding". Fixing it means pulling the editor left by the gutter width so the
+ * handle sits in the panel's own margin — which needs the panel to HAVE 48px of
+ * left margin, and it currently has ~32px. That is a panel change, ticketed
+ * separately with both options costed.
+ */
+/*
+ * `.bn-root .bn-editor`, not `.bn-editor`. THIRD time this file has hit the same
+ * trap: BlockNote's own rules are single-class and its stylesheet loads after
+ * ours, so any bare `.bn-*` override ties on specificity and loses on source
+ * order. `.bn-editor` here carries `bn-editor` while its PARENT carries
+ * `bn-root`, so the descendant form is (0,2,0) against their (0,1,0).
+ *
+ * The other two: `.bn-default-styles` for font-size/family, and
+ * `.bn-root.bn-container[data-color-scheme]` for the colour tokens. Anyone
+ * overriding BlockNote from here should assume a bare class will silently do
+ * nothing, and verify in the browser rather than trusting the diff — all three
+ * of mine looked correct and changed nothing until measured.
+ */
+.bn-root .bn-editor {
+  /* 48px is the hard floor — the side menu measures exactly 48px, so at 48 the
+     drag handle sits flush against the first glyph with no daylight, and
+     anything less puts it ON the text. 52px keeps 4px of breathing room and
+     still reclaims 2px; the real reclaim is the 30px on the right. */
+  padding-left: 52px;
+  padding-right: 24px;
+}
+
+/*
+ * #638 — OPTION CHIPS: THE TINT STAYS, THE INK BECOMES THEME-AWARE.
+ *
+ * Every one of the 15 option colours failed WCAG AA, on every surface, in BOTH
+ * themes. Not a dark-mode bug and not one bad colour — the whole palette. The
+ * chip painted the colour at 13% alpha as its background and the SAME colour at
+ * full strength as its text, so the ratio was whatever the arithmetic happened
+ * to give. Nobody chose any of these:
+ *
+ *     worst  indigo   2.47 (dark card)      best  indigo  5.14 (light card)
+ *     blue   2.93 dark / 4.29 light         gold  3.14 light / 3.99 dark
+ *
+ * Five of sixty colour/surface combinations cleared 4.5 — 15 colours x 2 themes
+ * x the card and app surfaces, and all five of the passes were the same three
+ * violets on light. At 11px the chip text is far below the large-text
+ * threshold, so 4.5 applies, not 3. Afterwards: 0 of 60 fail. The 30 card-surface
+ * combinations were also confirmed live in the browser, which agreed exactly.
+ *
+ * WHY NOT design-system.md's PRESCRIBED FIX. The doc specifies the #281 "solid
+ * mini-tag": solid fill, white text. I computed it rather than assuming it was
+ * right, and WHITE ON THE SOLID COLOUR ALSO FAILS — gold 3.64, orange 3.74,
+ * teal 3.74. Following the doc would have traded one accessibility failure for
+ * a smaller one plus a full restyle of every chip in the product.
+ *
+ * And the soft tint is not drift: cells.tsx records that #207 replaced #281's
+ * solid mini-tag deliberately, because in a dense table the solid version "read
+ * as a wall of loud colour". The doc simply never caught up. So the treatment
+ * is kept and the doc is corrected (ticket #639).
+ *
+ * THE FIX: keep the 13% tint exactly as it was, and derive the INK from the
+ * option colour per theme — mixed toward black in light, toward white in dark.
+ * 60% keeps the hue plainly recognisable while clearing AA everywhere: worst
+ * case 5.27 (magenta on a dark card) against the 2.47 it replaces. 65% would
+ * also pass but only reaches 4.77, which is too little headroom for a value
+ * users can pick fifteen ways.
+ *
+ * `--option-color` is set inline per chip; only the derivation lives here, so
+ * there is one mechanism rather than one per call site.
+ */
+.option-tint {
+  color: color-mix(in srgb, var(--option-color) 60%, black);
+}
+:root[data-theme='dark'] .option-tint {
+  color: color-mix(in srgb, var(--option-color) 60%, white);
 }
 
 /*

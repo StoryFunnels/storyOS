@@ -10,6 +10,7 @@ export const filterOpSchema = z.enum([
   'eq',
   'neq',
   'contains',
+  'not_contains',
   'gt',
   'gte',
   'lt',
@@ -154,6 +155,18 @@ export const sortSchema = z.object({
 });
 
 /**
+ * #392 — the hard ceiling on a scheduled automation's top-N `limit`, declared
+ * here (not in the automations service) so there is exactly one place to
+ * read it, same precedent as `sorts`' own `.max(3)` below. "Top 10,000" is
+ * not a way to make a rule act on effectively everything.
+ *
+ * MIRRORED (not imported) in packages/mcp/src/tools.ts as a plain literal —
+ * that file cannot import a VALUE from this zod-bearing package without
+ * breaking the MCP Docker bundle (see its own comment). Keep both in sync.
+ */
+export const AUTOMATION_TOP_N_LIMIT_CEILING = 200;
+
+/**
  * Whole-query control (MN-252 UI) for where NULL sort values land — applies
  * uniformly across every key in `sorts`, not per key (the UI exposes it as a
  * single "Empty values: Top / Bottom" toggle, not a per-row setting).
@@ -190,3 +203,23 @@ export const aggregateRecordsSchema = z.object({
   q: z.string().optional(),
 });
 export type AggregateRecordsInput = z.infer<typeof aggregateRecordsSchema>;
+
+/**
+ * A server-side aggregate, ONE VALUE PER GROUP (#750).
+ *
+ * Extends `aggregateRecordsSchema` with `group_by` rather than duplicating
+ * it — same op/field/filter/q semantics, same access scoping, so "the total"
+ * and "the total per column" can never quietly disagree.
+ *
+ * `group_by_granularity` mirrors `views.ts`'s `group_by_field_id` sibling of
+ * the same name exactly (only meaningful when `group_by` points at a DATE
+ * field) — not imported from there to avoid a schema-to-schema dependency
+ * for one literal union, but the values must stay identical to the board's
+ * own bucketing (#307) or a board's column count and this endpoint's count
+ * for the same period would disagree.
+ */
+export const groupedAggregateRecordsSchema = aggregateRecordsSchema.extend({
+  group_by: z.string(),
+  group_by_granularity: z.enum(['week', 'month', 'quarter', 'year']).optional(),
+});
+export type GroupedAggregateRecordsInput = z.infer<typeof groupedAggregateRecordsSchema>;

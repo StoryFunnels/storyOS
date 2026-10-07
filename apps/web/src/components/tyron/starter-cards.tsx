@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Blocks, CalendarCheck, Link2, Table2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceBuild } from './workspace-build';
 
 /**
@@ -102,6 +103,7 @@ export function StarterCards({
   onAsk,
   onBuilt,
   busy,
+  autoOpenBuild,
 }: {
   ws: string;
   ensureThread: (firstMessage: string) => Promise<string>;
@@ -109,29 +111,37 @@ export function StarterCards({
   onAsk: (message: string) => void;
   onBuilt: () => void;
   busy: boolean;
+  /**
+   * #217 — a description already given on `/new-workspace`'s describe-your-work
+   * step. Opens straight to the build card with this text, run without waiting
+   * for a click, instead of showing the four cards to someone who already said
+   * what they wanted one screen ago.
+   */
+  autoOpenBuild?: string;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
 
-  if (open === 'build') {
-    return <WorkspaceBuild ws={ws} ensureThread={ensureThread} onBuilt={onBuilt} />;
+  if (open === 'build' || autoOpenBuild) {
+    return <WorkspaceBuild ws={ws} ensureThread={ensureThread} onBuilt={onBuilt} autoStart={autoOpenBuild} />;
   }
 
   if (open === 'paste') {
     return (
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-        <p className="text-[13px] font-medium text-ink">Paste your list.</p>
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="text-body font-medium text-ink">Paste your list.</p>
+        <p className="mt-1 text-label text-muted">
           Rows from a spreadsheet, a block of names and emails, notes — it does not need to be tidy.
         </p>
-        <textarea
+        <Textarea
           rows={5}
           autoFocus
+          size="default"
           value={pasted}
           onChange={(e) => setPasted(e.target.value)}
           aria-label="Paste a list"
           placeholder={'Ada Lovelace, ada@example.com, London\nAlan Turing, alan@example.com, Manchester'}
-          className="mt-3 w-full resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+          className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
         />
         <div className="mt-2 flex items-center gap-2">
           <button
@@ -154,11 +164,11 @@ export function StarterCards({
               setOpen(null);
               setPasted('');
             }}
-            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
           >
             Make it a database
           </button>
-          <button type="button" onClick={() => setOpen(null)} className="px-1 text-[12px] text-muted hover:text-ink">
+          <button type="button" onClick={() => setOpen(null)} className="px-1 text-label text-muted hover:text-ink">
             Back
           </button>
         </div>
@@ -181,12 +191,12 @@ export function StarterCards({
         >
           <card.icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
           <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-ink">{card.title}</span>
-            <span className="mt-0.5 block text-[12px] text-muted">{card.blurb}</span>
+            <span className="block text-body font-medium text-ink">{card.title}</span>
+            <span className="mt-0.5 block text-label text-muted">{card.blurb}</span>
             {card.readOnly && (
               // Named on the card, not buried in the reply. A nervous first-time
               // user should be able to see that trying this costs them nothing.
-              <span className="mt-1 block text-[11px] text-faint">Changes nothing — just reads.</span>
+              <span className="mt-1 block text-meta text-faint">Changes nothing — just reads.</span>
             )}
           </span>
         </button>

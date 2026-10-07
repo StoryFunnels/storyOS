@@ -14,14 +14,26 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
-import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
+import { calendarNoEditableDateMessage, isShowingToday } from './calendar-date-fields';
+import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
-import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
+import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — hoisted so the array identity is stable across renders; Segmented
+   takes a readonly list, and a literal here would be a new array every time. */
+const CALENDAR_MODE_OPTIONS = [
+  { value: 'month' as const, label: 'month' },
+  { value: 'week' as const, label: 'week' },
+  { value: 'day' as const, label: 'day' },
+];
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode, andFilterNodes } from './filter-config';
 import { ViewQueryError } from './query-error';
+import { CALENDAR_INCREMENT_OPTIONS, CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
+import { shiftDateValue } from './calendar-time-grid-layout';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -31,31 +43,60 @@ export function CalendarView({
   db,
   config,
   readOnly,
+  onPatch,
   personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #470 — persists the day/week/month mode choice per view (AC2). Optional
+   *  only because a couple of call sites predate this ticket; every real
+   *  caller (the database page) passes it. */
+  onPatch?: (updates: Partial<ViewConfig>) => void;
   /** #259 — narrows this view's results for the current viewer only. */
   personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
   const dateField = database.data?.fields.find((f) => f.id === config.date_field_id);
+  // #753 — created_at/updated_at pass the toolbar's date-field picker (MN-150:
+  // usable anywhere a date is) but are system-managed and read_only server-side.
+  // `writable` is the single source both the drag guard and every create
+  // affordance check, so a date-driven calendar can't offer one without the
+  // other agreeing.
+  const dateIsSystemDate = dateField ? isSystemDate(dateField.type) : false;
+  const writable = !readOnly && !dateIsSystemDate;
+  // #470 — an optional SECOND date field giving a day/week event real height.
+  // Unset (the default, and every calendar saved before this ticket) falls
+  // back to a fixed display duration — see calendar-time-grid-layout.ts.
+  const endDateField = database.data?.fields.find((f) => f.id === config.calendar_end_date_field_id);
   const today = new Date();
-  const [view, setView] = useState({ year: today.getFullYear(), month: today.getMonth() });
+  // #470 — mode + a single anchor date drive navigation uniformly across all
+  // three modes; {year, month} for the month grid is DERIVED from it below,
+  // never a second, independently-clicked piece of state.
+  const mode = config.calendar_mode ?? 'month';
+  const [anchorDate, setAnchorDate] = useState(today);
+  const view = { year: anchorDate.getFullYear(), month: anchorDate.getMonth() };
 
-  const grid = useMemo(() => monthMatrix(view.year, view.month), [view]);
+  const grid = useMemo(() => monthMatrix(view.year, view.month), [view.year, view.month]);
+  const week = useMemo(() => weekDays(anchorDate), [anchorDate]);
+  const days = mode === 'day' ? [anchorDate] : mode === 'week' ? week : grid;
+
   const windowFilter = useMemo(() => {
     if (!dateField) return undefined;
     // The compiler exposes exclusive before/after for dates — widen by a day on each side.
-    const dayBefore = new Date(grid[0]!.getFullYear(), grid[0]!.getMonth(), grid[0]!.getDate() - 1);
-    const dayAfter = new Date(grid[41]!.getFullYear(), grid[41]!.getMonth(), grid[41]!.getDate() + 1);
-    const range = [
-      { field: dateField.apiName, op: 'after', value: fmtDate(dayBefore) + 'T23:59:59' },
-      { field: dateField.apiName, op: 'before', value: fmtDate(dayAfter) },
-    ];
+    let range: unknown[];
+    if (mode === 'month') {
+      const dayBefore = new Date(grid[0]!.getFullYear(), grid[0]!.getMonth(), grid[0]!.getDate() - 1);
+      const dayAfter = new Date(grid[41]!.getFullYear(), grid[41]!.getMonth(), grid[41]!.getDate() + 1);
+      range = [
+        { field: dateField.apiName, op: 'after', value: fmtDate(dayBefore) + 'T23:59:59' },
+        { field: dateField.apiName, op: 'before', value: fmtDate(dayAfter) },
+      ];
+    } else {
+      range = dayRangeFilter(mode === 'day' ? [anchorDate] : week, dateField.apiName).and;
+    }
     // Skip disabled clauses (MN-253 UI) here too — this builds its own query filter
     // rather than going through queryBodyFromConfig, so it has to prune the same way.
     // The active filter (possibly an {and:[...]}/{or:[...]} group) AND the personal
@@ -64,7 +105,7 @@ export function CalendarView({
     const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
     const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, ...range] };
-  }, [dateField, grid, config.filters, personalFilter]);
+  }, [dateField, grid, week, anchorDate, mode, config.filters, personalFilter]);
 
   // MN-252: apply the same persisted sort spec here too (e.g. chips within a day
   // ordered by priority) — this view builds its own filter, so it borrows just the
@@ -113,41 +154,102 @@ export function CalendarView({
     return map;
   }, [rows, dateField]);
 
-  const undatedCount = useMemo(() => {
-    if (!dateField) return 0;
-    return 0; // window query excludes undated by definition; counted via a hint link instead
-  }, [dateField]);
+  // #753 — the window query excludes undated records BY CONSTRUCTION (they have
+  // no date to fall inside the visible range), so counting the loaded rows can
+  // only ever report 0. Server-computed via the aggregate endpoint instead
+  // (ADR-0016's "counting must not be done by fetching" applies here exactly as
+  // it does to Tyron), scoped by the SAME filters the calendar's own query
+  // applies so the number matches what "→ table" actually shows.
+  const undatedFilter = useMemo(() => {
+    if (!dateField) return undefined;
+    const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
+    const existing: unknown[] = active ? [active] : [];
+    return { and: [...existing, { field: dateField.apiName, op: 'is_empty' }] };
+  }, [dateField, config.filters, personalFilter]);
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(dateField));
+  const undatedCount = dateField ? (undatedCountQuery.data ?? 0) : 0;
+
+  /*
+   * #785 (Calendar artifact C2, "decided") — the undated tray. A bounded page
+   * (never the whole set — that's exactly the D3 shape #759/C1 already fixed
+   * elsewhere), only fetched when there's a real destination to drag INTO
+   * (`writable`) and something to show (`undatedCount > 0`); otherwise the
+   * plain "N undated records → table" link below is the whole affordance,
+   * same as before this ticket.
+   */
+  const undatedRowsQuery = useRecordsInfinite(
+    ws,
+    db,
+    { filter: undatedFilter, limit: 20 },
+    writable && undatedCount > 0,
+  );
+  const undatedRows = useMemo(
+    () => (undatedRowsQuery.data?.pages ?? []).flatMap((p) => p.data),
+    [undatedRowsQuery.data],
+  );
 
   const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function onDragEnd(event: DragEndEvent) {
     lastDragEnd.current = Date.now();
-    if (!dateField || !event.over || readOnly || isSystemDate(dateField.type)) return;
+    if (!dateField || !event.over || !writable) return;
     const day = String(event.over.id).replace('day:', '');
     const rec = String(event.active.id);
-    const row = rows.find((r) => r.id === rec);
+    // #785 — a dragged card is either already on the grid (has a date to shift
+    // FROM) or came from the undated tray (has none); the tray is the only new
+    // source, so it's the only place this second lookup is needed.
+    const row = rows.find((r) => r.id === rec) ?? undatedRows.find((r) => r.id === rec);
     if (!row) return;
     const raw = fieldValue(row, dateField);
+    if (typeof raw !== 'string') {
+      // Undated: nothing to preserve (no time component) and nothing to shift
+      // (no end date relative to a start that never existed) — just schedule it.
+      updateRecord.mutate({ rec, values: { [dateField.apiName]: day } });
+      return;
+    }
     // Preserve the time component for datetime fields.
-    const time = typeof raw === 'string' && raw.length > 10 ? raw.slice(10) : '';
-    updateRecord.mutate({ rec, values: { [dateField.apiName]: `${day}${time}` } });
+    const time = raw.length > 10 ? raw.slice(10) : '';
+    const values: Record<string, string> = { [dateField.apiName]: `${day}${time}` };
+    // #470 — an end field can now exist regardless of mode (AC8: month drag must
+    // keep working). Shift it by the same whole-day delta so start/end stay in
+    // sync, mirroring CalendarTimeGrid's own onReschedule.
+    if (endDateField) {
+      const deltaDays = Math.round(
+        (new Date(`${day}T00:00:00`).getTime() - new Date(`${raw.slice(0, 10)}T00:00:00`).getTime()) /
+          (24 * 60 * 60 * 1000),
+      );
+      const endRaw = fieldValue(row, endDateField);
+      if (typeof endRaw === 'string' && deltaDays !== 0) {
+        values[endDateField.apiName] = shiftDateValue(endRaw, deltaDays, 0);
+      }
+    }
+    updateRecord.mutate({ rec, values });
   }
 
   // Shared by both the month grid (desktop) and the agenda list (mobile, MN-230d)
-  // so "create on an empty day" behaves identically either way.
+  // so "create on an empty day" behaves identically either way. #753 — every
+  // caller (DayCell, AgendaList, CalendarTimeGrid) is itself gated on
+  // `writable`, so this is never reached on a system-date calendar; the old
+  // isSystemDate branch here (stamping "now" instead of the clicked day) is
+  // exactly the defect this ticket fixes, by making the affordance absent
+  // rather than silently wrong.
   function handleCreate(iso: string) {
-    if (readOnly || !dateField) return;
+    if (!writable || !dateField) return;
     createRecord.mutate(
-      isSystemDate(dateField.type) ? { name: 'Untitled' } : { name: 'Untitled', [dateField.apiName]: iso },
+      { name: 'Untitled', [dateField.apiName]: iso },
       { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
     );
   }
 
   if (!dateField) {
+    /* #825 — "pick one in the toolbar" dead-ends when the database has no WRITABLE
+       date field: every option the picker would offer is read-only, so the calendar
+       stays unusable and nothing says why. Say the real blocker and the fix instead. */
+    const blocker = calendarNoEditableDateMessage(database.data?.fields ?? []);
     return (
       <p className="p-6 text-sm text-muted">
-        This calendar has no valid date field. Pick one in the toolbar ("Date field").
+        {blocker ?? 'This calendar has no valid date field. Pick one in the toolbar ("Date field").'}
       </p>
     );
   }
@@ -157,89 +259,264 @@ export function CalendarView({
   // #346 — a rejected query must never render as an empty view. Placed after every
   // hook so the early return cannot change hook order.
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
+
+  // #470 — one anchor date, shifted by whatever "one step" means for the
+  // current mode. Replaces the old month-only prev/next; a month step keeps
+  // the existing "always land on the 1st" behaviour (AC6), unaffected by
+  // anchorDate's day-of-month component the rest of the time.
+  const shiftAnchor = (delta: number) => {
+    setAnchorDate((d) => {
+      if (mode === 'month') return new Date(d.getFullYear(), d.getMonth() + delta, 1);
+      if (mode === 'week') return addDays(d, delta * 7);
+      return addDays(d, delta);
+    });
+  };
+  const showingToday = isShowingToday(mode, anchorDate, today, week);
+  const headerLabel =
+    mode === 'month'
+      ? `${MONTH_NAMES[view.month]} ${view.year}`
+      : mode === 'week'
+        ? `${week[0]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${week[6]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : anchorDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-default px-4 py-2">
-        <span className="text-sm font-semibold text-ink">
-          {MONTH_NAMES[view.month]} {view.year}
-        </span>
-        <button
-          className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView(shift(view, -1))}
-        >
+        <span className="text-sm font-semibold text-ink">{headerLabel}</span>
+        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <button
-          className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView(shift(view, 1))}
-        >
+        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(1)}>
           <ChevronRight className="h-4 w-4" />
         </button>
+        {/* #808 — Today was correct and still read as broken: pressed while the view
+            already shows today, it changed nothing and said nothing. It is disabled in
+            exactly that state, and says why. */}
         <button
-          className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView({ year: today.getFullYear(), month: today.getMonth() })}
+          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+          onClick={() => setAnchorDate(today)}
+          disabled={showingToday}
+          title={showingToday ? 'Already showing today' : undefined}
         >
           Today
         </button>
-        <Link
-          href={`/w/${ws}/d/${db}`}
-          className="ml-auto text-[12px] text-faint underline-offset-2 hover:text-ink hover:underline"
-        >
-          Undated records → table
-        </Link>
-        {undatedCount > 0 && <span />}
+        {/* #470 AC2 — persists with the VIEW (onPatch → config.calendar_mode),
+            not per session, so reopening this view later shows the same mode. */}
+        <Segmented
+          label="Calendar mode"
+          value={mode}
+          onChange={(m) => onPatch?.({ calendar_mode: m })}
+          options={CALENDAR_MODE_OPTIONS}
+          itemClassName="capitalize"
+        />
+        {/* #471 AC3/AC4 — day/week-only settings; the month grid has no
+            concept of a time increment or an hour window. */}
+        {mode !== 'month' && (
+          <>
+            <select
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink-secondary"
+              value={config.calendar_increment_minutes ?? 15}
+              onChange={(e) => onPatch?.({ calendar_increment_minutes: Number(e.target.value) as 10 | 15 | 30 | 60 })}
+              title="Drag and create snap to this increment"
+            >
+              {CALENDAR_INCREMENT_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m} min
+                </option>
+              ))}
+            </select>
+            <CollapsedHoursControl
+              value={config.calendar_collapsed_hours}
+              onChange={(value) => onPatch?.({ calendar_collapsed_hours: value })}
+            />
+          </>
+        )}
+        {/* #753 — was rendered unconditionally with no count (undatedCount was a
+            literal `return 0`); now server-computed via the aggregate endpoint
+            and only shown when there's something to link to.
+            #785 — in month mode, writable, this link steps aside for the
+            actionable Undated tray below (artifact C2: "a tray, not a link" —
+            drag-to-schedule IS the affordance, a link out is only an exit).
+            Every other case (read-only, system-date, week/day mode, where
+            there's no tray) keeps exactly this link, unchanged. */}
+        {undatedCount > 0 && !(writable && mode === 'month') && (
+          <Link
+            href={`/w/${ws}/d/${db}`}
+            className="ml-auto text-label text-muted underline-offset-2 hover:text-ink hover:underline"
+          >
+            {undatedCount} undated record{undatedCount === 1 ? '' : 's'} → table
+          </Link>
+        )}
       </div>
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        {/* MN-230d: a 7-column grid is unreadable under ~375px (≈49px cells) —
-            switch to a scrollable one-column agenda below `md`, keep the
-            familiar month grid at `md` and up. */}
-        <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
-          {WEEKDAYS.map((d) => (
-            <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-faint">
-              {d}
-            </div>
-          ))}
-          {grid.map((day) => {
-            const iso = fmtDate(day);
-            const inMonth = day.getMonth() === view.month;
-            const chips = byDay.get(iso) ?? [];
-            return (
-              <DayCell
-                key={iso}
-                iso={iso}
-                dayNumber={day.getDate()}
-                inMonth={inMonth}
-                isToday={iso === todayStr}
-                chips={chips}
-                chipFields={chipFields}
-                colorField={colorField}
-                memberNames={memberNames}
-                readOnly={readOnly}
-                onOpen={(id) => {
-                  if (Date.now() - lastDragEnd.current < 200) return;
-                  router.push(`/w/${ws}/d/${db}/r/${id}`);
-                }}
-                onCreate={() => handleCreate(iso)}
-              />
-            );
-          })}
+      {/* #753 — said once, before a drag or create is ever attempted (not a
+          silent refusal). Only for a system-date field: these dates are
+          recorded, not chosen, so there is nothing to reschedule and no day
+          to create "into". */}
+      {dateIsSystemDate && (
+        <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
+          {/* One template string, not an expression followed by entity-bearing JSX text:
+              the compiled output of that form dropped the space after the expression, so
+              the banner read "Created atis recorded automatically" (#808 finding three,
+              reproduced live; guarded by jsx-space-after-expression.unit.test.ts). */}
+          {`${dateField.displayName} is recorded automatically and can't be edited — cards here are read-only.`}
         </div>
-      </DndContext>
+      )}
 
-      <AgendaList
-        grid={grid}
-        month={view.month}
-        byDay={byDay}
-        chipFields={chipFields}
-        colorField={colorField}
-        memberNames={memberNames}
-        readOnly={readOnly}
-        todayStr={todayStr}
-        onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
-        onCreate={handleCreate}
-      />
+      {mode === 'month' ? (
+        <>
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            {/* MN-230d: a 7-column grid is unreadable under ~375px (≈49px cells) —
+                switch to a scrollable one-column agenda below `md`, keep the
+                familiar month grid at `md` and up. */}
+            <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-meta font-medium text-muted">
+                  {d}
+                </div>
+              ))}
+              {grid.map((day) => {
+                const iso = fmtDate(day);
+                const inMonth = day.getMonth() === view.month;
+                const chips = byDay.get(iso) ?? [];
+                return (
+                  <DayCell
+                    key={iso}
+                    iso={iso}
+                    dayNumber={day.getDate()}
+                    inMonth={inMonth}
+                    isToday={iso === todayStr}
+                    chips={chips}
+                    chipFields={chipFields}
+                    colorField={colorField}
+                    memberNames={memberNames}
+                    readOnly={!writable}
+                    onOpen={(id) => {
+                      if (Date.now() - lastDragEnd.current < 200) return;
+                      router.push(`/w/${ws}/d/${db}/r/${id}`);
+                    }}
+                    onCreate={writable ? () => handleCreate(iso) : undefined}
+                  />
+                );
+              })}
+            </div>
+            {/* #785 (Calendar artifact C2) — the undated tray: draggable chips,
+                dropped on a day cell in the SAME DndContext above. Desktop only
+                (MN-230d already splits month-grid/agenda the same way; the
+                agenda's own per-day create/drag story is a separate surface,
+                not extended here). */}
+            {writable && undatedCount > 0 && (
+              <div className="hidden shrink-0 items-center gap-2 border-t border-border-default bg-app px-3 py-2 md:flex">
+                <span className="text-body font-medium text-ink">Undated</span>
+                <span className="text-label text-muted">
+                  {undatedCount} — drag onto a day to schedule
+                </span>
+                <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                  {undatedRows.slice(0, 8).map((row) => (
+                    <UndatedChip key={row.id} row={row} onOpen={() => router.push(`/w/${ws}/d/${db}/r/${row.id}`)} />
+                  ))}
+                  {undatedCount > 8 && (
+                    <Link href={`/w/${ws}/d/${db}`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
+                      +{undatedCount - 8} more
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
+          </DndContext>
+
+          <AgendaList
+            grid={grid}
+            month={view.month}
+            byDay={byDay}
+            chipFields={chipFields}
+            colorField={colorField}
+            memberNames={memberNames}
+            readOnly={!writable}
+            todayStr={todayStr}
+            onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
+            onCreate={handleCreate}
+          />
+        </>
+      ) : (
+        <CalendarTimeGrid
+          days={days}
+          rows={rows}
+          dateField={dateField}
+          endDateField={endDateField}
+          chipFields={chipFields}
+          colorField={colorField}
+          memberNames={memberNames}
+          readOnly={!writable}
+          incrementMinutes={config.calendar_increment_minutes}
+          collapsedHours={config.calendar_collapsed_hours}
+          onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
+          onCreate={handleCreate}
+          onReschedule={(rec, values) => updateRecord.mutate({ rec, values })}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * #471 AC4/AC7 — collapse the day/week grid's rendered hour axis to a chosen
+ * window. A checkbox plus two hour <select>s rather than a time picker: the
+ * schema only stores whole hours (calendar_collapsed_hours), and the grid
+ * itself only ever draws whole-hour rows, so offering finer input would
+ * promise a precision nothing downstream honours.
+ */
+function CollapsedHoursControl({
+  value,
+  onChange,
+}: {
+  value: { start: number; end: number } | undefined;
+  onChange: (value: { start: number; end: number } | undefined) => void;
+}) {
+  const enabled = value !== undefined;
+  const start = value?.start ?? 8;
+  const end = value?.end ?? 22;
+  const hourLabel = (h: number) => (h === 0 || h === 24 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`);
+  return (
+    <label className="flex items-center gap-1 text-label text-ink-secondary">
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => onChange(e.target.checked ? { start, end } : undefined)}
+      />
+      Collapse hours
+      {enabled && (
+        <>
+          <select
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label"
+            value={start}
+            onChange={(e) => onChange({ start: Number(e.target.value), end })}
+          >
+            {Array.from({ length: 24 }, (_, h) => h)
+              .filter((h) => h < end)
+              .map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+          </select>
+          <span>–</span>
+          <select
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label"
+            value={end}
+            onChange={(e) => onChange({ start, end: Number(e.target.value) })}
+          >
+            {Array.from({ length: 24 }, (_, h) => h + 1)
+              .filter((h) => h > start)
+              .map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
+    </label>
   );
 }
 
@@ -283,15 +560,15 @@ function AgendaList({
         return (
           <div key={iso} className="flex gap-3 px-4 py-2.5">
             <div className="w-10 shrink-0 text-center">
-              <div className="text-[10px] uppercase text-faint">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
-              <div className={cn('text-[14px]', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
+              <div className="text-micro uppercase text-muted">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
+              <div className={cn('text-prose', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
                 {day.getDate()}
               </div>
             </div>
             <div className="min-w-0 flex-1 space-y-1 pt-0.5">
               {chips.length === 0 ? (
                 !readOnly && (
-                  <button type="button" className="text-[12px] text-faint hover:text-ink" onClick={() => onCreate(iso)}>
+                  <button type="button" className="text-label text-muted hover:text-ink" onClick={() => onCreate(iso)}>
                     + Add
                   </button>
                 )
@@ -309,12 +586,12 @@ function AgendaList({
                     className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
                     onClick={() => onOpen(row.id)}
                   >
-                    <p className="truncate text-[13px] font-medium text-ink">{row.title || 'Untitled'}</p>
+                    <p className="truncate text-body font-medium text-ink">{row.title || 'Untitled'}</p>
                     {chipFields.map((field) => {
                       const value = row.values[field.apiName];
                       if (value === undefined || value === null || value === '') return null;
                       return (
-                        <div key={field.id} className="truncate text-[11px] text-muted">
+                        <div key={field.id} className="truncate text-meta text-muted">
                           <CellDisplay field={field} value={value} memberNames={memberNames} />
                         </div>
                       );
@@ -329,11 +606,6 @@ function AgendaList({
       })}
     </div>
   );
-}
-
-function shift(view: { year: number; month: number }, delta: number) {
-  const d = new Date(view.year, view.month + delta, 1);
-  return { year: d.getFullYear(), month: d.getMonth() };
 }
 
 function DayCell({
@@ -360,7 +632,9 @@ function DayCell({
   memberNames: Map<string, string>;
   readOnly: boolean;
   onOpen: (id: string) => void;
-  onCreate: () => void;
+  /** #753 — undefined (not a no-op function) when creating here isn't possible,
+      so the day cell offers no "new here" at all rather than an inert click. */
+  onCreate?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${iso}` });
   const [expanded, setExpanded] = useState(false);
@@ -375,13 +649,30 @@ function DayCell({
         isOver && 'bg-accent-soft',
       )}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCreate();
+        if (e.target === e.currentTarget) onCreate?.();
       }}
     >
       <span
         className={cn(
-          'mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]',
-          inMonth ? 'text-ink-secondary' : 'text-faint',
+          'mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-meta',
+          // #706 — an out-of-month day is DE-EMPHASISED, not decorative: the cell
+          // is clickable (onCreate) and a drop target, so this number is how you
+          // know which date you are about to act on. At 11px, AA's 4.5:1 applies
+          // in full, and faint measured 3.22:1 on --bg-app.
+          //
+          // THE COST IS REAL AND MEASURED, not waved away. The in/out-of-month
+          // contrast step narrows from 2.69:1 (secondary vs faint) to 1.85:1
+          // (secondary vs muted) in dark, 1.99:1 in light. Still a visible step,
+          // but a smaller one.
+          //
+          // And do NOT reach for the cell's own `bg-app` as the compensating
+          // signal — I did, and measured it: --bg-app against --bg-card is
+          // 1.07:1 light and 1.09:1 dark, which is invisible. The month boundary
+          // is carried almost entirely by this text colour, not by the
+          // background, which is the opposite of what the markup suggests.
+          // Strengthening that boundary is a real design question and belongs in
+          // its own ticket, not smuggled into a contrast sweep.
+          inMonth ? 'text-ink-secondary' : 'text-muted',
           isToday && 'bg-primary font-semibold text-[var(--text-on-dark)]',
         )}
       >
@@ -400,7 +691,7 @@ function DayCell({
       ))}
       {chips.length > 3 && !expanded && (
         <button
-          className="mt-0.5 text-[11px] text-muted hover:text-ink"
+          className="mt-0.5 text-meta text-muted hover:text-ink"
           onClick={(e) => {
             e.stopPropagation();
             setExpanded(true);
@@ -409,6 +700,33 @@ function DayCell({
           +{chips.length - 3} more
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * #785 — an undated tray chip. Deliberately NOT `CalendarChip`: that one is
+ * shaped for a day cell (multi-line, chipFields listed underneath) and this is
+ * the artifact's small pill (title only, one line) — genuinely different
+ * chrome around the same drag mechanics, not a style to share.
+ */
+function UndatedChip({ row, onOpen }: { row: RecordRow; onOpen: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn(
+        'max-w-[190px] cursor-grab truncate rounded-[var(--radius-chip)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink hover:border-border-strong',
+        isDragging && 'opacity-40',
+      )}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      {row.title || 'Untitled'}
     </div>
   );
 }
@@ -453,12 +771,12 @@ function CalendarChip({
         onOpen();
       }}
     >
-      <p className="truncate text-[12px] font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className="truncate text-label font-medium text-ink">{row.title || 'Untitled'}</p>
       {chipFields.map((field) => {
         const value = row.values[field.apiName];
         if (value === undefined || value === null || value === '') return null;
         return (
-          <div key={field.id} className="truncate text-[11px] text-muted">
+          <div key={field.id} className="truncate text-meta text-muted">
             <CellDisplay field={field} value={value} memberNames={memberNames} />
           </div>
         );

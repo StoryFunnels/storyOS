@@ -82,15 +82,17 @@ export class FieldsController {
   }
 
   @Get(':field/usage')
-  @ApiOperation({ summary: 'How many live records carry a value for this field' })
+  @ApiOperation({
+    summary:
+      'What depends on this field — records carrying a value, plus views/automations/formulas referencing it (#681)',
+  })
   async usage(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('field') fieldId: string,
   ) {
     const dbId = await this.db(req, databaseId);
-    await this.fieldsService.getField(dbId, fieldId);
-    return { records_with_value: await this.fieldsService.usageCount(dbId, fieldId) };
+    return this.fieldsService.usageDetail(dbId, fieldId);
   }
 
   @Post(':field/change-type')

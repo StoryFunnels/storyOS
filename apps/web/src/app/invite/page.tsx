@@ -57,7 +57,7 @@ function InviteAccept() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-sm text-error">{error}</p>
-        <Link href="/" className="text-[13px] text-ink underline">
+        <Link href="/" className="text-body text-ink underline">
           Go to my workspaces
         </Link>
       </div>

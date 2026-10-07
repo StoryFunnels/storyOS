@@ -6,6 +6,7 @@ import { Check, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { chipVariants } from '@/components/ui/chip';
 import { recordHref } from '@/lib/records';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { EntityPickerRow } from '@/components/entity/entity-picker-row';
@@ -120,10 +121,11 @@ export function RelationChip({
    * records stay identifiable when titles collide or are blank. */
   number?: number | null;
 }) {
-  const shared = cn(
-    'inline-flex max-w-40 shrink-0 items-center gap-1 truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
-    className,
-  );
+  /* #533 — the shape and the OUTLINE variant come from the shared chip
+     primitive, so the inverse-of-filled relationship is declared in one place
+     rather than held by two components happening to differ. `max-w-40
+     shrink-0` stays here: it is this surface's layout, not the chip's identity. */
+  const shared = cn(chipVariants({ variant: 'reference' }), 'max-w-40 shrink-0', className);
   // Same treatment as the record-page relation rows (#227): faint, tabular #id
   // with a small right margin, rendered only when a number exists.
   const idBadge =
@@ -192,7 +194,7 @@ export function RelationChips({
       ))}
       {rest.length > 0 && (
         <span
-          className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1.5 py-0.5 text-[12px] text-muted"
+          className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1.5 py-0.5 text-label text-muted"
           title={rest.map((c) => c.title || 'Untitled').join(', ')}
         >
           +{rest.length}
@@ -224,7 +226,7 @@ export function SelectedRelationChip({
   color?: string | null;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
+    <span className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink">
       <a
         href={recordHref(ws, targetDb, chip)}
         target="_blank"
@@ -442,7 +444,7 @@ export function RelationEditor({
         <input
           autoFocus
           placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
-          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-body text-ink outline-none placeholder:text-muted"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => {
@@ -487,7 +489,7 @@ export function RelationEditor({
           {showCreate ? (
             <button
               className={cn(
-                'flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[13px] text-info transition-colors',
+                'flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-info transition-colors',
                 active === rows.length ? 'bg-accent-soft' : 'hover:bg-hover',
               )}
               onMouseEnter={() => setActive(rows.length)}
@@ -501,19 +503,19 @@ export function RelationEditor({
                 </span>
               </span>
               {!createTarget.isPending && (
-                <span className="shrink-0 text-[11px] text-muted">Create ↵</span>
+                <span className="shrink-0 text-meta text-muted">Create ↵</span>
               )}
             </button>
           ) : (
             !trimmed && (
-              <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-faint">
+              <p className="flex items-center gap-1.5 px-2 py-1.5 text-label text-faint">
                 <Plus className="h-3.5 w-3.5" /> Type a name to create a new one
               </p>
             )
           )}
         </div>
         {/* #173: keyboard-hint footer mirroring the mention picker's style. */}
-        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-meta text-muted">
           <span className="flex items-center gap-1">
             <Hint>↑↓</Hint> navigate
           </span>
@@ -523,14 +525,14 @@ export function RelationEditor({
         </div>
         <div className="flex justify-between border-t border-border-default px-2 py-1.5">
           <button
-            className="text-[12px] text-muted hover:text-ink"
+            className="text-label text-muted hover:text-ink"
             onClick={() => save.mutate({ ids: [], chips: [] }, { onSuccess: onDone })}
           >
             Clear
           </button>
           {!single && (
             <button
-              className="text-[12px] text-ink underline"
+              className="text-label text-ink underline"
               onClick={() =>
                 save.mutate({ ids: selected.map((c) => c.id), chips: selected }, { onSuccess: onDone })
               }

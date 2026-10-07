@@ -1,8 +1,31 @@
 'use client';
 
+/**
+ * #706 — THE --text-faint SITES IN THIS FILE ARE CLASSIFIED. 21 of them stay
+ * faint deliberately; do not "finish the job" by sweeping them.
+ *
+ * Every remaining one is a NON-TEXT GRAPHIC, judged at 3:1 rather than the
+ * 4.5:1 that applies to text, which faint clears on every surface this toolbar
+ * renders over. They fall into three families:
+ *
+ *   - ICON-ONLY BUTTONS whose accessible name is a `title` attribute — remove
+ *     (X), unpin, "More" (MoreHorizontal), the enable/disable eye, the
+ *     CircleHelp links, and the per-row remove buttons.
+ *   - ICON FALLBACKS passed to <EntityIcon> for a field with no icon of its own.
+ *   - DRAG HANDLES (GripVertical), which additionally only appear on hover.
+ *
+ * The 24 sites that DID move were text: section headings, empty states,
+ * placeholder values, unselected segmented-control labels, and the "Clear all"
+ * and "Empty values" labels. The rule this follows is globals.css's own —
+ * faint is reserved for genuinely decorative text, and anything carrying an
+ * affordance uses --text-muted.
+ */
+
 import { useEffect, useMemo, useState } from 'react';
+import { AddSummaryWidgetButton } from './summary-widget-strip';
+import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
-import { isIncompleteCondition } from '@storyos/schemas';
+import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -28,7 +51,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -40,12 +63,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
+import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
+import { isHierarchyField } from '../table-view/use-hierarchy';
 import { fieldTypeIcon } from './field-type-icon';
+import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
+import { isCoverField } from './cover-fields';
+import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
 import { FieldsMenu } from './fields-menu';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 import { useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
@@ -67,34 +96,85 @@ import {
   turnIntoGroup,
   ungroupNodeAt,
   updateNodeAt,
+  visibleFilterChips,
 } from './filter-config';
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
-import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
+import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
+import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
+import { Segmented } from '@/components/ui/segmented';
 
-/** Op menu per field type — mirrors the API op×type matrix. */
-export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
+/* #739 T8 — hoisted so the array identity is stable across renders; Segmented
+   takes a readonly list, and a literal here would be a new array every time
+   (same reasoning calendar-view.tsx's CALENDAR_MODE_OPTIONS already uses). */
+const ROW_HEIGHT_OPTIONS = [
+  { value: '28', label: '28' },
+  { value: '32', label: '32' },
+  { value: '40', label: '40' },
+] as const;
+
+/**
+ * Op menu per field type — mirrors the API op×type matrix.
+ *
+ * #429 — audited against `apps/api/src/records/query-compiler.ts`'s actual
+ * allowed-op sets (TEXTISH_OPS/NUMBER_OPS/DATE_FIELD_OPS/ID_SET_SCALAR_OPS/
+ * ID_SET_ARRAY_OPS/RELATION_OPS), not against this file's own prior list —
+ * the compiler turned out to already accept `is_empty`/`not_empty` uniformly
+ * and `eq`/`neq` on select/workflow, so most of what's added here is exposing
+ * ops the API always accepted, proven by the round-trip tests alongside this
+ * change rather than by inspection alone. Two things are DELIBERATELY still
+ * missing, each with the compiler-side reason:
+ *  - `between` (number/date): expressible today as two conditions (`gte` +
+ *    `lte`, or `after` + `before`), and Otto's ruling is explicit that a
+ *    second op for the same query is not worth a second control until
+ *    someone actually asks for it.
+ *  - is_empty/not_empty on `checkbox`: the compiler accepts them (a missing
+ *    key vs. a stored boolean), but a checkbox defaults to a real `false`
+ *    the moment it's ever touched, so "empty" only ever means "never
+ *    touched" — a distinction almost nobody is asking "is this checked"
+ *    actually means. `neq` ("is not") is added since it's the ordinary
+ *    negation of the one op already offered.
+ */
+export type OpsEntry = {
+  op: string;
+  label: string;
+  input: 'text' | 'number' | 'date' | 'options' | 'option' | 'relative' | 'boolean' | 'records' | 'none';
+};
+
+export const OPS_BY_TYPE: Record<string, OpsEntry[]> = {
   title: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   text: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   url: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
+    { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   email: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
+    { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   // #391 — "posts with no cover image". Presence only: a filter box asking for
   // a file uuid is a control with nothing sensible to type into it.
@@ -110,35 +190,48 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
     { op: 'lt', label: '<', input: 'number' },
     { op: 'lte', label: '≤', input: 'number' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   date: [
     { op: 'within', label: 'within', input: 'relative' },
+    { op: 'eq', label: 'on', input: 'date' },
+    { op: 'neq', label: 'is not', input: 'date' },
     { op: 'before', label: 'before', input: 'date' },
     { op: 'after', label: 'after', input: 'date' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
-  checkbox: [{ op: 'eq', label: 'is', input: 'boolean' }],
+  checkbox: [
+    { op: 'eq', label: 'is', input: 'boolean' },
+    { op: 'neq', label: 'is not', input: 'boolean' },
+  ],
   select: [
+    { op: 'eq', label: 'is', input: 'option' },
+    { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   // #172: a workflow (canonical Status) field is single-select-shaped — one
   // coloured option id — so it filters exactly like `select`. Omitting it here
   // dropped Status out of the Filter/Sort/Color field pickers entirely.
+  // #429/#558: kept byte-for-byte identical to `select` — this is also the
+  // MCP's OPS_BY_FIELD_TYPE.workflow list (packages/mcp/src/tools.ts), and
+  // Otto's ruling is that the two must never diverge.
   workflow: [
+    { op: 'eq', label: 'is', input: 'option' },
+    { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   multi_select: [
     { op: 'has', label: 'includes any of', input: 'options' },
     { op: 'has_none', label: 'includes none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
-  ],
-  user: [
-    { op: 'has', label: 'is any of', input: 'options' },
-    { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   relation: [
     { op: 'not_empty', label: 'is linked', input: 'none' },
@@ -153,6 +246,41 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
   ...SYSTEM_FIELD_OPS,
 };
 
+/**
+ * #429 — `user` is the one type whose op set genuinely depends on the FIELD,
+ * not just the type: a single-assignee field is stored as a scalar id (the
+ * compiler's `compileIdSet(..., 'scalar')`, same shape as select/workflow,
+ * so `eq`/`neq` are meaningful), while a multi-assignee field
+ * (`config.multi === true`) is stored as an array (`'array'` shape) and the
+ * compiler explicitly REFUSES eq/neq there ("use has/has_none for user
+ * fields") — offering them would be an operator the compiler rejects, which
+ * criterion 5 calls worse than not offering it. `opsForField` is the one
+ * place that decides which list a given `user` field gets; every other type
+ * still reads straight off `OPS_BY_TYPE`.
+ */
+const USER_SCALAR_OPS: OpsEntry[] = [
+  { op: 'eq', label: 'is', input: 'option' },
+  { op: 'neq', label: 'is not', input: 'option' },
+  { op: 'has', label: 'is any of', input: 'options' },
+  { op: 'has_none', label: 'is none of', input: 'options' },
+  { op: 'is_empty', label: 'is empty', input: 'none' },
+  { op: 'not_empty', label: 'is not empty', input: 'none' },
+];
+const USER_ARRAY_OPS: OpsEntry[] = [
+  { op: 'has', label: 'is any of', input: 'options' },
+  { op: 'has_none', label: 'is none of', input: 'options' },
+  { op: 'is_empty', label: 'is empty', input: 'none' },
+  { op: 'not_empty', label: 'is not empty', input: 'none' },
+];
+
+/** The op list for THIS field — the one call every site should use instead of
+ * indexing `OPS_BY_TYPE` directly, since `user` needs its field's own config
+ * to answer (see USER_SCALAR_OPS/USER_ARRAY_OPS above). */
+export function opsForField(field: Field): OpsEntry[] {
+  if (field.type === 'user') return field.config['multi'] === true ? USER_ARRAY_OPS : USER_SCALAR_OPS;
+  return OPS_BY_TYPE[field.type] ?? [];
+}
+
 const RELATIVE_RANGES = [
   'today',
   'yesterday',
@@ -163,22 +291,38 @@ const RELATIVE_RANGES = [
   'next_30_days',
 ];
 
-export const SORTABLE = new Set([
-  // #172: workflow sorts like select (the API SORTABLE set already includes it).
-  'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow', 'checkbox', 'created_at', 'updated_at',
-  // MN-260: formula is materialized server-side and reads through fieldExpr()
-  // like any stored field now — SortButton further narrows to same-record-only
-  // formulas via isSortableFormula (sort-config.ts).
-  // MN-267: rollup now has real recompute-on-related-record-change plumbing
-  // (RollupInvalidationSubscriber, apps/api/src/records/rollup-invalidation.subscriber.ts)
-  // and is materialized the same way formula is, so it's sortable too. `lookup`
-  // stays excluded: still no such plumbing for it.
-  'formula', 'rollup',
-  // #352 — all system field compiler types are sortable (stable via the id
-  // tiebreak the API appends). Adds `id`, `created_by`, `updated_by`
-  // (`created_at`/`updated_at` were already sortable above).
-  ...SYSTEM_SORTABLE_TYPES,
-]);
+/**
+ * #680 — DERIVED from the schema's own `SORTABLE_FIELD_TYPES`, never a second
+ * hand-maintained list. This set used to be a literal copy "mirroring" the
+ * api's SORTABLE_FIELD_TYPES (records.service.ts) by hand, and it drifted
+ * TWICE: #657 added `relation` to the api's list and this file's copy missed
+ * it (Epic and every other relation field stayed unsortable in the picker
+ * despite the API accepting the sort); #662 fixed `user` here by hand instead
+ * of importing the shared export, which is why the drift for `relation`
+ * wasn't caught by the same fix. Importing the export directly makes a THIRD
+ * occurrence structurally impossible — there is no longer a second literal to
+ * forget updating.
+ */
+export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
+
+/**
+ * #754 (G1) — replaces the Cover picker when the database has no attachment
+ * field at all. #225's rule, reused verbatim for the gallery: "a picker that
+ * silently omits a field is indistinguishable from a bug" — this one omitted
+ * the whole picker. Names the fix rather than a bare "no attachment field"
+ * dead end. Text only, deliberately: an inline "+ Add field" dialog here
+ * would import `add-field-dialog.tsx`, which imports `button-actions-editor.tsx`,
+ * which imports THIS file — a real cycle the import-cycle guard (#315) catches
+ * for good reason. The existing "+ New field" affordance (record page, Hide
+ * Fields panel) is one click away without it.
+ */
+function GalleryNoCoverFieldNotice() {
+  return (
+    <span className="text-label italic text-faint">
+      No Cover control — this database has no attachment or URL field. Add one to use this view.
+    </span>
+  );
+}
 
 export function ViewToolbar({
   fields,
@@ -188,9 +332,11 @@ export function ViewToolbar({
   onPatch,
   ws,
   db,
+  databaseId,
   viewId,
   personalFilter,
   onReorderFields,
+  readOnly,
 }: {
   fields: Field[];
   config: ViewConfig;
@@ -200,12 +346,20 @@ export function ViewToolbar({
   /** MN-075: identifies what to export. */
   ws?: string;
   db?: string;
+  /** #233 — the current database's real id, for hierarchy-field eligibility
+   * (a field's `relation.target_database_id` is a real id, never the route's
+   * slug — `db` above may be either). Optional so every existing call site
+   * that has no use for hierarchy mode (non-table views) needn't change. */
+  databaseId?: string;
   viewId?: string;
   /** #259 — current viewer's personal override for THIS view, if any. */
   personalFilter?: FilterNode;
   /** #338 — drag-to-reorder the canonical field order from the Hide-fields panel.
    * Only supplied when the viewer may edit the schema (`creator`); omitted = read-only list. */
   onReorderFields?: (activeId: string, overId: string) => void;
+  /** #698 — gates the add-summary-widget control only. The toolbar's other
+   * controls keep whatever permission behaviour they already had. */
+  readOnly?: boolean;
 }) {
   // #352 — overlay the canonical system-field set (Number, ID, Created, Last
   // edited, Created by, Last edited by) onto the introspected fields so filter
@@ -213,107 +367,213 @@ export function ViewToolbar({
   // surfaces: the Cards / Hide-fields / color / group sections keep the raw
   // `fields` (system columns aren't card/hideable toggles).
   const augmented = useMemo(() => withSystemFields(fields), [fields]);
-  const filterable = augmented.filter((f) => OPS_BY_TYPE[f.type]);
+  // #743 — a deprecated system field (`number`) still resolves via `augmented`
+  // for an EXISTING chip's label, but must never be offered as a NEW pick.
+  const filterable = augmented.filter((f) => opsForField(f).length > 0 && isPickableField(f));
 
   /**
-   * #289 — what the Hide-fields / Cards pickers may offer. Every column a view
-   * actually RENDERS, plus the public id: it renders in the table's row gutter
-   * rather than as a column, so it never had a field id to hide by and was the
-   * one visible thing no user could turn off. Offered here under the canonical
-   * system-field id so table-view can honour it (see `numberHidden` there).
+   * #289/#699/#702 — what the Hide-fields / Cards pickers may offer.
    *
-   * Only `title` stays non-togglable — hiding it would leave rows unidentifiable.
-   * Types the views don't render (created_by / id-as-column) are deliberately NOT
-   * listed: a toggle that can't change what you see is worse than no toggle.
+   * `rendered` is every ORDINARY column a view actually renders — no synthetic
+   * entries mixed in. `title` stays non-togglable (hiding it would leave rows
+   * unidentifiable); so does `id` (#699 — the raw internal UUID renders as a
+   * column nowhere, so its toggle did nothing) and `created_by` (views don't
+   * render it either): a toggle that can't change what you see is worse than
+   * no toggle.
+   *
+   * The synthetic permanent-number id is deliberately NOT part of `rendered`
+   * (only meaningful when the database has no REAL `number` field row of its
+   * own). #659 made it render as a suffix inside table view's row-index
+   * gutter, not as an ordinary column — table view offers it as its own "Row
+   * gutter" section (`HiddenFieldsButton` below), separate from this generic
+   * list, per #699 AC2. #702 found the SAME synthetic id was also being handed
+   * to the five card-based view types' picker (board/calendar/gallery/list/
+   * feed) even though none of them read it: nothing there renders a gutter for
+   * it to merge into, so it's excluded from `rendered` entirely rather than
+   * offering a toggle with no effect on any of them.
    */
-  const togglable = useMemo(() => {
-    const rendered = fields.filter((f) => !NON_TOGGLABLE.has(f.type));
+  const rendered = useMemo(() => fields.filter((f) => !NON_TOGGLABLE.has(f.type)), [fields]);
+  /** #699 — the synthetic number system-field entry, only when the database
+   *  has no real `number` field of its own (in which case that real field
+   *  already flows through `rendered` with ordinary present-means-hidden
+   *  semantics, per number-column.ts's own comment). */
+  const numberEntry = useMemo(() => {
     const hasNumber = fields.some((f) => f.apiName === 'number');
-    if (hasNumber) return rendered;
-    const numberEntry = augmented.find((f) => f.apiName === 'number');
-    return numberEntry ? [...rendered, numberEntry] : rendered;
+    return hasNumber ? undefined : augmented.find((f) => f.apiName === 'number');
   }, [fields, augmented]);
+  /** #739 AC3 — table's Fields list must keep offering the system DATE
+   *  columns (Created, Last edited), off by default, same "unconfigured, not
+   *  excluded" treatment as `numberEntry` above and the opposite of rich
+   *  text's total removal (AC2). Same "real row wins" guard: only the
+   *  synthetic entry is added, and only when the database has no stored field
+   *  of that type already flowing through `rendered`. */
+  const systemDateEntries = useMemo(
+    () =>
+      augmented.filter(
+        (f) =>
+          (f.type === 'created_at' || f.type === 'updated_at') &&
+          !fields.some((real) => real.apiName === f.apiName),
+      ),
+    [fields, augmented],
+  );
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
-      {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
-          shared by every view type via this same component. Personal scope (#259)
-          rides along here too — same popover, a Global/Personal toggle inside it. */}
-      <FiltersSection
-        fields={filterable}
-        members={members}
-        ws={ws}
-        db={db}
-        viewId={viewId}
-        filters={config.filters}
-        onChange={(filters) => onPatch({ filters })}
-        personalFilter={personalFilter}
-        /*
-         * #428 — supplied only when the view is actually GROUPED. On an
-         * ungrouped table these controls would be two switches and a dropdown
-         * that change nothing, which is worse than their absence.
-         */
-        grouping={
-          config.group_by_field_id
-            ? {
-                hideEmpty: Boolean(config.hide_empty_groups),
-                hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
-                noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
-                columnSort: config.column_sort ?? 'natural',
-                // #427 AC-3 — a date board's columns are chronological periods;
-                // any other order is meaningless, so the control is not offered.
-                canSortColumns:
-                  augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
-                onChange: onPatch,
-              }
-            : undefined
-        }
-      />
+      {/* #725 — NEITHER OF THESE APPLIES TO A FORM. A form view has no result
+          set: it CREATES records rather than displaying them, so Filter narrows
+          nothing and Sort orders nothing. Same `viewType === 'form'` test as the
+          field-visibility control immediately below, for the same reason — that
+          one was already gated when this was written and these two were missed.
 
-      {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
-          the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
-      <SortButton
-        fields={augmented}
-        sorts={config.sorts}
-        nulls={config.sorts_nulls}
-        onChange={(sorts) => onPatch({ sorts })}
-        onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
-      />
+          NOT COSMETIC. The filter is the only affordance in the UI that looks
+          like it scopes a form, and an engineer trying to pin a Job onto every
+          submission reached for it first, reasoning it would seed the created
+          records. It silently did nothing — one of the three dead ends behind
+          #716.
+
+          Per-field `relation_filter` (#501) is the REAL mechanism for narrowing
+          a relation picker's candidates on a form. It is field-level, lives in
+          the form builder, and is untouched by this: the two are easy to
+          conflate and only the view-level control is meaningless here. */}
+      {viewType !== 'form' && (
+        <>
+        {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
+            shared by every view type via this same component. Personal scope (#259)
+            rides along here too — same popover, a Global/Personal toggle inside it. */}
+        <FiltersSection
+          fields={filterable}
+          members={members}
+          ws={ws}
+          db={db}
+          viewId={viewId}
+          filters={config.filters}
+          onChange={(filters) => onPatch({ filters })}
+          personalFilter={personalFilter}
+          /*
+           * #428 — supplied only when the view is actually GROUPED. On an
+           * ungrouped table these controls would be two switches and a dropdown
+           * that change nothing, which is worse than their absence.
+           */
+          grouping={
+            config.group_by_field_id
+              ? {
+                  hideEmpty: Boolean(config.hide_empty_groups),
+                  hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
+                  noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
+                  columnSort: config.column_sort ?? 'natural',
+                  // #427 AC-3 — a date board's columns are chronological periods;
+                  // any other order is meaningless, so the control is not offered.
+                  canSortColumns:
+                    augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
+                  onChange: onPatch,
+                }
+              : undefined
+          }
+        />
+
+        {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
+            the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
+        <SortButton
+          fields={augmented}
+          sorts={config.sorts}
+          nulls={config.sorts_nulls}
+          onChange={(sorts) => onPatch({ sorts })}
+          onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
+        />
+        </>
+      )}
 
       {/* Field visibility: tables hide columns, boards pick card fields. Forms
           own their field membership/order via their own sidebar builder (#224)
           — the generic Cards popover no longer applies to them. */}
       {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
         <CardFieldsButton
-          fields={togglable}
+          fields={rendered}
           shown={config.card_field_ids}
           onChange={(card_field_ids) => onPatch({ card_field_ids })}
           size={viewType === 'board' || viewType === 'gallery' ? config.card_size ?? 'medium' : undefined}
           onSizeChange={(card_size) => onPatch({ card_size })}
+          /*
+           * #702 — confirmed at build time: list and feed both render the
+           * permanent number inline (list-view.tsx / feed-view.tsx, #701's
+           * fix and this ticket's own fix respectively); board, calendar and
+           * gallery render it NOWHERE, so they get no control at all rather
+           * than a toggle with no effect (AC2's decision (b) for those three,
+           * (a) for these two).
+           */
+          numberEntry={(viewType === 'list' || viewType === 'feed') ? numberEntry : undefined}
+          numberShown={numberEntry ? isFieldVisible(config.hidden_field_ids, numberEntry.id) : undefined}
+          onNumberChange={
+            numberEntry
+              ? (next) => onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, numberEntry.id, next) })
+              : undefined
+          }
         />
       ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
-          fields={togglable}
+          // #739 T3 — rich_text is ABSENT from table view's Fields list
+          // entirely, not merely off by default: inline rich-text editing in
+          // a cell isn't supported, so offering it here is a guaranteed dead
+          // end (the same "renders and then 422s" shape #758 already fixed
+          // for a form). Scoped to table only — rich_text renders fine as
+          // prose on the record page and other surfaces that use this same
+          // picker, so excluding it everywhere would remove a legitimate
+          // control from views where it actually works.
+          //
+          // #739 — table's "ID" is now an ORDINARY column (table-view.tsx's
+          // own numberEntry), so it belongs in the ordinary Fields list here
+          // too — merged in rather than routed to the special "Row gutter"
+          // footer below, which still exists for list/feed (unchanged, see
+          // the follow-up comment on #739). Prepended so it appears first,
+          // matching the default column order. AC3's system date entries are
+          // appended after the real fields — offered, off by default, never
+          // part of the default-visible set.
+          fields={
+            viewType === 'table'
+              ? [
+                  ...(numberEntry ? [numberEntry] : []),
+                  ...rendered.filter((f) => f.type !== 'rich_text'),
+                  ...systemDateEntries,
+                ]
+              : rendered
+          }
+          numberEntry={viewType === 'table' ? undefined : numberEntry}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
         />
       )}
 
-      {/* #391 — a gallery's card image. Shown only for galleries, and only once
-          the database actually has an attachment field: an empty picker offering
-          nothing is a worse answer than no picker. */}
-      {viewType === 'gallery' && fields.some((f) => f.type === 'attachment') && (
-        <label className="flex items-center gap-1 text-[12px] text-muted">
-          Cover
+      {/* #739 T8 — row height, a control with three named steps rather than
+          the pre-#739 hardcoded 32. Always offered for table (not data-
+          dependent, unlike the pickers below it), default step matches
+          ROW_HEIGHT in table-view.tsx exactly so an unconfigured view's
+          control reflects what's actually rendering. */}
+      {viewType === 'table' && (
+        <Segmented
+          label="Row height"
+          size="sm"
+          value={String(config.row_height ?? 32) as '28' | '32' | '40'}
+          onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
+          options={ROW_HEIGHT_OPTIONS}
+        />
+      )}
+
+      {/* #233 — table view's inline hierarchy mode. Shown only for tables, and
+          only once the database actually has an eligible self-relation —
+          an empty picker offering nothing is a worse answer than no picker,
+          the same reasoning #391's cover-image control below already uses. */}
+      {viewType === 'table' && fields.some((f) => databaseId && isHierarchyField(f, databaseId)) && (
+        <label className="flex items-center gap-1 text-label text-muted">
+          Nest by
           <select
-            value={config.cover_field_id ?? ''}
-            onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-[12px]"
+            value={config.hierarchy_field_id ?? ''}
+            onChange={(e) => onPatch({ hierarchy_field_id: e.target.value || undefined })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
           >
-            <option value="">None</option>
+            <option value="">Flat</option>
             {fields
-              .filter((f) => f.type === 'attachment')
+              .filter((f) => databaseId && isHierarchyField(f, databaseId))
               .map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.displayName}
@@ -323,12 +583,40 @@ export function ViewToolbar({
         </label>
       )}
 
+      {/* #391 / #754 (G1) — a gallery's card image. With an attachment field,
+          the ordinary picker. Without one, the control used to disappear
+          entirely — a gallery of text-only cards with nothing on screen that
+          even mentions covers. Say so once, where the picker would have been,
+          and offer the actual fix. */}
+      {viewType === 'gallery' &&
+        (fields.some(isCoverField) ? (
+          <label className="flex items-center gap-1 text-label text-muted">
+            Cover
+            <select
+              value={config.cover_field_id ?? ''}
+              onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
+            >
+              <option value="">None</option>
+              {fields
+                .filter(isCoverField)
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.displayName}
+                  </option>
+                ))}
+            </select>
+          </label>
+        ) : (
+          <GalleryNoCoverFieldNotice />
+        ))}
+
       {/* #307 — period per column, shown only when a board is grouped by a DATE
           field (the one case where the columns come from data, not from options). */}
       {viewType === 'board' &&
         augmented.find((f) => f.id === config.group_by_field_id)?.type === 'date' && (
           <select
-            className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+            className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
             value={config.group_by_granularity ?? 'month'}
             onChange={(e) =>
               onPatch({ group_by_granularity: e.target.value as ViewConfig['group_by_granularity'] })
@@ -344,16 +632,51 @@ export function ViewToolbar({
 
       {viewType === 'calendar' && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={config.date_field_id ?? ''}
           onChange={(e) => onPatch({ date_field_id: e.target.value })}
           title="Date field"
         >
-          {fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at').map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.displayName}
-            </option>
-          ))}
+          {/* #808 — every date-capable field is listed; one that makes a read-only
+              calendar is disabled WITH the reason, before the choice rather than in
+              a banner after it (the board's #225 pattern). A view already built on
+              one keeps it as its (disabled) current value. */}
+          {fields.filter(isCalendarDateField).map((f) => {
+            const reason = calendarDateDisabledReason(f);
+            return (
+              <option key={f.id} value={f.id} disabled={reason !== null}>
+                {f.displayName}
+                {reason ? ` — ${reason}` : ''}
+              </option>
+            );
+          })}
+        </select>
+      )}
+
+      {/* #470 — an OPTIONAL second date field giving a day/week event its real
+          end time (mirrors timeline's start/end pair). Only worth showing once
+          the view is actually in day/week mode — in month mode nothing reads
+          this field at all, so offering it there would be a picker for a
+          capability the current mode can't use. */}
+      {viewType === 'calendar' && (config.calendar_mode === 'day' || config.calendar_mode === 'week') && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
+          value={config.calendar_end_date_field_id ?? ''}
+          onChange={(e) => onPatch({ calendar_end_date_field_id: e.target.value || undefined })}
+          title="End date field (optional — sets event height)"
+        >
+          <option value="">No end field (fixed 1h blocks)</option>
+          {fields
+            .filter((f) => f.id !== config.date_field_id && isCalendarDateField(f))
+            .map((f) => {
+              const reason = calendarDateDisabledReason(f);
+              return (
+                <option key={f.id} value={f.id} disabled={reason !== null}>
+                  {f.displayName}
+                  {reason ? ` — ${reason}` : ''}
+                </option>
+              );
+            })}
         </select>
       )}
 
@@ -372,8 +695,17 @@ export function ViewToolbar({
         />
       )}
 
-      {/* MN-075: the way out — this view's rows, exactly as shown. */}
-      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} />}
+      {/* #698 — moved here out of the summary strip, which was rendering a
+          full-width row plus a border just to hold this button on views that had
+          no widgets. The view-type gate is the shared predicate, NOT a second
+          copy of the four-way check in page.tsx. */}
+      {!readOnly && viewSupportsSummaryWidgets(viewType) && (
+        <AddSummaryWidgetButton config={config} onPatch={onPatch} />
+      )}
+
+      {/* MN-075: the way out — this view's rows, exactly as shown. On a FORM
+          that phrasing does not hold: see ExportCsvButton's own comment. */}
+      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} viewType={viewType} />}
     </div>
   );
 }
@@ -383,13 +715,36 @@ export function ViewToolbar({
  * a large CSV into memory just to re-emit it as a blob. Credentials ride the
  * cookie the app already uses.
  */
-export function ExportCsvButton({ ws, db, viewId }: { ws: string; db: string; viewId?: string }) {
+export function ExportCsvButton({
+  ws,
+  db,
+  viewId,
+  viewType,
+}: {
+  ws: string;
+  db: string;
+  viewId?: string;
+  /**
+   * #725 — only the TOOLTIP depends on this; the URL is unchanged. A form view
+   * has no rows of its own, so "this view's rows" is the same category error
+   * #725 removed from the Filter and Sort controls, left behind in the copy.
+   *
+   * The export itself is correct on a form and deliberately untouched: it
+   * queries the DATABASE's records (export.service.ts) rather than a result
+   * set, and because a form view does not use `hidden_field_ids` — forms own
+   * field membership through config.form.fields (#224) — the CSV carries every
+   * field rather than only the ones the form asked for. That is the right
+   * answer for submissions, which is why this is a copy fix and not a gate.
+   */
+  viewType?: string;
+}) {
   const href = `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/export/csv${viewId ? `?view=${viewId}` : ''}`;
+  const scopedToView = Boolean(viewId) && viewType !== 'form';
   return (
     <a
       href={href}
-      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
-      title={viewId ? "Download this view's rows as CSV" : 'Download every record as CSV'}
+      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
+      title={scopedToView ? "Download this view's rows as CSV" : 'Download every record as CSV'}
     >
       <Download className="h-3.5 w-3.5" /> CSV
     </a>
@@ -410,13 +765,13 @@ export function ColorByButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink">
           <Palette className="h-3.5 w-3.5" /> {active ? `Color: ${active.displayName}` : 'Color'}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="min-w-44">
         <button
-          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
           onClick={() => onChange(undefined)}
         >
           None {!value && <Check className="h-3.5 w-3.5 text-accent" />}
@@ -424,7 +779,7 @@ export function ColorByButton({
         {fields.map((field) => (
           <button
             key={field.id}
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
@@ -433,6 +788,51 @@ export function ColorByButton({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * #515 — the ONE group-by field picker, shared by the New View dialog and
+ * board-view.tsx's own reorder screen from #499's disabled-reason logic
+ * (`boardGroupDisabledReason`/`listGroupDisabledReason`). Extracted rather
+ * than a second inline copy, which is exactly the drift #375/#380/#383/#399/
+ * #408/#422 already shipped — Mira's grounding on #515 named this explicitly
+ * as required, not optional, for whichever surface re-groups an EXISTING view.
+ */
+export function GroupByFieldSelect({
+  viewType,
+  fields,
+  value,
+  onChange,
+  id,
+}: {
+  viewType: 'board' | 'list';
+  fields: Field[];
+  value: string;
+  onChange: (fieldId: string) => void;
+  id?: string;
+}) {
+  return (
+    <select
+      id={id}
+      className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {viewType === 'list' && <option value="">None</option>}
+      {/* #225: every field is listed. One that can't group is disabled with the
+          reason, because a silently-omitted field reads as a bug — that is
+          literally how #267 and #272 were both reported. */}
+      {fields.map((f) => {
+        const reason = viewType === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
+        return (
+          <option key={f.id} value={f.id} disabled={reason !== null}>
+            {f.displayName}
+            {reason ? ` — ${reason}` : ''}
+          </option>
+        );
+      })}
+    </select>
   );
 }
 
@@ -466,7 +866,7 @@ export function remapConditionToField(
   condition: FilterCondition,
   nextField: Field,
 ): FilterCondition | null {
-  const first = (OPS_BY_TYPE[nextField.type] ?? [])[0];
+  const first = opsForField(nextField)[0];
   if (!first) return null;
   return {
     ...condition,
@@ -488,7 +888,7 @@ export function AddFilterButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink">
           <ListFilter className="h-3.5 w-3.5" /> {label}
         </button>
       </DropdownMenuTrigger>
@@ -498,7 +898,7 @@ export function AddFilterButton({
           return (
             <button
               key={field.id}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
               onClick={() => onAdd(field)}
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -585,7 +985,7 @@ export function FilterValueEditor({
 }) {
   const boxed = compact
     ? 'bg-card text-ink outline-none'
-    : 'rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink outline-none';
+    : 'rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink outline-none';
 
   const optionSource = optionSourceFor(field, members);
 
@@ -653,6 +1053,27 @@ export function FilterValueEditor({
       />
     );
   }
+  // #429 — `eq`/`neq` on select/workflow/user: a SCALAR id, not the array
+  // `options` stores. A plain native `<select>` rather than reusing
+  // OptionMultiPick's chip-and-dropdown UI — that UI is built around
+  // "several chips at once", and dressing it up to hold exactly one would be
+  // more control for a simpler question than it's answering.
+  if (activeOp.input === 'option') {
+    return (
+      <select
+        className={boxed}
+        value={typeof condition.value === 'string' ? condition.value : ''}
+        onChange={(e) => onChange({ ...condition, value: e.target.value || null })}
+      >
+        <option value="">pick…</option>
+        {optionSource.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
   if (activeOp.input === 'records') {
     return ws && field.relation ? (
       <RecordPicker
@@ -662,7 +1083,7 @@ export function FilterValueEditor({
         onChange={(ids) => onChange({ ...condition, value: ids })}
       />
     ) : (
-      <span className="text-faint">unavailable</span>
+      <span className="text-muted">unavailable</span>
     );
   }
   return null;
@@ -704,7 +1125,7 @@ function DateFilterInput({
     <span className="relative inline-block">
       <button
         type="button"
-        className={cn(boxed, !value && 'text-faint')}
+        className={cn(boxed, !value && 'text-muted')}
         onClick={() => setEditing((v) => !v)}
       >
         {value ? value.slice(0, 10) : 'pick date…'}
@@ -732,7 +1153,7 @@ function describeCondition(
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
 ): string {
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0];
   if (!activeOp) return field.displayName;
   if (activeOp.input === 'none') return `${field.displayName} ${activeOp.label}`;
@@ -742,6 +1163,15 @@ function describeCondition(
     const source = optionSourceFor(field, members);
     const labels = ids.map((id) => source.find((s) => s.id === id)?.label ?? id);
     return `${field.displayName} ${activeOp.label} ${labels.join(', ')}`;
+  }
+  // #429 — the single-value counterpart to 'options' (select/workflow/user
+  // `eq`/`neq`, a scalar id rather than an array).
+  if (activeOp.input === 'option') {
+    const id = typeof condition.value === 'string' ? condition.value : '';
+    if (!id) return `${field.displayName} ${activeOp.label}`;
+    const source = optionSourceFor(field, members);
+    const label = source.find((s) => s.id === id)?.label ?? id;
+    return `${field.displayName} ${activeOp.label} ${label}`;
   }
   if (activeOp.input === 'records') {
     const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
@@ -778,11 +1208,11 @@ export function FilterChip({
 }) {
   const field = fields.find((f) => f.apiName === condition.field);
   if (!field) return null;
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
   return (
-    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]">
+    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label">
       <span className="font-medium text-ink">{field.displayName}</span>
       <select
         className="bg-card text-muted outline-none"
@@ -853,10 +1283,6 @@ export function FiltersSection({
   };
 }) {
   const [open, setOpen] = useState(false);
-  // #259: which tree the panel is editing — defaults to Global, same as every
-  // view before this ticket. Resets to Global on every open so a stale Personal
-  // selection from a previous view/session never surprises the next edit.
-  const [scope, setScope] = useState<FilterScope>('global');
   const canUsePersonalScope = Boolean(ws && db && viewId);
 
   /**
@@ -882,7 +1308,14 @@ export function FiltersSection({
     () => flattenFilterTree(nodes).filter((f): f is typeof f & { node: FilterCondition } => !isFilterGroup(f.node)),
     [nodes],
   );
-  const pinned = leaves.filter((f) => f.node.pinned);
+  /*
+   * #733 — every condition is a chip, always; pinning promotes rather than
+   * gates (see visibleFilterChips's own comment for why the old ≤2-conditions
+   * cliff was a defect, not a design). #429's original "renders as toolbar
+   * chips without anyone having to find `Pin to toolbar` first" intent is
+   * still true — it's just no longer conditional on staying under three.
+   */
+  const visibleLeaves = visibleFilterChips(leaves);
   /**
    * #426 — the chip counts what is CONFIGURED, and says so when that differs
    * from what is applied.
@@ -1010,7 +1443,7 @@ export function FiltersSection({
 
   return (
     <>
-      {pinned.map((leaf) => {
+      {visibleLeaves.map((leaf) => {
         const field = fields.find((f) => f.apiName === leaf.node.field);
         if (!field) return null;
         return (
@@ -1024,18 +1457,17 @@ export function FiltersSection({
           />
         );
       })}
-      {/* #259: a standing indicator so a narrower list is never a mystery — the
-          view's shared filter chip above says what everyone sees; this one says
-          "and I've ALSO narrowed it further, just for me". */}
+      {/* #259/#429: a standing indicator so a narrower list is never a mystery —
+          the view's shared filter chip above says what everyone sees; this one
+          says "and I've ALSO narrowed it further, just for me". Both sections
+          are visible the moment the panel opens now, so this just opens it —
+          there's no separate Personal scope to switch into any more. */}
       {hasPersonalFilter && (
         <button
           type="button"
-          onClick={() => {
-            setScope('personal');
-            openBuilder();
-          }}
+          onClick={openBuilder}
           title="A personal filter narrows this view for you only — teammates don't see it"
-          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-[12px] text-ink"
+          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-label text-ink"
         >
           <UserRound className="h-3 w-3" />
           Personal filter
@@ -1044,17 +1476,9 @@ export function FiltersSection({
       <span className="relative">
         <button
           type="button"
-          onClick={() => {
-            // Opening via THIS button always lands on Global — only the
-            // "Personal filter" badge above opens straight into Personal.
-            if (open) closeBuilder();
-            else {
-              setScope('global');
-              openBuilder();
-            }
-          }}
+          onClick={() => (open ? closeBuilder() : openBuilder())}
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
             activeCount ? 'text-ink' : 'text-muted',
           )}
         >
@@ -1075,37 +1499,45 @@ export function FiltersSection({
                 detection would misfire and close the builder mid-interaction. */}
             {/* #278 — clicking away closes AND commits the draft. */}
             <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={closeBuilder} />
-            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+            {/*
+              #429 — GLOBAL AND PERSONAL, VISIBLE AT ONCE. Otto's ruling,
+              verbatim: "the effective filter is the thing a user needs to
+              READ, and tabs hide half of it". This used to be a single
+              FilterBuilderPanel whose tree depended on a `scope` toggle;
+              it is now always both, stacked, each labelled — reading the
+              popover top to bottom IS reading the effective filter.
+            */}
+            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+              <FilterBuilderPanel
+                sectionLabel="Global"
+                grouping={grouping}
+                fields={fields}
+                members={members}
+                ws={ws}
+                connector={shownConnector}
+                nodes={shownNodes}
+                onNodesChange={(next) => setDraftGlobal({ connector: shownConnector, nodes: next })}
+                onConnectorChange={(next) => setDraftGlobal({ connector: next, nodes: shownNodes })}
+                onClearAll={() => setDraftGlobal({ connector: shownConnector, nodes: [] })}
+              />
               {canUsePersonalScope && (
-                <FilterScopeToggle value={scope} onChange={setScope} personalActive={hasPersonalFilter} />
-              )}
-              {scope === 'global' || !canUsePersonalScope ? (
-                <FilterBuilderPanel
-                  grouping={grouping}
-                  fields={fields}
-                  members={members}
-                  ws={ws}
-                  connector={shownConnector}
-                  nodes={shownNodes}
-                  onNodesChange={(next) => setDraftGlobal({ connector: shownConnector, nodes: next })}
-                  onConnectorChange={(next) => setDraftGlobal({ connector: next, nodes: shownNodes })}
-                />
-              ) : (
-                <FilterBuilderPanel
-                  grouping={grouping}
-                  fields={fields}
-                  members={members}
-                  ws={ws}
-                  connector={draftPersonal?.connector ?? personalConnector}
-                  nodes={draftPersonal?.nodes ?? personalNodes}
-                  onNodesChange={(next) =>
-                    setDraftPersonal({ connector: draftPersonal?.connector ?? personalConnector, nodes: next })
-                  }
-                  onConnectorChange={(next) =>
-                    setDraftPersonal({ connector: next, nodes: draftPersonal?.nodes ?? personalNodes })
-                  }
-                  personalScopeHint
-                />
+                <div className="border-t border-border-default">
+                  <FilterBuilderPanel
+                    sectionLabel="Personal"
+                    fields={fields}
+                    members={members}
+                    ws={ws}
+                    connector={draftPersonal?.connector ?? personalConnector}
+                    nodes={draftPersonal?.nodes ?? personalNodes}
+                    onNodesChange={(next) =>
+                      setDraftPersonal({ connector: draftPersonal?.connector ?? personalConnector, nodes: next })
+                    }
+                    onConnectorChange={(next) =>
+                      setDraftPersonal({ connector: next, nodes: draftPersonal?.nodes ?? personalNodes })
+                    }
+                    personalScopeHint
+                  />
+                </div>
               )}
             </div>
           </>
@@ -1132,47 +1564,6 @@ function useDebouncedValue<T>(value: T, ms: number): T {
   return debounced;
 }
 
-type FilterScope = 'global' | 'personal';
-
-/** Global/Personal mode switch for the filter builder (#259) — a natural
- * extension of the existing pinned-chip / builder-popover surface, not a
- * bolted-on control: it lives in the SAME popover, right above the SAME
- * builder body, and just repoints which tree that body edits. */
-function FilterScopeToggle({
-  value,
-  onChange,
-  personalActive,
-}: {
-  value: FilterScope;
-  onChange: (v: FilterScope) => void;
-  personalActive: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1 border-b border-border-default px-2 py-1.5">
-      {(
-        [
-          { key: 'global' as const, label: 'Global', hint: 'Everyone sees this' },
-          { key: 'personal' as const, label: 'Personal', hint: 'Only you see this' },
-        ]
-      ).map(({ key, label, hint }) => (
-        <button
-          key={key}
-          type="button"
-          onClick={() => onChange(key)}
-          title={hint}
-          className={cn(
-            'flex items-center gap-1 rounded-[var(--radius-control)] px-2 py-1 text-[11px] font-medium',
-            value === key ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink',
-          )}
-        >
-          {key === 'personal' && <UserRound className="h-3 w-3" />}
-          {label}
-          {key === 'personal' && personalActive && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function PinnedFilterChip({
   field,
@@ -1192,7 +1583,7 @@ function PinnedFilterChip({
   return (
     <span
       className={cn(
-        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]',
+        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label',
         condition.disabled && 'opacity-50',
       )}
     >
@@ -1237,6 +1628,8 @@ export function FilterBuilderPanel({
   onNodesChange,
   onConnectorChange,
   personalScopeHint,
+  sectionLabel,
+  onClearAll,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
@@ -1259,12 +1652,23 @@ export function FilterBuilderPanel({
    * shared view's. Swaps the copy so "no filters yet" doesn't read as if it's
    * describing the (possibly non-empty) shared view. */
   personalScopeHint?: boolean;
+  /**
+   * #429 — Global and Personal render as two labelled sections of ONE panel
+   * now, not two tabs of the same panel (the effective filter has to be
+   * readable without toggling). This names which section's header to show
+   * instead of the old generic "Filters" — omit it to keep standalone callers
+   * (the rollup field-config reuse, MN-295) exactly as they were.
+   */
+  sectionLabel?: string;
+  /** #429 — Global's header gets a "Clear all", matching Fibery's panel. Only
+   * meaningful (and only rendered) when there's something to clear. */
+  onClearAll?: () => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   const flat = useMemo(() => flattenFilterTree(nodes), [nodes]);
 
   function addCondition(field: Field) {
-    const first = OPS_BY_TYPE[field.type]![0]!;
+    const first = opsForField(field)[0]!;
     onNodesChange([...nodes, { field: field.apiName, op: first.op, value: defaultValueFor(first.input) }]);
   }
 
@@ -1284,30 +1688,54 @@ export function FilterBuilderPanel({
     onNodesChange(moveNodeTo(nodes, from, to));
   }
 
+  // #656 — path-addressed ids ("2.0.1") fail #415's readable-announcement intent
+  // exactly as badly as a raw uuid, so the label reads the SAME node summary a
+  // group/condition row shows itself: a group has no field, a condition reuses
+  // describeCondition (or its own custom label, same precedence ConditionRow uses).
+  const filterLabel = (id: string) => {
+    const entry = flat.find((f) => f.id === id);
+    if (!entry) return undefined;
+    const node = entry.node;
+    if (isFilterGroup(node)) return 'Filter group';
+    const field = fields.find((f) => f.apiName === node.field);
+    if (!field) return undefined;
+    return node.label ?? describeCondition(field, node, members);
+  };
+  const filterDrag = useDragPresentation(filterLabel, { onDragEnd }, flat.map((f) => f.id));
+
   return (
-    <div className="flex max-h-[70vh] flex-col">
+    <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Filters</span>
-        <a
-          href="https://docs.storyos.dev/concepts/views/#filters--sorts"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-faint hover:text-ink"
-          title="How filters work on views"
-        >
-          <CircleHelp className="h-3.5 w-3.5" />
-        </a>
+        <span className="text-meta font-semibold uppercase tracking-wider text-muted">
+          {sectionLabel ?? 'Filters'}
+        </span>
+        <span className="flex items-center gap-2">
+          {onClearAll && nodes.length > 0 && (
+            <button type="button" onClick={onClearAll} className="text-meta text-muted hover:text-ink">
+              Clear all
+            </button>
+          )}
+          <a
+            href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-faint hover:text-ink"
+            title="How filters work on views"
+          >
+            <CircleHelp className="h-3.5 w-3.5" />
+          </a>
+        </span>
       </div>
 
       {personalScopeHint && (
-        <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+        <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
           Narrows the shared view for you only — teammates keep seeing the Global filters above.
         </p>
       )}
 
       {nodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
-          <p className="mb-2 text-[12px] text-faint">
+          <p className="mb-2 text-label text-muted">
             {personalScopeHint
               ? 'No personal filter yet — narrow this view down further, just for you.'
               : 'No filters yet — narrow this view down to what matters.'}
@@ -1318,7 +1746,7 @@ export function FilterBuilderPanel({
         </div>
       ) : (
         <div className="max-h-80 overflow-y-auto p-1">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...filterDrag.contextProps}>
             <SortableContext items={flat.map((f) => f.id)} strategy={verticalListSortingStrategy}>
               {nodes.map((node, i) => (
                 <FilterNodeRow
@@ -1336,6 +1764,13 @@ export function FilterBuilderPanel({
                 />
               ))}
             </SortableContext>
+            <DragPreview>
+              {filterDrag.activeId && (
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
+                  {filterLabel(filterDrag.activeId) ?? ''}
+                </div>
+              )}
+            </DragPreview>
           </DndContext>
         </div>
       )}
@@ -1383,10 +1818,10 @@ function GroupVisibilityToggles({
   canSortColumns: boolean;
   onChange: (patch: Partial<ViewConfig>) => void;
 }) {
-  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[12px] text-ink hover:bg-hover';
+  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-label text-ink hover:bg-hover';
   return (
     <div className="border-t border-border-default py-1">
-      <span className="block px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Groups</span>
+      <span className="block px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted">Groups</span>
       <label className={row}>
         Hide empty groups
         <input
@@ -1411,7 +1846,7 @@ function GroupVisibilityToggles({
               controls. The Sort panel sorts CARDS and now says so. */}
           Column order
           <select
-            className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
             value={columnSort}
             onChange={(e) => onChange({ column_sort: e.target.value as ColumnSort })}
           >
@@ -1429,13 +1864,13 @@ function GroupVisibilityToggles({
 
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
   return (
-    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(['and', 'or'] as const).map((c) => (
         <button
           key={c}
           type="button"
           onClick={() => onChange(c)}
-          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {c}
         </button>
@@ -1546,14 +1981,18 @@ function GroupRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
         <button
+          type="button"
           {...attributes}
           {...listeners}
-          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted focus-visible:opacity-100 group-hover:opacity-100"
           title="Drag to reorder"
         >
           <GripVertical className="h-3.5 w-3.5" />
@@ -1562,7 +2001,7 @@ function GroupRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -1637,7 +2076,7 @@ function ConditionRow({
   });
   const field = fields.find((f) => f.apiName === condition.field);
   if (!field) return null;
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
   const Icon = fieldTypeIcon(field.type);
   const defaultLabel = describeCondition(field, condition, members);
@@ -1648,7 +2087,10 @@ function ConditionRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -1661,10 +2103,28 @@ function ConditionRow({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
 
+        {/*
+          #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
+          looks identical to an enabled one is SILENT WRONGNESS - the user
+          reads a filter that is not the filter being applied - so its state
+          has to be visible, not merely reachable." This used to be reachable
+          only through the "..." menu's Disable/Enable item (a state nobody
+          would notice without opening it); it's a persistent toggle on the
+          row now, and the menu item is gone rather than duplicated.
+        */}
+        <button
+          type="button"
+          onClick={() => onChange({ ...condition, disabled: !condition.disabled })}
+          className={cn('mt-1.5 shrink-0 rounded p-0.5 hover:bg-hover', condition.disabled ? 'text-faint' : 'text-ink')}
+          title={condition.disabled ? 'Disabled — click to enable' : 'Enabled — click to disable'}
+        >
+          {condition.disabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+
         <div className="min-w-0 flex-1">
           <div className="mb-1">
             {isFirst ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
             )}
@@ -1672,7 +2132,7 @@ function ConditionRow({
           <div className={cn('flex flex-wrap items-center gap-1', condition.disabled && 'opacity-50')}>
             <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 shrink-0 text-faint" />} />
             <select
-              className="max-w-28 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+              className="max-w-28 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
               value={condition.field}
               onChange={(e) => {
                 const nextField = fields.find((f) => f.apiName === e.target.value);
@@ -1688,7 +2148,7 @@ function ConditionRow({
               ))}
             </select>
             <select
-              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
               value={condition.op}
               onChange={(e) => {
                 const nextOp = ops.find((o) => o.op === e.target.value)!;
@@ -1705,17 +2165,19 @@ function ConditionRow({
           </div>
 
           {editingLabel && (
-            <div className="mt-1.5 flex items-center gap-1.5 rounded border border-border-default bg-app p-1.5">
+            <div className="mt-1.5 flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
               <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
-                    title="Change icon"
-                  >
-                    <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
-                  </button>
-                </PopoverTrigger>
+                <Tooltip label="Change icon">
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
+                      aria-label="Change icon"
+                    >
+                      <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
+                    </button>
+                  </PopoverTrigger>
+                </Tooltip>
                 <PopoverContent align="start" className="p-2" onClick={(e) => e.stopPropagation()}>
                   <IconColorPicker
                     icon={condition.icon ?? null}
@@ -1728,14 +2190,14 @@ function ConditionRow({
               </Popover>
               <input
                 autoFocus
-                className="h-6 flex-1 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink outline-none"
+                className="h-6 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink outline-none"
                 placeholder={defaultLabel}
                 value={condition.label ?? ''}
                 onChange={(e) => onChange({ ...condition, label: e.target.value || undefined })}
               />
               <button
                 type="button"
-                className="text-[11px] text-muted hover:text-ink"
+                className="text-meta text-muted hover:text-ink"
                 onClick={() => {
                   setEditingLabel(false);
                   setPickingIcon(false);
@@ -1759,7 +2221,7 @@ function ConditionRow({
             reads it rather than re-deriving emptiness here.
           */}
           {isIncompleteCondition(condition) && !condition.disabled && (
-            <p className="mt-0.5 text-[11px] text-warning">Needs a value — not applied yet</p>
+            <p className="mt-0.5 text-meta text-warning">Needs a value — not applied yet</p>
           )}
         </div>
 
@@ -1768,7 +2230,6 @@ function ConditionRow({
           onDuplicate={onDuplicate}
           onPin={onPin}
           onEditNameIcon={() => setEditingLabel((v) => !v)}
-          onToggleDisabled={() => onChange({ ...condition, disabled: !condition.disabled })}
           onRemove={onRemove}
           canTurnIntoGroup={canTurnIntoGroup}
           onTurnIntoGroup={onTurnIntoGroup}
@@ -1787,7 +2248,6 @@ function ConditionMenu({
   onDuplicate,
   onPin,
   onEditNameIcon,
-  onToggleDisabled,
   onRemove,
   canTurnIntoGroup,
   onTurnIntoGroup,
@@ -1796,7 +2256,6 @@ function ConditionMenu({
   onDuplicate: () => void;
   onPin: () => void;
   onEditNameIcon: () => void;
-  onToggleDisabled: () => void;
   onRemove: () => void;
   canTurnIntoGroup: boolean;
   onTurnIntoGroup: () => void;
@@ -1818,10 +2277,6 @@ function ConditionMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onEditNameIcon}>
           <PenLine className="h-3.5 w-3.5" /> Edit name and icon
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onToggleDisabled}>
-          {condition.disabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          {condition.disabled ? 'Enable' : 'Disable'}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!canTurnIntoGroup}
@@ -1906,7 +2361,7 @@ function OptionMultiPick({
       {selectedOptions.map((option) => (
         <span
           key={option.id}
-          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink"
         >
           {/* #215: through the shared OptionIcon, tinted with the option's own
               colour — not a re-implementation of "how do I draw an icon ref". */}
@@ -1926,7 +2381,7 @@ function OptionMultiPick({
       ))}
       <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-faint')}>
+          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-muted')}>
             {selected.length ? '+ add' : 'pick…'}
           </button>
         </DropdownMenuTrigger>
@@ -1936,7 +2391,7 @@ function OptionMultiPick({
             <input
               autoFocus
               placeholder="Search…"
-              className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-faint"
+              className="w-full bg-transparent text-body text-ink outline-none placeholder:text-muted"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               // Radix menus run a typeahead off keydown; let the input own its keys.
@@ -1947,7 +2402,7 @@ function OptionMultiPick({
             {filtered.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
               >
                 <input
                   type="checkbox"
@@ -1960,7 +2415,7 @@ function OptionMultiPick({
                 <span className="truncate">{option.label}</span>
               </label>
             ))}
-            {filtered.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>}
+            {filtered.length === 0 && <p className="px-2 py-1.5 text-label text-muted">No matches.</p>}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2053,7 +2508,7 @@ function RecordPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}
+          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-muted')}
         >
           {label}
         </button>
@@ -2064,7 +2519,7 @@ function RecordPicker({
             {selected.map((id) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+                className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink"
               >
                 <span className="max-w-32 truncate">{titleFor(id)}</span>
                 <button onClick={() => toggle(id)} className="text-faint hover:text-error">
@@ -2077,7 +2532,7 @@ function RecordPicker({
         <input
           autoFocus
           placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
-          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-body text-ink outline-none placeholder:text-muted"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           // Keep keystrokes in the box — the popover mustn't treat them as typeahead.
@@ -2088,7 +2543,7 @@ function RecordPicker({
             <button
               key={row.id}
               className={cn(
-                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
+                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover',
                 selected.includes(row.id) && 'bg-hover',
               )}
               onClick={() => toggle(row.id)}
@@ -2098,7 +2553,7 @@ function RecordPicker({
             </button>
           ))}
           {results.data?.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>
+            <p className="px-2 py-1.5 text-label text-muted">No matches.</p>
           )}
         </div>
       </PopoverContent>
@@ -2125,24 +2580,44 @@ export function SortButton({
   nulls,
   onChange,
   onNullsChange,
+  // #583 — a scheduled automation's top-N sort has no nulls-placement concept
+  // server-side (automationSortSchema is bare {field, direction}[], no whole-
+  // sort empty-values setting). Hiding the section is cheaper and more honest
+  // than rendering a toggle that would silently do nothing when clicked.
+  showNulls = true,
 }: {
   fields: Field[];
   sorts: SortSpec[];
   nulls?: NullsPlacement;
   onChange: (sorts: SortSpec[]) => void;
   onNullsChange: (nulls: NullsPlacement | undefined) => void;
+  showNulls?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const byApiName = new Map(fields.map((f) => [f.apiName, f]));
-  const sortableFields = fields.filter((f) => SORTABLE.has(f.type) && isSortableFormula(f, byApiName));
+  const sortableFields = fields.filter(
+    (f) =>
+      SORTABLE.has(f.type) &&
+      isSortableFormula(f, byApiName) &&
+      // #662/#680 — a MULTI user or relation field has no single value to order
+      // by; offering it here would just 422 at save time (validateSorts,
+      // records.service.ts's identical `(user || relation) && config.multi` check —
+      // #680 found this picker was still missing the `relation` half of it).
+      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true) &&
+      // #743 — a deprecated system field (`number`) must never be offered as a
+      // NEW sort key. `byApiName` above stays unfiltered so an EXISTING sort
+      // key still referencing it resolves its label correctly via `sortLabel`.
+      isPickableField(f),
+  );
   // MN-267: rollup is sortable now (real recompute-on-related-record-change
-  // plumbing exists — see SORTABLE's comment above); `lookup` is the one still
-  // fully excluded, and a formula reaching into one inherits that same
-  // cross-record staleness and is excluded too — see isSortableFormula above.
+  // plumbing exists, so it's in SORTABLE_FIELD_TYPES); `lookup` is the one
+  // still fully excluded (not in that shared list at all), and a formula
+  // reaching into one inherits that same cross-record staleness and is
+  // excluded too — see isSortableFormula above.
   const hasUnsortableComputedFields = fields.some(
     (f) => f.type === 'lookup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
   );
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
 
   function updateAt(i: number, next: SortSpec) {
     onChange(sorts.map((s, j) => (j === i ? next : s)));
@@ -2161,6 +2636,25 @@ export function SortButton({
     onChange(reorderSorts(sorts, Number(active.id), Number(over.id)));
   }
   const canAddMore = sorts.length < MAX_SORTS && nextSortField(sorts, sortableFields) !== undefined;
+  // #656 — a sort key is index-addressed ("0", "1"), which reads no better than
+  // a raw id to a screen reader; name the field it actually sorts by instead.
+  const sortLabel = (id: string) => byApiName.get(sorts[Number(id)]?.field ?? '')?.displayName;
+  const sortDrag = useDragPresentation(
+    sortLabel,
+    { onDragEnd },
+    sorts.map((_, i) => String(i)),
+  );
+  // #814 — this popover is a hand-rolled backdrop, not Radix, so it did not
+  // inherit Escape-to-close. Esc during a keyboard drag belongs to dnd-kit
+  // (it cancels the lift), so only close when no drag is active.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !sortDrag.activeId) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
 
   return (
     <span className="relative">
@@ -2168,7 +2662,7 @@ export function SortButton({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+          'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
           sorts.length ? 'text-ink' : 'text-muted',
         )}
       >
@@ -2178,12 +2672,12 @@ export function SortButton({
       {open && (
         <>
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+          <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
               {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
                   order lives in the Filter panel's Groups section. The old label is
                   why this was filed as a bug rather than a missing feature. */}
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Sort cards</span>
+              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Sort cards</span>
               <a
                 href="https://docs.storyos.dev/concepts/views/#filters--sorts"
                 target="_blank"
@@ -2196,26 +2690,26 @@ export function SortButton({
             </div>
 
             {hasUnsortableComputedFields && (
-              <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+              <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
                 Lookup fields, and formulas that reference a lookup, aren't sortable yet.
               </p>
             )}
 
             {sorts.length === 0 ? (
               <div className="px-3 py-6 text-center">
-                <p className="mb-2 text-[12px] text-faint">No sort yet — records show in manual order.</p>
+                <p className="mb-2 text-label text-muted">No sort yet — items show in manual order.</p>
                 <button
                   type="button"
                   onClick={addSort}
                   disabled={sortableFields.length === 0}
-                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add your first sort
                 </button>
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto p-1">
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} {...sortDrag.contextProps}>
                   <SortableContext items={sorts.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
                     {sorts.map((sort, i) => (
                       <SortRow
@@ -2229,24 +2723,33 @@ export function SortButton({
                       />
                     ))}
                   </SortableContext>
+                  <DragPreview>
+                    {sortDrag.activeId && (
+                      <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
+                        {sortLabel(sortDrag.activeId) ?? ''}
+                      </div>
+                    )}
+                  </DragPreview>
                 </DndContext>
               </div>
             )}
 
             {sorts.length > 0 && (
               <div className="border-t border-border-default p-2">
-                <div className="mb-1.5 flex items-center justify-between px-1">
-                  <span className="text-[11px] text-faint">Empty values</span>
-                  <EmptyPlacementToggle
-                    value={nulls ?? 'last'}
-                    onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
-                  />
-                </div>
+                {showNulls && (
+                  <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="text-meta text-muted">Empty values</span>
+                    <EmptyPlacementToggle
+                      value={nulls ?? 'last'}
+                      onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
+                    />
+                  </div>
+                )}
                 {canAddMore && (
                   <button
                     type="button"
                     onClick={addSort}
-                    className="flex items-center gap-1 rounded px-1 py-1 text-[12px] text-muted hover:text-ink"
+                    className="flex items-center gap-1 rounded px-1 py-1 text-label text-muted hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Add sort
                   </button>
@@ -2270,7 +2773,7 @@ function EmptyPlacementToggle({
   onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(
         [
           ['last', 'Bottom'],
@@ -2281,7 +2784,7 @@ function EmptyPlacementToggle({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {label}
         </button>
@@ -2325,7 +2828,10 @@ function SortRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -2340,14 +2846,14 @@ function SortRow({
 
         <div className="min-w-0 flex-1">
           <div className="mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+            <span className="text-meta font-semibold uppercase tracking-wider text-muted">
               {index === 0 ? 'Sort by' : 'Then by'}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-1">
             <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
             <select
-              className="max-w-28 flex-1 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+              className="max-w-28 flex-1 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
               value={sort.field}
               onChange={(e) => onChange({ ...sort, field: e.target.value })}
             >
@@ -2358,7 +2864,7 @@ function SortRow({
               ))}
             </select>
             <select
-              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
+              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
               value={sort.direction}
               onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
             >
@@ -2384,7 +2890,7 @@ function SortRow({
 /**
  * What may never be toggled off.
  *
- * `title` only — hiding it would leave rows unidentifiable.
+ * `title` — hiding it would leave rows unidentifiable.
  *
  * #408 — the previous version of this comment read "system timestamps never
  * render in grids or on cards", and that was FALSE: Created at and Updated at
@@ -2398,8 +2904,16 @@ function SortRow({
  * removes the column, and the choice survives a reload. `created_by` is here
  * because views genuinely do not render it — a toggle that cannot change what
  * you see is worse than no toggle.
+ *
+ * #699 — `id` (the raw internal UUID, `isSystem: true`) joined this set for the
+ * SAME reason `created_by` is here: no view ever renders it as a column, so its
+ * toggle did nothing when clicked. Unlike `created_by`, `id` was actually
+ * OFFERED before this fix — an unenforced rule, not an enforced one; this line
+ * is what makes it real rather than a claim in a comment (which is exactly how
+ * #699 itself was found: this same paragraph once asserted a rule the code
+ * didn't implement).
  */
-export const NON_TOGGLABLE = new Set(['title', 'created_by']);
+export const NON_TOGGLABLE = new Set(['title', 'created_by', 'id']);
 
 /** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
 function CardFieldsButton({
@@ -2408,19 +2922,29 @@ function CardFieldsButton({
   onChange,
   size,
   onSizeChange,
+  numberEntry,
+  numberShown,
+  onNumberChange,
 }: {
   fields: Field[];
   shown: string[];
   onChange: (ids: string[]) => void;
   size?: 'small' | 'medium' | 'large';
   onSizeChange: (size: 'small' | 'medium' | 'large') => void;
+  /** #702 — the synthetic permanent-number field, offered here ONLY for the
+   *  card-based view types that actually render it (list, feed) — see
+   *  ViewToolbar's own call site for which those are and why. Undefined on
+   *  board/calendar/gallery, which render it nowhere. */
+  numberEntry?: Field;
+  numberShown?: boolean;
+  onNumberChange?: (next: boolean) => void;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
             shown.length ? 'text-ink' : 'text-muted',
           )}
         >
@@ -2431,14 +2955,14 @@ function CardFieldsButton({
       <DropdownMenuContent className="max-h-72 w-56 overflow-y-auto">
         {size && (
           <div className="px-2 pb-1.5 pt-1">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Card size</div>
+            <div className="mb-1 text-meta font-semibold uppercase tracking-wider text-muted">Card size</div>
             <div className="flex gap-1">
               {(['small', 'medium', 'large'] as const).map((opt) => (
                 <button
                   key={opt}
                   onClick={() => onSizeChange(opt)}
                   className={cn(
-                    'flex-1 rounded border px-1.5 py-1 text-[12px] capitalize',
+                    'flex-1 rounded border px-1.5 py-1 text-label capitalize',
                     size === opt
                       ? 'border-[var(--accent)] bg-accent-soft text-ink'
                       : 'border-border-default text-muted hover:bg-hover',
@@ -2451,6 +2975,7 @@ function CardFieldsButton({
           </div>
         )}
         <CardFieldPicker fields={fields} shown={shown} onChange={onChange} />
+        {numberEntry && onNumberChange && <RowGutterToggle shown={Boolean(numberShown)} onChange={onNumberChange} />}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -2458,7 +2983,7 @@ function CardFieldsButton({
 
 /** Shown card fields (draggable, ordered) + a list to add more (MN-151). */
 function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: string[]; onChange: (ids: string[]) => void }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   const shownFields = shown
     .map((id) => fields.find((f) => f.id === id))
     .filter((f): f is Field => Boolean(f));
@@ -2472,15 +2997,17 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
     if (from < 0 || to < 0) return;
     onChange(arrayMove(shown, from, to));
   };
+  const cardFieldLabel = (id: string) => fields.find((f) => f.id === id)?.displayName;
+  const cardFieldDrag = useDragPresentation(cardFieldLabel, { onDragEnd }, shown);
 
   return (
     <>
       {shownFields.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+          <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
             Shown · drag to reorder
           </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
             <SortableContext items={shown} strategy={verticalListSortingStrategy}>
               {shownFields.map((field) => (
                 <SortableCardField
@@ -2490,17 +3017,24 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
                 />
               ))}
             </SortableContext>
+            <DragPreview>
+              {cardFieldDrag.activeId && (
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
+                  {cardFieldLabel(cardFieldDrag.activeId) ?? ''}
+                </div>
+              )}
+            </DragPreview>
           </DndContext>
         </>
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Add</div>
+          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">Add</div>
           {available.map((field) => (
             <button
               key={field.id}
               onClick={() => onChange([...shown, field.id])}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[13px] text-muted hover:bg-hover hover:text-ink"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body text-muted hover:bg-hover hover:text-ink"
             >
               <Plus className="h-3.5 w-3.5" /> {field.displayName}
             </button>
@@ -2512,12 +3046,18 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
 }
 
 function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: field.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="group flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+      // #656 — this was the fourth sortable in this file with NO drag styling at
+      // all; it now gets the same floating-preview + vacated-slot treatment as
+      // the other three.
+      className={cn(
+        'group flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover',
+        vacatedSlotClass(isDragging),
+      )}
     >
       <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
         <GripVertical className="h-3.5 w-3.5" />
@@ -2539,27 +3079,88 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
  * is persisted as `hidden_field_ids`; reorder writes `field.position` via `onReorder`. */
 function HiddenFieldsButton({
   fields,
+  numberEntry,
   hidden,
   onChange,
   onReorder,
 }: {
   fields: Field[];
+  /** #699 AC2 — the synthetic permanent-number field, rendered as its OWN
+   *  labelled "Row gutter" section below, never mixed into the ordinary field
+   *  list: Dara's finding was that list MEMBERSHIP itself promises "this
+   *  becomes a column," a promise this entry can't keep for a surface where
+   *  it merges into the row-index gutter cell instead. #739 — table view no
+   *  longer merges it (it's an ordinary column there now), so the caller
+   *  passes `undefined` here for table and merges the entry into `fields`
+   *  itself instead; this prop/footer still exists for list and feed, which
+   *  haven't been re-skinned. Also undefined when the database has a real
+   *  `number` field row, which already flows through `fields` normally. */
+  numberEntry?: Field;
   hidden: string[];
   onChange: (ids: string[]) => void;
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
   onReorder?: (activeId: string, overId: string) => void;
 }) {
+  // #743 — the number field's entry in `hidden` uses ordinary present-means-
+  // hidden semantics, same as every other field, visible by default; see
+  // number-column.ts, shared with table-view.tsx's own reading of the same
+  // array so the two can't drift.
+  const candidateIds = useMemo(
+    () => new Set(numberEntry ? [...fields.map((f) => f.id), numberEntry.id] : fields.map((f) => f.id)),
+    [fields, numberEntry],
+  );
+  const hiddenCount = countHiddenFields(hidden, candidateIds);
+  const numberShown = numberEntry ? isFieldVisible(hidden, numberEntry.id) : false;
   return (
     <FieldsMenu
       fields={fields}
-      isVisible={(f) => !hidden.includes(f.id)}
-      onToggle={(f, next) =>
-        onChange(next ? hidden.filter((id) => id !== f.id) : [...hidden, f.id])
-      }
+      isVisible={(f) => isFieldVisible(hidden, f.id)}
+      onToggle={(f, next) => onChange(toggleFieldVisibility(hidden, f.id, next))}
       onReorder={onReorder}
       triggerIcon={EyeOff}
-      triggerLabel={hidden.length ? `${hidden.length} hidden` : 'Hide fields'}
-      triggerActive={hidden.length > 0}
+      triggerLabel={hiddenCount ? `${hiddenCount} hidden` : 'Hide fields'}
+      triggerActive={hiddenCount > 0}
+      footer={
+        numberEntry && <RowGutterToggle shown={numberShown} onChange={(next) => onChange(toggleFieldVisibility(hidden, numberEntry.id, next))} />
+      }
     />
+  );
+}
+
+/**
+ * #699 AC2 / #702 — the "Row gutter" section: one control for the synthetic
+ * permanent-number field, shared by every surface that actually renders it
+ * (table view's Hide-fields footer, and the Cards picker on the OTHER view
+ * types that render it inline — currently list and feed; #702 found
+ * board/calendar/gallery render it nowhere, so they get no control at all
+ * rather than one with no effect). Extracted so a future surface that starts
+ * rendering the number reuses this instead of re-casing the toggle a third
+ * time (field-surfaces.md's rule).
+ */
+function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <div className="mt-1 border-t border-border-default pt-1">
+      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">Row gutter</p>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={shown}
+        onClick={() => onChange(!shown)}
+        className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-body text-ink hover:bg-hover"
+      >
+        <span
+          className={cn(
+            'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
+            shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
+          )}
+        >
+          <span className="h-3 w-3 rounded-full bg-card" />
+        </span>
+        {/* #743 — "ID" only; "Number" is the pre-#743 label and must not
+            reappear anywhere in the UI now that the field is visible by
+            default. */}
+        <span className="truncate">Show ID in the row gutter</span>
+      </button>
+    </div>
   );
 }

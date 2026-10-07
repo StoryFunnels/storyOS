@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
+import { atLeast } from '@/lib/access';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -19,13 +20,15 @@ import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
-import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
+import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
-import type { DatabaseSummary, Space } from '@/lib/queries';
+import { useViewsOnlyMode } from '@/lib/views-only-mode';
+import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
+import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import {
@@ -38,10 +41,21 @@ import {
 import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
-import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { markInitials } from '@/components/sidebar-row-style';
+import { Tooltip } from '@/components/ui/tooltip';
+import {
+  SIDEBAR_NAV_DEFAULT_W,
+  SIDEBAR_RAIL_W,
+  SIDEBAR_NAV_MAX_W,
+  SIDEBAR_NAV_MIN_W,
+  SIDEBAR_NAV_STEP,
+  clampSidebarNavWidth,
+  useSidebarNavWidth,
+} from '@/lib/sidebar-width';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
-import { openTyron } from '@/lib/tyron-panel';
+import { PersonalSection } from '@/components/personal-section';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -72,17 +86,23 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Favorites</div>
+      <div className="px-3 pb-1 text-micro font-normal uppercase tracking-[0.16em] text-faint">Favorites</div>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
-          <Link
-            key={`${f.target_type}:${f.target_id}`}
-            href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-            className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
-            <span className="truncate">{f.title}</span>
-          </Link>
+          // #805 — through SidebarRow + GlyphSlot like every other row. This was
+          // a hand-rolled `px-2` link that never had the gutter, so its star and
+          // label sat at their own x, off the column every other row shares.
+          <SidebarRow key={`${f.target_type}:${f.target_id}`} depth={0} className="hover:bg-hover">
+            <Link
+              href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
+              className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
+            >
+              <GlyphSlot>
+                <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+              </GlyphSlot>
+              <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
+            </Link>
+          </SidebarRow>
         ))}
       </div>
     </div>
@@ -96,6 +116,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
+  const groups = useSpaceGroups(ws);
   const mutations = useSidebarMutations(ws);
 
   const canEdit = workspace.data?.role !== 'guest';
@@ -106,23 +127,132 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const paletteKeys = useShortcutKeys('palette');
   const unread = useUnreadCount(ws);
   const { isHidden, unhide } = useHidden(ws);
+  const { viewsOnly, toggle: toggleViewsOnly } = useViewsOnlyMode(ws);
 
   // Personal hide (#35): hidden spaces drop out entirely; a database hidden on its own
   // (its space still visible) drops out too. Both surface in the Hidden section.
+  //
+  // #769 — the personal space is excluded from this generic tree entirely, not
+  // just when hidden. It already has its own dedicated section (PersonalSection,
+  // below) with its own menu (Rename / Move to shared space / Delete) — per
+  // docs/architecture/personal-space.md, it "isn't just another space in the
+  // list." Rendering it here too pointed the SAME document at two rows with two
+  // different, disagreeing menus (the generic one offers "Copy to My Space" on
+  // a doc that's already personal, and has no "Move to shared space" at all).
   const allSpaces = spaces.data ?? [];
   const allDatabases = databases.data ?? [];
-  const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id));
+  const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id) && !s.personal);
   const hiddenSpaces = allSpaces.filter((s) => isHidden('space', s.id));
   const hiddenDatabases = allDatabases.filter((d) => isHidden('database', d.id) && !isHidden('space', d.spaceId));
 
+  /**
+   * #742 finding 04 — Groups render as a tier ABOVE ungrouped spaces, each
+   * group showing its own member spaces in their existing position order.
+   * PRESENTATIONAL ONLY (Otto's 2026-09-24 ruling): this is purely a render
+   * grouping over the same `visibleSpaces` list — it changes nothing about
+   * which spaces a viewer can reach, only where they're drawn. No access
+   * check anywhere reads `groupId`.
+   */
+  const sortedGroups = [...(groups.data ?? [])].sort((a, b) => a.position - b.position);
+  const spacesByGroup = new Map<string, Space[]>();
+  for (const space of visibleSpaces) {
+    if (!space.groupId) continue;
+    const list = spacesByGroup.get(space.groupId) ?? [];
+    list.push(space);
+    spacesByGroup.set(space.groupId, list);
+  }
+  const ungroupedSpaces = visibleSpaces.filter((s) => !s.groupId || !spacesByGroup.has(s.groupId));
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  /**
+   * #742 phase 5 — a container (a group's own area, or the ungrouped zone)
+   * wins over a plain space row under the pointer, same reasoning as the
+   * per-space collision strategy one level down (`SpaceSection`'s own
+   * `collisionStrategy`): a container is a tall droppable whose CENTRE is
+   * far from the pointer, so bare `closestCenter` never picks it over a
+   * small sortable row. `pointerWithin` asks what's actually under the
+   * pointer instead. A row under the pointer still wins when both match —
+   * that is an ordinary reorder, not a group move — so this only changes
+   * behaviour when the pointer is over EMPTY space inside a group/the
+   * ungrouped zone (no row there to prefer).
+   *
+   * #774 — a GROUP itself is now ALSO a sortable row (reordering groups
+   * relative to each other), which means every group header carries TWO
+   * ids on the same element: `group:<id>` (the existing container-drop
+   * target, for a SPACE joining it) and the bare `<id>` (its own sortable
+   * row, for GROUP reordering). Both can be simultaneously "under the
+   * pointer" at once, so which one wins depends on what is actually being
+   * dragged — a bare-id row must never win while a SPACE is being dragged
+   * (that would silently break "drop a space on a group to join it"), and
+   * only a bare-id row may ever win while a GROUP is being dragged (a
+   * group has no "container" or "ungrouped" concept to join).
+   */
+  const spaceCollisionStrategy = (args: Parameters<typeof pointerWithin>[0]) => {
+    const activeId = String(args.active.id);
+    const within = pointerWithin(args);
+    if (sortedGroups.some((g) => g.id === activeId)) {
+      const groupRow = within.find((c) => sortedGroups.some((g) => g.id === String(c.id)));
+      if (groupRow) return [groupRow];
+      return closestCenter(args);
+    }
+    const container = within.find((c) => String(c.id).startsWith('group:') || String(c.id) === 'ungrouped');
+    const row = within.find(
+      (c) =>
+        !String(c.id).startsWith('group:') &&
+        String(c.id) !== 'ungrouped' &&
+        !sortedGroups.some((g) => g.id === String(c.id)),
+    );
+    if (row) return [row];
+    if (container) return [container];
+    return closestCenter(args);
+  };
+
   function onSpaceDragEnd(event: DragEndEvent) {
-    if (!event.over) return;
-    // Reorder over the full space list (positions are shared), so dragging a
-    // space across several slots shifts the run instead of swapping endpoints.
-    for (const move of computeReorder(spaces.data ?? [], String(event.active.id), String(event.over.id))) {
-      mutations.updateSpace.mutate(move);
+    const over = event.over;
+    if (!over) return;
+    const activeId = String(event.active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    // #774 — a GROUP being dragged onto another group's own row: reorder the
+    // groups themselves, persisted via space_groups.position. The collision
+    // strategy above only ever resolves `over` to another group's bare id
+    // for this case, so there is nothing else this branch needs to rule out.
+    const activeGroup = sortedGroups.find((g) => g.id === activeId);
+    if (activeGroup) {
+      for (const move of computeReorder(sortedGroups, activeId, overId)) {
+        mutations.updateGroup.mutate(move);
+      }
+      return;
+    }
+
+    // Dropped on a GROUP's own area, or the ungrouped zone: reassign the
+    // space's group. Presentational only (#742 finding 04) — this writes
+    // groupId, never anything access-related, and never touches position.
+    if (overId.startsWith('group:')) {
+      mutations.updateSpace.mutate({ id: activeId, groupId: overId.slice('group:'.length) });
+      return;
+    }
+    if (overId === 'ungrouped') {
+      mutations.updateSpace.mutate({ id: activeId, groupId: null });
+      return;
+    }
+
+    // Dropped on another SPACE row: reorder over the full space list
+    // (positions are shared across every space regardless of group), so
+    // dragging a space across several slots shifts the run instead of
+    // swapping endpoints. Dropping next to a GROUPED space also joins that
+    // group — the natural reading of "I put it here" when "here" already
+    // has a colour — while dropping next to an ungrouped one clears it,
+    // both via the same one-field patch as the explicit drop zones above.
+    const targetSpace = visibleSpaces.find((s) => s.id === overId);
+    for (const move of computeReorder(spaces.data ?? [], activeId, overId)) {
+      if (move.id === activeId && targetSpace) {
+        mutations.updateSpace.mutate({ ...move, groupId: targetSpace.groupId ?? null });
+      } else {
+        mutations.updateSpace.mutate(move);
+      }
     }
   }
 
@@ -131,138 +261,227 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
    * announcements. `label` maps a sortable id to a NAME, which is the whole fix
    * for #415: every sortable in this app is keyed by uuid, so dnd-kit's stock
    * strings read out hex ("Picked up draggable item 102568ca-…").
+   *
+   * #774 — extended to also resolve a GROUP's own id/name, since a group is
+   * now itself draggable.
    */
   const spaceDrag = useDragPresentation(
-    (id) => visibleSpaces.find((sp) => sp.id === id)?.name,
+    (id) => visibleSpaces.find((sp) => sp.id === id)?.name ?? sortedGroups.find((g) => g.id === id)?.name,
     { onDragEnd: onSpaceDragEnd },
-    visibleSpaces.map((sp) => sp.id),
+    [...visibleSpaces.map((sp) => sp.id), ...sortedGroups.map((g) => g.id)],
   );
 
+  // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
+  const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
+    useSidebarNavWidth();
+
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-default bg-sidebar">
+    <div className="relative flex h-full shrink-0">
+    {/*
+     * #742 phase 6 — rail + panel (Direction B). Two axes, one rule each: the
+     * RAIL is StoryOS's own surfaces (Home, Inbox, My Work, Runs, Settings —
+     * fixed, five items, never grows with a workspace's spaces), the PANEL is
+     * this workspace's contents (Collections, Groups, Spaces). Search and Ask
+     * Tyron merge into the panel's one ⌘K box rather than each keeping a rail
+     * slot; Reviews and Business Packs become Collections rows in the panel
+     * rather than rail icons — see the artifact's own nav-IA mapping, ticket
+     * #742 comment 2026-09-28T15:33:58Z, restated there because it had lived
+     * only in an artifact before and cost a round trip.
+     */}
+    <SidebarRail
+      ws={ws}
+      workspaceName={workspace.data?.name}
+      isAdmin={isAdmin}
+      canEdit={canEdit}
+      onSignOut={signOut}
+      unreadCount={unread.data ?? 0}
+      onOpenInbox={() => setInboxOpen(true)}
+    />
+    <aside
+      style={{ width: sidebarWidth - SIDEBAR_RAIL_W }}
+      className="flex h-full shrink-0 flex-col border-r border-border-default bg-sidebar"
+    >
       <div className="flex shrink-0 items-stretch">
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
         {onCloseMobile && (
-          <button
-            type="button"
-            onClick={onCloseMobile}
-            title="Close sidebar"
-            className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:hidden"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <Tooltip label="Close">
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              aria-label="Close sidebar"
+              className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:hidden"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </Tooltip>
         )}
       </div>
 
-      {/* Sticky top nav — stays put while the spaces tree scrolls (issue #34). */}
-      <div className="flex shrink-0 flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
-        <Link
-          href={`/w/${ws}`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <Home className="h-3.5 w-3.5" /> Home
-        </Link>
+      {/* #742 phase 6 — the merged search box: one affordance for both Search
+          and Ask Tyron (previously two separate top-nav rows). Ask Tyron still
+          has its own global ⌘J binding (lib/shortcuts.ts) even without its own
+          row here — this box's click always opens the command palette. */}
+      <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong"
           onClick={openPalette}
         >
-          <Search className="h-3.5 w-3.5" /> Search
-          {/* #254 — from the shared registry, so it can't drift from the binding.
-              #396 — and rendered for THIS reader's platform: `shortcutKeys` now
-              returns the raw "mod+K" token, so displaying it directly would show
-              a Windows user a shortcut that does not exist. */}
-          <span className="ml-auto text-[10px] text-faint">{paletteKeys}</span>
-        </button>
-        <button
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-          onClick={() => setInboxOpen(true)}
-        >
-          <Inbox className="h-3.5 w-3.5" /> Inbox
-          {(unread.data ?? 0) > 0 && (
-            <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-[var(--text-on-dark)]">
-              {(unread.data ?? 0) > 99 ? '99+' : unread.data}
-            </span>
-          )}
-        </button>
-        <Link
-          href={`/w/${ws}/me`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <UserRound className="h-3.5 w-3.5" /> My Work
-        </Link>
-        <Link
-          href={`/w/${ws}/reviews`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <GitPullRequest className="h-3.5 w-3.5" /> Reviews
-        </Link>
-        <Link
-          href={`/w/${ws}/packs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <Package className="h-3.5 w-3.5" /> Business Packs
-        </Link>
-        <Link
-          href={`/w/${ws}/runs`}
-          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <Activity className="h-3.5 w-3.5" /> Runs
-        </Link>
-        {/* #356 — the discoverability a keyboard shortcut can never give a
-            newcomer. A button, not a Link: Tyron is a panel beside the page, not
-            a place to navigate to, and making it a route would imply leaving
-            whatever you are looking at. */}
-        <button
-          type="button"
-          onClick={openTyron}
-          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-[13px] text-ink-secondary hover:bg-hover"
-        >
-          <Sparkles className="h-3.5 w-3.5" /> Ask Tyron
-          <span className="ml-auto text-[11px] text-faint">⌘J</span>
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 text-left">Search or ask Tyron</span>
+          {/* #254 — from the shared registry, so it can't drift from the
+              binding. #396 — rendered for THIS reader's platform. */}
+          <span className="text-micro text-muted">{paletteKeys}</span>
         </button>
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="flex-1 overflow-y-auto p-2">
+      <nav className="flex-1 overflow-y-auto pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
-        <div className="mb-0.5 mt-1 flex items-center justify-between px-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Spaces</span>
-          {(spaces.data ?? []).length > 0 && (
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
-              title="Collapse all spaces"
-              className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
-            >
-              <ChevronsDownUp className="h-3.5 w-3.5" />
-            </button>
-          )}
+        {/* #742 phase 6 — Collections tier: Reviews and Business Packs (both
+            without a count or an add button — this app has no count source for
+            either yet, and inventing one wasn't this ticket's job) plus
+            Personal. Personal's own section keeps its existing behaviour
+            (New doc/view, its own docs+views list) — the artifact's Collections
+            row for Personal shows no count or add button, which the design
+            comment reads as deliberate ("a destination, not a container you
+            add into from the sidebar"), but removing that capability entirely
+            would be a functional regression this ticket isn't scoped to make;
+            it stays, just grouped under this banner instead of its own. */}
+        {/* #805 — the artifact's quiet tier label: 9px/400 at 0.16em. 9px is
+            below --text-micro (10px), the floor of the role scale, so 10px is
+            the mapping; the weight and tracking are the artifact's. */}
+        <p className="mb-0.5 mt-1 px-3 text-micro font-normal uppercase tracking-[0.16em] text-faint">
+          Collections
+        </p>
+        {/* #779 — through SidebarRow like every other row, rather than a bare
+            `<Link>`: neither of these has a chevron, but the reserved gutter
+            still applies (Dara's spec: Collections rows measure the SAME
+            icon/label offset as every other row type), so a bare link with
+            no gutter landed 6px left of where it should. */}
+        <SidebarRow depth={0} className="hover:bg-hover">
+          <Link href={`/w/${ws}/reviews`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+            <GlyphSlot><GitPullRequest className="h-3.5 w-3.5" /></GlyphSlot>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
+          </Link>
+        </SidebarRow>
+        <SidebarRow depth={0} className="hover:bg-hover">
+          <Link href={`/w/${ws}/packs`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+            <GlyphSlot><Package className="h-3.5 w-3.5" /></GlyphSlot>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
+          </Link>
+        </SidebarRow>
+        {/* #292 — separate from the shared Spaces tree below: it can't be
+            shared, moved into a folder, or deleted like a space can. */}
+        <PersonalSection ws={ws} />
+        {/* #641 — 72px of the void between the nav and the tree was Personal's
+            own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
+            bottom margin already separates the two sections. */}
+        <div className="mb-0.5 mt-0 flex items-center justify-between px-3">
+          <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
+          <div className="flex items-center gap-0.5">
+            <ViewsOnlyModeButton active={viewsOnly} onToggle={toggleViewsOnly} />
+            {canEdit && (
+              <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
+            )}
+            {(spaces.data ?? []).length > 0 && (
+              <Tooltip label="Collapse all">
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
+                  aria-label="Collapse all spaces"
+                  className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+                >
+                  <ChevronsDownUp className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
         </div>
         {/* #409/#412/#415 — the shared drag presentation: a portalled preview so
             the dragged row cannot paint over its neighbours, and announcements
             that name the space instead of reading out its uuid. */}
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={spaceCollisionStrategy}
           {...spaceDrag.contextProps}
         >
+          {/* #641 — a gap here (not padding on the header) separates one
+              space from the next: gap only applies BETWEEN siblings, so it
+              adds the breathing room a later space's header needs without
+              also padding out the void above the very FIRST space, the way
+              padding on every header would. */}
+          <div className="flex flex-col gap-2">
+          {/* #774 — groups get their OWN SortableContext, nested alongside the
+              spaces one rather than inside it: two independent id spaces
+              (group ids vs space ids) that never collide, so dnd-kit can
+              track "reorder among groups" and "reorder/reassign among
+              spaces" as two separate sortable lists sharing one DndContext. */}
+          <SortableContext items={sortedGroups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-            {visibleSpaces.map((space) => (
-              <SpaceSection
-                key={space.id}
-                ws={ws}
-                space={space}
-                databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
-                canEdit={canEdit}
-                isAdmin={isAdmin}
-              />
-            ))}
+            {sortedGroups.map((group) => {
+              // #742 finding 04/phase 5 — a group with no members yet still
+              // renders (header only): drag-and-drop reassignment needs a
+              // REAL drop target to move the first space into, and an empty
+              // group that's invisible until it already has a member is a
+              // target nobody can ever reach.
+              const members = spacesByGroup.get(group.id) ?? [];
+              return (
+                <div key={group.id} className="flex flex-col gap-1.5">
+                  <GroupDropZone groupId={group.id}>
+                    <GroupHeaderRow
+                      group={group}
+                      canEdit={canEdit}
+                      onRename={(name) => mutations.updateGroup.mutate({ id: group.id, name })}
+                      onDelete={() => mutations.deleteGroup.mutate(group.id)}
+                    />
+                  </GroupDropZone>
+                  <div className="flex flex-col gap-2">
+                    {members.map((space) => (
+                      <SpaceSection
+                        key={space.id}
+                        ws={ws}
+                        space={space}
+                        databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
+                        canEdit={canEdit}
+                        isAdmin={isAdmin}
+                        groups={sortedGroups}
+                        onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                        viewsOnly={viewsOnly}
+                        stickyTop={GROUP_BAND_H}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {/* #742 phase 5 — always a real drop target, even with zero
+                ungrouped spaces right now (e.g. everything already grouped):
+                dragging a space out of every group has to land somewhere. */}
+            <UngroupedDropZone>
+              {ungroupedSpaces.map((space) => (
+                <SpaceSection
+                  key={space.id}
+                  ws={ws}
+                  space={space}
+                  databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
+                  canEdit={canEdit}
+                  isAdmin={isAdmin}
+                  groups={sortedGroups}
+                  onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
+                  viewsOnly={viewsOnly}
+                />
+              ))}
+            </UngroupedDropZone>
           </SortableContext>
+          </SortableContext>
+          </div>
           <DragPreview>
             {spaceDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
-                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ?? ''}
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-meta font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
+                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ??
+                  sortedGroups.find((g) => g.id === spaceDrag.activeId)?.name ??
+                  ''}
               </div>
             )}
           </DragPreview>
@@ -272,7 +491,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         {canEdit && (
           <>
             <button
-              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover"
               onClick={() => setGalleryOpen(true)}
             >
               <LayoutTemplate className="h-3.5 w-3.5" /> From template
@@ -290,71 +509,338 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
         <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
+    </aside>
+      <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />
+    </div>
+  );
+}
 
-      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border-default p-2">
+/**
+ * #742 finding 13 — drag the right edge (220–460px), double-click to reset,
+ * arrow keys when focused. Deliberately simpler than record-detail's
+ * `ResizeHandle`: this sidebar isn't squeezing a measured sibling body, it
+ * sits beside the whole app's content area, so there's no container-width
+ * reservation math here — just the fixed [MIN, MAX] clamp.
+ */
+function SidebarResizeHandle({
+  width,
+  onResize,
+  onCommit,
+}: {
+  width: number;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) {
+  const drag = useRef<{ startX: number; startW: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // Keep the latest width in a ref so the window listeners (bound once) read
+  // the current value without re-subscribing on every resize.
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const s = drag.current;
+      if (!s) return;
+      onResize(clampSidebarNavWidth(s.startW + (e.clientX - s.startX)));
+    }
+    function onUp() {
+      if (!drag.current) return;
+      drag.current = null;
+      setDragging(false);
+      onCommit(widthRef.current);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [onResize, onCommit]);
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuemin={SIDEBAR_NAV_MIN_W}
+      aria-valuemax={SIDEBAR_NAV_MAX_W}
+      aria-valuenow={Math.round(width)}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        drag.current = { startX: e.clientX, startW: width };
+        setDragging(true);
+      }}
+      onDoubleClick={() => onCommit(SIDEBAR_NAV_DEFAULT_W)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          onCommit(clampSidebarNavWidth(width - SIDEBAR_NAV_STEP));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          onCommit(clampSidebarNavWidth(width + SIDEBAR_NAV_STEP));
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          onCommit(SIDEBAR_NAV_DEFAULT_W);
+        }
+      }}
+      className={cn(
+        'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch md:block',
+        '-mx-2 w-4 z-10',
+        dragging && 'select-none',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
+          dragging
+            ? 'bg-accent'
+            : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
+        )}
+      />
+    </div>
+  );
+}
+
+/**
+ * #570 — the account/admin block (Settings & members, Integrations,
+ * Connections, Webhooks, API tokens, Keyboard shortcuts, Sign out) behind one
+ * icon in the header row, next to the workspace switcher. Previously a
+ * permanent 7-row block between the Spaces tree and the bottom of the
+ * sidebar; every item here is unchanged in reachability (still one click,
+ * just via a menu instead of a fixed row) — #396's "always visible" reasoning
+ * for Keyboard shortcuts was about discovery-to-effort ratio for a NEW user,
+ * which a `?`-hinted menu item preserves well enough, and #570 explicitly
+ * prioritizes the Spaces tree's room over that for every returning user.
+ */
+function AccountMenu({
+  ws,
+  isAdmin,
+  canEdit,
+  onSignOut,
+}: {
+  ws: string;
+  isAdmin: boolean;
+  canEdit: boolean;
+  onSignOut: () => void | Promise<void>;
+}) {
+  return (
+    <DropdownMenu>
+      <Tooltip label="Settings" side="right">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Settings & account"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+          >
+            <Settings className="h-[17px] w-[17px]" />
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="start" side="right" className="w-52">
         {isAdmin && (
           <>
-            <Link
-              href={`/w/${ws}/settings/members`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Settings className="h-3.5 w-3.5" /> Settings & members
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/integrations`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Plug className="h-3.5 w-3.5" /> Integrations
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/connections`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Cable className="h-3.5 w-3.5" /> Connections
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/webhooks`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Webhook className="h-3.5 w-3.5" /> Webhooks
-            </Link>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/members`}>
+                <Settings className="h-3.5 w-3.5" /> Settings & members
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/integrations`}>
+                <Plug className="h-3.5 w-3.5" /> Integrations
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/connections`}>
+                <Cable className="h-3.5 w-3.5" /> Connections
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/webhooks`}>
+                <Webhook className="h-3.5 w-3.5" /> Webhooks
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
           </>
         )}
         {canEdit && (
-          <Link
-            href={`/w/${ws}/settings/api`}
-            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <KeyRound className="h-3.5 w-3.5" /> API tokens
-          </Link>
+          <DropdownMenuItem asChild>
+            <Link href={`/w/${ws}/settings/api`}>
+              <KeyRound className="h-3.5 w-3.5" /> API tokens
+            </Link>
+          </DropdownMenuItem>
         )}
-        {/*
-          #396 — the persistent way in.
-
-          Of the options the ticket lists this is the highest ratio of discovery
-          to effort: always visible, costs one row, and sits where people already
-          look for meta controls. Explicitly NOT a one-time tour or a
-          coach-mark — those fire once, at the moment a new user has the least
-          room to absorb anything, and get dismissed.
-        */}
-        <button
-          type="button"
-          onClick={openShortcuts}
-          className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-        >
+        <DropdownMenuItem onSelect={openShortcuts}>
           <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
-          <span className="ml-auto text-[10px] text-faint">?</span>
-        </button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="justify-start"
-          onClick={() => void signOut()}
-        >
-          Sign out
-        </Button>
-      </div>
-    </aside>
+          <span className="ml-auto text-micro text-muted">?</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void onSignOut()}>Sign out</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * #742 phase 6 — the rail: StoryOS's own surfaces, fixed at 52px and five
+ * items regardless of how many spaces a workspace has ("neither axis can
+ * crowd the other out" — the artifact's own load-bearing rule, ticket #742
+ * comment 2026-09-28T15:36:13Z). Icon-only with a native `title` tooltip on
+ * every button — the artifact's own cost note is explicit that icon-only nav
+ * is learned wrong without one, so this isn't optional polish.
+ */
+function SidebarRail({
+  ws,
+  workspaceName,
+  isAdmin,
+  canEdit,
+  onSignOut,
+  unreadCount,
+  onOpenInbox,
+}: {
+  ws: string;
+  workspaceName?: string;
+  isAdmin: boolean;
+  canEdit: boolean;
+  onSignOut: () => void | Promise<void>;
+  unreadCount: number;
+  onOpenInbox: () => void;
+}) {
+  const pathname = usePathname();
+  const isHome = pathname === `/w/${ws}`;
+  const isMyWork = pathname === `/w/${ws}/me`;
+  const isRuns = pathname === `/w/${ws}/runs` || pathname?.startsWith(`/w/${ws}/runs/`);
+
+  return (
+    <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border-default bg-hover/40 py-2">
+      <RailWorkspaceButton ws={ws} name={workspaceName} />
+      <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
+      <RailLink href={`/w/${ws}`} title="Home" active={isHome}>
+        <Home className="h-[17px] w-[17px]" />
+      </RailLink>
+      {/* #742 phase 6 — a real count only for Inbox (useUnreadCount already
+          exists). My Work has no count endpoint yet — /my-work paginates —
+          so it gets no badge rather than a guessed one; see Tyron's own
+          "never guess numbers" rule for why a confident wrong count is worse
+          than none. */}
+      <RailButton title="Inbox" onClick={onOpenInbox} badge={unreadCount > 0 ? (unreadCount > 99 ? '99+' : String(unreadCount)) : undefined}>
+        <Inbox className="h-[17px] w-[17px]" />
+      </RailButton>
+      <RailLink href={`/w/${ws}/me`} title="My Work" active={isMyWork}>
+        <UserRound className="h-[17px] w-[17px]" />
+      </RailLink>
+      <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
+      <RailLink href={`/w/${ws}/runs`} title="Runs" active={isRuns}>
+        <Activity className="h-[17px] w-[17px]" />
+      </RailLink>
+      <div className="flex-1" />
+      <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
+    </div>
+  );
+}
+
+function RailLink({
+  href,
+  title,
+  active,
+  children,
+}: {
+  href: string;
+  title: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip label={title} side="right">
+      <Link
+        href={href}
+        aria-label={title}
+        className={cn(
+          'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink',
+          active && 'bg-active text-ink',
+        )}
+      >
+        {children}
+      </Link>
+    </Tooltip>
+  );
+}
+
+function RailButton({
+  title,
+  onClick,
+  badge,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  badge?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip label={title} side="right">
+      <button
+        type="button"
+        aria-label={title}
+        onClick={onClick}
+        className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+      >
+        {children}
+        {badge && (
+          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
+            {badge}
+          </span>
+        )}
+      </button>
+    </Tooltip>
+  );
+}
+
+/** #742 phase 6 — the rail's own workspace avatar/switcher; shares the same
+ * ['workspaces'] query as the panel header's `WorkspaceSwitcher` (react-query
+ * dedupes identical keys, so this is one network call, not two). The panel
+ * header keeps its own full switcher too — the artifact's decision was to
+ * keep BOTH, not have the rail avatar replace it. */
+function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+  const router = useRouter();
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces');
+      if (error) throw error;
+      return data as unknown as Array<{ id: string; name: string }>;
+    },
+  });
+
+  return (
+    <DropdownMenu>
+      <Tooltip label="Switch workspace" side="right">
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label="Switch workspace"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90"
+          >
+            {name?.[0]?.toUpperCase() ?? 'S'}
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="w-52">
+        {(workspaces.data ?? []).map((w) => (
+          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
+            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
+          <Plus className="h-3.5 w-3.5" /> New workspace
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -374,10 +860,10 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-bold text-[var(--text-on-dark)]">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-meta font-bold text-[var(--text-on-dark)]">
             {currentName?.[0]?.toUpperCase() ?? 'S'}
           </div>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -386,7 +872,7 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
       <DropdownMenuContent align="start" className="w-52">
         {(workspaces.data ?? []).map((w) => (
           <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 truncate">{w.name}</span>
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
             {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
           </DropdownMenuItem>
         ))}
@@ -416,10 +902,18 @@ function HiddenSection({
     <div className="mt-2 border-t border-border-default pt-2">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint hover:text-muted"
+        className="flex w-full items-center gap-1 px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary"
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
-        Hidden <span className="ml-0.5 font-normal normal-case text-faint">{count}</span>
+        Hidden{' '}
+        {/* #665 — the COUNT stays faint on purpose, and so do the two other
+            counts in this file (a space's database count, a folder's content
+            count). #326's rule is that faint is for genuinely decorative text;
+            a number beside a label you can already read is the textbook case.
+            The label moved to muted because it is a button; the count did not,
+            because raising it would flatten the pair into one weight and lose
+            the label-then-count reading. Not an oversight — do not "finish" it. */}
+        <span className="ml-0.5 font-normal normal-case text-faint">{count}</span>
       </button>
       {open && (
         <div className="flex flex-col gap-0.5">
@@ -447,61 +941,27 @@ function HiddenRow({
   onUnhide: () => void;
 }) {
   return (
-    <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-[13px] text-muted">
-      <span className="flex min-w-0 items-center gap-2 truncate">
-        <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
-        <span className="truncate">{name}</span>
+    <div className="group/h mx-1.5 flex h-6 items-center justify-between rounded px-2 text-body text-muted">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+        {/* the chevron column every SidebarRow reserves, empty here — without it
+            these rows' icons sat 20px left of everything else */}
+        <span aria-hidden className="-mr-0 block w-3 shrink-0" />
+        <GlyphSlot>
+          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+        </GlyphSlot>
+        <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
-      <button
-        onClick={onUnhide}
-        title="Show in my sidebar"
-        className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted group-hover/h:opacity-100"
-      >
-        <Eye className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip label="Unhide">
+        <button
+          onClick={onUnhide}
+          aria-label="Show in my sidebar"
+          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted focus-visible:opacity-100 group-hover/h:opacity-100"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </div>
   );
-}
-
-/**
- * #382 — per-database expand state, reusing the SAME localStorage shape spaces
- * and folders already use (`storyos:space-collapsed:`,
- * `storyos:folder-collapsed:`). A third mechanism here would be the same drift
- * #380 documents for indentation.
- *
- * ONE difference, and it is the point of the ticket: the DEFAULT flips. Spaces
- * and folders default to expanded; a database defaults to COLLAPSED. So the
- * stored value means "this one is open" and absence means closed — which is why
- * the key is `-expanded:` rather than `-collapsed:`. Reusing the word
- * "collapsed" with an inverted meaning would be worse than a new key: every
- * future reader would have to remember which way this one runs.
- *
- * Per-device, matching spaces and folders. The founder asked for state to
- * survive reopening app.storyos.dev, which localStorage satisfies for the same
- * browser. Following the person across devices would mean putting it on the user
- * record — a deliberate decision recorded on #382, and not what the existing
- * two do.
- */
-function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
-  const key = `storyos:database-expanded:${databaseId}`;
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (typeof window !== 'undefined') setExpanded(window.localStorage.getItem(key) === '1');
-  }, [key]);
-  const toggle = () =>
-    setExpanded((e) => {
-      const next = !e;
-      if (typeof window !== 'undefined') {
-        // Absence means collapsed, so closing REMOVES the key rather than
-        // writing '0'. Otherwise every database ever opened leaves a row behind
-        // forever, including deleted ones (#382 asks that keys not accumulate).
-        if (next) window.localStorage.setItem(key, '1');
-        else window.localStorage.removeItem(key);
-      }
-      return next;
-    });
-  // You should always be able to see where you are, whatever was stored.
-  return { expanded: expanded || forceOpen, toggle };
 }
 
 /**
@@ -514,7 +974,94 @@ function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
 function RootDropZone({ spaceId, children }: { spaceId: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: `root:${spaceId}` });
   return (
-    <div ref={setNodeRef} className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}>
+    <div
+      ref={setNodeRef}
+      // #641 — every root database in the space shares this ONE wrapper, so
+      // the gap-0.5 on the SpaceSection's outer flex-col (siblings: folders,
+      // this block, space-level views, docs) never reached the rows INSIDE
+      // it. This is the div actually stacking Members/Agents/Runs etc., so
+      // the fix belongs here.
+      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * #742 phase 5 — a group's HEADER (not the members below it — those render in
+ * a sibling div back in `Sidebar()`) is a real drop target for reassigning a
+ * space's group, the same container-drop shape `RootDropZone`/a folder
+ * already use one level down: dropping a space here resolves to "join this
+ * group" once the container-preferring collision strategy picks it.
+ *
+ * #774 — ALSO a sortable row now, for reordering groups relative to each
+ * other. Two ids share this one element: `group:<id>` (the droppable above,
+ * for a SPACE joining it) and the sortable's own bare `<id>` (for GROUP
+ * reordering) — `spaceCollisionStrategy` picks between them by checking what
+ * is actually being dragged, so the two never fight over the same drop.
+ * `useSortable` already returns a combined draggable+droppable node; the
+ * plain `useDroppable` above is a SECOND, independent registration on the
+ * same DOM node (a supported dnd-kit pattern — see e.g. their own
+ * multi-container examples, where a column is both sortable-among-columns
+ * and droppable-for-cards), so both refs are set together below.
+ */
+function GroupDropZone({ groupId, children }: { groupId: string; children: React.ReactNode }) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `group:${groupId}` });
+  const { attributes, listeners, setNodeRef: setSortRef, transform, transition } = useSortable({ id: groupId });
+  return (
+    <SidebarRow
+      depth={0}
+      ref={(node) => {
+        setDropRef(node);
+        setSortRef(node);
+      }}
+      // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
+      // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
+      // rows deep you still read which group you're in" is the artifact's own
+      // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
+      // is the exact height a SpaceSection's own sticky header offsets against.
+      // #774 — also carries the sortable's own transform/transition, so a
+      // group-reorder drag still moves this element; sticky positioning only
+      // matters while NOT dragging (transform is `none` then), and mid-drag a
+      // portalled DragPreview represents it instead.
+      //
+      // #779 — this row now goes through `SidebarRow` too: it previously
+      // reserved no gutter at all (its `LetterMark` sat directly at `px-2`),
+      // which is a NARROWER version of the same bug the space header had —
+      // draggable, no caret, so the gutter shows the same hover-grip
+      // `DatabaseRow` already uses for a plain (non-expandable) reorderable
+      // row; there is no group-collapse feature to put in `caret` here.
+      style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-sidebar active:cursor-grabbing',
+        isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
+      )}
+      draggable
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </SidebarRow>
+  );
+}
+
+/** #742 phase 6 — the group band's fixed height, shared by `GroupDropZone`
+ * (which sticks at top:0) and every `SpaceSection` header inside a group
+ * (which stick at top:GROUP_BAND_H, right below it) — a magic-number
+ * mismatch between the two would either leave a gap or overlap. */
+const GROUP_BAND_H = 26;
+
+/** #742 phase 5 — the ungrouped list's own drop target, so dragging a space
+ *  out of every group has somewhere to land even when the list is currently
+ *  empty (everything already grouped) and there's no sibling row to drop near. */
+function UngroupedDropZone({ children }: { children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'ungrouped' });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
       {children}
     </div>
   );
@@ -531,12 +1078,25 @@ function SpaceSection({
   databases,
   canEdit,
   isAdmin,
+  groups,
+  onMoveToGroup,
+  viewsOnly,
+  stickyTop = 0,
 }: {
   ws: string;
   space: Space;
   databases: DatabaseSummary[];
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 04 — the workspace's groups, for the "Move to group" menu. */
+  groups?: SpaceGroup[];
+  onMoveToGroup?: (groupId: string | null) => void;
+  /** #742 finding 05 — hide every database row, keep their views. */
+  viewsOnly?: boolean;
+  /** #742 phase 6 — where this space's own sticky header pins: 0 for an
+   * ungrouped space (nothing sticks above it), `GROUP_BAND_H` for a space
+   * inside a group (stacks right below that group's own sticky band). */
+  stickyTop?: number;
 }) {
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
@@ -1029,6 +1589,23 @@ function SpaceSection({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
     onError: () => toast.error('Could not delete document'),
   });
+  /** #293 — "Copy to My Space": fork a shared document into an independent
+   * personal copy, never sync'd back. Invalidates the PERSONAL docs list
+   * (personal-section.tsx's `['space-docs', ws, <personal space id>]`), not
+   * this space's own — the copy lands there, not here. */
+  const copyDocToPersonal = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal', {
+        params: { path: { ws, doc: id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['space-docs', ws] });
+      toast.success('Copied to My Space');
+    },
+    onError: () => toast.error('Could not copy document'),
+  });
 
   // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -1049,11 +1626,7 @@ function SpaceSection({
   const itemDrag = useDragPresentation(itemLabel, { onDragEnd: onSpaceDragEnd });
 
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="mb-1"
-    >
+    <div className="mb-1">
       {/*
        * #322: the drag was wired here all along but had NO affordance — computed
        * cursor was `auto`, no grip, nothing in the context menu — so the founder
@@ -1065,16 +1638,60 @@ function SpaceSection({
        * the grip is only a hint. That file's comment records why — a 12px
        * opacity-0 grip "was too hard to grab, so reorder felt broken".
        * The PointerSensor's `distance: 6` keeps a plain click navigating.
+       *
+       * #779 — this row now goes THROUGH `SidebarRow` instead of being its own
+       * bespoke flex row. It never was: it kept its own grip, its own chevron
+       * as a sibling of the icon rather than inside the reserved gutter, and
+       * its own manual padding, entirely outside sidebar-row.tsx's mechanism —
+       * exactly the failure #380's own comment predicts for a component that
+       * bypasses it (measured live: the child DATABASE row, which DOES go
+       * through SidebarRow, landed 2px LEFT of this space header's icon,
+       * instead of 20px right, because this row was reserving a grip AND a
+       * chevron side by side where SidebarRow reserves exactly one).
        */}
-      <div
-        className="group flex cursor-grab touch-none items-center justify-between px-2 py-1 active:cursor-grabbing"
+      <SidebarRow
+        depth={0}
+        edge="header"
+        ref={setNodeRef}
+        // #641 — was py-1 (4/4); the inter-space breathing room now comes
+        // from the space-list's own gap-2 (added between siblings only, so
+        // it doesn't also pad out the void above the FIRST space). This stays
+        // small and close to its label rather than double-counting that gap.
+        //
+        // #742 phase 6 — sticky and opaque (bg-sidebar), pinned right below
+        // this space's own group band (stickyTop is 0 or GROUP_BAND_H — see
+        // the SpaceSection prop doc) so at real scale (52 nodes) you still
+        // read which space you're in. z-20, under the group band's z-30 so
+        // the two stack instead of one painting over the other.
+        style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
+        className="group sticky z-20 h-6 cursor-grab touch-none bg-sidebar active:cursor-grabbing"
+        draggable
         {...attributes}
         {...listeners}
+        /* #449 — the caret is a SEPARATE control from the link: clicking the
+           row name must still open it, expanding is a different intent and
+           gets its own hit target. Falls back to SidebarRow's own grip
+           (draggable, no caret) while renaming, since there's nothing to
+           collapse-toggle in that state. */
+        caret={
+          renaming ? undefined : (
+            <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
+              <button
+                type="button"
+                className="text-faint hover:text-muted"
+                onClick={toggleCollapsed}
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
+                aria-expanded={!collapsed}
+              >
+                <ChevronRight
+                  className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
+                />
+              </button>
+            </Tooltip>
+          )
+        }
       >
-        <GripVertical
-          className="-ml-1.5 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden
-        />
         {renaming ? (
           <RenameInline
             initial={space.name}
@@ -1084,30 +1701,47 @@ function SpaceSection({
             }}
           />
         ) : (
-          <button
-            className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-faint hover:text-muted"
-            onClick={toggleCollapsed}
+          <Link
+            href={`/w/${ws}/s/${space.id}`}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.09em] text-muted hover:text-ink-secondary"
             onPointerDown={(e) => e.stopPropagation()}
-            title={collapsed ? 'Expand' : 'Collapse'}
           >
-            <ChevronRight
-              className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
-            />
-            {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
-            <span className="truncate">{space.name}</span>
-            {collapsed && databases.length > 0 && (
-              <span className="ml-1 text-faint/70">{databases.length}</span>
+            {space.icon ? (
+              <GlyphSlot>
+                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
+              </GlyphSlot>
+            ) : (
+              /* #742 finding 08 — glyph vocabulary: a space with no custom
+                 icon gets a coloured letter mark, same primitive Groups
+                 already use, rather than rendering nothing at all. A
+                 space WITH a custom icon keeps it — this never overrides
+                 a deliberate choice. */
+              <LetterMark name={space.name} color={space.color} />
             )}
-          </button>
+            <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
+          </Link>
+        )}
+        {/* #805 AC6 — the artifact's database count on the space header, shown
+            open or shut (it was shut-only), and swapped for the actions on hover
+            exactly as the artifact does. Source: `databases.length`, the space's
+            full database list from useDatabases(ws) — that endpoint is not
+            paginated, so this is the real number, not a count of loaded rows
+            (the #755 lie). */}
+        {!renaming && databases.length > 0 && (
+          <span className="shrink-0 text-micro font-semibold tabular-nums text-faint group-focus-within:hidden group-hover:hidden">
+            {databases.length}
+          </span>
         )}
         {canEdit && (
-          <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <span className="hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="rounded p-0.5 text-muted hover:bg-active" title="Add">
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip label="Add">
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Add to ${space.name}`}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem onSelect={() => setNewDbFolder(null)}>
                   <Database className="mr-2 h-3.5 w-3.5" /> New database
@@ -1160,11 +1794,13 @@ function SpaceSection({
               />
             </Dialog>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="rounded p-0.5 text-muted hover:bg-active">
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip label="Options">
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Options for ${space.name}`}>
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setDescribing(true)}>
@@ -1173,6 +1809,31 @@ function SpaceSection({
                 <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
+                )}
+                {/* #742 finding 04 — presentational only: reassigning a space's
+                    group changes where it renders, never what it grants. */}
+                {groups && groups.length > 0 && onMoveToGroup && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1 text-meta font-semibold uppercase tracking-wider text-faint">
+                      Move to group
+                    </div>
+                    {groups.map((g) => (
+                      <DropdownMenuItem
+                        key={g.id}
+                        disabled={space.groupId === g.id}
+                        onSelect={() => onMoveToGroup(g.id)}
+                      >
+                        <LetterMark name={g.name} color={g.color} className="mr-2" />
+                        {g.name}
+                      </DropdownMenuItem>
+                    ))}
+                    {space.groupId && (
+                      <DropdownMenuItem onSelect={() => onMoveToGroup(null)}>
+                        Remove from group
+                      </DropdownMenuItem>
+                    )}
+                  </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => hide('space', space.id)}>
@@ -1199,10 +1860,18 @@ function SpaceSection({
                         count > 0
                           ? {
                               title: `Delete "${space.name}" and everything in it?`,
+                              // #618 — was "The trash cannot recover any of
+                              // it", written before #37 shipped restore for
+                              // spaces/databases. An admin CAN bring this
+                              // back (Settings → Trash) within the same
+                              // 30-day window every other trash already
+                              // promises — verified live: restoring the
+                              // space cascades every database in it back too.
                               message:
-                                `This permanently deletes ${count} database${count === 1 ? '' : 's'} ` +
+                                `This deletes ${count} database${count === 1 ? '' : 's'} ` +
                                 `(${databases.map((d) => d.name).join(', ')}) and every record in them. ` +
-                                `The trash cannot recover any of it.`,
+                                `A workspace admin can restore the space (and everything in it) from ` +
+                                `Settings → Trash for 30 days.`,
                               confirmLabel: 'Delete space',
                               danger: true,
                               // Typed name, matching what delete_database already
@@ -1211,7 +1880,10 @@ function SpaceSection({
                             }
                           : {
                               title: `Delete "${space.name}"?`,
-                              message: 'This space is empty. Deleting it cannot be undone.',
+                              // #618 — same correction: an empty space is
+                              // still soft-deleted, not destroyed outright.
+                              message:
+                                'This space is empty. A workspace admin can restore it from Settings → Trash for 30 days.',
                               confirmLabel: 'Delete space',
                               danger: true,
                             },
@@ -1230,7 +1902,7 @@ function SpaceSection({
             </DropdownMenu>
           </span>
         )}
-      </div>
+      </SidebarRow>
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
       </Dialog>
@@ -1260,10 +1932,17 @@ function SpaceSection({
       </Dialog>
 
       {!collapsed && (
-        /* #369 — ONE context for the whole space. Two sibling contexts (root
+        /* #641 — a bare stack of rows here has ZERO gap between them (no
+           flex-col wrapper existed), so pitch collapsed to exactly the row
+           height: 25.5px, tighter than the top nav's own ~27.5px pitch. A
+           nested row must never be denser than its parent, so this wrapper
+           adds the SAME gap-0.5 the nav uses, matching its pitch instead of
+           undercutting it. */
+        <div className="flex flex-col gap-0.5">
+        {/* #369 — ONE context for the whole space. Two sibling contexts (root
            databases, and one per folder) is why nothing could be dragged BETWEEN
            containers: dnd-kit cannot see across contexts, so a folder in another
-           one was never a drop target. */
+           one was never a drop target. */}
         <DndContext
           sensors={dbSensors}
           collisionDetection={collisionStrategy}
@@ -1285,6 +1964,7 @@ function SpaceSection({
               onMoveDoc={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
               onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
               onDeleteDoc={(id) => deleteDoc.mutate(id)}
+              onCopyDocToPersonal={(id) => copyDocToPersonal.mutate(id)}
               onRenameView={onRenameView}
               onDeleteView={onDeleteView}
               onRenameFolder={onRenameFolder}
@@ -1298,6 +1978,7 @@ function SpaceSection({
               pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
+              viewsOnly={viewsOnly}
             />
           ))}
           {(() => {
@@ -1320,6 +2001,7 @@ function SpaceSection({
                       onDeleteView={onDeleteView}
                       canEdit={canEdit}
                       isAdmin={isAdmin}
+                      viewsOnly={viewsOnly}
                     />
                   ))}
                 </SortableContext>
@@ -1343,9 +2025,10 @@ function SpaceSection({
                 onRename={onRenameView}
                 onDelete={onDeleteView}
                 canEdit={canEdit}
-                /* #380 — a space-level dashboard is a SIBLING of the databases,
-                   so it shares their left edge. It used to render LEFT of them. */
-                depth={1}
+                /* #380/#742 — a space-level dashboard is a SIBLING of the
+                   databases, so it shares their left edge — depth 0 under the
+                   new zero-indent model, same as every other space-root row. */
+                depth={0}
               />
             ))}
           {/* #368 — only the unfiled ones here; a document in a folder renders
@@ -1360,17 +2043,19 @@ function SpaceSection({
               onMove={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
               onRename={(id, title) => renameDoc.mutate({ id, title })}
               onDelete={(id) => deleteDoc.mutate(id)}
+              onCopyToPersonal={(id) => copyDocToPersonal.mutate(id)}
               setDialog={setDialog}
             />
           ))}
           <DragPreview>
             {itemDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[13px] text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-body text-ink shadow-[var(--shadow-lifted)]">
                 {itemLabel(itemDrag.activeId) ?? ''}
               </div>
             )}
           </DragPreview>
         </DndContext>
+        </div>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
@@ -1395,8 +2080,12 @@ function DocumentRow({
   onMove,
   onRename,
   onDelete,
+  onCopyToPersonal,
   setDialog,
-  depth = 1,
+  // #742 — a space-root document is depth 0 now; a folder-nested one relies
+  // on the folder body's own wrapper for the one real step, same reasoning
+  // as DatabaseRow's default above.
+  depth = 0,
   canEdit = true,
 }: {
   ws: string;
@@ -1406,6 +2095,7 @@ function DocumentRow({
   onMove: (id: string, folderId: string | null) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onCopyToPersonal: (id: string) => void;
   setDialog: (d: DialogState) => void;
   depth?: SidebarDepth;
   canEdit?: boolean;
@@ -1430,8 +2120,10 @@ function DocumentRow({
       dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
     >
       <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-        <span className="truncate">{doc.title || 'Untitled'}</span>
+        <GlyphSlot>
+          <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+        </GlyphSlot>
+        <span className="overflow-hidden whitespace-nowrap">{doc.title || 'Untitled'}</span>
       </Link>
       {/*
         #389 — the document row moves onto the shared menu too.
@@ -1476,6 +2168,14 @@ function DocumentRow({
               ]
             : []),
           {
+            // #293 — "Copy to My Space": fork this shared document into an
+            // independent personal copy, never sync'd back. #524 convention:
+            // fires immediately, no dialog, no name prompt — same as Duplicate.
+            label: 'Copy to My Space',
+            separatorBefore: true,
+            onSelect: () => onCopyToPersonal(doc.id),
+          },
+          {
             label: 'Delete',
             danger: true,
             separatorBefore: true,
@@ -1519,16 +2219,16 @@ function PromptDialog({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirm();
               }}
-              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none focus:border-border-strong"
+              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none focus:border-border-strong"
             />
           )}
           <div className="flex justify-end gap-2">
-            <button className="rounded-[var(--radius-control)] px-3 py-1 text-[13px] text-muted hover:bg-hover" onClick={onClose}>
+            <button className="rounded-[var(--radius-control)] px-3 py-1 text-body text-muted hover:bg-hover" onClick={onClose}>
               Cancel
             </button>
             <button
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-1 text-[13px] font-medium text-white',
+                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium text-white',
                 state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
               )}
               onClick={confirm}
@@ -1561,6 +2261,7 @@ function FolderSection({
   onMoveDoc,
   onRenameDoc,
   onDeleteDoc,
+  onCopyDocToPersonal,
   onRenameView,
   onDeleteView,
   onRenameFolder,
@@ -1572,6 +2273,7 @@ function FolderSection({
   pathname,
   canEdit,
   isAdmin,
+  viewsOnly,
 }: {
   ws: string;
   folder: FolderInfo;
@@ -1586,6 +2288,7 @@ function FolderSection({
   onMoveDoc: (id: string, folderId: string | null) => void;
   onRenameDoc: (id: string, title: string) => void;
   onDeleteDoc: (id: string) => void;
+  onCopyDocToPersonal: (id: string) => void;
   /** #383 — view rows in a folder get the same menu as those outside one. */
   onRenameView: (view: SidebarView) => void;
   onDeleteView: (view: SidebarView) => void;
@@ -1601,6 +2304,9 @@ function FolderSection({
   pathname: string;
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 05 — hide this folder's database rows; their views (below,
+   *  unchanged) still render. */
+  viewsOnly?: boolean;
 }) {
   /**
    * #369 — the whole folder is the drop target, header included, so it accepts a
@@ -1629,9 +2335,11 @@ function FolderSection({
       ref={setDropRef}
       className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
     >
-      {/* #380 — a folder sits on the SAME left edge as the databases beside it
-          (founder's spec: "folders, dashboards — the same padding left as
-          databases"), so it goes through the shared row at depth 1. */}
+      {/* #380/#742 — a folder sits on the SAME left edge as the databases
+          beside it (founder's spec: "folders, dashboards — the same padding
+          left as databases"), so it goes through the shared row at depth 0
+          under the new zero-indent model — the folder's OWN body wrapper is
+          what supplies the one real step for its children, not this row. */}
       {/* #383 — the header is a ROW, not a button.
           It used to be a single <button> wrapping everything, which is why it
           could never grow a menu: a <button> inside a <button> is invalid HTML
@@ -1639,34 +2347,34 @@ function FolderSection({
           the button and the menu is its sibling, so the folder gets the rename
           and delete every database row has had all along.
 
-          Geometry is unchanged: paddingLeft moved from the button to this row,
-          and the caret is still the first thing inside, so #380's measured
-          alignment holds. */}
-      <div
-        style={{ paddingLeft: SIDEBAR_INDENT_PX[1] }}
-        /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
-           an extra flex gap here put the folder icon 4px right of every other
-           depth-1 icon. The icon→label gap is applied on the inner span so it
-           matches the gap-2 the database/document rows use. */
-        className="group flex w-full items-center rounded py-[3px] pr-2 text-[13px] text-ink-secondary hover:bg-hover"
-      >
-        <button onClick={toggle} className="flex min-w-0 flex-1 items-center text-left">
-          {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
-              A database shows a drag grip there; a folder shows its disclosure
-              caret. Same 12px + 2px margin either way, so the icon and label line
-              up exactly with the databases beside it. Giving the folder both a
-              gutter and a caret pushed its label 17px right — measured, not
-              guessed. */}
-          <ChevronRight
-            className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
-          />
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-            <span className="truncate">{folder.name}</span>
-          </span>
+          #779 — this used to hand-replicate SidebarRow's gutter math (12px
+          chevron + 2px margin) with a comment claiming it was "measured, not
+          guessed." Re-measured live for this ticket: it WAS correct — but a
+          second component whose alignment rests on a comment matching a
+          constant it never references is the same risk one level down as
+          the space header's bug, just not yet triggered. Migrated onto
+          SidebarRow itself so the match is structural, not by agreement. */}
+      <SidebarRow depth={0} className="text-ink-secondary hover:bg-hover" caret={
+        <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+            aria-expanded={!collapsed}
+            className="text-faint hover:text-muted"
+          >
+            <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+          </button>
+        </Tooltip>
+      }>
+        <button onClick={toggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <GlyphSlot>
+            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-body" />
+          </GlyphSlot>
+          <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
         {contentCount > 0 && (
-          <span className="ml-1 shrink-0 text-[11px] text-faint">{contentCount}</span>
+          <span className="ml-1 shrink-0 text-meta text-faint">{contentCount}</span>
         )}
         {canEdit && (
           <SidebarRowMenu
@@ -1727,10 +2435,18 @@ function FolderSection({
             ]}
           />
         )}
-      </div>
+      </SidebarRow>
       {!collapsed && (
-        /* #380 — same guide line, same offset as a database's nested views. */
-        <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+        /* #380 — same guide line, same offset as a database's nested views.
+           #641 — gap-0.5 added: same zero-gap-between-rows issue as the
+           space's own root list, fixed the same way. */
+        <div
+          // #805 — the guide line is a pseudo-element, not `border-l`: a real
+          // border took 1px of layout and pushed every folder child 1px right
+          // of the artifact's columns (35/55/79 instead of 34/54/78).
+          className="relative flex flex-col gap-0.5 before:pointer-events-none before:absolute before:inset-y-px before:left-px before:w-px before:bg-border-default"
+          style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}
+        >
           {contentCount === 0 && (
             /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
                alone is a few pixels of hit area, so dropping into a new folder
@@ -1742,20 +2458,20 @@ function FolderSection({
                that with no way forward, and dragging is not a way forward if you
                have nothing to drag yet. */
             <div className="flex flex-col items-center gap-1.5 px-2 py-3 text-center">
-              <p className="text-[12px] text-faint">Empty — drop something here</p>
+              <p className="text-label text-muted">Empty — drop something here</p>
               {canEdit && (
                 <div className="flex flex-wrap items-center justify-center gap-1">
                   <button
                     type="button"
                     onClick={() => onNewDatabase(folder.id)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Database
                   </button>
                   <button
                     type="button"
                     onClick={() => onNewDocument(folder.id)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
                   >
                     <Plus className="h-3 w-3" /> Document
                   </button>
@@ -1764,21 +2480,24 @@ function FolderSection({
             </div>
           )}
           {/* #369 — no nested DndContext: the space owns the one context now. */}
-          <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
-              {databases.map((db) => (
-                <DatabaseRow
-                  key={db.id}
-                  ws={ws}
-                  db={db}
-                  active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                  canEdit={canEdit}
-                  isAdmin={isAdmin}
-                  folders={folders}
-                  onMove={onMove}
-                  reorderable={canEdit}
-                />
-              ))}
-          </SortableContext>
+          {/* #742 finding 05 — views-only mode hides these rows; their views
+              (below) render regardless, unaffected by the toggle. */}
+          {!viewsOnly && (
+            <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+                {databases.map((db) => (
+                  <DatabaseRow
+                    key={db.id}
+                    ws={ws}
+                    db={db}
+                    active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                    isAdmin={isAdmin}
+                    folders={folders}
+                    onMove={onMove}
+                    reorderable={canEdit}
+                  />
+                ))}
+            </SortableContext>
+          )}
           {views.map((v) => (
             <SidebarViewRow
               key={v.id}
@@ -1790,12 +2509,11 @@ function FolderSection({
               onRename={onRenameView}
               onDelete={onDeleteView}
               canEdit={canEdit}
-              /* #380/#368 — a FOLDER already supplies the nesting offset, so its
-                 children are all depth 1 relative to it. Left at the default 2 a
-                 view sat 16px right of the databases and documents in the same
-                 folder — the same class of misalignment #380 exists to end,
-                 introduced by adding a second row type to this list. */
-              depth={1}
+              /* #380/#368/#742 — the folder BODY wrapper (below) now supplies
+                 the one real indent step itself (SIDEBAR_INDENT_PX[1]), so a
+                 row inside it stays depth 0 — stacking another step here would
+                 double the folder's own indent. */
+              depth={0}
             />
           ))}
           {documents.map((d) => (
@@ -1808,6 +2526,7 @@ function FolderSection({
               onMove={onMoveDoc}
               onRename={onRenameDoc}
               onDelete={onDeleteDoc}
+              onCopyToPersonal={onCopyDocToPersonal}
               setDialog={setDialog}
             />
           ))}
@@ -1855,6 +2574,7 @@ function DatabaseBranch({
   onDeleteView,
   canEdit,
   isAdmin,
+  viewsOnly,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -1869,47 +2589,42 @@ function DatabaseBranch({
   onDeleteView: (view: SidebarView) => void;
   canEdit: boolean;
   isAdmin: boolean;
+  /** #742 finding 05 — hide the database's own row; its views (siblings
+   *  since finding 06) still render below, unaffected. */
+  viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
-  const { expanded, toggle } = useDatabaseExpanded(db.id, isHere);
-  // #382 — a caret only where there is something behind it. With #381 removing
-  // the default view, most databases have no children at all, which is what
-  // makes the sidebar compact rather than merely collapsible.
-  const hasChildren = views.length > 0;
 
   return (
     <Fragment>
-      <DatabaseRow
-        ws={ws}
-        db={db}
-        active={isHere}
-        canEdit={canEdit}
-        isAdmin={isAdmin}
-        folders={folders}
-        onMove={onMove}
-        reorderable={canEdit}
-        expandable={hasChildren}
-        expanded={expanded}
-        onToggle={toggle}
-      />
-      {hasChildren && expanded &&
-        views.map((v) => (
-          /* #380 — indent comes from SidebarRow's depth. This wrapper only draws
-             the guide line; it used to add ml-4 while a folder's children used
-             ml-3, so the two nesting levels disagreed by 4px. */
-          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
-            <SidebarViewRow
-              ws={ws}
-              view={v}
-              active={isHere && currentViewId === v.id}
-              folders={folders}
-              onMove={onMoveView}
-              onRename={onRenameView}
-              onDelete={onDeleteView}
-              canEdit={canEdit}
-            />
-          </div>
-        ))}
+      {!viewsOnly && (
+        <DatabaseRow
+          ws={ws}
+          db={db}
+          active={isHere}
+          isAdmin={isAdmin}
+          folders={folders}
+          onMove={onMove}
+          reorderable={canEdit}
+        />
+      )}
+      {/* #742 finding 06 — a database's own views render as FLAT SIBLINGS now,
+          not behind an expand/collapse caret. No leaf row has children in the
+          new model, so there is nothing left to expand: depth 0, same as the
+          database beside it, no guide line (that implied nesting). */}
+      {views.map((v) => (
+        <SidebarViewRow
+          key={v.id}
+          ws={ws}
+          view={v}
+          active={isHere && currentViewId === v.id}
+          folders={folders}
+          onMove={onMoveView}
+          onRename={onRenameView}
+          onDelete={onDeleteView}
+          canEdit={canEdit}
+        />
+      ))}
     </Fragment>
   );
 }
@@ -1918,7 +2633,6 @@ function DatabaseRow({
   ws,
   db,
   active,
-  canEdit,
   isAdmin,
   folders = [],
   onMove,
@@ -1926,11 +2640,17 @@ function DatabaseRow({
   expandable = false,
   expanded = false,
   onToggle,
+  // #742 — the OLD geometry hardcoded depth 1 here, because every database
+  // row (space-root or folder-nested) got the same single step and a folder
+  // added a second one on top. Under the new zero-indent model a space-root
+  // database is depth 0; a folder-nested one relies on the folder body's own
+  // wrapper for the one real step, so it ALSO passes 0 here rather than
+  // stacking a second indent on top of the folder's.
+  depth = 0,
 }: {
   ws: string;
   db: DatabaseSummary;
   active: boolean;
-  canEdit: boolean;
   isAdmin: boolean;
   folders?: FolderInfo[];
   onMove?: (dbId: string, folderId: string | null) => void;
@@ -1939,10 +2659,26 @@ function DatabaseRow({
   expandable?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
+  depth?: SidebarDepth;
 }) {
   const mutations = useSidebarMutations(ws);
+  const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /**
+   * #752 — every content-mutating item below (rename/duplicate/description/
+   * icon/import/sync/automations/move/delete) leads to a `PATCH`/`DELETE .../
+   * databases/:db` or a database-scoped write that the API refuses below
+   * `creator` on THIS database (`databases.controller.ts`'s `assertAccess`).
+   * The menu used to gate on workspace `role !== 'guest'` — a workspace member
+   * whose effective access on this particular database is only viewer through
+   * editor saw every item, opened the dialog, and was refused on save. `db`
+   * (the sidebar's own list row, `DatabaseSummary`) already carries `my_access`
+   * — the identical batched `AccessService` computation the database page's
+   * own `schemaEditable` reads from the detail query — so this reuses it
+   * rather than re-deriving a second copy of the ladder.
+   */
+  const schemaEditable = atLeast(db.my_access ?? undefined, 'creator');
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
   // #457 — see the note on the space row: a separate item, not folded into Rename.
@@ -1963,7 +2699,7 @@ function DatabaseRow({
 
   return (
     <SidebarRow
-      depth={1}
+      depth={depth}
       active={active}
       draggable={canDrag}
       ref={reorderable ? setNodeRef : undefined}
@@ -1994,19 +2730,21 @@ function DatabaseRow({
          database with children lines up with one without. */
       caret={
         expandable ? (
-          <button
-            type="button"
-            aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
-            aria-expanded={expanded}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onToggle?.();
-            }}
-            className="rounded text-faint hover:text-ink"
-          >
-            <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
-          </button>
+          <Tooltip label={expanded ? 'Collapse' : 'Expand'} side="right">
+            <button
+              type="button"
+              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle?.();
+              }}
+              className="rounded text-faint hover:text-ink"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+            </button>
+          </Tooltip>
         ) : undefined
       }
     >
@@ -2026,16 +2764,18 @@ function DatabaseRow({
               gets its own hit target. Rendered only when there is something to
               expand, which after #381 is the minority of databases. */}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-          <EntityIcon
-            icon={db.icon}
-            color={db.color}
-            fallback={<Database className="h-3.5 w-3.5 text-muted" />}
-          />
-          <span className="truncate">{db.name}</span>
+          <GlyphSlot>
+            <EntityIcon
+              icon={db.icon}
+              color={db.color}
+              fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+            />
+          </GlyphSlot>
+          <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
         </Link>
         </>
       )}
-      {canEdit && !renaming && (
+      {!renaming && (
         /*
          * #389 — through the SHARED menu now, not this row's own markup.
          *
@@ -2049,27 +2789,83 @@ function DatabaseRow({
          * to inherit what the older ones had, because the behaviour lived per
          * component. One definition means the next row type gets it by
          * construction.
+         *
+         * #752 — no longer gated on the workspace-level `canEdit` (role !==
+         * 'guest'): SidebarRowMenu itself renders nothing when every action is
+         * hidden ("an all-hidden menu renders nothing rather than an empty
+         * popover"), so per-item `hidden: !schemaEditable` below already
+         * collapses to the old behaviour for a plain viewer/commenter/
+         * contributor/editor on this database, and correctly OFFERS the menu
+         * to a guest who holds a database-scoped creator grant — a real,
+         * supported access shape this workspace-level boolean could never see.
+         *
+         * THE AUDIT (AC4) — every item below, the endpoint it leads to, and
+         * what that endpoint actually requires (apps/api, `assertAccess`
+         * unless noted):
+         *   Rename                  PATCH  .../databases/:db            creator (per-db)
+         *   Duplicate                POST  .../databases/:db/duplicate  creator (per-db, PacksService)
+         *   Edit/Add description    PATCH  .../databases/:db            creator (per-db)
+         *   Icon & color            PATCH  .../databases/:db            creator (per-db)
+         *   Import CSV…              POST  .../databases/:db/import     creator (per-db)
+         *   Sync from…          POST/PATCH/DELETE  .../sources[/:id]    creator (per-db)
+         *   Buttons & automations     CRUD  .../databases/:db/automations   creator (per-db)
+         *   Manage access             POST/DELETE  .../grants           admin (WORKSPACE-level, @MinRole) — already correct, unchanged
+         *   Move to …                PATCH  .../databases/:db (folder_id)  creator (per-db) — same PATCH as Rename
+         *   Hide from my sidebar     no API call — client-only localStorage — no gate needed
+         *   Relations / Trash        navigation only — the destination page has its own gate
+         *   Delete database        DELETE  .../databases/:db            creator (per-db)
+         * Every content-mutating item needs `creator` on THIS database; only
+         * "Manage access" needs workspace `admin` instead. Re-audit this list
+         * before adding a new item rather than assuming it also needs `creator`.
          */
         <SidebarRowMenu
           label={db.name}
           contentClassName="w-56"
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true) },
+            { label: 'Rename', onSelect: () => setRenaming(true), hidden: !schemaEditable },
+            {
+              // #524 — fires immediately, no dialog and no name prompt, matching
+              // the view/record duplicate precedent (view-tab.tsx) rather than
+              // the typed-confirm pattern below: this isn't destructive, so
+              // there's nothing to guard against.
+              label: 'Duplicate',
+              hidden: !schemaEditable,
+              onSelect: () =>
+                mutations.duplicateDatabase.mutate(
+                  { id: db.id },
+                  {
+                    onError: () => toast.error('Could not duplicate the database'),
+                    onSuccess: (result) => {
+                      for (const name of result.skipped_relations) {
+                        toast.info(`"${name}" was not carried over — it relates to a database outside this copy`);
+                      }
+                      for (const field of result.skipped_derived_fields) {
+                        toast.info(`"${field.name}" was not carried over — ${field.reason}`);
+                      }
+                      toast.success(`Duplicated as "${result.name}"`);
+                      router.push(`/w/${ws}/d/${result.id}`);
+                    },
+                  },
+                ),
+            },
             {
               label: db.description ? 'Edit description' : 'Add description',
+              hidden: !schemaEditable,
               onSelect: () => setDescribing(true),
             },
-            { label: 'Icon & color', onSelect: () => setIconing(true) },
-            { label: 'Import CSV…', onSelect: () => setImporting(true) },
-            { label: 'Sync from…', onSelect: () => setSyncing(true) },
-            { label: 'Buttons & automations', onSelect: () => setAutomating(true) },
+            { label: 'Icon & color', onSelect: () => setIconing(true), hidden: !schemaEditable },
+            { label: 'Import CSV…', onSelect: () => setImporting(true), hidden: !schemaEditable },
+            { label: 'Sync from…', onSelect: () => setSyncing(true), hidden: !schemaEditable },
+            { label: 'Buttons & automations', onSelect: () => setAutomating(true), hidden: !schemaEditable },
             // `hidden` rather than a conditional spread — see the note on
             // SidebarMenuAction. The item is declared in place and simply not
             // rendered, so it cannot be lost to a misplaced spread.
             { label: 'Manage access', onSelect: () => setSharing(true), hidden: !isAdmin },
             // "Move to" — the section header rides on the FIRST target, so the
-            // heading cannot outlive the group it labels.
-            ...(onMove && (folders.length > 0 || db.folderId)
+            // heading cannot outlive the group it labels. Same `creator`
+            // requirement as Rename etc. — a move is the same PATCH with a
+            // different field.
+            ...(schemaEditable && onMove && (folders.length > 0 || db.folderId)
               ? [
                   ...(db.folderId
                     ? [
@@ -2101,8 +2897,14 @@ function DatabaseRow({
               separatorBefore: true,
               onSelect: () => hide('database', db.id),
             },
+            { label: 'Relations', href: `/w/${ws}/d/${db.id}/relations` },
             { label: 'Trash', href: `/w/${ws}/d/${db.id}/trash` },
-            { label: 'Delete database', danger: true, onSelect: () => setConfirmingDelete(true) },
+            {
+              label: 'Delete database',
+              danger: true,
+              hidden: !schemaEditable,
+              onSelect: () => setConfirmingDelete(true),
+            },
           ]}
         />
       )}
@@ -2170,7 +2972,10 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
   return (
     <input
       autoFocus
-      className="w-full rounded border border-border-strong bg-card px-1 py-0.5 text-[13px] text-ink"
+      // #717 — plain `rounded` bypassed the radius token; --radius-control is
+      // the fix, not the `<Input>` primitive (its `sm` size would also swap
+      // this compact px-1/py-0.5/border-strong treatment for a restyle).
+      className="w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-body text-ink"
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => onDone(value.trim())}
@@ -2182,13 +2987,166 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
   );
 }
 
+/**
+ * #742 finding 08 — "three marks, three jobs, no overlap": a coloured letter
+ * mark is how a GROUP (and, per the same finding, a SPACE) is told apart from
+ * a database's monochrome glyph or a view's per-type icon. First letter of
+ * the name, uppercased; falls back to a neutral border-tinted grey when no
+ * color is set rather than picking one, since an unset color is information
+ * (nobody has customized this one yet), not a value to paper over.
+ */
+function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+  const letter = markInitials(name);
+  return (
+    <span
+      className={cn(
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-micro font-semibold text-[var(--text-on-dark)]',
+        className,
+      )}
+      style={{ backgroundColor: color ?? 'var(--text-faint)' }}
+      aria-hidden
+    >
+      {letter}
+    </span>
+  );
+}
+
+function GroupHeaderRow({
+  group,
+  canEdit,
+  onRename,
+  onDelete,
+}: {
+  group: SpaceGroup;
+  canEdit: boolean;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const confirmDialog = useConfirm();
+  return (
+    <>
+      {/* #779 — the icon+label pair, gap-2 to match every other row's leaf
+          content (DatabaseRow's Link uses the same gap) now that the
+          surrounding row (`GroupDropZone`) owns the gutter/padding via
+          SidebarRow instead of this component reserving its own. */}
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <LetterMark name={group.name} color={group.color} />
+        {renaming ? (
+          <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
+        ) : (
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
+            {group.name}
+          </span>
+        )}
+      </span>
+      {canEdit && (
+        <SidebarRowMenu
+          label={group.name}
+          actions={[
+            { label: 'Rename', onSelect: () => setRenaming(true) },
+            {
+              label: 'Delete group',
+              danger: true,
+              onSelect: () => {
+                void (async () => {
+                  const ok = await confirmDialog({
+                    title: `Delete "${group.name}"?`,
+                    message: 'Its spaces are not deleted — they move back to the ungrouped list.',
+                    confirmLabel: 'Delete group',
+                    danger: true,
+                  });
+                  if (ok) onDelete();
+                })();
+              },
+            },
+          ]}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * #742 finding 10 — "the mode button wears the database glyph, struck
+ * through when off." Read literally: OFF names the state being toggled
+ * (databases), not whether the button itself has been pressed — so the
+ * struck-through glyph is what views-only mode LOOKS like (databases are
+ * off), and the plain glyph is the normal, everything-visible state. One
+ * button that states which mode you're in, not a press/no-press pair.
+ */
+function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <Tooltip label={active ? 'Show databases' : 'Hide databases'}>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={active ? 'Showing views only — click to show databases too' : 'Show views only, hiding databases'}
+      aria-pressed={active}
+      className={cn(
+        'relative rounded p-0.5 hover:bg-hover',
+        active ? 'text-ink' : 'text-faint hover:text-muted',
+      )}
+    >
+      <Database className="h-3.5 w-3.5" />
+      {active && (
+        <span
+          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          aria-hidden
+        >
+          <span className="h-px w-4 rotate-45 bg-current" />
+        </span>
+      )}
+    </button>
+    </Tooltip>
+  );
+}
+
+function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Tooltip label="New group">
+        <DialogTrigger asChild>
+          <button
+            aria-label="New group"
+            className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DialogTrigger>
+      </Tooltip>
+      <DialogContent title="New group">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) onCreate(name.trim());
+            setName('');
+            setOpen(false);
+          }}
+        >
+          <Input autoFocus placeholder="e.g. Client Work" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary" size="sm">Cancel</Button>
+            </DialogClose>
+            <Button type="submit" size="sm" disabled={!name.trim()}>Create</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function NewSpaceButton({ onCreate }: { onCreate: (name: string) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover">
+        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover">
           <Plus className="h-3.5 w-3.5" /> New space
         </button>
       </DialogTrigger>
@@ -2261,28 +3219,46 @@ function DeleteDatabaseDialog({
   onConfirm: (typed: string) => void;
 }) {
   const [typed, setTyped] = useState('');
+  // #801 — ticket cited confirm-dialog.tsx, but THIS dialog (database delete,
+  // the one the report actually hit) is a separate, independent
+  // implementation that never shared that file's label-nesting bug (the name
+  // below sits in a <p>, not inside the <label> for the input). It shares
+  // the OTHER half: a strict, untrimmed match with zero feedback on a miss.
+  const matches = typed.trim() === name.trim();
   return (
     <DialogContent title={`Delete "${name}"?`}>
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (typed === name) onConfirm(typed); // gate Enter too, not just the button
+          if (matches) onConfirm(typed.trim()); // gate Enter too, not just the button
         }}
       >
-        <p className="text-[13px] text-muted">
-          This permanently deletes the database, its fields, records, views, and any relations
-          linking it to other databases. Type{' '}
-          <span className="font-semibold text-ink">{name}</span> to confirm.
+        <p className="text-body text-muted">
+          This deletes the database, its fields, records, views, and any relations linking it to
+          other databases. A workspace admin can restore it from Settings → Trash for 30 days.
+          {/* #618 — was "This permanently deletes...", written before #37
+              shipped restore_database. Verified live: a deleted database
+              reappears, fields/records/views intact, via Settings → Trash. */}
         </p>
-        <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <TypedConfirmName name={name} />
+        <Input
+          autoFocus
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          aria-label={`Type ${name} to confirm`}
+          autoComplete="off"
+        />
+        {typed.trim().length > 0 && !matches && (
+          <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+        )}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
             <Button type="button" variant="secondary">
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" variant="destructive" disabled={typed !== name}>
+          <Button type="submit" variant="destructive" disabled={!matches}>
             Delete forever
           </Button>
         </div>

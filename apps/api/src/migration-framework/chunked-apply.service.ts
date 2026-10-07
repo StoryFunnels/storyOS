@@ -1,14 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { RecordsService } from '../records/records.service';
+import { chunk } from '../common/chunk';
 
 export const DEFAULT_CHUNK_SIZE = 500;
 
-/** Pure chunking helper — split into unit tests without booting Nest. */
-export function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
+export { chunk };
 
 export interface ChunkedApplyProgress {
   processed: number;
@@ -41,6 +37,8 @@ export class ChunkedApplyService {
       if (batch.length === 0) continue;
       const created = await this.recordsService.createBatch(workspaceId, databaseId, batch, actorId, 0, {
         suppressAutomations: true,
+        // #481 — a migration/import apply, never a person typing each row.
+        source: 'automation',
       });
       created.forEach((r) => createdIds.push(r.id));
       options.onProgress?.({

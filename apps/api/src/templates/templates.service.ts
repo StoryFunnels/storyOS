@@ -1,8 +1,8 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, records, workspaces } from '../db/schema';
+import { databases as databasesTable, records, templateInstalls, workspaces } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService, OPTIONED_FIELD_TYPES, SINGLE_OPTION_FIELD_TYPES } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -10,6 +10,7 @@ import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import { ViewsService } from '../views/views.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { trackSampleRecords } from '../workspaces/sample-records';
 import { INTENTS, TEMPLATES } from './definitions';
 import type { TemplateFilterDef } from './types';
 
@@ -40,7 +41,16 @@ export class TemplatesService {
     private readonly views: ViewsService,
   ) {}
 
-  list() {
+  async list() {
+    // #585 — one aggregate query for every template's count, not 23 (grouped
+    // by slug; a slug with zero rows simply never appears and reads as the
+    // default 0 below — never a fabricated placeholder number).
+    const counts = await this.db
+      .select({ slug: templateInstalls.slug, count: sql<string>`count(*)` })
+      .from(templateInstalls)
+      .groupBy(templateInstalls.slug);
+    const countBySlug = new Map(counts.map((c) => [c.slug, Number(c.count)]));
+
     return {
       data: TEMPLATES.map((t) => ({
         slug: t.slug,
@@ -49,6 +59,7 @@ export class TemplatesService {
         category: t.category,
         scope: t.scope,
         guide: t.guide ?? null,
+        install_count: countBySlug.get(t.slug) ?? 0,
         preview: {
           databases: t.databases.map((d) => ({
             name: d.name,
@@ -248,6 +259,10 @@ export class TemplatesService {
           dbIds.get(dbKey)!,
           values,
           actorId,
+          0,
+          // #481 — seeded from the template's own manifest, not typed by the
+          // person applying it.
+          'automation',
         );
         sampleIds.push(created.id);
         if (recordDef.key) recordIds.set(recordDef.key, created.id);
@@ -267,8 +282,15 @@ export class TemplatesService {
           }
         }
       }
-      await this.trackSamples(membership.workspaceId, sampleIds);
+      await trackSampleRecords(this.db, membership.workspaceId, sampleIds);
     }
+
+    // #585 — one row per successful install, counted for the gallery's "N
+    // installs" card badge. Recorded here, after every step above has
+    // already succeeded (no partial/failed install inflates the count), and
+    // deliberately durable across the installing workspace's own later
+    // deletion — see the table's own doc comment.
+    await this.db.insert(templateInstalls).values({ slug, installedBy: actorId });
 
     return {
       applied: slug,
@@ -278,17 +300,6 @@ export class TemplatesService {
       sample_records: sampleIds.length,
       notes,
     };
-  }
-
-  private async trackSamples(workspaceId: string, ids: string[]) {
-    if (ids.length === 0) return;
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    const existing = (settings.sample_record_ids as string[]) ?? [];
-    await this.db
-      .update(workspaces)
-      .set({ settings: { ...settings, sample_record_ids: [...existing, ...ids] } })
-      .where(eq(workspaces.id, workspaceId));
   }
 
   /** "Remove sample data" — deletes exactly the tracked records (F1). */

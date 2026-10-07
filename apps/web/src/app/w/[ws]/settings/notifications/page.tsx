@@ -10,6 +10,9 @@ const EVENTS: { key: keyof UserPreferences['notifications']; label: string; desc
   { key: 'mentioned', label: 'Mentions', description: 'Someone @mentions you in a comment.' },
   { key: 'commented', label: 'Comments', description: 'A new comment on a record you follow.' },
   { key: 'state_changed', label: 'Status changes', description: 'A status/priority change on a record you’re assigned to.' },
+  // #591 — the API already enforced this opt-out (watcher-email.service.ts);
+  // this row was simply never added when the toggle shipped.
+  { key: 'record_changed', label: 'Record changes', description: 'Any change to a record you watch — not just status.' },
 ];
 
 export default function NotificationsPage() {
@@ -26,7 +29,7 @@ export default function NotificationsPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Notifications</h1>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Choose what shows up in your inbox. Everything is on by default.
       </p>
 
@@ -38,7 +41,7 @@ export default function NotificationsPage() {
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-ink">{label}</p>
-              <p className="text-[12px] text-muted">{description}</p>
+              <p className="text-label text-muted">{description}</p>
             </div>
             <Switch
               checked={prefs.data?.notifications[key] ?? true}
@@ -49,7 +52,7 @@ export default function NotificationsPage() {
           </div>
         ))}
       </div>
-      <p className="mt-3 text-[12px] text-faint">Email notifications arrive when email delivery is enabled.</p>
+      <p className="mt-3 text-label text-faint">Email notifications arrive when email delivery is enabled.</p>
     </div>
   );
 }

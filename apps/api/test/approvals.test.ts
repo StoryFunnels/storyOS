@@ -278,4 +278,134 @@ describe('approval gate (MN-255)', () => {
     expect(pendingOnly.every((a: { status: string }) => a.status === 'pending')).toBe(true);
     expect(pendingOnly.some((a: { id: string }) => a.id === approval.id)).toBe(true);
   });
+
+  /**
+   * #654 — GET .../approvals was workspace-wide with no per-database check
+   * at all: a guest holding a grant on exactly one database could list
+   * every OTHER database's approvals, including action_snapshot content.
+   */
+  it('#654: a guest with a grant on a DIFFERENT database cannot see this database\'s approvals', async () => {
+    const rule = await createRule();
+    const rec = await createRecordAndSettle('Guest should not see this');
+    const approval = await pendingApprovalFor(rec.id, rule.id);
+
+    const otherDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Other database 654',
+    })).json().id;
+
+    const guest = await signUpUser(app, 'ApprovalScopeGuest654');
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ database_id: otherDbId, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/invites/accept',
+      headers: authed(guest.token),
+      payload: { token },
+    });
+
+    const guestList = await inject('GET', `/workspaces/${wsId}/approvals`, undefined, guest.token);
+    expect(guestList.statusCode, guestList.body).toBe(200);
+    expect(guestList.json().some((a: { id: string }) => a.id === approval.id)).toBe(false);
+
+    // MUST KEEP WORKING: the admin still sees it, unrestricted.
+    const adminList = (await inject('GET', `/workspaces/${wsId}/approvals`)).json();
+    expect(adminList.some((a: { id: string }) => a.id === approval.id)).toBe(true);
+  });
+
+  it('#654: the SAME guest CAN see an approval on the database they actually hold a grant on', async () => {
+    const guestDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Guest visible db 654',
+    })).json().id;
+    const rule = await inject('POST', `/workspaces/${wsId}/databases/${guestDbId}/automations`, {
+      name: `Gate ${randomUUID()}`,
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'hi', require_approval: true }],
+    });
+    const ruleId = rule.json().id as string;
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${guestDbId}/records`, { values: {} })).json();
+    await engine.settle(rec.id);
+    const approval = await pendingApprovalFor(rec.id, ruleId);
+
+    const guest = await signUpUser(app, 'ApprovalScopeGuestVisible654');
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ database_id: guestDbId, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/invites/accept',
+      headers: authed(guest.token),
+      payload: { token },
+    });
+
+    const guestList = await inject('GET', `/workspaces/${wsId}/approvals`, undefined, guest.token);
+    expect(guestList.json().some((a: { id: string }) => a.id === approval.id)).toBe(true);
+  });
+
+  /**
+   * #691 — #654 scoped `list()`, but `get()` (only reachable through
+   * assertHuman on approve/reject) had no visibility check at all: a guest
+   * with a grant on a DIFFERENT database got a 403 attempting to decide an
+   * approval in a database they can't see — confirming it EXISTS, the same
+   * class of leak #654 closed for the list.
+   */
+  it('#691: a guest with a grant on a DIFFERENT database gets 404 (not 403) attempting to approve — no existence confirmation', async () => {
+    const rule = await createRule();
+    const rec = await createRecordAndSettle('691 hidden from this guest');
+    const approval = await pendingApprovalFor(rec.id, rule.id);
+
+    const otherDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Other database 691',
+    })).json().id;
+    const guest = await signUpUser(app, 'ApprovalScopeGuest691');
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ database_id: otherDbId, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await app.inject({ method: 'POST', url: '/api/v1/invites/accept', headers: authed(guest.token), payload: { token } });
+
+    const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`, {}, guest.token);
+    expect(res.statusCode, res.body).toBe(404);
+  });
+
+  it('#691: MUST KEEP WORKING — a GUEST named as the approver can still decide their own approval, even with zero general grant on its database', async () => {
+    // The guest's ONLY grant is on an unrelated third database (an invite
+    // needs at least one grant to exist at all) — none on the approval's
+    // OWN database. If the visibility check were applied to the approver
+    // path too, this guest would 404 out of deciding their own approval.
+    const elsewhereDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Elsewhere 691',
+    })).json().id;
+    const guest = await signUpUser(app, 'ApprovalNamedApproverGuest691');
+    const guestId = (await inject('GET', '/me', undefined, guest.token)).json().id;
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ database_id: elsewhereDbId, role: 'viewer' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await app.inject({ method: 'POST', url: '/api/v1/invites/accept', headers: authed(guest.token), payload: { token } });
+
+    const rule = await createRule({ approverId: guestId });
+    const rec = await createRecordAndSettle('691 guest approver, no general grant here');
+    const approval = await pendingApprovalFor(rec.id, rule.id);
+    expect(approval.approverId).toBe(guestId);
+
+    const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`, {}, guest.token);
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    const decided = await db.query.approvals.findFirst({ where: eq(approvals.id, approval.id) });
+    expect(decided!.status).toBe('rejected');
+  });
 });

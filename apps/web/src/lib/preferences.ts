@@ -12,6 +12,9 @@ export interface UserPreferences {
     mentioned: boolean;
     commented: boolean;
     state_changed: boolean;
+    /** #591 — any field changed on a record I WATCH (#236), distinct from
+     *  state_changed (a select field on a record I'm ASSIGNED to). */
+    record_changed: boolean;
   };
   regional: {
     dateFormat: 'system' | 'MDY' | 'DMY' | 'YMD';
@@ -29,6 +32,11 @@ export interface UserPreferences {
    *  across the user's devices, unlike the old localStorage flag. */
   activation: {
     dismissedWorkspaces: string[];
+  };
+  /** #775: workspace ids where this user has views-only mode on (per user per
+   *  workspace, server-stored so it follows them across devices). */
+  sidebar: {
+    viewsOnlyWorkspaces: string[];
   };
 }
 

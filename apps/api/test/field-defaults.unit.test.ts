@@ -10,11 +10,14 @@ describe('fieldDefaultValue (#203)', () => {
     expect(fieldDefaultValue('checkbox', null, NOW)).toBeUndefined();
   });
 
-  it('defaults a checkbox only when configured true', () => {
+  it('#697: defaults a checkbox to whatever was explicitly configured, true or false', () => {
     expect(fieldDefaultValue('checkbox', { default: true }, NOW)).toBe(true);
-    // An explicit `false` default is the same as no default: the field is
-    // already empty/false, so writing it would add noise for no behaviour.
-    expect(fieldDefaultValue('checkbox', { default: false }, NOW)).toBeUndefined();
+    // Previously indistinguishable from "no default configured" (both read
+    // as falsy) — but a caller who explicitly configured `default: false`
+    // wants records to land `false`, not `null`; those render differently
+    // (an unchecked box vs. a blank cell). Only a genuinely ABSENT `default`
+    // key (below) means "no default".
+    expect(fieldDefaultValue('checkbox', { default: false }, NOW)).toBe(false);
   });
 
   it('defaults a date-only field to a bare YYYY-MM-DD', () => {
@@ -30,8 +33,20 @@ describe('fieldDefaultValue (#203)', () => {
   });
 
   it('has no default for types that do not support one', () => {
-    for (const type of ['text', 'number', 'select', 'user', 'url']) {
+    for (const type of ['text', 'number', 'user', 'url']) {
       expect(fieldDefaultValue(type, { default: true, default_today: true }, NOW)).toBeUndefined();
+    }
+  });
+
+  it('#475: defaults a select/workflow field to the configured option id', () => {
+    for (const type of ['select', 'workflow']) {
+      expect(fieldDefaultValue(type, { default: 'opt-todo' }, NOW)).toBe('opt-todo');
+      // No default configured — still no default, same as any other type.
+      expect(fieldDefaultValue(type, {}, NOW)).toBeUndefined();
+      // A boolean/empty-string `default` (e.g. copied from a checkbox config,
+      // or a cleared field) is not a real option id.
+      expect(fieldDefaultValue(type, { default: true }, NOW)).toBeUndefined();
+      expect(fieldDefaultValue(type, { default: '' }, NOW)).toBeUndefined();
     }
   });
 });

@@ -7,6 +7,7 @@ import {
   dbRef,
   fieldRef,
   optionRef,
+  PACK_REF_PATTERN,
   packExportRequestSchema,
   packManifestSchema,
 } from '@storyos/schemas';
@@ -33,7 +34,7 @@ import type {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { packInstallItems, packInstalls, workspaces } from '../db/schema';
+import { fields as fieldsTable, packInstallItems, packInstalls, sources, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
@@ -46,6 +47,7 @@ import { SkillsService } from '../skills/skills.service';
 import { ViewsService } from '../views/views.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { trackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
 import { deref, findRawUuids, refify } from './pack-refs';
 
@@ -53,6 +55,49 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** #266 — every `$db:`/`$field:`/`$option:` ref anywhere inside a value,
+ *  walked the same generic way `refify`/`deref` do (any string, any depth,
+ *  including object keys — see pack-refs.ts's own header on why). */
+function findPackRefs(value: unknown): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown) => {
+    if (typeof node === 'string') {
+      if (PACK_REF_PATTERN.test(node)) out.push(node);
+      return;
+    }
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node && typeof node === 'object') {
+      for (const [key, val] of Object.entries(node)) {
+        if (PACK_REF_PATTERN.test(key)) out.push(key);
+        walk(val);
+      }
+    }
+  };
+  walk(value);
+  return out;
+}
+
+/**
+ * #266 — `$db:`/`$field:`/`$option:` refs are derived from the database's
+ * NAME at export time (`dbRef`/`fieldRef`/`optionRef`) and baked as literal
+ * strings into every view/derived-field/automation/sample-record config —
+ * `deref` on install recomputes `refToId` from the manifest's CURRENT name
+ * (`readInstallRefs`), so renaming `databases[0].name` alone leaves every
+ * embedded ref pointing at a ref string install will never construct.
+ * Mirrors `refify`'s own object-key-aware walk (`pack-refs.ts`'s header
+ * explains why: `column_widths` is keyed by a ref, not just valued by one).
+ */
+function remapRefStrings(value: unknown, oldToNewRef: ReadonlyMap<string, string>): unknown {
+  if (typeof value === 'string') return oldToNewRef.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((v) => remapRefStrings(v, oldToNewRef));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [oldToNewRef.get(key) ?? key, remapRefStrings(val, oldToNewRef)]),
+    );
+  }
+  return value;
+}
 
 /**
  * Field types whose values are portable between workspaces.
@@ -311,6 +356,245 @@ export class PacksService {
       );
     }
     return manifest;
+  }
+
+  // ── duplicate ────────────────────────────────────────────────────────────
+
+  /**
+   * #266 — "duplicate database" is export→rename→install of a ONE-database
+   * slice, not a second copier. See the ticket's own grounding: `export()`
+   * already accepts `database_ids: [oneId]` (item 1), and `refify`/`deref`
+   * already remap every field/option id a view, a formula or a select value
+   * touches (item 3) — nothing here re-implements that walk.
+   *
+   * Three things this orchestration adds on top of the raw export/install
+   * round trip, because none of them are `install()`'s job:
+   *
+   * 1. RENAME BEFORE INSTALL. `ArchitectService.buildDatabases` matches an
+   *    existing database purely by `norm(name)`, workspace-wide — "action:
+   *    create" in the plan is advisory only (architect.service.ts). Install
+   *    the manifest under the SOURCE's own name and it does not create a
+   *    copy, it REUSES the source and merges the "new" fields/views into it.
+   *    So the target name is decided and validated for uniqueness BEFORE
+   *    `install()` ever sees the manifest, and every `database:`-labeled
+   *    string in it (views/derived_fields/automations/sample_records) plus
+   *    `relations[].from`/`.to` (a self-relation names the source twice) is
+   *    rewritten to match — these are plain name strings, not `$ref`s, so a
+   *    straight replace is correct.
+   *
+   * 2. DROP DERIVED FIELDS THAT DEPENDED ON A SKIPPED RELATION, AND REPORT
+   *    IT. A single-database export already drops any relation whose other
+   *    side isn't in the slice (`exportRelations`, silently — see that
+   *    method's own comment) — cross-database relations never survive a
+   *    duplicate. A lookup/rollup's `relation_field_id` ref survives refify
+   *    (it names a field on the SOURCE side, which is always in-slice), so
+   *    export succeeds — but the field it points at is never recreated, and
+   *    `deref` at install time would 422 on the dangling ref. Rather than let
+   *    that surface as an install failure, this computes the exact set of
+   *    refs the renamed manifest WILL be able to resolve (every plain field,
+   *    every relation's two recreated fields) and drops any derived field
+   *    whose config references something outside it — reported, not silent,
+   *    per the ticket's criterion 6.
+   *
+   * 3. NO PACK PROVENANCE LEFT BEHIND. `install()` unconditionally writes a
+   *    `pack_installs` row (`recordInstall`) — there is no flag to skip it.
+   *    A duplicated database is not an installed pack and must not appear in
+   *    "installed packs"; the bookkeeping row (and its cascaded items) is
+   *    deleted immediately after install succeeds, once its job — driving
+   *    `ArchitectService.build` — is done.
+   *
+   * Records are copied through the SAME sample-record mechanism
+   * `include_sample_records` already uses when `opts.include_records` is
+   * set — capped at `sample_limit`'s own max (50) and limited to
+   * `PORTABLE_VALUE_TYPES` (relation/user/attachment values are never
+   * copied, matching what the pack format already promises everywhere
+   * else). A duplicate with more than 50 records, or relation/user/
+   * attachment-valued records, copies its SCHEMA completely and its first
+   * 50 portable-valued records — reported on the result rather than
+   * silently truncated, so the caller can tell "everything came along" from
+   * "the common case did".
+   */
+  async duplicateDatabase(
+    membership: Membership,
+    databaseId: string,
+    opts: { name?: string; include_records?: boolean } = {},
+  ): Promise<{
+    id: string;
+    name: string;
+    records_copied: number;
+    skipped_relations: string[];
+    skipped_derived_fields: Array<{ name: string; reason: string }>;
+  }> {
+    const { database: source } = await this.databases.assertAccess(membership, databaseId, 'creator');
+
+    const targetName = await this.uniqueDuplicateName(membership, opts.name?.trim() || `${source.name} copy`);
+
+    const slug = `duplicate-${createHash('sha1').update(`${databaseId}:${Date.now()}:${Math.random()}`).digest('hex').slice(0, 16)}`;
+    const manifest = await this.export(membership, {
+      slug,
+      name: targetName,
+      version: '1.0.0',
+      summary: `Duplicate of "${source.name}"`,
+      database_ids: [databaseId],
+      include_sample_records: Boolean(opts.include_records),
+      sample_limit: 50,
+    });
+
+    // Every relation field this database actually has, so we can report which
+    // ones a single-database slice could never carry (its other side is, by
+    // definition, outside the slice unless it's a self-relation).
+    const sourceRelationFields = await this.db.query.fields.findMany({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.type, 'relation'), isNull(fieldsTable.deletedAt)),
+      columns: { displayName: true },
+    });
+    const carriedFieldNames = new Set(
+      manifest.relations.flatMap((r) => [
+        ...(r.from === source.name ? [r.from_field] : []),
+        ...(r.to === source.name ? [r.to_field] : []),
+      ]),
+    );
+    const skippedRelations = sourceRelationFields
+      .map((f) => f.displayName)
+      .filter((name) => !carriedFieldNames.has(name));
+
+    // The refs the RENAMED manifest will actually be able to resolve at
+    // install time: every plain field it declares, plus the two field ends
+    // of every relation it kept. Anything a derived field's config points at
+    // outside this set would 422 on `deref` — dropped here instead, reported
+    // on the result.
+    const resolvable = new Set<string>();
+    for (const db of manifest.databases) {
+      resolvable.add(dbRef(db.name));
+      for (const field of db.fields) {
+        resolvable.add(fieldRef(db.name, field.name));
+        for (const option of field.options ?? []) resolvable.add(optionRef(db.name, field.name, option.label));
+      }
+    }
+    for (const relation of manifest.relations) {
+      resolvable.add(fieldRef(relation.from, relation.from_field));
+      resolvable.add(fieldRef(relation.to, relation.to_field));
+    }
+
+    const skippedDerivedFields: Array<{ name: string; reason: string }> = [];
+    manifest.derived_fields = manifest.derived_fields.filter((field) => {
+      const refs = findPackRefs(field.config);
+      const missing = refs.find((ref) => ref.startsWith('$field:') && !resolvable.has(ref));
+      if (!missing) return true;
+      skippedDerivedFields.push({
+        name: field.name,
+        reason: `depended on a relation this duplicate could not carry over (${missing})`,
+      });
+      return false;
+    });
+
+    // Rename, in two parts:
+    //
+    // (a) every `$db:`/`$field:`/`$option:` ref STRING baked into a config —
+    //     these are derived from the OLD name and install's `deref` rebuilds
+    //     `refToId` from the manifest's post-rename name, so a ref left
+    //     unrewritten here points at a string install will never construct
+    //     (see `remapRefStrings`'s own doc — this is what #option:… 422s
+    //     without it).
+    // (b) every `database:`-labeled plain string, plus a self-relation's
+    //     from/to (both name the source, since a self-relation's two sides
+    //     are the same database) — these are plain names matched by
+    //     `norm()`, not refs, so a straight replace is correct.
+    const oldToNewRef = new Map<string, string>();
+    for (const db of manifest.databases) {
+      oldToNewRef.set(dbRef(db.name), dbRef(targetName));
+      for (const field of db.fields) {
+        oldToNewRef.set(fieldRef(db.name, field.name), fieldRef(targetName, field.name));
+        for (const option of field.options ?? []) {
+          oldToNewRef.set(optionRef(db.name, field.name, option.label), optionRef(targetName, field.name, option.label));
+        }
+      }
+    }
+    for (const relation of manifest.relations) {
+      if (relation.from === source.name) oldToNewRef.set(fieldRef(relation.from, relation.from_field), fieldRef(targetName, relation.from_field));
+      if (relation.to === source.name) oldToNewRef.set(fieldRef(relation.to, relation.to_field), fieldRef(targetName, relation.to_field));
+    }
+
+    manifest.views = manifest.views.map((v) => ({ ...v, config: remapRefStrings(v.config, oldToNewRef) as typeof v.config }));
+    manifest.derived_fields = manifest.derived_fields.map((f) => ({
+      ...f,
+      config: remapRefStrings(f.config, oldToNewRef) as typeof f.config,
+    }));
+    manifest.automations = manifest.automations.map((a) => ({
+      ...a,
+      trigger: remapRefStrings(a.trigger, oldToNewRef) as typeof a.trigger,
+      condition: a.condition !== undefined ? remapRefStrings(a.condition, oldToNewRef) : a.condition,
+      actions: a.actions.map((act) => remapRefStrings(act, oldToNewRef)) as typeof a.actions,
+    }));
+    manifest.sample_records = manifest.sample_records.map((r) => ({
+      ...r,
+      values: remapRefStrings(r.values, oldToNewRef) as typeof r.values,
+    }));
+
+    manifest.databases[0]!.name = targetName;
+    for (const view of manifest.views) if (view.database === source.name) view.database = targetName;
+    for (const field of manifest.derived_fields) if (field.database === source.name) field.database = targetName;
+    for (const automation of manifest.automations) if (automation.database === source.name) automation.database = targetName;
+    for (const record of manifest.sample_records) if (record.database === source.name) record.database = targetName;
+    for (const relation of manifest.relations) {
+      if (relation.from === source.name) relation.from = targetName;
+      if (relation.to === source.name) relation.to = targetName;
+    }
+    // #525 — this rename loop covered views/derived_fields/automations/
+    // sample_records/relations but missed states and triggers, so a database
+    // with a workflow-state select field bound to an agent trigger failed
+    // install() validation entirely ("a state/trigger refers to a database
+    // ... that the plan does not declare") before collision detection was
+    // even reached. `states` is a SEPARATE manifest section from `databases`
+    // — a select field used as a trigger's state gets pulled out of its
+    // database's plain field list into `states` (export()'s own comment on
+    // ADR-0010 §5), so it carries its own `database` name to rename.
+    for (const state of manifest.states) if (state.database === source.name) state.database = targetName;
+    for (const trigger of manifest.triggers) if (trigger.database === source.name) trigger.database = targetName;
+
+    // #525 — a duplicate's agent triggers name Agents that already exist in
+    // THIS SAME workspace by construction (the source database's own
+    // bindings, exported by name per exportAgents/#161's identity scheme).
+    // computeCollisions has no way to know that; it sees a live Agent with
+    // this name and — correctly, for a genuine external pack — calls it a
+    // collision requiring a person's decision. That decision isn't real
+    // here: ArchitectService.buildAgents already reuses an existing Agent by
+    // name (applyResolutions' 'reuse' branch for agents is a no-op that
+    // relies entirely on that), so every agent collision in a same-workspace
+    // duplicate is pre-resolved to 'reuse' rather than left to 409.
+    const agentResolutions: PackInstallResolutions = Object.fromEntries(
+      manifest.agents.map((a) => [a.name, { action: 'reuse' as const }]),
+    );
+    const result = await this.install(membership, manifest, agentResolutions);
+
+    // #266.3 — a duplicate is not an installed pack; strip the provenance
+    // `install()` always writes. Cascades to pack_install_items.
+    await this.db.delete(packInstalls).where(and(eq(packInstalls.workspaceId, membership.workspaceId), eq(packInstalls.slug, slug)));
+
+    const newDb = result.databases.find((d) => norm(d.name) === norm(targetName));
+    if (!newDb) {
+      throw new UnprocessableEntityException('Duplicate install did not report the new database — this is a bug.');
+    }
+
+    return {
+      id: newDb.id,
+      name: targetName,
+      records_copied: result.sample_records.length,
+      skipped_relations: skippedRelations,
+      skipped_derived_fields: skippedDerivedFields,
+    };
+  }
+
+  /** `${base}`, then `${base} 2`, `${base} 3`, … — the first name no live
+   *  database in the workspace already has, matched the SAME way
+   *  `ArchitectService.buildDatabases` matches (`norm`: trim + lowercase). */
+  private async uniqueDuplicateName(membership: Membership, base: string): Promise<string> {
+    const live = await this.databases.list(membership);
+    const taken = new Set(live.map((d) => norm(d.name)));
+    if (!taken.has(norm(base))) return base;
+    for (let i = 2; ; i++) {
+      const candidate = `${base} ${i}`;
+      if (!taken.has(norm(candidate))) return candidate;
+    }
   }
 
   /**
@@ -903,6 +1187,7 @@ export class PacksService {
       automations: [],
       sample_records: [],
       skills: [],
+      skipped_sample_field_values: [],
     };
 
     const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
@@ -1410,6 +1695,31 @@ export class PacksService {
           `install but will not run until you point them at your own model over MCP.`,
       });
     }
+
+    // #600 — suggested DATA sources, reported the same way (never blocks
+    // install). A source already connected anywhere in the workspace (any
+    // target database — the suggestion is about the PROVIDER, not this
+    // pack's own databases) is not re-suggested.
+    if (manifest.suggested_sources.length > 0) {
+      const connectedProviders = new Set(
+        (
+          await this.db.query.sources.findMany({
+            where: eq(sources.workspaceId, membership.workspaceId),
+            columns: { providerSource: true },
+          })
+        ).map((s) => s.providerSource),
+      );
+      for (const suggestion of manifest.suggested_sources) {
+        if (connectedProviders.has(suggestion.provider)) continue;
+        unmet.push({
+          kind: 'source',
+          name: suggestion.provider,
+          detail: suggestion.note
+            ? `This pack works well with ${suggestion.provider} (${suggestion.note}) — not connected in this workspace yet.`
+            : `This pack works well with ${suggestion.provider}, which is not connected in this workspace yet.`,
+        });
+      }
+    }
     return unmet;
   }
 
@@ -1629,6 +1939,15 @@ export class PacksService {
     result: PackInstallResult,
   ): Promise<void> {
     if (manifest.sample_records.length === 0) return;
+    // #749 — every record THIS install actually creates below gets registered
+    // into workspace.settings.sample_record_ids (trackSampleRecords, shared
+    // with TemplatesService — one registry, not a second copy of it). A
+    // title-matched REUSE further down is deliberately excluded: it is either
+    // already tracked from whichever install created it, or a genuine
+    // pre-existing user record that happens to share a title — either way it
+    // was not seeded by this install, and identity here is the id this
+    // install itself produced, never the title match used to decide reuse.
+    const createdIds: string[] = [];
 
     // Titles read once per database, not once per record: the scan is the same
     // 200 rows every time, and a manifest may carry dozens of samples.
@@ -1655,17 +1974,53 @@ export class PacksService {
         result.sample_records.push({ name: label, action: 'reused', id: existing });
         continue;
       }
-      const values = deref(planned.values, refToId, `A sample record of "${planned.database}"`);
+      /*
+       * #568 — a sample record's `$option:`/`$field:` refs are this PACK's own
+       * promise about what IT creates. When `planned.database` resolved as
+       * `reuse` (an already-installed pack's database, not one this install
+       * created), that promise is no longer this install's to keep: the actual
+       * live field may genuinely lack an option this pack's own manifest
+       * assumed would exist (e.g. Consulting OS's "health" Industry option,
+       * absent from Agency OS's already-installed Clients). Deref'ing the
+       * WHOLE record at once (the pre-#568 behaviour) meant one such value
+       * failed the entire install with a 422 — installing two ordinary packs
+       * that happen to share a database name should not be able to do that.
+       *
+       * So: per-field, not whole-object. A database this pack itself CREATED
+       * still gets the old hard-fail — there, every ref really is self-
+       * inconsistency in this pack's own manifest, exactly what `deref` exists
+       * to catch.
+       */
+      const dbAction = result.databases.find((d) => norm(d.name) === norm(planned.database))?.action;
+      const isReused = dbAction === 'reused';
+      const values: Record<string, unknown> = {};
+      for (const [field, raw] of Object.entries(planned.values)) {
+        try {
+          values[field] = deref(raw, refToId, `A sample record of "${planned.database}"`);
+        } catch (err) {
+          if (!isReused) throw err;
+          result.skipped_sample_field_values.push({
+            record: label,
+            field,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       const created = await this.records.create(
         membership.workspaceId,
         dbId,
-        values as Record<string, unknown>,
+        values,
         membership.userId,
         0,
+        // #481 — seeded from the pack's own manifest template, not typed by the
+        // person installing it.
+        'automation',
       );
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
+      createdIds.push(created.id);
     }
+    await trackSampleRecords(this.db, membership.workspaceId, createdIds);
   }
 
   /**

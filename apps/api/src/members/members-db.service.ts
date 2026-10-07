@@ -42,6 +42,27 @@ const MAX_MEMBERS_SCAN = 500;
  *  text, never a membership fk). */
 const SYSTEM_ACTOR = 'system:members-projection';
 
+/** The per-database unique index on `(database_id, api_name)` (schema.ts). */
+const FIELDS_API_NAME_UNIQUE_CONSTRAINT = 'fields_database_api_name_uq';
+
+/**
+ * #529 — True iff `err` is a Postgres unique-violation (SQLSTATE 23505) raised
+ * by the named constraint. `ensureField` reads-then-inserts, so two concurrent
+ * calls for the same field can both see "not found" and race to create it;
+ * the loser trips this index. Same shape, same fix, as
+ * `databases.service.ts`'s `isSlugUniqueViolation` — matched on `code` AND
+ * `constraint` so an unrelated 23505 is never swallowed, walking `.cause`
+ * since drizzle wraps the driver's error.
+ */
+function isFieldApiNameUniqueViolation(err: unknown): boolean {
+  for (let cur: unknown = err; cur != null; cur = (cur as { cause?: unknown }).cause) {
+    if (typeof cur !== 'object') break;
+    const e = cur as { code?: unknown; constraint?: unknown };
+    if (e.code === '23505' && e.constraint === FIELDS_API_NAME_UNIQUE_CONSTRAINT) return true;
+  }
+  return false;
+}
+
 /**
  * A Members-database row resolved for a better-auth user id — the shape a
  * caller reads when traversing a `user`-typed field (e.g. `assignee`) to the
@@ -271,7 +292,17 @@ export class MembersDbService {
     const existing = await this.db.query.fields.findFirst({
       where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
     });
-    if (!existing) await this.fields.create(databaseId, spec);
+    if (existing) return;
+    try {
+      await this.fields.create(databaseId, spec);
+    } catch (err) {
+      // #529 — a concurrent ensureField call for the SAME field won the race
+      // between our read and our insert. The desired end state (the field
+      // exists) already holds, so this is success, not an error — mirrors
+      // databases.service.ts's isSlugUniqueViolation for the identical shape.
+      if (isFieldApiNameUniqueViolation(err)) return;
+      throw err;
+    }
   }
 
   /** label → option id for the Role select field, for writing the role value. */
@@ -292,6 +323,25 @@ export class MembersDbService {
   private async findMemberRow(databaseId: string, userId: string) {
     const { data } = await this.records.list(databaseId, { limit: MAX_MEMBERS_SCAN });
     return data.find((r) => r.values['user_id'] === userId) ?? null;
+  }
+
+  /**
+   * #494 — the subject-access export's own copy of "find this person's
+   * Members row", read-only. GdprService.export() had no way to reach this
+   * row at all: it is excluded from workspace export by design (this
+   * database's whole content IS personal data), so a data subject's export
+   * never showed the one row an admin can freely add columns to — the visible
+   * half of the gap #463 fixed the erasure half of. Returns every column the
+   * projection owns (name/email/avatar/role/active) plus whatever custom
+   * columns an admin has added, or null if the Members database or this
+   * person's row doesn't exist (e.g. provisioning never ran).
+   */
+  async getOwnRowForExport(workspaceId: string, userId: string): Promise<Record<string, unknown> | null> {
+    const database = await this.findMembersDb(workspaceId);
+    if (!database) return null;
+    const row = await this.findMemberRow(database.id, userId);
+    if (!row) return null;
+    return { id: row.id, title: row.title, ...row.values };
   }
 
   /**
@@ -329,10 +379,12 @@ export class MembersDbService {
     };
 
     const existing = await this.findMemberRow(database.id, userId);
+    // #481 — the Members projection is a system-driven mirror of better-auth,
+    // never a person typing (SYSTEM_ACTOR above is the same signal for actor).
     if (existing) {
-      await this.records.update(workspaceId, database.id, existing.id, values, SYSTEM_ACTOR);
+      await this.records.update(workspaceId, database.id, existing.id, values, SYSTEM_ACTOR, 0, 'automation');
     } else {
-      await this.records.create(workspaceId, database.id, values, SYSTEM_ACTOR);
+      await this.records.create(workspaceId, database.id, values, SYSTEM_ACTOR, 0, 'automation');
     }
   }
 
@@ -367,6 +419,17 @@ export class MembersDbService {
    * by matching it — and it is not personal data on its own: it is an opaque
    * identifier whose account has already been destroyed. Dropping it would leave
    * an unreachable orphan row that a later backfill could duplicate.
+   *
+   * #463 — an admin can add ANY custom column to Members (it has no write
+   * protection, ADR-0017 §7 open question), and `records.service.ts` `update()`
+   * merges rather than replaces: a field this method's payload does not name is
+   * carried forward untouched. Vera reproduced a home address and phone number
+   * surviving byte-for-byte on a row titled "Deleted user". The safe default —
+   * and what criterion 3 of #463 asks for — is to clear every column this
+   * projection does not itself own, rather than lengthen a fixed list: that is
+   * the same defect one release later, the first time an admin adds a column.
+   * `enumerateCustomFieldApiNames` does the enumeration; each is set to `null`,
+   * which `records.service.ts:2154` already treats as "clear this field".
    */
   async erasePii(
     workspaceId: string,
@@ -388,6 +451,8 @@ export class MembersDbService {
     if (!database) return;
     const existing = await this.findMemberRow(database.id, userId);
     if (!existing) return;
+    const customFieldApiNames = await this.enumerateCustomFieldApiNames(database.id);
+    const clearCustomFields = Object.fromEntries(customFieldApiNames.map((apiName) => [apiName, null]));
     await this.records.update(
       workspaceId,
       database.id,
@@ -397,9 +462,50 @@ export class MembersDbService {
         email: anonymisedEmail,
         avatar: null,
         ...(alsoTombstone ? { active: false } : {}),
+        ...clearCustomFields,
       },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
+  }
+
+  /**
+   * #463 — every field on the Members database this projection does NOT itself
+   * provision (`ensureMemberFields`'s `email` / `avatar` / `role` / `active` /
+   * `user_id`, plus the title field, which is never a values key). Anything else
+   * is a column an admin added by hand — Members has no write protection
+   * (ADR-0017 §7) — and it must not survive an erasure.
+   *
+   * Enumerated at erase time rather than hardcoded: a fixed list is the same
+   * bug again the next time an admin adds a column. Two kinds of field are
+   * excluded, neither because they hold PII an erasure must not touch, but
+   * because nulling them is either rejected or meaningless:
+   *   - `id` / `created_at` / `updated_at` / `created_by` (plus `title`, never
+   *     a values key) — `validateRecordValues` rejects these as read-only, so a
+   *     workspace cannot add a genuine custom field of these types anyway.
+   *   - `formula` / `lookup` / `rollup` — derived, not admin-entered; the
+   *     underlying source field is what could hold PII, and that field is
+   *     itself enumerated and cleared on its own turn through this same loop.
+   */
+  private async enumerateCustomFieldApiNames(databaseId: string): Promise<string[]> {
+    const OWNED_API_NAMES = new Set(['email', 'avatar', 'role', 'active', 'user_id']);
+    const NOT_CLEARABLE_TYPES = new Set([
+      'title',
+      'id',
+      'created_at',
+      'updated_at',
+      'created_by',
+      'formula',
+      'lookup',
+      'rollup',
+    ]);
+    const allFields = await this.db.query.fields.findMany({
+      where: eq(fieldsTable.databaseId, databaseId),
+    });
+    return allFields
+      .filter((f) => !OWNED_API_NAMES.has(f.apiName) && !NOT_CLEARABLE_TYPES.has(f.type))
+      .map((f) => f.apiName);
   }
 
   async tombstoneMembership(workspaceId: string, userId: string): Promise<void> {
@@ -414,6 +520,8 @@ export class MembersDbService {
       existing.id,
       { active: false },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
   }
 
@@ -577,6 +685,8 @@ export class MembersDbService {
         user_id: userId,
       },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
   }
 

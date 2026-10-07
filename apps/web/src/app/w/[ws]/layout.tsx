@@ -16,6 +16,7 @@ import { SplitArea, SplitHost } from '@/components/entity/split-screen-host';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { TyronPanel } from '@/components/tyron/tyron-panel';
 import { useTyronPanel } from '@/lib/tyron-panel';
+import { peekPendingBuild } from '@/lib/pending-build';
 import { cn } from '@/lib/utils';
 
 /** The protected workspace shell. */
@@ -33,11 +34,53 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.
-  const { state: tyronState } = useTyronPanel();
+  const { state: tyronState, set: setTyronPanel } = useTyronPanel();
+
+  /**
+   * #217 — land straight in the build, not in an empty workspace with an
+   * offer to click. `/new-workspace`'s describe-your-work step already took
+   * the description; this only decides whether Tyron's panel should be open
+   * and full before `TyronConversation` mounts to actually consume it
+   * (`takePendingBuild`, further down the tree) — peeking rather than taking,
+   * so the description is still there when that component looks for it.
+   */
+  useEffect(() => {
+    if (peekPendingBuild(ws)) setTyronPanel('full');
+  }, [ws, setTyronPanel]);
+
+  /**
+   * #486 — the actual root cause, found by reading useSession() itself
+   * (better-auth's react-store.mjs), not just this component: it calls
+   * `useSyncExternalStore(subscribe, get, get)` — the SAME getter for the
+   * client snapshot and the server snapshot. `getServerSnapshot` exists so a
+   * hook can hand back a value that is STABLE for the whole hydration pass,
+   * matching whatever the server actually rendered; passing `get` for both
+   * throws that guarantee away; React calls it again on the client during
+   * hydration, and by then the store may already hold the resolved session
+   * (nanostores can settle before this component's ref initializer runs), so
+   * the "server snapshot" React hydrates against on the client is not
+   * actually what the server sent. That timing is exactly why this reproduced
+   * on /d/{db} and not /w/{ws} before this fix: a heavier page gives the
+   * async session check more wall-clock time to resolve before hydration
+   * reaches this component, not a difference in what either route renders.
+   *
+   * This is third-party code (node_modules), not ours to patch. The house-
+   * side fix is the standard one for exactly this class of bug: never trust
+   * session state before the component has mounted at least once. `mounted`
+   * starts false on both server and client — genuinely identical, no store
+   * involved — and flips true only inside an effect, which never runs during
+   * SSR and never runs during hydration itself (effects fire strictly after
+   * the commit). So the FIRST client render is forced to agree with the
+   * server regardless of how fast useSession's store resolves; the swap to
+   * real content happens on the render *after* that, which is an ordinary
+   * post-hydration update, not a hydration diff, and warns about nothing.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!isPending && !session) router.replace('/login');
-  }, [isPending, session, router]);
+    if (mounted && !isPending && !session) router.replace('/login');
+  }, [mounted, isPending, session, router]);
 
   // Navigating (tapping a sidebar link) closes the mobile drawer so the
   // destination is immediately visible instead of hidden behind it.
@@ -45,9 +88,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  if (isPending || !session) {
-    return <main className="flex min-h-screen items-center justify-center text-muted">Loading…</main>;
-  }
+  const authed = mounted && !isPending && !!session;
 
   return (
     /*
@@ -64,10 +105,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         view's h-full/overflow-auto and sticky header attach to a scroller that
         never scrolls and the chrome scrolls away with the document (MN-117). */}
     <div className="flex h-screen overflow-hidden">
+      {!authed ? (
+        // #486 — same element type (`<div>`, inside the same unconditional
+        // shell) on both passes; only its own children differ, which is not a
+        // structural mismatch. An unauthenticated visitor still sees this and
+        // is still redirected by the effect above; an authed one sees it for
+        // one frame at most, same as before.
+        <div className="flex flex-1 items-center justify-center text-muted">Loading…</div>
+      ) : (
+        <>
       {/* Mobile-only backdrop — tapping it closes the drawer, same as the X. */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-[var(--z-drawer-backdrop)] bg-[rgba(15,23,41,0.35)] md:hidden"
+          className="fixed inset-0 z-[var(--z-drawer-backdrop)] bg-[var(--scrim)] md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
@@ -152,6 +202,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       <QuickAddFab />
       <UndoHotkey />
       <StoryOSToaster />
+        </>
+      )}
     </div>
     </SplitHost>
   );

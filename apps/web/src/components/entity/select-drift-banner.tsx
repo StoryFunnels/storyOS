@@ -67,7 +67,7 @@ export function SelectDriftBanner({
       void qc.invalidateQueries({ queryKey: ['records', ws] });
       void qc.invalidateQueries({ queryKey: ['record', ws] });
     },
-    onError: () => toast.error('Could not link the matching records'),
+    onError: () => toast.error('Could not link the matching items'),
   });
 
   const d = drift.data;
@@ -75,7 +75,7 @@ export function SelectDriftBanner({
 
   const plural = d.missing_count === 1 ? '' : 's';
   return (
-    <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-[12px]">
+    <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-label">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
       <span className="text-warning">
         {d.missing_count} record{plural} {d.missing_count === 1 ? 'has' : 'have'}{' '}

@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
+import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
+import { PortalModule } from '../portal/portal.module';
+import { RecordsModule } from '../records/records.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { UsersModule } from '../users/users.module';
 import { ViewsController } from './views.controller';
 import { PersonalFilterController } from './personal-filter.controller';
+import { PublicViewsController } from './public-views.controller';
+import { PublicViewsService } from './public-views.service';
 import { SpaceViewsController } from './space-views.controller';
 import { SpaceViewsService } from './space-views.service';
 import { ViewsService } from './views.service';
@@ -16,9 +21,15 @@ import { ViewsService } from './views.service';
   // against the VIEWER, so it needs AccessService directly rather than through
   // DatabasesService.assertAccess — which throws, and would collapse the whole
   // list when one database is unreadable.
-  imports: [WorkspacesModule, DatabasesModule, UsersModule, AccessModule],
-  controllers: [ViewsController, PersonalFilterController, SpaceViewsController],
-  providers: [ViewsService, SpaceViewsService],
+  // RecordsModule (#264): PublicViewsService reads a published view's records
+  // through the same RecordsService.query every signed-in read uses.
+  // PortalModule (#535): PublicViewsService resolves a recipient-scope token
+  // through PortalRecipientsService.resolveByToken.
+  // BillingModule (#556): PublicViewsService reads the workspace's plan to
+  // compute hide_branding, mirroring FormsService's existing wiring.
+  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule, PortalModule, BillingModule],
+  controllers: [ViewsController, PersonalFilterController, SpaceViewsController, PublicViewsController],
+  providers: [ViewsService, SpaceViewsService, PublicViewsService],
   exports: [ViewsService, SpaceViewsService],
 })
 export class ViewsModule {}

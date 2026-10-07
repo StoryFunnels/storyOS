@@ -142,7 +142,7 @@ export default function RunsPage() {
       <div className="mb-1 flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold text-ink">Runs</h1>
         {quota.data && (
-          <div className="text-right text-[12px] text-muted">
+          <div className="text-right text-label text-muted">
             {quota.data.limit === null ? (
               <span>{quota.data.used} automation runs this month · unlimited plan</span>
             ) : (
@@ -156,7 +156,7 @@ export default function RunsPage() {
           </div>
         )}
       </div>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Every automation rule run in this workspace, newest first. Source syncs (MN-260) will join this
         list once that ships — for now this is rule runs only.
       </p>
@@ -167,7 +167,7 @@ export default function RunsPage() {
             key={f.label}
             onClick={() => setStatus(f.value)}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-[12px]',
+              'rounded-full border px-2.5 py-1 text-label',
               status === f.value
                 ? 'border-[var(--primary)] bg-accent-soft text-ink'
                 : 'border-border-default text-muted hover:bg-hover',
@@ -177,7 +177,7 @@ export default function RunsPage() {
           </button>
         ))}
         <Input
-          placeholder="Search by record title…"
+          placeholder="Search by item title…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="ml-auto max-w-[220px]"
@@ -185,15 +185,15 @@ export default function RunsPage() {
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border-default px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
-          <span>Rule / record</span>
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border-default px-4 py-2 text-meta font-semibold uppercase tracking-wider text-faint">
+          <span>Rule / item</span>
           <span>Status</span>
           <span>Started</span>
           <span>Duration</span>
         </div>
-        {runs.isLoading && <p className="px-4 py-6 text-[13px] text-muted">Loading…</p>}
+        {runs.isLoading && <p className="px-4 py-6 text-body text-muted">Loading…</p>}
         {!runs.isLoading && (runs.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">
+          <p className="px-4 py-6 text-body text-muted">
             No runs match these filters. This list covers automation rule runs only — source syncs
             (MN-260) aren’t included yet.
           </p>
@@ -205,19 +205,19 @@ export default function RunsPage() {
             className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-b border-border-default px-4 py-2.5 text-left last:border-b-0 hover:bg-hover"
           >
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium text-ink">{run.name ?? '(deleted rule)'}</p>
-              <p className="truncate text-[12px] text-muted">
+              <p className="truncate text-body font-medium text-ink">{run.name ?? '(deleted rule)'}</p>
+              <p className="truncate text-label text-muted">
                 {triggerKindLabel(run.trigger_kind)}
                 {run.record_ref ? ` · ${run.record_ref.title || 'Untitled'}` : ''}
                 {run.action_summary.length > 0 && ` · ${runActionSummaryText(run.action_summary)}`}
               </p>
             </div>
-            <span className="flex items-center gap-1.5 text-[12px] text-muted">
+            <span className="flex items-center gap-1.5 text-label text-muted">
               <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusDotClass(run.status))} />
               {runStatusLabel(run.status)}
             </span>
-            <span className="whitespace-nowrap text-[12px] text-muted">{fmt.dateTime(run.started_at)}</span>
-            <span className="whitespace-nowrap text-[12px] text-muted">{formatDuration(run.duration_ms)}</span>
+            <span className="whitespace-nowrap text-label text-muted">{fmt.dateTime(run.started_at)}</span>
+            <span className="whitespace-nowrap text-label text-muted">{formatDuration(run.duration_ms)}</span>
           </button>
         ))}
       </div>
@@ -255,10 +255,10 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
     <Dialog open={Boolean(runId)} onOpenChange={(open) => !open && onClose()}>
       {runId && (
         <DialogContent title={detail.data?.name ?? 'Run detail'} className="max-w-2xl">
-          {detail.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
+          {detail.isLoading && <p className="text-body text-muted">Loading…</p>}
           {detail.data && (
             <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-2 text-[13px]">
+              <div className="flex items-center gap-2 text-body">
                 <span className={cn('inline-block h-2 w-2 rounded-full', statusDotClass(detail.data.status))} />
                 <span className="font-medium text-ink">{runStatusLabel(detail.data.status)}</span>
                 <span className="text-muted">· {fmt.dateTime(detail.data.started_at)}</span>
@@ -267,20 +267,20 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
                 )}
               </div>
               {detail.data.error && (
-                <p className="rounded bg-hover px-2 py-1.5 text-[12px] text-error">{detail.data.error}</p>
+                <p className="rounded bg-hover px-2 py-1.5 text-label text-error">{detail.data.error}</p>
               )}
               {detail.data.record_ref && (
-                <p className="text-[12px] text-muted">
+                <p className="text-label text-muted">
                   Triggered by: <span className="text-ink">{detail.data.record_ref.title || 'Untitled record'}</span>
                 </p>
               )}
 
               <div>
-                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider text-faint">
+                <h3 className="mb-1.5 text-label font-semibold uppercase tracking-wider text-faint">
                   Actions ({detail.data.actions.length})
                 </h3>
                 {detail.data.actions.length === 0 && (
-                  <p className="text-[12px] text-faint">No external actions were queued for this run.</p>
+                  <p className="text-label text-faint">No external actions were queued for this run.</p>
                 )}
                 <div className="flex flex-col gap-2">
                   {detail.data.actions.map((action) => {
@@ -295,7 +295,7 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
                         className="rounded-[var(--radius-card)] border border-border-default p-2.5"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                          <span className="flex items-center gap-1.5 text-label font-medium text-ink">
                             <span
                               className={cn(
                                 'inline-block h-1.5 w-1.5 rounded-full',
@@ -332,12 +332,12 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
                           )}
                         </div>
                         {action.last_error && (
-                          <p className="mt-1.5 text-[12px] text-error">
+                          <p className="mt-1.5 text-label text-error">
                             This step didn’t go through. See Technical details below for the exact error.
                           </p>
                         )}
                         {action.approval && (
-                          <p className="mt-1.5 text-[11px] text-muted">
+                          <p className="mt-1.5 text-meta text-muted">
                             {approvalStatusLabel(action.approval.status)}
                             {action.approval.decided_by ? ` by ${memberName(action.approval.decided_by)}` : ''}
                             {action.approval.decided_at ? ` · ${fmt.dateTime(action.approval.decided_at)}` : ''}
@@ -345,22 +345,22 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
                         )}
                         {hasTechnicalDetail && (
                           <details className="mt-1.5">
-                            <summary className="cursor-pointer text-[11px] text-muted hover:text-ink">
+                            <summary className="cursor-pointer text-meta text-muted hover:text-ink">
                               Technical details
                             </summary>
                             <div className="mt-1.5 flex flex-col gap-1.5">
-                              <p className="text-[11px] text-faint">
+                              <p className="text-meta text-faint">
                                 Step type: <span className="text-muted">{actionKindLabel(action.kind)}</span>
                                 {action.kind ? ` (${action.kind})` : ''} · status {action.status} ·{' '}
                                 {action.attempts} attempt(s)
                               </p>
                               {action.last_error && (
-                                <pre className="overflow-x-auto rounded bg-hover p-2 text-[11px] text-error">
+                                <pre className="overflow-x-auto rounded bg-hover p-2 text-meta text-error">
                                   {action.last_error}
                                 </pre>
                               )}
                               {action.artifact !== null && action.artifact !== undefined && (
-                                <pre className="max-h-32 overflow-auto rounded bg-hover p-2 text-[11px] text-muted">
+                                <pre className="max-h-32 overflow-auto rounded bg-hover p-2 text-meta text-muted">
                                   {JSON.stringify(action.artifact, null, 2)}
                                 </pre>
                               )}

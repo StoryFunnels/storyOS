@@ -1,18 +1,72 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
+import { databases, fields, recordLinks, records, relations, selectOptions, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import { presentFieldConfig } from '../common/webhook-headers';
 import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
+import type { ChangeSource } from '../db/schema';
+import type { PendingApprovalResult } from '../records/records.service';
+import { SalesSignalService } from '../billing/sales-signal.service';
+
+/** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * #453 — one documented rule, used by both `DatabasesService.remove()` and
+ * `SpacesService.remove()` (a space's databases go through this same path,
+ * never a second copy of it): soft-deleting a database marks the database row
+ * AND cascades the same mark onto its own live fields/records/views. Nothing
+ * is hard-deleted, and nothing is left live-but-orphaned under a row that
+ * reads now treat as gone. Only rows with `deletedAt IS NULL` are touched, so
+ * this never disturbs something already in that table's own trash (extending
+ * its retention window would be a bug, not a no-op).
+ */
+export async function softDeleteDatabaseCascade(tx: Tx, databaseId: string, now: Date): Promise<void> {
+  await tx.update(databases).set({ deletedAt: now }).where(and(eq(databases.id, databaseId), isNull(databases.deletedAt)));
+  await tx.update(fields).set({ deletedAt: now }).where(and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)));
+  await tx.update(records).set({ deletedAt: now }).where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt)));
+  await tx.update(views).set({ deletedAt: now }).where(and(eq(views.databaseId, databaseId), isNull(views.deletedAt)));
+}
+
+/**
+ * #37 — the exact inverse of `softDeleteDatabaseCascade`, and exported the
+ * same plain-function way (not a DatabasesService method) so `SpacesService`
+ * can reuse it directly without a module import cycle — `DatabasesModule`
+ * already imports `WorkspacesModule` (for `SpacesService`/`AccessService`),
+ * so the reverse import would need a `forwardRef` for no real benefit here.
+ *
+ * `deletedAt` must be the database's OWN `deletedAt` (the caller looks that
+ * up first) — only fields/records/views sharing that EXACT timestamp were
+ * deleted in the same cascade and are restored; anything independently
+ * trashed earlier keeps its own timestamp and is left alone, symmetric with
+ * the `isNull` guard `softDeleteDatabaseCascade` applies going the other way.
+ */
+export async function restoreDatabaseCascade(tx: Tx, databaseId: string, deletedAt: Date): Promise<void> {
+  await tx.update(databases).set({ deletedAt: null }).where(eq(databases.id, databaseId));
+  await tx
+    .update(fields)
+    .set({ deletedAt: null })
+    .where(and(eq(fields.databaseId, databaseId), eq(fields.deletedAt, deletedAt)));
+  await tx
+    .update(records)
+    .set({ deletedAt: null })
+    .where(and(eq(records.databaseId, databaseId), eq(records.deletedAt, deletedAt)));
+  await tx
+    .update(views)
+    .set({ deletedAt: null })
+    .where(and(eq(views.databaseId, databaseId), eq(views.deletedAt, deletedAt)));
+}
 
 export function slugify(name: string): string {
   return (
@@ -54,11 +108,24 @@ export class DatabasesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly actionGates: ActionGatesService,
+    private readonly salesSignal: SalesSignalService,
   ) {}
 
   /**
    * Access-checked database load (ADR-0007): 404 without any grant, 403 below
    * `min`. The cheap primitive every content/schema controller calls.
+   *
+   * #474 — a guest with ONLY a record-scoped grant (#472) inside this
+   * database used to 404 here every time, because `effectiveForDatabase`
+   * only ever looks at space/database grants. That made a record grant
+   * reachable solely by knowing the record's direct URL — never through
+   * `GET /records`, `POST /records/query`, or anything else this gate
+   * fronts. Falling through to `visibleRecordIds`'s `bestRole` fixes the
+   * ENTRY problem; `my_access` here is deliberately NOT "you may see every
+   * record" in that fallback case — callers that return record DATA must
+   * separately consult `visibleRecordIds` to narrow the actual rows, same
+   * as `RecordsService.list`/`query` now do.
    */
   async assertAccess(
     membership: Membership,
@@ -66,10 +133,18 @@ export class DatabasesService {
     min: EffectiveRole,
   ): Promise<{ database: typeof databases.$inferSelect; my_access: EffectiveRole }> {
     const database = await this.db.query.databases.findFirst({
-      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId)),
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
     });
     if (!database) throw new NotFoundException('Database not found');
-    const effective = await this.access.effectiveForDatabase(membership, database);
+    let effective = await this.access.effectiveForDatabase(membership, database);
+    if (effective === null) {
+      const recordScoped = await this.access.visibleRecordIds(membership, database);
+      if (recordScoped && recordScoped.ids.size > 0) effective = recordScoped.bestRole;
+    }
     this.access.assertRank(effective, min, 'Database');
     return { database, my_access: effective! };
   }
@@ -95,6 +170,11 @@ export class DatabasesService {
     const taken = new Set(
       (
         await this.db.query.databases.findMany({
+          // #453: `databases_space_slug_uq` is a whole-table unique index, not a
+          // partial one over live rows — a soft-deleted database's slug is NOT
+          // actually free at the database level, so this must keep seeing it as
+          // taken too, or the insert below fails the constraint after this
+          // check said it was safe.
           where: eq(databases.spaceId, spaceId),
           columns: { apiSlug: true },
         })
@@ -123,23 +203,28 @@ export class DatabasesService {
   async list(membership: Membership) {
     const visibility = await this.access.guestVisibility(membership);
     const rows = await this.db.query.databases.findMany({
-      where: eq(databases.workspaceId, membership.workspaceId),
+      where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       orderBy: [asc(databases.position)],
     });
+    const visible = visibility
+      ? rows.filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
+      : rows;
     const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
-    const withRef = (d: (typeof rows)[number]) => {
+    // #562 — a write-access-only picker (e.g. #433's Copy-to dialog) needs
+    // per-row access without a click-to-find-out N+1: one batched grants
+    // fetch for the whole list, same EffectiveRole computation get() already
+    // does for a single database.
+    const myAccessByDatabaseId = await this.access.effectiveForDatabases(membership, visible);
+    return visible.map((d) => {
       const spaceSlug = spaceSlugMap.get(d.spaceId) ?? null;
       return {
         ...d,
         color: resolveDatabaseColor(d.id, d.color),
         spaceSlug,
         qualifiedSlug: spaceSlug ? `${spaceSlug}/${d.apiSlug}` : d.apiSlug,
+        my_access: myAccessByDatabaseId.get(d.id) ?? null,
       };
-    };
-    if (!visibility) return rows.map(withRef);
-    return rows
-      .filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
-      .map(withRef);
+    });
   }
 
   /** Full introspection payload: database + live fields + views + my_access (E4, ADR-0007). */
@@ -168,7 +253,11 @@ export class DatabasesService {
          * this is the cheap moment to close it — the alternative is #292
          * shipping a leak on day one through a path nobody thought to re-check.
          */
-        where: and(eq(views.databaseId, databaseId), this.access.notOthersPersonalView(membership)),
+        where: and(
+          eq(views.databaseId, databaseId),
+          this.access.notOthersPersonalView(membership),
+          notDeleted(views.deletedAt),
+        ),
         orderBy: [asc(views.position)],
       }),
     ]);
@@ -311,7 +400,7 @@ export class DatabasesService {
     for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
       const apiSlug = await this.uniqueSlug(input.space_id, input.name);
       try {
-        return await this.db.transaction(async (tx) => {
+        const created = await this.db.transaction(async (tx) => {
           const [database] = await tx
             .insert(databases)
             .values({
@@ -393,6 +482,16 @@ export class DatabasesService {
             qualifiedSlug: `${space.slug}/${database!.apiSlug}`,
           };
         });
+
+        // #650 AC2 — checked after the create commits (the transaction above
+        // is the only source of truth for "does this database exist yet"),
+        // and only for a real, user-visible database — a system database
+        // (Members projection, Agentic OS pack) says nothing about the
+        // workspace's own usage shape. Never throws; must not affect the
+        // response this endpoint returns.
+        if (!input.is_system) void this.salesSignal.checkDatabaseCrossing(membership.workspaceId);
+
+        return created;
       } catch (err) {
         if (isSlugUniqueViolation(err)) continue;
         throw err;
@@ -467,13 +566,26 @@ export class DatabasesService {
     return updated!;
   }
 
-  /** Hard delete (v1 decision) — cascade wipes fields/records/views. */
+  /**
+   * #453 — soft delete: marks `deletedAt` on this database and cascades the
+   * same mark onto its own live fields/records/views (`softDeleteDatabaseCascade`,
+   * the ONE rule for what happens to a soft-deleted database's children — see
+   * that function's comment). No FK cascade fires any more since the row
+   * itself is never removed, so the cascade above is what used to be implicit.
+   *
+   * Severing relations is a DIFFERENT concept and unchanged: the paired
+   * fields/links on the OTHER database, and the relation row itself, are still
+   * genuinely deleted — soft-delete is about this database's own rows, not
+   * about relation metadata that has nowhere restorable to live.
+   */
   async remove(
     membership: Membership,
     databaseId: string,
     confirm: string,
     severRelations = false,
-  ) {
+    actorId: string,
+    source: ChangeSource,
+  ): Promise<{ deleted: true; severed_relations: number } | PendingApprovalResult> {
     const database = await this.get(membership, databaseId);
     if (confirm !== database.name) {
       throw new ConflictException(`Confirmation mismatch: type the database name "${database.name}"`);
@@ -488,10 +600,64 @@ export class DatabasesService {
       );
     }
 
+    // #542 — deleting the DATABASE cascades a delete onto every one of its
+    // live records (softDeleteDatabaseCascade below), which used to bypass
+    // any declared `delete_records` gate entirely: that check previously
+    // lived only inside RecordsService.softDelete/batchDelete, and this path
+    // never called either. Held for the WHOLE database (never partial),
+    // exactly like a record batch-delete — see ActionGatesService's own doc
+    // on `scope: 'database_cascade'` for what happens on approval.
+    const liveRecordIds = (
+      await this.db.query.records.findMany({
+        where: and(eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+        columns: { id: true },
+      })
+    ).map((r) => r.id);
+    if (liveRecordIds.length > 0) {
+      const held = await this.actionGates.check({
+        workspaceId: membership.workspaceId,
+        databaseId,
+        actionClass: DELETE_RECORDS_ACTION_CLASS,
+        source,
+        requesterActorId: actorId,
+        recordIds: liveRecordIds,
+        previewText: `Delete database "${database.name}" and its ${liveRecordIds.length} record(s)`,
+        scope: 'database_cascade',
+      });
+      if (held.held) {
+        return {
+          pending_approval: true,
+          approval_id: held.approvalId,
+          message: 'This database delete is held for approval by a workspace-declared gate — it has not happened yet.',
+        };
+      }
+    }
+
+    return this.applyRemove(databaseId, touching);
+  }
+
+  /**
+   * #542 — the actual database-delete transaction, extracted so both the
+   * ungated path above and ApprovalsService's approved-gate executor can
+   * reach it. Public (not private) so the executor — which only has the
+   * approved `database_id`, no request context — can call it directly by
+   * re-fetching `touching` fresh rather than trusting a stale snapshot from
+   * whenever the original request was made. Safe to unconditionally sever
+   * any relations found: `remove()` above already refused the request
+   * unless `severRelations` was true or none existed, before the gate was
+   * ever checked, so reaching here at all means that's settled.
+   */
+  async applyRemove(
+    databaseId: string,
+    touching?: Array<{ id: string; fieldAId: string; fieldBId: string }>,
+  ): Promise<{ deleted: true; severed_relations: number }> {
+    touching ??= await this.db.query.relations.findMany({
+      where: or(eq(relations.databaseAId, databaseId), eq(relations.databaseBId, databaseId)),
+    });
     await this.db.transaction(async (tx) => {
       if (touching.length > 0) {
         // Remove the paired fields living on OTHER databases (this db's own
-        // fields cascade with the database row).
+        // fields are marked deleted below, not removed).
         const fieldIds = touching.flatMap((r) => [r.fieldAId, r.fieldBId]);
         await tx.delete(recordLinks).where(
           inArray(
@@ -507,8 +673,31 @@ export class DatabasesService {
           ),
         );
       }
-      await tx.delete(databases).where(eq(databases.id, databaseId));
+      await softDeleteDatabaseCascade(tx, databaseId, new Date());
     });
     return { deleted: true, severed_relations: touching.length };
+  }
+
+  /** #37 — deleted databases in this workspace, for the trash view. */
+  async listTrash(workspaceId: string) {
+    const rows = await this.db.query.databases.findMany({
+      where: and(eq(databases.workspaceId, workspaceId), isNotNull(databases.deletedAt)),
+      orderBy: [desc(databases.deletedAt)],
+    });
+    return rows.map((d) => ({ id: d.id, name: d.name, space_id: d.spaceId, deleted_at: d.deletedAt }));
+  }
+
+  /**
+   * #37 — undo `remove()` above, via `restoreDatabaseCascade` (see that
+   * function's own doc for what "same cascade" means and why relations are
+   * never touched here).
+   */
+  async restore(workspaceId: string, databaseId: string) {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, workspaceId), isNotNull(databases.deletedAt)),
+    });
+    if (!database) throw new NotFoundException('Database not found in trash');
+    await this.db.transaction((tx) => restoreDatabaseCascade(tx, databaseId, database.deletedAt!));
+    return { restored: true, id: databaseId };
   }
 }

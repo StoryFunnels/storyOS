@@ -10,6 +10,7 @@ import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { recordSegment } from '@/lib/records';
+import { recordBreadcrumb } from '@/components/entity/mention-items';
 import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,10 @@ interface PlaceHit {
   id: string;
   name: string;
   icon: string | null;
+  /** #516/#517 — only ever set for kind: 'database'; a space has no owning
+   *  space of its own to show a breadcrumb for. */
+  database_color?: string | null;
+  space_name?: string | null;
 }
 
 type Group = 'Records' | 'Create' | 'Places' | 'Actions';
@@ -157,7 +162,7 @@ export function CommandPalette() {
       out.push({
         key: `rec:${hit.id}`,
         group: 'Records',
-        icon: <EntityIcon icon={hit.database_icon} color={null} fallback={<FileText className="h-3.5 w-3.5" />} className="text-[13px]" />,
+        icon: <EntityIcon icon={hit.database_icon} color={null} fallback={<FileText className="h-3.5 w-3.5" />} className="text-body" />,
         label: hit.title || 'Untitled',
         hint: hit.database_name,
         run: () => {
@@ -209,9 +214,13 @@ export function CommandPalette() {
       out.push({
         key: `place:${place.id}`,
         group: 'Places',
-        icon: <EntityIcon icon={place.icon} color={null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-[13px]" />,
+        icon: <EntityIcon icon={place.icon} color={null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-body" />,
         label: place.name,
-        hint: place.kind === 'database' ? 'Database' : 'Space',
+        // #517 — a database place shows its owning space, matching the mentions
+        // picker's exact breadcrumb (recordBreadcrumb, mention-items.ts:82) so
+        // two same-named databases in different spaces read distinctly. A
+        // space place has no breadcrumb of its own — stays the literal 'Space'.
+        hint: place.kind === 'database' ? recordBreadcrumb(place.space_name ?? null, place.name) : 'Space',
         run: () => (place.kind === 'database' ? go(`/w/${ws}/d/${place.id}`) : go(`/w/${ws}`)),
       });
     }
@@ -278,22 +287,27 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-[var(--z-palette)] flex items-start justify-center bg-[rgba(15,23,41,0.35)] px-4 pt-[15vh] backdrop-blur-[1px]"
+      className="fixed inset-0 z-[var(--z-palette)] flex items-start justify-center bg-[var(--scrim)] px-4 pt-[15vh] backdrop-blur-[1px]"
       onClick={() => setOpen(false)}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Search and commands"
-        className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_24px_60px_rgba(15,23,41,0.28)]"
+        className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-palette)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative flex items-center gap-2.5 border-b border-border-default px-3.5">
+          {/* #669 — STAYS faint, and both palette icons do. A glyph is a
+              non-text graphic, judged at 3:1, and faint measures 3.44:1 on card
+              — it passes. Each also sits beside real text that carries the
+              meaning (the placeholder here, the heading in the empty state), so
+              darkening them would compete with the words rather than help. */}
           <Search className="h-4 w-4 shrink-0 text-faint" />
           <input
             autoFocus
-            placeholder="Search records, databases, actions…"
-            className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+            placeholder="Search items, databases, actions…"
+            className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -320,7 +334,7 @@ export function CommandPalette() {
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {showSkeleton && (
             <div className="px-1">
-              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">Records</p>
+              <p className="px-2.5 pb-1 pt-2 text-meta font-medium uppercase tracking-wider text-muted">Items</p>
               {[0, 1, 2, 3].map((n) => (
                 <div key={n} className="flex items-center gap-2.5 px-2.5 py-2">
                   <span className="h-6 w-6 shrink-0 animate-pulse rounded-[var(--radius-control)] bg-hover" />
@@ -333,10 +347,10 @@ export function CommandPalette() {
           {showEmpty && (
             <div className="px-2.5 py-8 text-center">
               <Search className="mx-auto mb-2 h-5 w-5 text-faint" />
-              <p className="text-[13px] font-medium text-ink-secondary">
+              <p className="text-body font-medium text-ink-secondary">
                 {searching ? `No matches for “${debounced.trim()}”` : 'Type to search'}
               </p>
-              <p className="mt-0.5 text-[12px] text-muted">
+              <p className="mt-0.5 text-label text-muted">
                 {searching ? 'Try a record title, database, or space.' : 'Find records, databases, spaces and actions.'}
               </p>
             </div>
@@ -344,7 +358,11 @@ export function CommandPalette() {
 
           {!showSkeleton && grouped.map(({ group, items }, gi) => (
             <div key={group} className={cn(gi > 0 && 'mt-1 border-t border-border-default/70 pt-1')}>
-              <p className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">
+              {/* #669 — a group heading is how you parse the result list into
+                  sections; it is not decoration. Kept in step with the skeleton
+                  heading above so the label does not change colour when results
+                  land. */}
+              <p className="px-2.5 pb-0.5 pt-2 text-meta font-medium uppercase tracking-wider text-muted">
                 {!searching && group === 'Records' ? 'Recent' : group}
               </p>
               {items.map(({ row, i }) => {
@@ -354,7 +372,7 @@ export function CommandPalette() {
                     key={row.key}
                     ref={(el) => { itemRefs.current[i] = el; }}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[13px] text-ink transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink transition-colors',
                       active ? 'bg-accent-soft' : 'hover:bg-hover',
                     )}
                     onMouseMove={() => setIndex(i)}
@@ -370,7 +388,7 @@ export function CommandPalette() {
                     </span>
                     <span className="min-w-0 flex-1 truncate font-medium">{row.label}</span>
                     {row.hint && (
-                      <span className="ml-2 max-w-[45%] shrink-0 truncate text-[11px] text-muted">{row.hint}</span>
+                      <span className="ml-2 max-w-[45%] shrink-0 truncate text-meta text-muted">{row.hint}</span>
                     )}
                   </button>
                 );
@@ -379,19 +397,23 @@ export function CommandPalette() {
           ))}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border-default px-3.5 py-2 text-[11px] text-muted">
+        {/* #669 — the verbs are the instruction. The row already sits at
+            --text-muted and only these three spans opted down to faint, so the
+            KEY glyphs were legible while the words saying what they do were not,
+            which is the wrong way round. */}
+        <div className="flex items-center justify-between border-t border-border-default px-3.5 py-2 text-meta text-muted">
           <span className="flex items-center gap-1.5">
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
-            <span className="text-faint">navigate</span>
+            <span>navigate</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↵</Kbd>
-            <span className="text-faint">open</span>
+            <span>open</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>esc</Kbd>
-            <span className="text-faint">close</span>
+            <span>close</span>
           </span>
         </div>
       </div>

@@ -27,6 +27,7 @@ or an S3/MinIO deployment.
 manifest.json
 spaces/<space-slug>/<database-slug>.json
 relations.json
+documents.json
 attachments/<attachment-id>/<filename>
 ```
 
@@ -41,10 +42,10 @@ space and database (with the in-archive `path` of each database file).
 ```jsonc
 {
   "format": "storyos-workspace-export",
-  "format_version": 1,
+  "format_version": 2,
   "exported_at": "2026-07-25T12:00:00.000Z",
   "workspace": { "id": "…", "name": "Acme", "slug": "acme" },
-  "counts": { "spaces": 2, "databases": 5, "relations": 3, "attachments": 12 },
+  "counts": { "spaces": 2, "databases": 5, "relations": 3, "attachments": 12, "documents": 4, "views": 6 },
   "spaces": [
     {
       "id": "…", "name": "Product", "slug": "product", "icon": null, "color": null,
@@ -83,6 +84,27 @@ The relation graph, independent of any one database:
 - `links[]` — the actual links: `{ relation_id, from_record_id, to_record_id }`,
   every id a stable record/relation uuid.
 
+### `documents.json` (#293, since `format_version` 2)
+
+Standalone space documents and views — but only the ones currently reachable
+from a **shared** container, matching the personal-space exclusion above: the
+export boundary follows an item's *current* container, not its history. A
+document/view moved or published out of Personal appears here the moment
+it's shared; forking a shared one back into Personal ("Copy to My Space")
+drops the fork back out, while the original it was copied from stays.
+
+- `documents[]` — standalone space documents (not a record's own document
+  body — that's still out of scope, see below): `id`, `space_id`, `folder_id`,
+  `title`, `icon`, `content` (BlockNote blocks), `content_text`, `position`,
+  `created_by`, `created_at`, `updated_at`.
+- `views[]` — every view whose `owner_user_id` is null (a personal view, #291,
+  is private from admins too — excluded regardless of which space or database
+  it's under, the same rule this export already applies to personal spaces),
+  scoped to a shared space (`space_id`, a dashboard/multi-source view) or an
+  exported database (`database_id`): `id`, `database_id`, `space_id`,
+  `folder_id`, `name`, `type`, `config`, `position`, `is_default`,
+  `created_by`.
+
 ### `attachments/<attachment-id>/<filename>`
 
 The actual attachment bytes. A record reaches them via its `attachments[].path`.
@@ -93,10 +115,11 @@ object never aborts the whole export.
 
 ## What is not (yet) included
 
-Views, standalone space documents, record rich-text document bodies, comments and
-activity history are out of scope for v1 — the export covers the structural data
-model (spaces, databases, field schema, records + values, relations, attachments).
-These are candidates for a `format_version` bump.
+A record's own rich-text document body, comments and activity history are out
+of scope for v1 — the export covers the structural data model (spaces,
+databases, field schema, records + values, relations, attachments) plus, as
+of `format_version` 2, standalone space documents and shared views (#293).
+These remaining gaps are candidates for a further `format_version` bump.
 
 ## Import
 

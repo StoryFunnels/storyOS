@@ -6,6 +6,9 @@ import { AgentsService } from '../src/agents/agents.service';
 import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { PackManifest } from '@storyos/schemas';
+import { STARTER_PACKS } from '../src/packs/starter-packs';
+import { ConnectionsService } from '../src/connections/connections.service';
+import type { ConnectionFetcher } from '../src/connections/providers';
 
 /**
  * Business Packs — the pack format (MN-218 / #160).
@@ -814,6 +817,75 @@ describe('requirements and validation', () => {
     expect(result.unmet).toEqual([]);
   }, 60_000);
 
+  /**
+   * #600 — suggested DATA sources (Shopify/YouTube/Apify-style providers),
+   * distinct from requires.connections' chat/dev-tool set, reported through
+   * the SAME unmet channel rather than a second one.
+   */
+  it('#600: reports a suggested source as unmet, same shape as a connection', async () => {
+    const ws = await newWorkspace('Req Suggested Source');
+    const result = await installOk(ws, {
+      ...base,
+      requires: { connections: [], ai: 'byo' },
+      suggested_sources: [{ provider: 'apify.actor', note: 'crawl your own site for content ideas' }],
+    });
+    expect(result.unmet).toHaveLength(1);
+    expect(result.unmet[0].kind).toBe('source');
+    expect(result.unmet[0].name).toBe('apify.actor');
+    expect(result.unmet[0].detail).toContain('apify.actor');
+    expect(result.unmet[0].detail).toContain('crawl your own site for content ideas');
+    // Reported, never fatal — same property requires.connections already has.
+    expect((await listDatabases(ws)).map((d) => d.name)).toContain('Leads');
+  }, 60_000);
+
+  it('#600: a provider the workspace already has connected is not re-suggested', async () => {
+    // apifyProvider.healthCheck hits a real URL — stub it for this test only
+    // (same approach as apify-source.test.ts), restored in `finally` so it
+    // never leaks into a later test in this file.
+    const connections = app.get(ConnectionsService);
+    const previousFetcher = connections.fetcher;
+    const healthCheckFetcher: ConnectionFetcher = async () => ({ status: 200, json: async () => ({}), text: async () => '' });
+    connections.fetcher = healthCheckFetcher;
+    try {
+      const ws = await newWorkspace('Req Source Already Connected');
+      const spaceId = (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+      const dbId = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: spaceId, name: 'Crawl targets' })).json().id;
+      const urlField = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${dbId}/fields`, {
+        display_name: 'URL', type: 'text', config: {},
+      })).json();
+      const conn = await as(admin.token, 'POST', `/workspaces/${ws}/connections`, {
+        provider: 'apify', name: 'Existing Apify', auth: { api_key: 'apify_test_token' },
+      });
+      expect(conn.statusCode, conn.body).toBe(201);
+      const source = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${dbId}/sources`, {
+        name: 'Existing crawl',
+        connection_id: conn.json().id,
+        provider_source: 'apify.actor',
+        config: { actor_id: 'apify/website-content-crawler', input: {}, monthly_run_cap: 1 },
+        field_mapping: { url: urlField.id },
+        external_key_field_id: urlField.id,
+        schedule: '15m',
+      });
+      expect(source.statusCode, source.body).toBe(201);
+
+      const result = await installOk(ws, {
+        ...base,
+        requires: { connections: [], ai: 'byo' },
+        suggested_sources: [{ provider: 'apify.actor' }],
+      });
+      expect(result.unmet.filter((u: { kind: string }) => u.kind === 'source')).toHaveLength(0);
+    } finally {
+      connections.fetcher = previousFetcher;
+    }
+  }, 60_000);
+
+  it('#600: MUST KEEP WORKING — no suggested_sources means no source entries, connection/ai reporting unaffected', async () => {
+    const ws = await newWorkspace('Req No Suggestions');
+    const result = await installOk(ws, { ...base, requires: { connections: ['slack'], ai: 'byo' } });
+    expect(result.unmet).toHaveLength(1);
+    expect(result.unmet[0].kind).toBe('connection');
+  }, 60_000);
+
   it('a bad semver is a 422, not a 500', async () => {
     const res = await installPack(wsId, { ...base, version: 'v1.2' });
     expect(res.statusCode, res.body).toBe(422);
@@ -1344,6 +1416,24 @@ describe('authenticated pack gallery metadata (#305)', () => {
       agents: 1,
     });
   });
+
+  // #824 — the card's hero is the workflow, read from the pack's own manifest.
+  it('returns every pack\'s workflow and marks, and no pack\'s pipeline override leaks', async () => {
+    const res = await as(admin.token, 'GET', '/packs/registry');
+    const cards = res.json() as Array<{
+      slug: string;
+      pipeline?: unknown;
+      workflow: { database: string; field: string; stages: string[][] } | null;
+      marks: { agent: boolean; notifies: boolean };
+    }>;
+    for (const card of cards) {
+      expect(card.workflow, card.slug).not.toBeNull();
+      expect(card.workflow!.stages.length, card.slug).toBeGreaterThanOrEqual(2);
+    }
+    const support = cards.find((c) => c.slug === 'support-inbox')!;
+    expect(support.workflow!.stages.flat()).toEqual(['New', 'To Do', 'In Progress', 'Review', 'Done']);
+    expect(support.marks).toEqual({ agent: true, notifies: true });
+  });
 });
 
 /**
@@ -1515,5 +1605,88 @@ describe('Support Inbox registry pack (#306): 7-state workflow', () => {
     } finally {
       service.runtimeFor = original;
     }
+  }, 60_000);
+});
+
+/**
+ * #568 — installing Consulting OS after Agency OS, reusing Agency OS's Clients
+ * database, used to 422 the WHOLE install: Consulting's sample Client record
+ * references `$option:Clients.Industry.Health`, an option that exists on
+ * Consulting's OWN manifest but not on Agency OS's (already-installed, reused)
+ * Industry field. That mismatch is real data, not a malformed pack — installing
+ * two ordinary starter packs that happen to share a database name is exactly
+ * what the collision/reuse UI exists to support.
+ */
+describe('#568 pack install: a reused database\'s missing option is a skip, not a 422', () => {
+  it('reproduces the exact 422 from the ticket, unfixed', () => {
+    // The fix targets installSampleRecords; this just documents the two real
+    // starter packs' shapes stay the way the ticket described them, so the
+    // regression test below is provably exercising the same bug.
+    const agency = STARTER_PACKS.find((p) => p.slug === 'agency-os')!;
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    const agencyIndustry = agency.manifest.databases
+      .find((d) => d.name === 'Clients')!
+      .fields.find((f) => f.name === 'Industry')!;
+    expect(agencyIndustry.options?.map((o) => o.label)).not.toContain('Health');
+    const consultingSample = consulting.manifest.sample_records.find((r) => r.database === 'Clients')!;
+    expect(String(consultingSample.values['industry']).toLowerCase()).toContain('health');
+  });
+
+  it('install Agency OS, then Consulting OS reusing Clients — succeeds, skips just the one field', async () => {
+    const wsId = await newWorkspace('Pack Collision 568');
+    const agency = STARTER_PACKS.find((p) => p.slug === 'agency-os')!;
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+
+    await installOk(wsId, agency.manifest);
+
+    const preview = await previewOk(wsId, consulting.manifest);
+    const clients = preview.databases.find((d: { name: string }) => d.name === 'Clients');
+    expect(clients?.action, 'Clients must collide — that is the whole scenario').toBe('collision');
+
+    const res = await installWith(wsId, consulting.manifest, { Clients: { action: 'reuse' } });
+    expect(res.statusCode, res.body).toBe(201); // NOT a 422
+    const result = res.json();
+
+    expect(result.skipped_sample_field_values).toEqual([
+      expect.objectContaining({ field: 'industry' }),
+    ]);
+
+    // The sample record still installs — every OTHER field intact — just
+    // without the one value that had nowhere to resolve to.
+    const clientsDb = await dbNamed(wsId, 'Clients');
+    const records = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}/records?limit=50`)
+    ).json().data as Array<{ title: string; values: Record<string, unknown> }>;
+    const sample = records.find((r) => r.title.includes('Meridian'));
+    expect(sample, 'the sample record itself still installs').toBeTruthy();
+    expect(sample!.values['industry']).toBeUndefined(); // dropped, not a stale/wrong value
+  }, 60_000);
+
+  it('MUST KEEP WORKING: installing Consulting OS standalone still creates the sample with Industry = Health', async () => {
+    const wsId = await newWorkspace('Consulting Standalone 568');
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    await installOk(wsId, consulting.manifest);
+
+    const clientsDb = await dbNamed(wsId, 'Clients');
+    const records = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}/records?limit=50`)
+    ).json().data as Array<{ title: string; values: Record<string, unknown> }>;
+    const sample = records.find((r) => r.title.includes('Meridian'));
+    expect(sample).toBeTruthy();
+    const detail = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}`)).json();
+    const industryField = detail.fields.find((f: { apiName: string }) => f.apiName === 'industry');
+    const healthOption = industryField.options.find((o: { label: string }) => o.label === 'Health');
+    expect(sample!.values['industry']).toBe(healthOption.id);
+  }, 60_000);
+
+  it('a database this pack itself CREATES still hard-fails on a truly dangling ref', async () => {
+    const wsId = await newWorkspace('Self-Inconsistent 568');
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    const broken: PackManifest = JSON.parse(JSON.stringify(consulting.manifest));
+    const sample = broken.sample_records.find((r) => r.database === 'Clients')!;
+    sample.values['industry'] = '$option:Clients.Industry.NoSuchOption';
+
+    const res = await installPack(wsId, broken);
+    expect(res.statusCode, res.body).toBe(422); // unchanged: a self-inconsistent manifest is still refused whole
   }, 60_000);
 });

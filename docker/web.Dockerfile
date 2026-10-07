@@ -22,6 +22,15 @@ ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
 ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=$NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
 ARG NEXT_PUBLIC_POSTHOG_HOST=
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
+# #593 — next/metadata's metadataBase (og:image/twitter:image) is read at
+# BUILD time for every statically prerendered route (/, /login, /signup, …),
+# not just at request time like the dynamic routes #566 already fixed. The
+# compose `environment:` block only reaches `docker compose up`, never `build`
+# — so the running container had WEB_URL and the build that froze its static
+# HTML did not. Both are kept: this build arg fixes the static pages, the
+# runtime env (docker-compose.yml) keeps the dynamic ones correct.
+ARG WEB_URL=http://localhost:3000
+ENV WEB_URL=$WEB_URL
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY packages/config ./packages/config
 COPY packages/schemas ./packages/schemas
@@ -32,6 +41,15 @@ RUN pnpm install --frozen-lockfile --filter @storyos/web...
 RUN pnpm --filter @storyos/schemas build && pnpm --filter @storyos/sdk build && pnpm --filter @storyos/web build
 
 FROM node:22-bookworm-slim AS runtime
+# #553 — baked at IMAGE build time (build-images.yml passes --build-arg
+# GIT_SHA/BUILD_TIME from the CI checkout), never read from a deploy-time
+# .env — a value burned into this specific image can only ever report what
+# this specific image was actually built from, even if a later deploy fails
+# to swap the running container. Mirrors api.Dockerfile's identical pattern.
+ARG GIT_SHA
+ARG BUILD_TIME
+ENV GIT_SHA=$GIT_SHA
+ENV BUILD_TIME=$BUILD_TIME
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/apps/web/.next/standalone ./

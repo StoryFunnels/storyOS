@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { brandIconSlug, setIconName } from '@storyos/schemas/icons';
-import { filterOpSchema, queryRecordsSchema } from '@storyos/schemas';
+import { filterOpSchema, queryRecordsSchema, viewConfigSchema } from '@storyos/schemas';
 import { buildIconCatalog, coerceStringified, coerceInputSchema, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
 import { z } from 'zod';
 import type { Ctx } from './client.js';
@@ -642,6 +644,50 @@ describe('create_view / update_view (#270)', () => {
         config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
       },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
+      // #718 — a form that is LIVE: fields, a real token, link access, and a
+      // theme (#711) that update_view does not model. The pre-existing
+      // 'Signup Form' above has NO config, which is why 260 passing tests never
+      // caught a bug about preserving config.
+      {
+        id: 'view-themed', name: 'Careers Form', type: 'form',
+        config: { form: {
+          title: 'Apply',
+          fields: [{ field_id: 'f-name', required: true }],
+          public_token: 'livetoken0000000000000000000001',
+          access: 'link',
+          theme: { accent: '#c8102e', surface: '#fbf7ef', text: '#2c2419', radius: 2 },
+        } },
+      },
+      {
+        id: 'view-form-configured',
+        name: 'Intake Form',
+        type: 'form',
+        // #715 — a form that already has real config: two fields, one with a
+        // visible_when, and a live link token. update_view calls in the
+        // #715 tests below deliberately touch something ELSE (sorts) to
+        // prove none of this gets silently dropped.
+        config: {
+          form: {
+            title: 'Pet Intake',
+            fields: [
+              { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+              {
+                field_id: 'f-email',
+                required: true,
+                visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+                required_when: { field_id: 'f-name', op: 'not_empty' },
+              },
+              // #716 — a hidden field stamping a fixed value, exactly the
+              // Borderlands one-form-per-job shape (a fixed relation target
+              // here would be `value: <record id>`; a plain string works
+              // fine as a fixture since MCP passes `value` through as-is).
+              { field_id: 'f-stage', hidden: true, value: 'opt-new' },
+            ],
+            access: 'link',
+            public_token: 'existing-token-abc',
+          },
+        },
+      },
     ],
   };
 
@@ -761,18 +807,282 @@ describe('create_view / update_view (#270)', () => {
     expect(res.content[0]!.text).toMatch(/No field matches "not_a_real_field"/);
   });
 
-  it('update_view rebuilds the form config and issues a fresh public_token when form_access is re-specified', async () => {
+  it('update_view mints a public_token moving a NEVER-shared form to link (there is none yet to reuse)', async () => {
     const { handlers, patched } = registerAndGet(['update_view']);
     const res = (await handlers.update_view!({
       workspace: 'JCM Agency',
       database: 'leads_2',
-      view: 'Signup Form',
+      view: 'Signup Form', // #715/#718 fixture: type form, no config at all — no prior token
       form_access: 'link',
     })) as { isError?: boolean };
     expect(res.isError).toBeUndefined();
     const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string };
     expect(form.access).toBe('link');
     expect(typeof form.public_token).toBe('string');
+  });
+
+  /**
+   * #715 — SILENT DATA LOSS, confirmed live before this fix against a real
+   * running server: an update_view call touching only `sorts` (nothing
+   * form-related) took a 2-field form with a `visible_when` and a live
+   * 'link' token down to 0 fields and 'members'. `buildViewConfig`'s form
+   * branch ran unconditionally whenever the view's STORED type was 'form' —
+   * v.type, not something this call chose — and rebuilt `config.form` from
+   * only the form_* params THIS call happened to pass, which for an
+   * unrelated edit is none of them.
+   */
+  describe('#715 — a form edit must not drop config it did not touch', () => {
+    it('an unrelated field (sorts) leaves every existing form field, including visible_when, untouched', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      const res = (await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        sorts: [{ field: 'name', direction: 'asc' }],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as {
+        fields: Array<Record<string, unknown>>;
+        access: string;
+        public_token: string;
+        title: string;
+      };
+      expect(form.fields).toEqual([
+        { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+        {
+          field_id: 'f-email',
+          required: true,
+          visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+          required_when: { field_id: 'f-name', op: 'not_empty' },
+        },
+        { field_id: 'f-stage', hidden: true, value: 'opt-new' },
+      ]);
+      expect(form.title).toBe('Pet Intake');
+      expect(form.access).toBe('link');
+      expect(form.public_token).toBe('existing-token-abc'); // not rotated — form_access was never mentioned
+    });
+
+    it('omitting form_access on an unrelated edit never downgrades access or drops the live token', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_title: 'Pet Intake v2' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string; title: string };
+      expect(form.title).toBe('Pet Intake v2');
+      expect(form.access).toBe('link'); // the old bug reset this to 'members'
+      expect(form.public_token).toBe('existing-token-abc');
+    });
+
+    /**
+     * #718 (AC2, corrected mid-build by Dara after Otto caught it in the
+     * ORIGINAL fix) — the other half of the token bug. The first version of
+     * this fix minted a fresh token whenever `form_access` was explicitly
+     * re-passed, on the theory that this was already-documented, deliberate
+     * rotation. It wasn't a real feature, and it meant a caller who passed
+     * `form_access: 'link'` specifically to avoid the members-only default
+     * (the OTHER bug, tested above) got a dead embed anyway — a brand new
+     * token silently invalidating every URL already pasted somewhere. An
+     * existing token must be reused, full stop; this tool has no rotate
+     * action.
+     */
+    it('explicitly re-passing form_access on a form that ALREADY has a token reuses it — never mints a new one', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_access: 'link' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token: string };
+      expect(form.access).toBe('link');
+      expect(form.public_token).toBe('existing-token-abc'); // reused, not rotated
+    });
+
+    it('explicitly changing form_access to members DOES clear the token — a deliberate revoke still works', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_access: 'members' });
+      const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form as { access: string; public_token?: string };
+      expect(form.access).toBe('members');
+      expect(form.public_token).toBeUndefined();
+    });
+
+    it('omitting form_fields entirely preserves the whole existing fields array as-is', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Intake Form', form_submit_text: 'Go' });
+      const form = (patched[0]!.body as { config: { form: { fields: unknown[] } } }).config.form;
+      expect(form.fields).toHaveLength(3); // the old bug emptied this to []
+    });
+
+    it('re-listing form_fields keeps each kept field\'s visible_when unless the call overrides it', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      // Re-list both fields by bare name (no visible_when mentioned) plus a NEW field.
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', 'email', 'pipeline_stage'],
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<Record<string, unknown>> } } }).config.form;
+      // Every existing per-field property carried forward even though this
+      // call only named each field by string.
+      expect(form.fields).toEqual([
+        { field_id: 'f-name', label: 'Your name', help: 'As it appears on ID' },
+        {
+          field_id: 'f-email',
+          required: true,
+          visible_when: { field_id: 'f-name', op: 'eq', value: 'Given' },
+          required_when: { field_id: 'f-name', op: 'not_empty' },
+        },
+        { field_id: 'f-stage', hidden: true, value: 'opt-new' },
+      ]);
+    });
+
+    it('overriding visible_when on a re-listed field replaces just that rule, not the rest of the field', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', { field: 'email', visible_when: { field: 'name', op: 'not_empty' } }],
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<Record<string, unknown>> } } }).config.form;
+      expect(form.fields[1]).toEqual({
+        field_id: 'f-email',
+        required: true, // not mentioned in this call — carried forward
+        visible_when: { field_id: 'f-name', op: 'not_empty' }, // replaced
+        required_when: { field_id: 'f-name', op: 'not_empty' }, // not mentioned — carried forward
+      });
+    });
+
+    it('create_view accepts visible_when/required_when on a form field — the coverage gap half of #715', async () => {
+      const { handlers, posted } = registerAndGet(['create_view']);
+      const res = (await handlers.create_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        name: 'New Form',
+        type: 'form',
+        form_fields: [
+          'name',
+          { field: 'email', visible_when: { field: 'name', op: 'not_empty' }, required_when: { field: 'name', op: 'eq', value: 'Given' } },
+        ],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (posted[0]!.body as { config: { form: { fields: Array<{ field_id: string; visible_when?: unknown; required_when?: unknown }> } } }).config.form;
+      expect(form.fields[1]!.visible_when).toEqual({ field_id: 'f-name', op: 'not_empty' });
+      expect(form.fields[1]!.required_when).toEqual({ field_id: 'f-name', op: 'eq', value: 'Given' });
+    });
+
+    /**
+     * #716 — the schema gained `hidden`/`value` (a fixed value a form stamps
+     * onto every submission without ever showing the field) after #715's fix
+     * first shipped. Same coverage-gap shape: the MCP must be able to WRITE
+     * these, and — the #718 lesson repeated one level down — an edit that
+     * doesn't mention a field must not silently reset its hidden/value.
+     */
+    it('create_view accepts hidden+value on a form field — the #716 half of the same gap', async () => {
+      const { handlers, posted } = registerAndGet(['create_view']);
+      const res = (await handlers.create_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        name: 'Job Application',
+        type: 'form',
+        form_fields: ['name', { field: 'pipeline_stage', hidden: true, value: 'opt-new' }],
+      })) as { isError?: boolean };
+      expect(res.isError).toBeUndefined();
+      const form = (posted[0]!.body as { config: { form: { fields: Array<{ field_id: string; hidden?: boolean; value?: unknown }> } } }).config.form;
+      expect(form.fields[1]).toEqual({ field_id: 'f-stage', hidden: true, value: 'opt-new' });
+    });
+
+    it('re-listing form_fields by bare name carries an existing hidden+value forward untouched', async () => {
+      const { handlers, patched } = registerAndGet(['update_view']);
+      await handlers.update_view!({
+        workspace: 'JCM Agency',
+        database: 'leads_2',
+        view: 'Intake Form',
+        form_fields: ['name', 'email', 'pipeline_stage'], // re-listed by bare name, nothing overridden
+      });
+      const form = (patched[0]!.body as { config: { form: { fields: Array<{ field_id: string; hidden?: boolean; value?: unknown }> } } }).config.form;
+      expect(form.fields[2]).toEqual({ field_id: 'f-stage', hidden: true, value: 'opt-new' });
+    });
+
+    /**
+     * THE GENERALIZABLE FIX (worth more than either ticket, per the review
+     * that asked for it): a test that asserts the MCP's form-field surface
+     * covers the STORED schema's own field list, read directly off
+     * `viewConfigSchema` — not a hand-maintained list of property names in a
+     * comment that quietly goes stale the next time a #716-shaped ticket
+     * lands. 260 passing tests missed #718's three defaults because the fake
+     * DATABASE's form view had no config to destroy; this test closes the
+     * matching hole one level down — a form FIELD with every key the schema
+     * actually defines, round-tripped through an edit that mentions none of
+     * them by name. If a future ticket adds a tenth property and nobody
+     * updates buildViewConfig's field-merge to carry it forward, this fails
+     * with the new key's own name, not a symptom three steps removed from it.
+     */
+    it("covers every key the stored schema's own form-field object defines — not a hand-maintained list of them", () => {
+      const formSchema = viewConfigSchema.shape.form.unwrap();
+      const fieldsArraySchema = (formSchema.shape.fields as { def: { innerType: { def: { element: { shape: Record<string, unknown> } } } } }).def.innerType.def.element;
+      const realFieldKeys = Object.keys(fieldsArraySchema.shape).sort();
+      // This pins the real key LIST rather than just checking "does the
+      // schema still have these keys" — the point is that a schema change
+      // (a #716-shaped ticket adding an tenth property) is caught HERE, at
+      // the one place meant to track it, instead of silently in whichever
+      // hand-written preservation test happens to exercise the new property
+      // (or in no test at all, which is #718's own history). Update this
+      // list deliberately when the schema changes, and when you do, also
+      // update the fixture in the test right below so the NEW property gets
+      // a real preservation test too, not just a mention in this list.
+      expect(realFieldKeys).toEqual(
+        ['field_id', 'help', 'hidden', 'label', 'relation_filter', 'required', 'required_when', 'value', 'visible_when'].sort(),
+      );
+    });
+
+    it('the fixture used by the #715/#716/#718 preservation tests above actually sets every one of those real keys', () => {
+      const formSchema = viewConfigSchema.shape.form.unwrap();
+      const fieldsArraySchema = (formSchema.shape.fields as { def: { innerType: { def: { element: { shape: Record<string, unknown> } } } } }).def.innerType.def.element;
+      const realFieldKeys = Object.keys(fieldsArraySchema.shape);
+      const fixtureFields = (DATABASE.views.find((v) => v.id === 'view-form-configured') as { config: { form: { fields: Array<Record<string, unknown>> } } })
+        .config.form.fields;
+      const keysSetAcrossFixture = new Set(fixtureFields.flatMap((f) => Object.keys(f)));
+      const uncovered = realFieldKeys.filter((k) => !keysSetAcrossFixture.has(k) && k !== 'relation_filter'); // relation_filter: not yet MCP-writable, see buildViewConfig's own comment
+      expect(uncovered, `fixture never sets: ${uncovered.join(', ')} — a preservation bug in one of these would go uncaught`).toEqual([]);
+    });
+  });
+
+  /**
+   * #718 — #797 fixed the three defaults this tool MODELS (fields, access,
+   * token) by naming each one. That is correct for those and silently wrong
+   * for everything else: the emitted object was still a rebuild from a
+   * known-key list, so a property MCP does not model was dropped by omission.
+   * `theme` (#711) is exactly that, and there is deliberately no form_theme
+   * argument — a theme comes from the builder's colour pickers, not an agent.
+   */
+  it('preserves config.form.theme through a form_title-only update (#718)', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_title: 'Apply now',
+    });
+    const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form;
+    expect(form.theme).toEqual({ accent: '#c8102e', surface: '#fbf7ef', text: '#2c2419', radius: 2 });
+    expect(form.title).toBe('Apply now');
+  });
+
+  it('still preserves the three modelled defaults alongside it (#718 regression net)', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_title: 'Apply now',
+    });
+    const form = (patched[0]!.body as { config: { form: Record<string, unknown> } }).config.form;
+    expect(form.fields).toEqual([{ field_id: 'f-name', required: true }]);
+    expect(form.access).toBe('link');
+    expect(form.public_token).toBe('livetoken0000000000000000000001');
+  });
+
+  it('does NOT leak a stale token back when access drops to members-only (#718)', async () => {
+    // The `...existingForm` spread that fixes theme would otherwise carry the
+    // old token through. The wire body must stay identical to what #797 sent.
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency', database: 'leads_2', view: 'Careers Form', form_access: 'members',
+    });
+    const body = patched[0]!.body as { config: { form: Record<string, unknown> } };
+    expect(body.config.form.access).toBe('members');
+    expect(body.config.form).not.toHaveProperty('public_token');
+    // theme still survives an access change
+    expect(body.config.form.theme).toBeDefined();
   });
 
   it('update_view leaves config untouched when only renaming', async () => {
@@ -1105,16 +1415,16 @@ describe('describe_database enumerates system fields from the registry (#354)', 
     };
   }
 
-  it('lists ALL six system fields (previously only `id` showed), each read-only with ops', async () => {
+  it('lists the non-deprecated system fields (#770: `number` is deprecated, so five show, not six), each read-only with ops', async () => {
     const { fields } = await describe();
     const byName = new Map(fields.map((f) => [f.api_name, f]));
-    for (const name of ['number', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
+    for (const name of ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
       const f = byName.get(name);
       expect(f, `system field ${name} present`).toBeTruthy();
       expect(f!.read_only).toBe(true);
       expect(Array.isArray(f!.ops) && f!.ops!.length > 0).toBe(true);
     }
-    expect(byName.get('number')!.ops).toContain('gte');
+    expect(byName.get('id')!.ops).toContain('gte');
     expect(byName.get('created_at')!.ops).toContain('within');
     expect(byName.get('created_by')!.ops).toContain('has');
   });
@@ -1275,9 +1585,15 @@ describe('add_field accepts type: workflow (#337)', () => {
       scope: 'admin',
       allowRunButton: true,
     });
-    const schema = configs.get(tool)?.inputSchema as Record<string, Parsable> | undefined;
-    if (!schema?.[key]) throw new Error(`${tool} has no input field "${key}"`);
-    return schema[key];
+    const registered = configs.get(tool)?.inputSchema as unknown as { shape?: unknown } | undefined;
+    // #450 — reg() now registers `z.object(shape).catchall(z.unknown())` (so an
+    // unknown top-level key survives the SDK's own parse and reaches
+    // rejectUnknownArgs, instead of being silently stripped before it). That is
+    // a ZodObject, not the raw shape this helper used to index directly — unwrap
+    // via `.shape`, which Zod exposes on both.
+    const unwrapped = (registered?.shape ?? registered) as Record<string, Parsable> | undefined;
+    if (!unwrapped?.[key]) throw new Error(`${tool} has no input field "${key}"`);
+    return unwrapped[key];
   }
 
   it('lists workflow among the field types', () => {
@@ -1786,6 +2102,31 @@ describe('descriptions and option editing over MCP (#400, #398)', () => {
       expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ color: 'teal' });
     });
 
+    it('#229 — toggling unique forwards a config patch, not a full field replace', async () => {
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        unique: true,
+      });
+      const patch = sent.find((s) => s.method === 'PATCH' && s.path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}');
+      expect(patch!.body).toEqual({ config: { unique: true } });
+    });
+
+    it('#229 — unique_normalize rides along only when unique is also given', async () => {
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        unique: false,
+        unique_normalize: false,
+      });
+      const patch = sent.find((s) => s.method === 'PATCH' && s.path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}');
+      expect(patch!.body).toEqual({ config: { unique: false, unique_normalize: false } });
+    });
+
     it('recolours an EXISTING option, addressed by its label', async () => {
       /*
        * By label, not id: describe_database shows an agent labels and colours and
@@ -2062,6 +2403,49 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
       expect(JSON.stringify(patch.body)).toContain('opt-todo');
     });
   });
+
+  /** #694 — the enqueue/poll pair for a bulk record job. */
+  describe('enqueue_bulk_record_job / get_bulk_record_job', () => {
+    it('enqueue_bulk_record_job posts op/record_ids/values to the batch-jobs route', async () => {
+      const { call, sent } = harness();
+      await call('enqueue_bulk_record_job', {
+        workspace: 'Eng',
+        database: 'Voices',
+        op: 'update',
+        record_ids: ['r1', 'r2'],
+        values: { state: 'To Do' },
+      });
+      const posted = sent.find((s) => s.method === 'POST' && s.path.endsWith('/records/batch-jobs'))!;
+      expect(posted.body).toMatchObject({ op: 'update', record_ids: ['r1', 'r2'] });
+      expect(JSON.stringify(posted.body)).toContain('opt-todo');
+    });
+
+    it('get_bulk_record_job fetches the job by id from the poll route', async () => {
+      const sent: Sent[] = [];
+      const client = {
+        GET: async (path: string) => {
+          if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+          if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+          if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+          if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}') {
+            sent.push({ method: 'GET', path });
+            return { data: { id: 'job-1', status: 'succeeded', total: 2, processed: 2, succeeded: 2, failed: [], restorable: [] } };
+          }
+          throw new Error(`unexpected GET ${path}`);
+        },
+        POST: async () => ({ data: { ok: true } }),
+        PATCH: async () => ({ data: { ok: true } }),
+      };
+      const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>>();
+      registerTools(
+        { registerTool: (n: string, _c: unknown, h: never) => void handlers.set(n, h as never) } as never,
+        { client: client as never, baseUrl: 'http://test', token: 'tok' } as Ctx,
+      );
+      const result = await handlers.get('get_bulk_record_job')!({ workspace: 'Eng', database: 'Voices', job_id: 'job-1' });
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(result.content[0]!.text)).toMatchObject({ id: 'job-1', status: 'succeeded' });
+    });
+  });
 });
 
 /**
@@ -2162,7 +2546,12 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
     body?: Record<string, unknown>;
   }
 
-  function harness(opts?: { commentBody?: unknown }) {
+  function harness(opts?: {
+    commentBody?: unknown;
+    commentSource?: 'human' | 'agent';
+    deleteResponse?: unknown;
+    batchDeleteResponse?: unknown;
+  }) {
     const sent: Sent[] = [];
     const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
     const dbDetail = {
@@ -2195,7 +2584,10 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/trash') {
         return { data: { data: [{ id: 'rec-gone', number: 42, title: 'Deleted one', deleted_at: '2026-08-01T00:00:00Z' }] } };
       }
-      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: live };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') {
+        if (method === 'DELETE' && opts?.deleteResponse) return { data: opts.deleteResponse };
+        return { data: live };
+      }
       if (path === '/api/v1/workspaces/{ws}/databases/{db}/records') {
         return { data: { data: [live], next_cursor: 'cur-2', has_more: true } };
       }
@@ -2207,6 +2599,9 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
                 id: 'cmt-1',
                 body: opts?.commentBody ?? [{ type: 'text', text: 'Shipped ' }, { type: 'mention', user_id: 'u-9' }],
                 author: { id: 'u-1', name: 'Ada' },
+                source: opts?.commentSource ?? 'human',
+                agent_id: opts?.commentSource === 'agent' ? 'agent-1' : null,
+                agent_name: opts?.commentSource === 'agent' ? 'Triage Bot' : null,
                 edited_at: null,
                 created_at: '2026-08-01T00:00:00Z',
               },
@@ -2223,7 +2618,7 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       if (path.endsWith('/watchers')) return { data: { watchers: [], watching: false } };
       if (path.endsWith('/duplicate')) return { data: { id: 'rec-copy', number: 8, title: 'Live one (copy)', values: {} } };
       if (path.endsWith('/batch-restore')) return { data: { restored: 2 } };
-      if (path.endsWith('/batch-delete')) return { data: { deleted: 2 } };
+      if (path.endsWith('/batch-delete')) return { data: opts?.batchDeleteResponse ?? { deleted: 2 } };
       return { data: {} };
     };
 
@@ -2279,6 +2674,29 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       expect(out).toMatchObject({ deleted: 2, requested: 3 });
     });
 
+    it('#542 — delete_record reports a held gate honestly instead of claiming success', async () => {
+      // softDelete returns PendingApprovalResult (still a 200, not an error)
+      // when a workspace-declared gate holds the delete. Before this fix the
+      // handler reported `{ deleted: rec }` unconditionally, so an MCP-driven
+      // agent was told a held delete had happened.
+      const { call } = harness({
+        deleteResponse: { pending_approval: true, approval_id: 'appr-1', message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.' },
+      });
+      const out = await call('delete_record', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(out).toMatchObject({ deleted: false, pending_approval: true, approval_id: 'appr-1' });
+    });
+
+    it('#542 — delete_records reports a held gate for the whole batch, not a partial deleted count', async () => {
+      // batchDelete gates the WHOLE selection once, before any chunk runs —
+      // nothing was deleted, so `deleted: 0` (not the requested count) is the
+      // honest answer.
+      const { call } = harness({
+        batchDeleteResponse: { pending_approval: true, approval_id: 'appr-2', message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.' },
+      });
+      const out = await call('delete_records', { workspace: 'Eng', database: 'Issues', records: ['a', 'b', 'c'] });
+      expect(out).toMatchObject({ deleted: 0, requested: 3, pending_approval: true, approval_id: 'appr-2' });
+    });
+
     it('duplicate_record returns the NEW record read back, not the raw create response', async () => {
       const { call, sent } = harness();
       const out = await call('duplicate_record', { workspace: 'Eng', database: 'Issues', record: '7' });
@@ -2331,6 +2749,16 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       expect(out.comments[0].text).toContain('Looks good');
     });
 
+    it('#734 — list_comments surfaces real source/agent_id/agent_name, not a body-text convention', async () => {
+      const human = harness({ commentSource: 'human' });
+      const humanOut = await human.call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(humanOut.comments[0]).toMatchObject({ source: 'human', agent_id: null, agent_name: null });
+
+      const agent = harness({ commentSource: 'agent' });
+      const agentOut = await agent.call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(agentOut.comments[0]).toMatchObject({ source: 'agent', agent_id: 'agent-1', agent_name: 'Triage Bot' });
+    });
+
     it('get_history defaults to per-field changes and switches endpoint by kind', async () => {
       const f = harness();
       await f.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7' });
@@ -2343,6 +2771,18 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
       const a = harness();
       await a.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'activity' });
       expect(paths(a.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity');
+
+      const d = harness();
+      await d.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'document_versions' });
+      expect(paths(d.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions');
+    });
+
+    it('#677 — restore_document_version hits the document-version restore endpoint, not the record one', async () => {
+      const { call, sent } = harness();
+      await call('restore_document_version', { workspace: 'Eng', database: 'Issues', record: '7', version: 'dv-1' });
+      expect(paths(sent, 'POST')).toContain(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}/restore',
+      );
     });
 
     it('watch_record unsubscribes with DELETE when watch:false — not a second POST', async () => {
@@ -3167,6 +3607,132 @@ describe('#437/#440 — views and personal surfaces', () => {
 });
 
 /**
+ * #736 — a personal filter on a record page's embedded relation collection,
+ * scoped to a FIELD (no view exists to key against) rather than a view.
+ *
+ * The one thing worth pinning down beyond the #437 shape it mirrors: the
+ * collection's rows live in the relation's TARGET database, not the database
+ * the field itself is defined on, so label→id filter mapping must resolve
+ * against the target's fields/options — mapping against the wrong database
+ * silently returns raw uuids or option labels the API rejects.
+ */
+describe('#736 — personal filters on an embedded collection field', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; query?: Record<string, unknown>; body?: Record<string, unknown> }
+
+  function harness(existingConfig: Record<string, unknown> | null = null) {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const tasksDetail = {
+      id: 'db-1',
+      name: 'Tasks',
+      qualifiedSlug: 'eng/tasks',
+      fields: [
+        { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+        {
+          id: 'f-epic',
+          apiName: 'epic',
+          displayName: 'Epic',
+          type: 'relation',
+          relation: { id: 'rel-1', target_database_id: 'db-2', target_database_name: 'Epics', cardinality: 'one_to_many', side: 'a' },
+        },
+      ],
+    };
+    const epicsDetail = {
+      id: 'db-2',
+      name: 'Epics',
+      qualifiedSlug: 'eng/epics',
+      fields: [{ id: 'f-priority', apiName: 'priority', displayName: 'Priority', type: 'select', options: [{ id: 'opt-hi', label: 'High' }] }],
+    };
+    const log = (method: string) => async (
+      path: string,
+      o?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> }; body?: unknown },
+    ) => {
+      sent.push({ method, path, params: o?.params?.path, query: o?.params?.query, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [tasksDetail, epicsDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') {
+        return { data: o?.params?.path?.db === 'db-2' ? epicsDetail : tasksDetail };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view') {
+        return { data: { config: existingConfig } };
+      }
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('get_personal_collection_filter says plainly that it affects only the caller', async () => {
+    const { call } = harness();
+    const out = await call('get_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic' });
+    expect(out.personal_filter).toBeNull();
+    expect(out.visible_to).toMatch(/you only/i);
+  });
+
+  it('maps a personal collection filter’s LABEL to an option id against the TARGET database, not the field’s own', async () => {
+    // If this resolved against Tasks (which has no "priority" field) instead
+    // of Epics, "High" would pass through unmapped and the API would 422.
+    const { call, sent } = harness();
+    await call('set_personal_collection_filter', {
+      workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    const put = sent.find((s) => s.method === 'PUT')!;
+    expect(JSON.stringify(put.body)).toContain('opt-hi');
+    expect(put.params!.field).toBe('f-epic');
+  });
+
+  it('preserves an existing personal sort/color/column choice when only the filter is written', async () => {
+    const { call, sent } = harness({ sort: [{ field: 'priority', dir: 'desc' }], color_by: 'priority' });
+    await call('set_personal_collection_filter', {
+      workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    const put = sent.find((s) => s.method === 'PUT')!;
+    expect(put.body).toMatchObject({ sort: [{ field: 'priority', dir: 'desc' }], color_by: 'priority' });
+  });
+
+  it('clear:true DELETEs the whole override rather than writing an empty filter', async () => {
+    const { call, sent } = harness();
+    const out = await call('set_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic', clear: true });
+    expect(sent.some((s) => s.method === 'DELETE')).toBe(true);
+    expect(sent.some((s) => s.method === 'PUT')).toBe(false);
+    expect(out.personal_filter).toBeNull();
+  });
+
+  it('refuses a call that says nothing', async () => {
+    const { call } = harness();
+    await expect(call('set_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'epic' })).rejects.toThrow(
+      /filter.*or clear/i,
+    );
+  });
+
+  it('refuses both a filter and clear:true together', async () => {
+    const { call } = harness();
+    await expect(
+      call('set_personal_collection_filter', {
+        workspace: 'Eng', database: 'Tasks', field: 'epic', filter: { field: 'priority', op: 'eq', value: 'High' }, clear: true,
+      }),
+    ).rejects.toThrow(/either.*or clear/i);
+  });
+
+  it('names the relation fields when given something that is not one', async () => {
+    const { call } = harness();
+    await expect(call('get_personal_collection_filter', { workspace: 'Eng', database: 'Tasks', field: 'name' })).rejects.toThrow(
+      /No relation field matches "name".*epic/s,
+    );
+  });
+});
+
+/**
  * #441 — membership and access, read only.
  *
  * Two assertions carry this whole area: that no WRITE tool exists, and that
@@ -3778,5 +4344,969 @@ describe('webhooks: manage and debug, never mint (#443)', () => {
     // A missing create_webhook must not recreate that wrong conclusion.
     expect(descriptions.get('list_webhooks')).toContain('create_automation');
     expect(descriptions.get('delete_webhook')).toContain('cannot be undone'.toUpperCase());
+  });
+});
+
+/**
+ * #450 — an unknown/misnamed top-level argument must be REFUSED over the REAL
+ * MCP wire, not just by the handler function in isolation.
+ *
+ * Root cause: McpServer.validateToolInput() parses the client's raw arguments
+ * against the tool's schema BEFORE our handler (and the rejectUnknownArgs
+ * wrapper around it) ever runs. Handed a bare shape, the SDK builds its own
+ * `z.object(shape)` with Zod's DEFAULT behaviour — silently STRIP unknown keys
+ * — so `create_relation({ field_a_name: 'Next', ... })` had `field_a_name`
+ * deleted before rejectUnknownArgs's input object ever contained it. #374's
+ * whole defense was unreachable at this layer for every tool, not just this one.
+ *
+ * Every OTHER test in this file drives a stub `registerTool` that captures the
+ * raw handler and calls it directly — which is exactly how this bug hid from
+ * #374's own tests: that stub never exercises the SDK's own parse step. These
+ * tests instead run a REAL McpServer connected to a REAL Client over
+ * InMemoryTransport, so the schema the SDK actually parses against is the one
+ * under test.
+ */
+describe('unknown top-level arguments are rejected over the real transport (#450)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE_A = { id: 'db-a', name: 'Issues', apiSlug: 'issues', fields: [] };
+  const DATABASE_B = { id: 'db-b', name: 'Agents', apiSlug: 'agents', fields: [] };
+
+  function fakeCtx(): Ctx {
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE_A, DATABASE_B] };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        if (path === '/api/v1/workspaces/{ws}/relations') {
+          return { data: { id: 'rel-1', ...(o?.body as Record<string, unknown>) } };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    return { client, baseUrl: 'x', token: 't' };
+  }
+
+  async function connectedClient() {
+    const server = new McpServer({ name: 'test', version: '0.0.0' });
+    registerTools(server, fakeCtx(), { scope: 'admin', allowRunButton: true });
+    const client = new Client({ name: 'probe', version: '0.0.0' });
+    const [t1, t2] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(t1), client.connect(t2)]);
+    return client;
+  }
+
+  it('refuses the exact #450 repro: field_a_name / field_b_name / cardinality all at once', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        related_database: 'Agents',
+        field_a_name: 'Next',
+        field_b_name: 'Queue',
+        cardinality: 'many_to_one',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    // All three bad names are named — none silently vanished into a default.
+    expect(res.content[0]!.text).toContain('"field_a_name"');
+    expect(res.content[0]!.text).toContain('"field_b_name"');
+    expect(res.content[0]!.text).toContain('"cardinality"');
+    expect(res.content[0]!.text).toContain('Valid arguments: workspace, database, related_database, type, field_name, reverse_field_name');
+  });
+
+  it('refuses a single misspelled argument on a different tool (create_source), proving the fix is not create_relation-specific', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_source',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        name: 'x',
+        connection_id: 'c',
+        provider_source: 'youtube.videos',
+        field_mapping: {},
+        external_key_field: 'x',
+        schedul: 'day',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('has no argument named "schedul"');
+  });
+
+  it('still accepts a call using the CORRECT argument names, over the same real transport', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        related_database: 'Agents',
+        field_name: 'Next',
+        reverse_field_name: 'Queue',
+        type: 'one_to_many',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    const body = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+    // The exact ticket #450 request — Next / Queue — actually lands.
+    expect(body.field_a_name).toBe('Next');
+    expect(body.field_b_name).toBe('Queue');
+    expect(body.cardinality).toBe('one_to_many');
+  });
+
+  it('an empty-shape tool (no arguments declared) still connects and runs', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({ name: 'get_started', arguments: {} })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text.length).toBeGreaterThan(0);
+  });
+
+  it('a legitimate extra MCP protocol field (_meta) is not treated as an unknown argument', async () => {
+    const client = await connectedClient();
+    // The MCP client protocol itself can attach _meta to a call; rejectUnknownArgs
+    // already special-cased this — confirm it survives over the real transport too.
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: { workspace: 'JCM Agency', database: 'Issues', related_database: 'Agents' },
+      _meta: { progressToken: 1 },
+    })) as { isError?: boolean };
+    expect(res.isError).toBeUndefined();
+  });
+});
+
+/**
+ * #491 — an agent obtains a connection_id without a human reading a uuid out
+ * of the app. The load-bearing assertion is what is NOT in the response: no
+ * secret, no write-half tool advertised — asserted on data, not description.
+ */
+describe('list_connections: the read half only (#491)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const CONNECTIONS = [
+    { id: 'conn-1', provider: 'google', name: 'YouTube', status: 'active', scopes: ['youtube.readonly'], last_ok_at: '2026-01-01T00:00:00Z', error_count_24h: 0 },
+  ];
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/connections') return { data: { data: CONNECTIONS } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  it('returns connections with no auth material of any kind, asserted on the response body', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('list_connections')!({ workspace: 'JCM Agency' })) as { content: Array<{ text: string }> };
+    const body = res.content[0]!.text;
+    expect(body).toContain('conn-1');
+    expect(/secret|token|password|client_secret|api_key/i.test(body)).toBe(false);
+  });
+
+  it('exposes no write-half tool at any scope — creating or removing a connection stays out (coverage.ts)', () => {
+    for (const scope of ['read', 'write', 'admin'] as const) {
+      const handlers = new Map<string, unknown>();
+      const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+      registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
+      for (const t of ['create_connection', 'delete_connection', 'test_connection', 'resume_connection']) {
+        expect(handlers.has(t), `${t} must not exist at ${scope} scope`).toBe(false);
+      }
+    }
+  });
+
+  it('is reachable at read scope, matching ConnectionsController.list\'s own @RequiresScope(read)', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_connections')).toBe(true);
+  });
+
+  it('create_source\'s description points at list_connections instead of claiming the gap #491 exists to close', () => {
+    const descriptions = new Map<string, string>();
+    const server = {
+      registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? ''),
+    };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(descriptions.get('create_source')).toContain('list_connections');
+    expect(descriptions.get('create_source')).not.toContain('no MCP tool that lists connections');
+  });
+});
+
+/**
+ * #507 — the provider CATALOG (what could be connected), a different question
+ * from #491's list_connections (what already is). Split out precisely because
+ * #491's acceptance criteria never asked for this, and building it there would
+ * have been the scope creep #438's narrow-fix precedent warned against.
+ */
+describe('list_connection_providers: what COULD be connected (#507)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const PROVIDERS = [
+    { id: 'slack', label: 'Slack', auth_kind: 'oauth', tier: 'oauth_managed', availability: 'connectable' },
+    { id: 'github', label: 'GitHub', auth_kind: 'oauth', tier: 'oauth_managed', availability: 'operator_config' },
+  ];
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/connections/providers') return { data: { data: PROVIDERS } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('returns the catalog with no auth material of any kind', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_connection_providers')!, { workspace: 'JCM Agency' });
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('slack');
+    expect(res.content[0]!.text).toContain('operator_config');
+    expect(/secret|token|password|client_secret|api_key/i.test(res.content[0]!.text)).toBe(false);
+  });
+
+  it('is reachable at read scope, matching the controller\'s own @RequiresScope(read)', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_connection_providers')).toBe(true);
+  });
+
+  it('refuses an unknown argument, same as every other tool (#450)', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_connection_providers')!, { workspace: 'JCM Agency', includeSecrets: true });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('has no argument named "includeSecrets"');
+  });
+
+  it('describes itself as distinct from list_connections, not a synonym for it', () => {
+    const descriptions = new Map<string, string>();
+    const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(descriptions.get('list_connection_providers')).toContain('list_connections');
+    expect(descriptions.get('list_connection_providers')).toContain('what CAN be connected');
+  });
+});
+
+/**
+ * #558 — a workflow field could not be counted/filtered over MCP.
+ *
+ * The real defect: query_records resolves select/workflow/user filter LABELS
+ * to option ids via mapFilterValues before sending; count_records sent
+ * `filter` straight through, unresolved. `{field:"state", op:"eq",
+ * value:"Done"}` — the exact shape get_started's own cheat sheet tells a
+ * caller to use — reached the API as a literal label and 422'd. NOT
+ * workflow-specific: the same call failed identically for a plain `select`
+ * field (asserted below), which is why the fix lives in count_records'
+ * filter handling, not in some workflow-only special case.
+ */
+describe('count_records resolves filter labels the same way query_records does (#558)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'ToDo' },
+          { id: 'opt-done', label: 'Done' },
+        ],
+      },
+      {
+        id: 'f-priority',
+        apiName: 'priority',
+        displayName: 'Priority',
+        type: 'select',
+        options: [{ id: 'opt-high', label: 'High' }],
+      },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/aggregate') {
+          return { data: { op: 'count', field: null, value: 42, filtered: (o?.body as Record<string, unknown>)?.filter !== undefined, exact: true } };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('resolves a workflow field label to its option id before sending, and translates eq → has', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    expect(res.isError).toBeUndefined();
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('fails identically for a plain select field before the fix would have — proving this is not workflow-specific', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    expect(res.isError).toBeUndefined();
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'priority', op: 'has', value: ['opt-high'] });
+  });
+
+  it('accepts an already-correct option id unchanged (not just labels)', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'has', value: ['opt-done'] },
+    });
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('rejects an unknown option label with a clear error, same as query_records', async () => {
+    const { handlers } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'NoSuchStatus' },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('No option "NoSuchStatus" on field "state"');
+  });
+
+  it('does NOT fetch the schema when no filter is given — no cost for the common case', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, { workspace: 'JCM Agency', database: 'issues' });
+    expect(res.isError).toBeUndefined();
+    // Only the aggregate POST — no describe/database-detail GET was needed.
+    expect(posted).toHaveLength(1);
+  });
+
+  it('is idempotent — calling it twice in a row returns the same result (#548: races and repetition are this lane\'s failure shape)', async () => {
+    const { handlers } = harness();
+    const first = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    const second = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    expect(first.content[0]!.text).toEqual(second.content[0]!.text);
+  });
+});
+
+describe('#750 — count_records_grouped', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'ToDo' },
+          { id: 'opt-done', label: 'Done' },
+        ],
+      },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped') {
+          return {
+            data: {
+              op: 'count',
+              field: null,
+              group_by: (o?.body as Record<string, unknown>)?.group_by,
+              groups: [
+                { key: 'opt-todo', value: 5 },
+                { key: 'opt-done', value: 12 },
+              ],
+              filtered: (o?.body as Record<string, unknown>)?.filter !== undefined,
+              exact: true,
+            },
+          };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('hits the grouped endpoint, not the single-value one, and passes group_by through', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+    });
+    expect(res.isError).toBeUndefined();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped');
+    expect((posted[0]!.body as { group_by: string }).group_by).toBe('state');
+    const parsed = JSON.parse(res.content[0]!.text);
+    expect(parsed.groups).toEqual([
+      { key: 'opt-todo', value: 5 },
+      { key: 'opt-done', value: 12 },
+    ]);
+  });
+
+  it('resolves a filter label the same way count_records does (#558) — same helper, new endpoint', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    const body = posted[0]!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('passes group_by_granularity through untouched', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records_grouped')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      group_by: 'state',
+      group_by_granularity: 'month',
+    });
+    expect((posted[0]!.body as { group_by_granularity: string }).group_by_granularity).toBe('month');
+  });
+});
+
+describe('describe_database advertises an `ops` array per field, including workflow (#558)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'o1', label: 'Done' }] },
+      { id: 'f-priority', apiName: 'priority', displayName: 'Priority', type: 'select', options: [{ id: 'o2', label: 'High' }] },
+      { id: 'f-notes', apiName: 'notes', displayName: 'Notes', type: 'rich_text' },
+      { id: 'f-cost', apiName: 'cost', displayName: 'Cost', type: 'formula', config: { result_type: 'number' } },
+    ],
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  it('gives workflow the exact same ops as select', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'JCM Agency', database: 'issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    const state = detail.fields.find((f) => f.api_name === 'state')!;
+    const priority = detail.fields.find((f) => f.api_name === 'priority')!;
+    expect(state.ops).toEqual(priority.ops);
+    expect(state.ops).toEqual(['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty']);
+  });
+
+  it('omits `ops` (not an empty array) for a type with no statically-known filter behaviour', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'JCM Agency', database: 'issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    // rich_text has no filter case in query-compiler.ts at all.
+    expect(detail.fields.find((f) => f.api_name === 'notes')!.ops).toBeUndefined();
+    // formula's ops depend on its own config (number vs date vs checkbox) — a
+    // static claim here would be wrong as often as right.
+    expect(detail.fields.find((f) => f.api_name === 'cost')!.ops).toBeUndefined();
+  });
+});
+
+describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
+  it('includes a workflow row naming the same ops as select', async () => {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const intro = res.content[0]!.text;
+    expect(intro).toMatch(/workflow\s+:/);
+  });
+});
+
+/**
+ * #770 — a `deprecated` SYSTEM_FIELDS entry (#743: `number`, superseded by
+ * `id`) is never newly OFFERED by either enumeration surface, mirroring the
+ * web picker's hide-not-relabel treatment (#861) — but it still RESOLVES for
+ * a filter that already references it, since only enumeration changed here,
+ * not resolution.
+ */
+describe('deprecated system fields are omitted from enumeration, not from resolution (#770)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'Eng' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [{ id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' }],
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const sent: Array<{ path: string; body?: Record<string, unknown> }> = [];
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o?: { body?: Record<string, unknown> }) => {
+        sent.push({ path, body: o?.body });
+        if (path.endsWith('/records/aggregate')) return { data: { value: 3 } };
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, sent };
+  }
+
+  it('describe_database omits `number` (deprecated) but keeps `id` labelled "ID"', async () => {
+    const { handlers } = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'Eng', database: 'Issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    expect(detail.fields.find((f) => f.api_name === 'number')).toBeUndefined();
+    const id = detail.fields.find((f) => f.api_name === 'id')!;
+    expect(id).toBeTruthy();
+    expect(id.name).toBe('ID');
+    expect(id.read_only).toBe(true);
+  });
+
+  it('get_started\'s cheat sheet does not list `number` as a system-field row, but does list `id`', async () => {
+    const { handlers } = harness();
+    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const intro = res.content[0]!.text;
+    // The generated system-field row is "  <api_name padded> : <ops>" — match
+    // that exact shape rather than a bare substring, since "number" also
+    // appears in unrelated prose ("number/id are the record's sequential...").
+    expect(intro).not.toMatch(/^ {2}number\s+:/m);
+    expect(intro).toMatch(/^ {2}id\s+:/m);
+  });
+
+  it('a filter already referencing the deprecated api_name `number` still resolves (enumeration changed, not resolution)', async () => {
+    const { handlers, sent } = harness();
+    const res = (await handlers.get('count_records')!({
+      workspace: 'Eng',
+      database: 'Issues',
+      filter: { field: 'number', op: 'gte', value: 320 },
+    })) as { content: Array<{ text: string }>; isError?: boolean };
+    expect(res.isError).toBeFalsy();
+    const forwarded = sent.find((s) => s.path.endsWith('/records/aggregate'))!;
+    expect((forwarded.body!.filter as { field: string }).field).toBe('number');
+  });
+});
+
+/**
+ * #240 phase 1 — the cross-record comment feed. Different query shape from
+ * list_comments (one record's thread): this aggregates across a whole
+ * database, which is what actually needed a new tool.
+ */
+describe('list_database_comments: the cross-record feed (#240, #670)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'Tasks', apiSlug: 'tasks', fields: [] };
+  const COMMENT_ROW = {
+    id: 'evt-1',
+    type: 'comment.created',
+    record: { id: 'rec-1', title: 'Ship the release', number: 42 },
+    comment: { id: 'com-1', body: [{ type: 'text', text: 'Almost done' }] },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:00:00.000Z',
+    source: 'human',
+  };
+  const REFERENCE_ROW = {
+    id: 'evt-2',
+    type: 'reference.created',
+    record: { id: 'rec-1', title: 'Ship the release', number: 42 },
+    reference: { target_record: { id: 'rec-2', title: 'Related project', number: 7 } },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:01:00.000Z',
+    source: 'human',
+  };
+
+  function harness(opts: { rows?: unknown[] } = {}) {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/activity/comments') {
+          return { data: { data: opts.rows ?? [COMMENT_ROW], next_cursor: null, has_more: false } };
+        }
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('renders comment text via the same commentToText helper list_comments uses, and names the record', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({
+      type: 'comment',
+      text: 'Almost done',
+      author: 'Alex',
+      source: 'human',
+      record: { id: 'rec-1', title: 'Ship the release' },
+    });
+  });
+
+  // #670 — a reference entry has no comment body; the handler must not
+  // crash reading `.comment.id` off a row that only carries `.reference`.
+  it('includes a reference entry, naming which record it now links to', async () => {
+    const handlers = harness({ rows: [REFERENCE_ROW, COMMENT_ROW] });
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({
+      type: 'reference',
+      references: { id: 'rec-2', title: 'Related project' },
+      author: 'Alex',
+      source: 'human',
+      record: { id: 'rec-1', title: 'Ship the release' },
+    });
+    expect(out.entries[1]).toMatchObject({ type: 'comment' });
+  });
+
+  it('never claims a null source is human — passes it through as null, not defaulted', async () => {
+    const handlers = harness({ rows: [{ ...COMMENT_ROW, actor: null, source: null }] });
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]!.source).toBeNull();
+    expect(out.entries[0]!.author).toBeNull();
+  });
+
+  it('is reachable at read scope, matching list_comments', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_database_comments')).toBe(true);
+  });
+
+  it('#670 — the description now says references ARE included, not that they are missing', () => {
+    const descriptions = new Map<string, string>();
+    const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const description = descriptions.get('list_database_comments')!;
+    expect(description).not.toContain('NOT include');
+    expect(description.toLowerCase()).toContain('reference');
+  });
+});
+
+describe('list_hierarchy_activity: walking a relation tree (#674)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const EPICS_DB = { id: 'db-epics', name: 'Epics', apiSlug: 'epics', fields: [] };
+  const STORIES_DB = { id: 'db-stories', name: 'Stories', apiSlug: 'stories', fields: [] };
+  const EPICS_DETAIL = { ...EPICS_DB, fields: [{ id: 'field-stories', apiName: 'stories', displayName: 'Stories', type: 'relation' }] };
+  const STORIES_DETAIL = { ...STORIES_DB, fields: [{ id: 'field-tasks', apiName: 'tasks', displayName: 'Tasks', type: 'relation' }] };
+  const FEED_ROW = {
+    id: 'evt-1',
+    type: 'comment.created',
+    record: { id: 'rec-1', title: 'Epic 1', number: 1 },
+    comment: { id: 'com-1', body: [{ type: 'text', text: 'hi' }] },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:00:00.000Z',
+    source: 'human',
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string, opts?: { params?: { path?: Record<string, string> } }) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [EPICS_DB, STORIES_DB] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') {
+          const dbId = opts?.params?.path?.db;
+          return { data: dbId === 'db-epics' ? EPICS_DETAIL : STORIES_DETAIL };
+        }
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy') {
+          return { data: { data: [FEED_ROW], next_cursor: null, has_more: false } };
+        }
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('resolves each level\'s relation field by name against THAT level\'s own database, and returns entries', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_hierarchy_activity')!, {
+      workspace: 'JCM Agency',
+      database: 'Epics',
+      record: 'rec-root',
+      relation_fields: [
+        { database: 'Epics', field: 'Stories' },
+        { database: 'Stories', field: 'Tasks' },
+      ],
+    });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({ type: 'comment', text: 'hi', author: 'Alex', source: 'human' });
+  });
+
+  it('a field name that does not exist on the named level throws a helpful error, not a silent empty result', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_hierarchy_activity')!, {
+      workspace: 'JCM Agency',
+      database: 'Epics',
+      record: 'rec-root',
+      relation_fields: [{ database: 'Epics', field: 'NoSuchField' }],
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('No relation field matches');
+  });
+
+  it('is reachable at read scope, matching list_database_comments', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_hierarchy_activity')).toBe(true);
+  });
+});
+
+/**
+ * #684 — `test` and `last-payload` had no credential/safety objection at all,
+ * unlike the token-minting `regenerate-hook` they were bundled with. Proves
+ * an agent can build a webhook_received rule and then dry-run/debug it
+ * without needing regenerate-hook — the exact acceptance criterion.
+ */
+describe('test_automation / get_automation_last_payload (#684)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'Leads', apiSlug: 'leads', fields: [] };
+  const RULE = { id: 'rule-1', name: 'On webhook', trigger: { type: 'webhook_received' }, actions: [{ type: 'http_request' }] };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    return {
+      server: { registerTool: (name: string, _config: unknown, handler: (args: unknown) => Promise<unknown>) => handlers.set(name, handler) },
+      handlers,
+    };
+  }
+
+  function fakeClient() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations') return { data: { data: [RULE] } };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload') {
+        return { data: { last_hook_payload: { foo: 'bar' }, last_hook_at: '2026-09-11T00:00:00Z' } };
+      }
+      throw new Error(`unmocked GET ${path}`);
+    };
+    const POST = async (path: string, opts: { body?: unknown }) => {
+      posted.push({ path, body: opts.body });
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test') {
+        return { data: { condition_matches: true, would_run: true, actions: ['http_request'] } };
+      }
+      throw new Error(`unmocked POST ${path}`);
+    };
+    return { client: { GET, POST } as never, posted };
+  }
+
+  function registerAndGet() {
+    const { server, handlers } = fakeServer();
+    const { client, posted } = fakeClient();
+    registerTools(server as never, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  it('dry-runs a rule\'s condition with no action_index — no action actually sent', async () => {
+    const { handlers, posted } = registerAndGet();
+    const res = (await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'rec-1',
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('"would_run": true');
+    expect(posted[0]!.body).toEqual({ record_id: 'rec-1' }); // no action_index key at all when omitted
+  });
+
+  it('passes action_index through when given, to actually send that one action', async () => {
+    const { handlers, posted } = registerAndGet();
+    await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'rec-1', action_index: 0,
+    });
+    expect(posted[0]!.body).toEqual({ record_id: 'rec-1', action_index: 0 });
+  });
+
+  it('resolves a record by its public number, not just uuid', async () => {
+    const { handlers, posted } = registerAndGet();
+    // Non-numeric ref passes through as-is (fakeClient has no by-number stub,
+    // so this only proves the numeric-vs-not branch — real uuid input never
+    // calls the by-number route at all, per resolveRecordId's own guard.
+    await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'not-numeric-id',
+    });
+    expect(posted[0]!.body).toEqual({ record_id: 'not-numeric-id' });
+  });
+
+  it('returns the last received payload and timestamp, without exposing the hook token or secret', async () => {
+    const { handlers } = registerAndGet();
+    const res = (await handlers.get('get_automation_last_payload')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1',
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('"foo": "bar"');
+    expect(res.content[0]!.text).not.toMatch(/hook_?token|hook_?secret|whsec_/i);
+  });
+
+  it('both are reachable at admin scope, matching every other automation tool', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(handlers.has('test_automation')).toBe(true);
+    expect(handlers.has('get_automation_last_payload')).toBe(true);
+  });
+});
+
+/** #683 — the single-workspace getter, split out from the plan-gated create. */
+describe('get_workspace (#683)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency', slug: 'jcm-agency', description: 'Agency ops' };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    return {
+      server: { registerTool: (name: string, _config: unknown, handler: (args: unknown) => Promise<unknown>) => handlers.set(name, handler) },
+      handlers,
+    };
+  }
+
+  /** Distinguishes the LIST route from the single-item route — the point of this ticket. */
+  function fakeClient() {
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}') {
+        return { data: { ...WORKSPACE, settings: { theme: 'dark' }, createdAt: '2026-01-01T00:00:00Z' } };
+      }
+      throw new Error(`unmocked GET ${path}`);
+    };
+    return { client: { GET } as never };
+  }
+
+  function registerAndGet() {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server as never, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    return handlers.get('get_workspace')!;
+  }
+
+  it('resolves the workspace ref, then calls the single-item route — not just the list', async () => {
+    const handler = registerAndGet();
+    const res = (await handler({ workspace: 'JCM Agency' })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    // Only present on the single-item route's response in the fake client above —
+    // proves this went through GET /workspaces/{ws}, not a re-serving of the list.
+    expect(res.content[0]!.text).toContain('"settings"');
+    expect(res.content[0]!.text).toContain('"theme": "dark"');
+  });
+
+  it('resolves by id, slug, or name — same as every other tool\'s `workspace` param', async () => {
+    const handler = registerAndGet();
+    for (const ref of ['ws-1', 'jcm-agency', 'JCM Agency']) {
+      const res = (await handler({ workspace: ref })) as { isError?: boolean };
+      expect(res.isError, `ref "${ref}" should resolve`).toBeUndefined();
+    }
+  });
+
+  it('is reachable at read scope', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('get_workspace')).toBe(true);
   });
 });

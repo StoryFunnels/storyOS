@@ -9,6 +9,7 @@ import { ArrowLeft, GitBranch, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -145,7 +146,7 @@ export default function GitHubIntegrationPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link
         href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
@@ -153,18 +154,18 @@ export default function GitHubIntegrationPage() {
         <GitBranch className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">GitHub</h1>
         {connected ? (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
             connected · installation {config.data?.installation_id}
           </span>
         ) : (
           config.data?.has_token && (
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
               token set
             </span>
           )
         )}
       </div>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 text-body text-muted">
         Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs
         auto-link to issues referenced by <code className="text-ink">#number</code> in the title or
         the branch name.
@@ -193,14 +194,14 @@ export default function GitHubIntegrationPage() {
 
       {/* GitHub App connect (#247) */}
       <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
-        <h2 className="mb-1 text-[14px] font-semibold text-ink">Connect the GitHub App</h2>
-        <p className="mb-3 text-[13px] text-muted">
+        <h2 className="mb-1 text-prose font-semibold text-ink">Connect the GitHub App</h2>
+        <p className="mb-3 text-body text-muted">
           Connect an installation to post a backlink comment on linked pull requests and to pick
           which repositories StoryOS watches — no personal token required.
         </p>
         {connected ? (
           <div className="flex flex-col gap-3">
-            <div className="text-[13px] text-ink-secondary">
+            <div className="text-body text-ink-secondary">
               Connected as installation <strong>{config.data?.installation_id}</strong>
               {installRepos.data && (
                 <>
@@ -211,7 +212,7 @@ export default function GitHubIntegrationPage() {
               )}
             </div>
             {installRepos.isLoading && (
-              <p className="text-[13px] text-muted">Loading repositories…</p>
+              <p className="text-body text-muted">Loading repositories…</p>
             )}
             {installRepos.data && (
               <RepoPicker
@@ -235,7 +236,7 @@ export default function GitHubIntegrationPage() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <h2 className="text-[14px] font-semibold text-ink">Or use a personal access token</h2>
+        <h2 className="text-prose font-semibold text-ink">Or use a personal access token</h2>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="gh-token">
             Personal access token {config.data?.has_token && '(saved — enter to replace)'}
@@ -250,10 +251,13 @@ export default function GitHubIntegrationPage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
-          <textarea
+          <Textarea
             id="gh-repos"
             rows={3}
-            className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-border-strong"
+            size="default"
+            // `rows` alone governs height here (as it did before) — `min-h-0`
+            // removes the primitive's own floor so it doesn't quietly grow.
+            className="min-h-0 w-full font-mono outline-none focus:border-border-strong"
             placeholder={'acme/website\nacme/api'}
             value={repos}
             onChange={(e) => setRepos(e.target.value)}
@@ -277,7 +281,7 @@ export default function GitHubIntegrationPage() {
           </Button>
         </div>
         {summary && (
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong> pull
             requests, <strong>{summary.linked}</strong> auto-links.{' '}
             <Link
@@ -363,8 +367,8 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
 
   return (
     <div className="mt-8 border-t border-border-default pt-6">
-      <h2 className="mb-1 text-[14px] font-semibold text-ink">Code &amp; reviews</h2>
-      <p className="mb-4 text-[13px] text-muted">
+      <h2 className="mb-1 text-prose font-semibold text-ink">Code &amp; reviews</h2>
+      <p className="mb-4 text-body text-muted">
         Settings for the in-app Reviews surface (#43) — approving, requesting changes, and reading
         diffs without leaving StoryOS.
       </p>
@@ -400,7 +404,7 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
                 default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'],
               })
             }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
           >
             <option value="squash">Squash and merge</option>
             <option value="merge">Create a merge commit</option>
@@ -414,7 +418,7 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
             onChange={(e) =>
               save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })
             }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
           >
             <option value="auto">Match system</option>
             <option value="light">Light</option>
@@ -428,7 +432,7 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
             onChange={(e) =>
               save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })
             }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
           >
             <option value="mono">Monospace</option>
             <option value="mono_lig">Monospace (ligatures)</option>
@@ -437,7 +441,7 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         </Row>
 
         <div className="flex flex-col gap-4 border-t border-border-default pt-3">
-          <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
+          <p className="text-label font-medium uppercase tracking-wider text-faint">
             Review notifications
           </p>
           <Row label="Comments & mentions">
@@ -457,13 +461,13 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         </div>
 
         <div className="flex items-center justify-between border-t border-border-default pt-3 opacity-60">
-          <span className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
+          <span className="flex items-center gap-1.5 text-body text-ink-secondary">
             GitLab
             <span title="GitLab support is planned but not built yet — this toggle is a placeholder.">
               <Info className="h-3.5 w-3.5 text-faint" />
             </span>
           </span>
-          <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">
+          <span className="rounded-full bg-surface px-2 py-0.5 text-meta text-muted">
             Coming soon
           </span>
         </div>
@@ -476,8 +480,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="flex flex-col">
-        <span className="text-[13px] text-ink-secondary">{label}</span>
-        {hint && <span className="text-[11px] text-faint">{hint}</span>}
+        <span className="text-body text-ink-secondary">{label}</span>
+        {hint && <span className="text-meta text-faint">{hint}</span>}
       </span>
       {children}
     </div>
@@ -511,7 +515,7 @@ function RepoPicker({
         {repos.map((r) => (
           <label
             key={r.full_name}
-            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] text-ink hover:bg-accent-soft"
+            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body text-ink hover:bg-accent-soft"
           >
             <input
               type="checkbox"
@@ -520,7 +524,7 @@ function RepoPicker({
             />
             <span className="font-mono">{r.full_name}</span>
             {r.private && (
-              <span className="rounded bg-surface px-1 text-[10px] text-muted">private</span>
+              <span className="rounded bg-surface px-1 text-micro text-muted">private</span>
             )}
           </label>
         ))}

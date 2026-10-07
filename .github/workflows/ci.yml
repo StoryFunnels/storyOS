@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   # Merge-queue runs: GitHub tests the queued merge result before landing it.
   merge_group:
@@ -33,7 +31,16 @@ jobs:
       DATABASE_URL: postgres://storyos:storyos@localhost:5432/storyos_test
       CI: "true"
     steps:
+      # #722 — fetch-depth: 0 is load-bearing, not hygiene. The default shallow
+      # clone has no `origin/main`, so the contrast advisory's diff half died on
+      # `fatal: bad revision 'origin/main...HEAD'`, printed "Diff check skipped"
+      # and exited 0 — the step stayed GREEN while detecting nothing, for every
+      # run since it was added. #706's 174-site tail was accepted explicitly on
+      # the grounds that new sites would be detected, so that acceptance rested
+      # on a check that had never run. dco.yml in this repo already does this.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -81,6 +88,53 @@ jobs:
       - name: Dependency license scan + SBOM
         run: pnpm license:check
 
+      # #722 — ADVISORY ONLY. Reports token-pair contrast and any new
+      # --text-faint site in the diff; never fails the build. A check that turns
+      # CI red across pre-existing sites gets disabled by the first person it
+      # blocks, so this reports and a human decides. `|| true` is belt-and-braces:
+      # the script already exits 0 by design.
+      #
+      # It does NOT cover composited/alpha contrast — that needs a real browser,
+      # which is why docs/design/contrast-probe.js stays a console snippet.
+      - name: Contrast advisory (report only)
+        if: always()
+        run: |
+          pnpm design:contrast | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      # #747 — replaces CLAUDE.md rule 3's hand-maintained "hotspot files" list.
+      # That list named a file deleted in 2669191 for weeks, while the file that
+      # inherited its traffic was never named at all. This asks GitHub instead.
+      #
+      # FAILS THE BUILD, unlike the contrast advisory above, and the difference
+      # is real: that one is report-only because it would go red across ~174
+      # PRE-EXISTING sites. A collision cannot pre-exist — it lives only between
+      # two currently-open PRs and vanishes when either lands. No backlog to go
+      # red against, so it can fail closed.
+      #
+      # PULL REQUESTS ONLY, and that is a correction rather than a caveat. Vera
+      # queued the first version for real and watched it fail in the merge_group
+      # run: `github.event.pull_request` does not exist on that trigger, so
+      # PR_NUMBER arrived empty and the PR collided with its own file list.
+      # Unconditional — nothing would ever have cleared the queue again.
+      #
+      # Gating to pull_request is right on the merits too, not just a way round
+      # the bug. This check exists to warn you BEFORE you write code on a file
+      # someone else is already editing. By merge-queue time that warning is too
+      # late to act on, and git's own conflict detection covers the mechanical
+      # risk. Two open PRs touching one file is the NORMAL case there: one lands,
+      # the other rebases. Blocking the queue for it would be wrong.
+      #
+      # `always()` so a collision is still reported when an earlier step failed —
+      # you want to know before you start debugging someone else's edit.
+      # No `|| true`: every "cannot tell" is a non-zero exit, by design (#745).
+      - name: In-flight collision check
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: pnpm collision:check
+
       - name: Upload SBOM
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,10 +154,27 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # #793 — this job's own build/boot/compose-validate steps cost ~385s and
+      # earn their place (the only Dockerfile/compose validation there is), but
+      # none of it can be affected by a diff that touches no Dockerfile, no
+      # compose file and no service source. Fail-safe on an unresolvable base
+      # (see the script's own doc) — a missed validation here is the wrong
+      # direction to fail toward, but is the ONLY cost, since nothing downstream
+      # consumes this job's images (unlike build-images.yml's publish job).
+      - name: Decide whether Docker images need validating
+        id: changes
+        env:
+          DOCKER_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: node scripts/docker-inputs-changed.mjs
 
       - uses: docker/setup-buildx-action@v3
+        if: steps.changes.outputs.any == 'true'
 
       - name: Build api image
+        if: steps.changes.outputs.any == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -114,6 +185,7 @@ jobs:
           cache-to: type=gha,scope=api,mode=max
 
       - name: Build web image
+        if: steps.changes.outputs.any == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -124,6 +196,7 @@ jobs:
           cache-to: type=gha,scope=web,mode=max
 
       - name: Build mcp image
+        if: steps.changes.outputs.any == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -137,6 +210,7 @@ jobs:
       # that image built perfectly and then died on startup. Booting it is the
       # cheapest thing that catches a broken bundle.
       - name: Boot the mcp image and health-check it
+        if: steps.changes.outputs.any == 'true'
         run: |
           docker run -d --name mcp-ci -p 3002:3002 -e PORT=3002 storyos-mcp:ci
           for i in $(seq 1 20); do
@@ -154,6 +228,7 @@ jobs:
       # The compose file is what the server actually runs; a typo here is a failed
       # deploy at 3am, not a failed test.
       - name: Validate docker-compose.yml
+        if: steps.changes.outputs.any == 'true'
         env:
           BETTER_AUTH_SECRET: ci-validation-only
           CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
@@ -162,12 +237,14 @@ jobs:
       # The prod override swaps build: for GHCR image: refs. A typo here is a
       # failed pull-deploy, so validate the merged config too.
       - name: Validate docker-compose.prod.yml override
+        if: steps.changes.outputs.any == 'true'
         env:
           BETTER_AUTH_SECRET: ci-validation-only
           CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null
 
       - name: Every long-lived service must self-heal (MN-127)
+        if: steps.changes.outputs.any == 'true'
         env:
           BETTER_AUTH_SECRET: ci-validation-only
           CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000

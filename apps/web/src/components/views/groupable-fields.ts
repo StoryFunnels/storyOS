@@ -36,7 +36,31 @@ export function canGroupBoardBy(field: GroupableField): boolean {
   if (field.type === 'relation') {
     return field.relation?.cardinality === 'one_to_many' && field.relation?.side === 'a';
   }
+  // #498 — bins turn a number into single-valued buckets, same as a date's
+  // period. Unconfigured (no bins yet) stays refused, mirroring the server's
+  // boardGroupError exactly — never offer what the API will reject.
+  if (field.type === 'number') {
+    const bins = field.config?.['bins'];
+    return Array.isArray(bins) && bins.length > 0;
+  }
+  // #499 — text and lookup are single-valued (one column per record) so the
+  // multi-column ambiguity this function otherwise guards against doesn't
+  // apply. They ARE read-only for grouping — see `boardGroupIsReadOnly` — so
+  // a card lands in a column but can never be dragged to a different one.
+  if (field.type === 'text' || field.type === 'lookup') return true;
   return false;
+}
+
+/**
+ * #499 — mirrors the API's `boardGroupIsReadOnly` (views.service.ts) exactly:
+ * the single place that decides whether a board grouped by this field allows
+ * dragging a card to a different column. Board-view.tsx disables the drag
+ * handle when the CURRENT group-by field is one of these; the server
+ * independently refuses the same write on `move()` in case a client ever
+ * disagrees with this list.
+ */
+export function boardGroupIsReadOnly(field: GroupableField): boolean {
+  return field.type === 'text' || field.type === 'lookup';
 }
 
 /**
@@ -66,8 +90,8 @@ export function boardGroupDisabledReason(field: GroupableField): string | null {
       : 'only the single side of a one-to-many relation can group a board';
   }
   if (field.type === 'multi_select') return 'a multi-select would put one card in several columns';
-  if (field.type === 'number') return 'number grouping (into bins) is not built yet';
-  if (field.type === 'formula' || field.type === 'rollup' || field.type === 'lookup') {
+  if (field.type === 'number') return 'configure bins on this field first, from its ⋯ menu';
+  if (field.type === 'formula' || field.type === 'rollup') {
     return 'computed fields cannot group a board yet';
   }
   return `a ${field.type} field cannot group a board`;

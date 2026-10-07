@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
-import { Paperclip, Send, Trash2 } from 'lucide-react';
+import { Bell, BellOff, Bot, HelpCircle, Paperclip, Send, Terminal, Trash2, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -16,7 +16,11 @@ import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
+import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
+import { blockPlainText } from './entity-field-utils';
+import { formatActivityValue } from './activity-format';
+import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 
 type Segment =
   | { type: 'text'; text: string }
@@ -83,7 +87,7 @@ function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: 
   const deleted = record.data && 'deleted' in record.data;
   const title = record.data && 'title' in record.data ? record.data.title : '…';
   if (deleted) {
-    return <span className="rounded bg-accent-soft px-1 font-medium text-faint line-through">#deleted</span>;
+    return <span className="rounded bg-accent-soft px-1 font-medium text-muted line-through">#deleted</span>;
   }
   return (
     <Link
@@ -101,6 +105,16 @@ interface Comment {
   author: { id: string; name: string; image: string | null };
   created_at: string;
   edited_at: string | null;
+  /**
+   * #762 — WHO posted this comment, same vocabulary/columns as
+   * ActivityEntry['source'] (#481/#541/#734, shared not re-invented). Null
+   * for a comment posted before #734 shipped provenance capture — genuinely
+   * not recorded, must render as "unknown source" via SourceBadge, never
+   * silently folded into 'human'.
+   */
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  agent_id: string | null;
+  agent_name: string | null;
 }
 
 /**
@@ -311,11 +325,16 @@ export function CommentsPanel({
           )}
         >
           <div className="mb-1 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+            <span className="flex items-center gap-1.5 text-label font-medium text-ink">
               <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
               {comment.author.name}
+              {/* #762 — same SourceBadge ActivityPanel already uses (line ~451
+                  below), so an agent/automation/MCP-authored comment reads
+                  differently from a human one at a glance instead of the two
+                  rendering byte-identical. */}
+              <SourceBadge source={comment.source} />
             </span>
-            <span className="flex items-center gap-2 text-[11px] text-faint">
+            <span className="flex items-center gap-2 text-meta text-muted">
               {fmt.dateTime(comment.created_at)}
               {(comment.author.id === currentUserId || isAdmin) && (
                 <button
@@ -359,8 +378,18 @@ interface ActivityEntry {
   type: string;
   actor: { id: string; name: string } | null;
   payload: Record<string, unknown>;
-  changes?: Array<{ field: string; from: unknown; to: unknown }>;
+  // #796 — `blocks` is only ever present for a rich_text field's change:
+  // activity.service.ts's own diff carries it alongside from/to specifically
+  // because those are raw BlockNote blocks, not a scalar `fmt()` can render.
+  changes?: Array<{ field: string; from: unknown; to: unknown; blocks?: BlockChange[] }>;
   created_at: string;
+  // #481/#496 — WHO made the write (`actor`) and WHAT kind of thing made it
+  // (`source`). null means genuinely not captured (every row written before
+  // #481 shipped, or an insert site its enumeration missed) — rendered as its
+  // own explicit "source not recorded" badge below, never silently folded
+  // into 'human'. That silent fold is the single most likely way to get this
+  // wrong, per #481's own acceptance criteria.
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -373,6 +402,44 @@ const EVENT_LABELS: Record<string, string> = {
   'document.edited': 'edited the description',
   'attachment.added': 'added an attachment',
 };
+
+/**
+ * #496 — a badge distinguishing WHAT made a write, next to the actor name.
+ * 'human' renders nothing: it is the default the reader already assumes, and
+ * marking every ordinary edit would bury the exceptions it exists to surface.
+ * null is NOT folded into that same "no badge" treatment — it gets its own
+ * faint, explicitly-labelled badge, so a row with genuinely missing source
+ * data reads as "not recorded", not as an unmarked human edit.
+ */
+function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
+  if (source === 'human') return null;
+  if (source === null) {
+    return (
+      <span
+        title="Source not recorded for this event"
+        className="inline-flex items-center gap-1 rounded-full border border-border-default px-1.5 py-0.5 text-micro text-faint"
+      >
+        <HelpCircle className="h-3 w-3" />
+        unknown source
+      </span>
+    );
+  }
+  const config: Record<'agent' | 'automation' | 'mcp', { icon: typeof Bot; label: string }> = {
+    agent: { icon: Bot, label: 'agent' },
+    automation: { icon: Workflow, label: 'automation' },
+    mcp: { icon: Terminal, label: 'MCP' },
+  };
+  const { icon: Icon, label } = config[source];
+  return (
+    <span
+      title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
+      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-micro font-medium text-accent"
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
 
 export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: string }) {
   const dates = useDateFormat();
@@ -388,29 +455,68 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
     },
   });
 
-  const fmt = (value: unknown): string => {
-    if (value === null || value === undefined) return 'empty';
-    if (Array.isArray(value)) return value.map(fmt).join(', ');
-    return String(value);
-  };
+  // #806 — resolve by FIELD TYPE. The change carries the field's display name; the
+  // database's own field list (already cached by the record page) gives its type,
+  // and the workspace members give names for the user-id types. Removed members
+  // fall back to the label record-history.tsx already uses.
+  const database = useDatabase(ws, db);
+  const members = useMembers(ws, true);
+  const typeByName = useMemo(
+    () => new Map((database.data?.fields ?? []).map((f) => [f.displayName, f.type])),
+    [database.data],
+  );
+  const nameById = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])),
+    [members.data],
+  );
+  const fmtFor = (fieldName: string) => (value: unknown) =>
+    formatActivityValue(value, fieldName === 'Name' ? 'title' : typeByName.get(fieldName), (id) => nameById.get(id));
 
   return (
     <div className="flex flex-col gap-2">
       {(activity.data ?? []).map((event) => (
-        <div key={event.id} className="flex items-baseline gap-2 text-[12px]">
-          <span className="whitespace-nowrap text-faint">
+        <div key={event.id} className="flex items-baseline gap-2 text-label">
+          <span className="whitespace-nowrap text-muted">
             {dates.dateTime(event.created_at)}
           </span>
           <span className="text-ink-secondary">
             <span className="font-medium text-ink">{event.actor?.name ?? 'Someone'}</span>{' '}
+            <SourceBadge source={event.source} />{' '}
             {event.type === 'record.updated' && event.changes ? (
               <>
                 changed{' '}
                 {event.changes.map((change, i) => (
                   <span key={i}>
                     {i > 0 && '; '}
-                    <span className="font-medium">{change.field}</span>: {fmt(change.from)} →{' '}
-                    {fmt(change.to)}
+                    <span className="font-medium">{change.field}</span>:{' '}
+                    {change.blocks ? (
+                      // #796 — a rich_text field's `from`/`to` are raw BlockNote
+                      // blocks, not the scalar values `fmt()` resolves — hence
+                      // "[object Object]". `diffBlocks(prev, next)` (this is
+                      // the FORWARD direction, unlike record-history.tsx's
+                      // restore-preview reading of the same shape): 'added' is
+                      // new content, 'removed' is content that's gone,
+                      // 'changed' is before → after, same as every other field
+                      // change on this line.
+                      change.blocks.map((b, j) => (
+                        <span key={j}>
+                          {j > 0 && ', '}
+                          {b.kind === 'added' && <>+ {blockPlainText(b.to)}</>}
+                          {b.kind === 'removed' && (
+                            <span className="text-muted line-through">− {blockPlainText(b.from)}</span>
+                          )}
+                          {b.kind === 'changed' && (
+                            <>
+                              {blockPlainText(b.from)} → {blockPlainText(b.to)}
+                            </>
+                          )}
+                        </span>
+                      ))
+                    ) : (
+                      <>
+                        {fmtFor(change.field)(change.from)} → {fmtFor(change.field)(change.to)}
+                      </>
+                    )}
                   </span>
                 ))}
               </>
@@ -427,7 +533,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
         </div>
       ))}
-      {(activity.data ?? []).length === 0 && <p className="text-[13px] text-muted">No activity yet.</p>}
+      {(activity.data ?? []).length === 0 && <p className="text-body text-muted">No activity yet.</p>}
     </div>
   );
 }
@@ -440,45 +546,265 @@ interface Backlink {
   database_name: string;
 }
 
+/** #513 — the paged shape #512 shipped: total is the TRUE count, not the
+ *  length of any one page; has_more/next_cursor follow the same keyset
+ *  convention inbox-panel.tsx already uses for notifications. */
+interface BacklinksPage {
+  data: Backlink[];
+  total: number;
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 /**
  * "Mentioned in" (MN-205): the records whose document #-mentions this one. A one-way
  * mention is half a relation — this is the other half, so you can traverse back. The
  * list is permission-scoped server-side (a title you can't open never appears here).
+ *
+ * #513 — #512 paged the endpoint (it silently truncated at 100 with no total and
+ * no way to reach the rest). Mirrors inbox-panel.tsx's useInfiniteQuery +
+ * "Load more" pattern for the same {data, next_cursor} cursor shape, rather than
+ * inventing a second pagination convention.
  */
 export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: string }) {
-  const backlinks = useQuery({
+  const backlinks = useInfiniteQuery({
     queryKey: ['backlinks', ws, db, rec],
-    queryFn: async () => {
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = {};
+      if (pageParam) query.cursor = pageParam;
       const { data, error } = await api.GET(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks',
-        { params: { path: { ws, db, rec } } },
+        { params: { path: { ws, db, rec }, query } } as never,
       );
       if (error) throw error;
-      return (data as unknown as { data: Backlink[] }).data;
+      return data as unknown as BacklinksPage;
     },
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
 
-  const items = backlinks.data ?? [];
+  const pages = backlinks.data?.pages ?? [];
+  const items = pages.flatMap((p) => p.data);
+  // #513 — MUST KEEP WORKING: zero backlinks (or the query not yet resolved)
+  // renders nothing at all, not an empty heading with a zero.
   if (items.length === 0) return null;
+  const total = pages[0]!.total;
+  // #484 — display-only grouping over whatever pages are already loaded; the
+  // server's rows/order/permission-scoping are untouched, so a group's count
+  // is only ever "how many of the loaded rows", not a second source of truth
+  // for the database's real total (that's the panel-wide `total` above, and
+  // it stays keyed to the endpoint's own count either way). Groups keep the
+  // order their database first appears in `items`, not re-sorted.
+  const groups: { databaseId: string; databaseName: string; items: Backlink[] }[] = [];
+  const groupByDbId = new Map<string, (typeof groups)[number]>();
+  for (const item of items) {
+    let group = groupByDbId.get(item.database_id);
+    if (!group) {
+      group = { databaseId: item.database_id, databaseName: item.database_name, items: [] };
+      groupByDbId.set(item.database_id, group);
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
 
   return (
     <div className="mt-6">
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
-        Mentioned in
+      <h2 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">
+        Mentioned in{' '}
+        {/* #513 — the TRUE total from the server, not items.length (which is
+            only how many pages have been loaded so far). */}
+        {/* #669 — counts STAY faint, here and on the group headers below. A number
+            beside a label you can already read is #326's textbook decorative
+            case, and it is the same call #665 made for the sidebar's three
+            counts. The header next to it moved; the count did not, so the pair
+            keeps its label-then-count reading. Not an oversight. */}
+        <span className="normal-case tracking-normal text-faint">({total})</span>
       </h2>
-      <ul className="flex flex-col gap-1">
-        {items.map((b) => (
-          <li key={b.id}>
-            <Link
-              href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
-              className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
-            >
-              <span className="truncate text-ink">{b.title || 'Untitled'}</span>
-              <span className="shrink-0 text-[11px] text-faint">{b.database_name}</span>
-            </Link>
-          </li>
+      <div className="flex flex-col gap-3">
+        {groups.map((group) => (
+          <div key={group.databaseId}>
+            <p className="mb-1 text-meta font-medium text-muted">
+              {group.databaseName} <span className="text-faint">({group.items.length})</span>
+            </p>
+            <ul className="flex flex-col gap-1">
+              {group.items.map((b) => (
+                <li key={b.id}>
+                  <Link
+                    href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
+                    className="flex items-baseline gap-2 rounded px-2 py-1 text-body hover:bg-hover"
+                  >
+                    <span className="truncate text-ink">{b.title || 'Untitled'}</span>
+                    <span className="shrink-0 text-meta text-muted">{b.database_name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
+      {backlinks.hasNextPage && (
+        <button
+          type="button"
+          onClick={() => backlinks.fetchNextPage()}
+          disabled={backlinks.isFetchingNextPage}
+          className="w-full py-2 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
+        >
+          {backlinks.isFetchingNextPage ? 'Loading…' : 'Load more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface WatchersResponse {
+  watching: boolean;
+  /** User ids only (#236's API shape) — resolved to name/image via `members`. */
+  watchers: string[];
+}
+
+/** #780 — exported so the header's Watch button and the status strip's
+ * "N watching" chip can share this fetch/mutation rather than each
+ * defining their own; the About panel below was its only caller before. */
+export function useWatchers(ws: string, db: string, rec: string) {
+  const qc = useQueryClient();
+  const key = ['watchers', ws, db, rec];
+  const query = useQuery({
+    queryKey: key,
+    // #780 regression fix — `rec` must be the resolved record id: neither the
+    // controller (`records.controller.ts`'s `:rec/watchers`/`:rec/watch`) nor
+    // the service (`RecordsService.watch`/`listWatchers`) resolves a pretty
+    // slug to a uuid the way the main record GET does, so a slug here 500s on
+    // every poll. `enabled` guards the callers that call this before their own
+    // resolved id exists yet (record-detail.tsx's pre-fetch, above its early
+    // returns) rather than ever firing with the raw route param.
+    enabled: rec.length > 0,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watchers',
+        { params: { path: { ws, db, rec } } },
+      );
+      if (error) throw error;
+      return data as unknown as WatchersResponse;
+    },
+  });
+  const toggle = useMutation({
+    mutationFn: async (watching: boolean) => {
+      if (watching) {
+        const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', {
+          params: { path: { ws, db, rec } },
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', {
+          params: { path: { ws, db, rec } },
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
+  });
+  return { query, toggle };
+}
+
+/**
+ * #740 AC2 — the "About" tab: watchers, "Mentioned in" (unchanged, just moved
+ * off the main column into here), and a Details block of record metadata that
+ * previously had nowhere to live. Version count is intentionally NOT here —
+ * the version-history initiative (docs/architecture/version-history.md) has
+ * no count endpoint yet, and adding one is out of this ticket's decided AC.
+ */
+export function AboutPanel({
+  ws,
+  db,
+  rec,
+  members,
+  databaseName,
+  spaceName,
+  recordNumber,
+  createdAt,
+  updatedAt,
+  myAccess,
+}: {
+  ws: string;
+  db: string;
+  rec: string;
+  members: Array<{ id: string; name: string; image: string | null }>;
+  databaseName: string;
+  spaceName?: string;
+  recordNumber: number | null;
+  createdAt: string;
+  updatedAt: string;
+  myAccess?: string;
+}) {
+  const fmt = useDateFormat();
+  const { query, toggle } = useWatchers(ws, db, rec);
+  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+  const watching = query.data?.watching ?? false;
+  const watcherIds = query.data?.watchers ?? [];
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-label font-medium uppercase tracking-wider text-muted">Watchers</h3>
+          <button
+            type="button"
+            onClick={() => toggle.mutate(!watching)}
+            disabled={toggle.isPending}
+            className="flex items-center gap-1 text-label text-info hover:underline disabled:opacity-50"
+          >
+            {watching ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
+            {watching ? 'Stop watching' : 'Watch'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {watcherIds.length === 0 && <p className="text-body text-muted">Nobody is watching this item.</p>}
+          {watcherIds.map((id) => {
+            const m = memberById.get(id);
+            return (
+              <span
+                key={id}
+                className="flex items-center gap-1.5 rounded-full border border-border-default px-2 py-1 text-label text-ink"
+              >
+                <Avatar userId={id} name={m?.name ?? 'Unknown'} image={m?.image ?? null} size={16} />
+                {m?.name ?? 'Unknown'}
+              </span>
+            );
+          })}
+        </div>
+      </section>
+
+      <MentionedIn ws={ws} db={db} rec={rec} />
+
+      <section>
+        <h3 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">Details</h3>
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-body">
+          <dt className="text-muted">Database</dt>
+          <dd className="text-ink">{databaseName}</dd>
+          {spaceName && (
+            <>
+              <dt className="text-muted">Space</dt>
+              <dd className="text-ink">{spaceName}</dd>
+            </>
+          )}
+          {recordNumber !== null && (
+            <>
+              <dt className="text-muted">Item</dt>
+              <dd className="tabular-nums text-ink">#{recordNumber}</dd>
+            </>
+          )}
+          <dt className="text-muted">Created</dt>
+          <dd className="text-ink">{fmt.dateTime(createdAt)}</dd>
+          <dt className="text-muted">Updated</dt>
+          <dd className="text-ink">{fmt.dateTime(updatedAt)}</dd>
+          {myAccess && (
+            <>
+              <dt className="text-muted">Your access</dt>
+              <dd className="capitalize text-ink">{myAccess}</dd>
+            </>
+          )}
+        </dl>
+      </section>
     </div>
   );
 }
@@ -497,11 +823,23 @@ export function AttachmentsStrip({
   db,
   rec,
   readOnly,
+  hasAttachmentField,
 }: {
   ws: string;
   db: string;
   rec: string;
   readOnly: boolean;
+  /**
+   * #740 AC1 — attachments stop being a DEFAULT block: most databases sampled
+   * had zero attachments and no reason to reserve the space. But the upload
+   * endpoint below is record-level (no `?field=`), so a record can already
+   * hold real, uploaded attachments in a database with no attachment-type
+   * field configured at all — gating on schema alone would hide/orphan them
+   * (a real AC5 violation, not a hypothetical one). So this only skips
+   * rendering when BOTH the schema has no attachment field AND the record's
+   * own attachments actually come back empty — never on schema alone.
+   */
+  hasAttachmentField: boolean;
 }) {
   const qc = useQueryClient();
   const key = ['attachments', ws, db, rec];
@@ -542,10 +880,19 @@ export function AttachmentsStrip({
     onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
   });
 
+  // Schema says yes → always show (the ordinary, common case). Schema says no
+  // → show only once we've confirmed this record is a genuine exception, not
+  // before (a flash of an empty box while loading is worse than a half-second
+  // delay for content that, per the measured findings, usually isn't there).
+  // Placed after every hook, same early-return-after-hooks discipline the
+  // rest of this codebase already follows (table-view.tsx's own #346 note).
+  const hasExisting = (attachments.data ?? []).length > 0;
+  if (!hasAttachmentField && (attachments.isLoading || !hasExisting)) return null;
+
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
+        'mb-6 mt-5 rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
         dragOver && 'border-[var(--accent)] bg-accent-soft',
       )}
       onDragOver={(e) => {
@@ -562,11 +909,11 @@ export function AttachmentsStrip({
       }}
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted">
+        <span className="flex items-center gap-1.5 text-label font-medium text-muted">
           <Paperclip className="h-3.5 w-3.5" /> Attachments
         </span>
         {!readOnly && (
-          <label className="cursor-pointer text-[12px] text-info underline">
+          <label className="cursor-pointer text-label text-info underline">
             {upload.isPending ? 'Uploading…' : 'Upload'}
             <input
               type="file"
@@ -595,12 +942,16 @@ export function AttachmentsStrip({
                   className="mb-1 h-20 w-full rounded object-cover"
                 />
               ) : (
-                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-faint">
+                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-meta uppercase text-muted">
                   {att.filename.split('.').pop()}
                 </div>
               )}
-              <span className="truncate text-[12px] text-ink">{att.filename}</span>
-              <span className="text-[11px] text-faint">{(att.size / 1024).toFixed(0)} KB</span>
+              <span className="truncate text-label text-ink">{att.filename}</span>
+              {/* #669 — file SIZE stays faint: metadata beside a filename you can already
+                read. The extension placeholder above it moved, because when no
+                thumbnail renders that is the only thing telling you what the
+                file IS. */}
+              <span className="text-meta text-faint">{(att.size / 1024).toFixed(0)} KB</span>
             </a>
             {!readOnly && (
               <button
@@ -619,7 +970,11 @@ export function AttachmentsStrip({
           </div>
         ))}
         {(attachments.data ?? []).length === 0 && (
-          <p className="text-[12px] text-faint">Drop files here or use Upload.</p>
+          /* #669 — one of the four sites ticket #637 named BY NAME as faint-but-
+             not-decorative, and the last of them to still be faint. It is the
+             only instruction telling you how to attach a file; if you cannot
+             read it the panel offers no other clue. */
+          <p className="text-label text-muted">Drop files here or use Upload.</p>
         )}
       </div>
     </div>

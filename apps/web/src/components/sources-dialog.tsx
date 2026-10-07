@@ -11,6 +11,8 @@ import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -38,19 +40,40 @@ import {
  */
 const CALENDAR_POINTER_ID = '__google_calendar__';
 
+/** #280 — 'in' (pull only, the only shape before this ticket) / 'out' (push
+ * only) / 'both'. A bare field-id string is the permanent shorthand for 'in'
+ * (packages/schemas/src/sources.ts) — never deprecated, so both forms of
+ * `field_mapping`'s values are read here. */
+type SourceFieldDirection = 'in' | 'out' | 'both';
+type SourceConflictPolicy = 'external_wins' | 'storyos_wins' | 'newest_wins';
+type SourceFieldMappingEntry = string | { field_id: string; direction: SourceFieldDirection };
+
 interface SourceSummary {
   id: string;
   name: string;
   connection_id: string | null;
   provider_source: string;
   config: Record<string, unknown>;
-  field_mapping: Record<string, string>;
+  field_mapping: Record<string, SourceFieldMappingEntry>;
   external_key_field_id: string;
   schedule: '15m' | 'hour' | 'day';
   recurrence: SourceRecurrence | null;
   status: 'active' | 'paused' | 'error';
   last_sync_at: string | null;
   created_at: string;
+}
+
+const CONFLICT_POLICY_LABEL: Record<SourceConflictPolicy, string> = {
+  external_wins: 'The source wins — a pull overwrites local edits',
+  storyos_wins: 'StoryOS wins — a pull never overwrites a local edit',
+  newest_wins: 'Newest wins — whichever side changed more recently',
+};
+
+function mappingFieldId(entry: SourceFieldMappingEntry): string {
+  return typeof entry === 'string' ? entry : entry.field_id;
+}
+function mappingDirection(entry: SourceFieldMappingEntry): SourceFieldDirection {
+  return typeof entry === 'string' ? 'in' : entry.direction;
 }
 
 interface SourceRunSummary {
@@ -78,6 +101,13 @@ interface SourceProviderSummary {
   /** MN-262: this provider implements `discover()` — the dialog can offer a
    * "Discover fields" button instead of requiring a static field catalog. */
   supports_discover: boolean;
+  /** #280 — whether this provider exposes a comparable external timestamp;
+   * `newest_wins` is refused server-side (422) when this is false, so the
+   * conflict-policy picker disables it here rather than offering a dead
+   * choice. Not in sourceProviderDescriptorSchema (packages/schemas) — the
+   * service returns it ahead of the generated type, so it's read as `unknown`
+   * shaped by this hand-written interface, same as supports_discover already is. */
+  supports_newest_wins: boolean;
   config_schema: Record<string, { description: string | null; required: boolean; kind: ConfigFieldKind }>;
 }
 
@@ -250,8 +280,47 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     calendarConnProvider?.availability_note,
   );
 
-  const [step, setStep] = useState<'list' | 'new' | 'runs'>('list');
+  const [step, setStep] = useState<'list' | 'new' | 'runs' | 'edit'>('list');
   const [runsFor, setRunsFor] = useState<SourceSummary | null>(null);
+
+  // --- #280: edit-mapping state (direction per field + conflict policy) ---
+  const [editingSource, setEditingSource] = useState<SourceSummary | null>(null);
+  const [editDirections, setEditDirections] = useState<Map<string, SourceFieldDirection>>(new Map());
+  const [editConflictPolicy, setEditConflictPolicy] = useState<SourceConflictPolicy>('external_wins');
+
+  function openEditMapping(s: SourceSummary) {
+    setEditingSource(s);
+    setEditDirections(new Map(Object.entries(s.field_mapping).map(([key, entry]) => [key, mappingDirection(entry)])));
+    const policy = s.config?.['conflict_policy'];
+    setEditConflictPolicy(policy === 'storyos_wins' || policy === 'newest_wins' ? policy : 'external_wins');
+    setStep('edit');
+  }
+
+  const editProvider = providers.data?.find((p) => p.id === editingSource?.provider_source);
+
+  const updateMapping = useMutation({
+    mutationFn: async () => {
+      if (!editingSource) return;
+      const field_mapping = Object.fromEntries(
+        Object.entries(editingSource.field_mapping).map(([key, entry]) => [
+          key,
+          { field_id: mappingFieldId(entry), direction: editDirections.get(key) ?? 'in' },
+        ]),
+      );
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}', {
+        params: { path: { ws, db, id: editingSource.id } },
+        body: { field_mapping, config: { ...editingSource.config, conflict_policy: editConflictPolicy } } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Mapping updated');
+      setStep('list');
+      setEditingSource(null);
+      void qc.invalidateQueries({ queryKey: ['sources', ws, db] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not update the mapping')),
+  });
 
   // --- new-source wizard state ---
   const [name, setName] = useState('');
@@ -487,9 +556,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     return (
       <DialogContent title={`Runs — "${runsFor.name}"`} className="max-w-xl">
         <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto pr-1">
-          {(runs.data ?? []).length === 0 && <p className="text-[13px] text-muted">No syncs yet.</p>}
+          {(runs.data ?? []).length === 0 && <p className="text-body text-muted">No syncs yet.</p>}
           {(runs.data ?? []).map((r) => (
-            <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-[13px]">
+            <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-body">
               <div className="flex items-center justify-between">
                 <span className={cn('font-medium', r.status === 'ok' ? 'text-ink' : 'text-error')}>
                   {r.status === 'skipped_quota'
@@ -498,13 +567,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       ? 'skipped (monthly cap)'
                       : r.status}
                 </span>
-                <span className="text-[11px] text-faint">{fmt.dateTime(r.started_at)}</span>
+                <span className="text-meta text-muted">{fmt.dateTime(r.started_at)}</span>
               </div>
-              <p className="mt-0.5 text-[12px] text-muted">
+              <p className="mt-0.5 text-label text-muted">
                 fetched {r.fetched} · created {r.created} · updated {r.updated}
                 {typeof r.stats?.['compute_units'] === 'number' && ` · ${r.stats['compute_units']} compute units`}
               </p>
-              {r.error && <p className="mt-0.5 text-[12px] text-error">{r.error}</p>}
+              {r.error && <p className="mt-0.5 text-label text-error">{r.error}</p>}
             </div>
           ))}
         </div>
@@ -517,14 +586,97 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     );
   }
 
+  /** #280 — the mapping this ticket adds controls to. Deliberately does NOT
+   * let a row's destination field be reassigned or removed here: only
+   * direction (in/out/both) and the source-level conflict policy are new;
+   * remapping a destination stays the create wizard's job, matching the
+   * ticket's "must never widen what a pull can touch" scope. */
+  if (step === 'edit' && editingSource) {
+    const reason = !editProvider?.supports_newest_wins
+      ? `${editProvider?.label ?? 'This provider'} has no comparable external timestamp`
+      : null;
+    return (
+      <DialogContent title={`Edit mapping — "${editingSource.name}"`} className="max-w-2xl">
+        <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
+          <p className="text-body text-muted">
+            Direction controls whether this source only reads a field, only writes it back, or both. The external
+            key and each field&apos;s destination are set when the source is created and aren&apos;t changed here.
+          </p>
+          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+            {Object.entries(editingSource.field_mapping).map(([key, entry]) => {
+              const fieldId = mappingFieldId(entry);
+              const isKey = editingSource.external_key_field_id === fieldId;
+              const label = PROVIDER_FIELD_CATALOG[editingSource.provider_source]?.find((c) => c.key === key)?.label ?? key;
+              const fieldName = database.data?.fields.find((f) => f.id === fieldId)?.displayName ?? fieldId;
+              const direction = editDirections.get(key) ?? 'in';
+              return (
+                <div key={key} className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body font-medium text-ink">
+                      {label}
+                      {isKey && <span className="ml-1.5 text-meta font-normal text-muted">(external key)</span>}
+                    </p>
+                    <p className="truncate text-meta text-muted">→ {fieldName}</p>
+                  </div>
+                  <span className="inline-flex shrink-0 overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+                    {(['in', 'out', 'both'] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setEditDirections((prev) => new Map(prev).set(key, d))}
+                        className={cn('px-1.5 py-1', direction === d ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>If both sides changed</Label>
+            <Select
+              size="sm"
+              value={editConflictPolicy}
+              onChange={(e) => setEditConflictPolicy(e.target.value as SourceConflictPolicy)}
+            >
+              {(Object.keys(CONFLICT_POLICY_LABEL) as SourceConflictPolicy[]).map((p) => (
+                <option key={p} value={p} disabled={p === 'newest_wins' && reason !== null}>
+                  {CONFLICT_POLICY_LABEL[p]}
+                  {p === 'newest_wins' && reason ? ` — ${reason}` : ''}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-between gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setStep('list');
+              setEditingSource(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button disabled={updateMapping.isPending} onClick={() => updateMapping.mutate()}>
+            {updateMapping.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </DialogContent>
+    );
+  }
+
   if (step === 'new') {
     return (
       <DialogContent title={`Sync from… "${database.data?.name ?? ''}"`} className="max-w-2xl">
         <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
           <div className="flex flex-col gap-1.5">
             <Label>Provider</Label>
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={providerId}
               onChange={(e) => selectProvider(e.target.value)}
             >
@@ -549,7 +701,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   {calendarPresent.actionable ? '' : ` — ${calendarPresent.label}`}
                 </option>
               </optgroup>
-            </select>
+            </Select>
           </div>
 
           {/* #339 — selecting Calendar hands off to the dedicated integration
@@ -559,7 +711,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
               <div className="flex items-start gap-2">
                 <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
-                <p className="text-[13px] text-ink">
+                <p className="text-body text-ink">
                   Google Calendar syncs two ways — StoryOS records ↔ calendar events — so it&apos;s set
                   up in the Calendar integration, where you pick the calendar and map your date fields.
                 </p>
@@ -567,13 +719,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               {calendarPresent.actionable ? (
                 <Link
                   href={`/w/${ws}/settings/integrations/google-calendar`}
-                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
                   onClick={onDone}
                 >
                   Open Calendar integration →
                 </Link>
               ) : (
-                <p className="text-[12px] text-muted">{calendarPresent.description}</p>
+                <p className="text-label text-muted">{calendarPresent.description}</p>
               )}
             </div>
           )}
@@ -588,7 +740,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               return (
                 <p
                   className={cn(
-                    'rounded-[var(--radius-card)] border px-3 py-2 text-[12px]',
+                    'rounded-[var(--radius-card)] border px-3 py-2 text-label',
                     present.state === 'cloud_only'
                       ? 'border-border-default bg-accent-soft text-ink'
                       : 'border-border-default bg-card text-muted',
@@ -600,7 +752,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             })()}
 
           {provider?.description && (
-            <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted">
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-label text-muted">
               {provider.description}
             </p>
           )}
@@ -609,12 +761,12 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-1.5">
               <Label>Connection</Label>
               {eligibleConnections.length === 0 ? (
-                <p className="text-[12px] text-error">
+                <p className="text-label text-error">
                   No {provider?.connection_provider} connection yet — add one under Settings → Connections first.
                 </p>
               ) : (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={connectionId}
                   onChange={(e) => {
                     setConnectionId(e.target.value);
@@ -633,7 +785,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {c.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
             </div>
           )}
@@ -657,24 +809,19 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   // #341 — required channel picker (by name) instead of a raw,
                   // unreliable free-text id. Falls back to a free-text field
                   // only when the account's channels can't be listed.
+                  // #717 — the two disabled states below dropped their explicit
+                  // text-muted (the primitive's own disabled:opacity-50 dims
+                  // instead), called out per #717's own AC.
                   <>
                     <Label htmlFor="src-config-channel_id">Channel</Label>
                     {!connectionId ? (
-                      <select
-                        id="src-config-channel_id"
-                        disabled
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
-                      >
+                      <Select id="src-config-channel_id" size="sm" disabled>
                         <option>Choose a connection first…</option>
-                      </select>
+                      </Select>
                     ) : channels.isLoading ? (
-                      <select
-                        id="src-config-channel_id"
-                        disabled
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
-                      >
+                      <Select id="src-config-channel_id" size="sm" disabled>
                         <option>Loading your channels…</option>
-                      </select>
+                      </Select>
                     ) : channelFallback ? (
                       <>
                         <Input
@@ -684,16 +831,16 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                           value={config['channel_id'] ?? ''}
                           onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
                         />
-                        <p className="text-[11px] text-faint">
+                        <p className="text-meta text-muted">
                           {channels.isError
                             ? "Couldn't list this account's channels — enter a channel id manually."
                             : 'This account has no channels — enter a channel id manually.'}
                         </p>
                       </>
                     ) : (
-                      <select
+                      <Select
                         id="src-config-channel_id"
-                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        size="sm"
                         value={config['channel_id'] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
                       >
@@ -703,18 +850,18 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                             {c.title}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     )}
                   </>
                 ) : spec.kind === 'boolean' ? (
-                  <label className="flex items-center gap-2 text-[13px] text-ink">
+                  <label className="flex items-center gap-2 text-body text-ink">
                     <input
                       type="checkbox"
                       checked={config[key] === 'true'}
                       onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
                     />
                     {configFieldLabel(key)}
-                    {spec.description ? <span className="text-[11px] text-faint">— {spec.description}</span> : null}
+                    {spec.description ? <span className="text-meta text-muted">— {spec.description}</span> : null}
                   </label>
                 ) : (
                   <>
@@ -724,22 +871,24 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {spec.required ? '' : ' (optional)'}
                     </Label>
                     {spec.kind === 'json' ? (
-                      <textarea
+                      <Textarea
                         id={`src-config-${key}`}
                         rows={4}
+                        size="sm"
                         placeholder={spec.description ? `${spec.description} (JSON)` : '{}'}
-                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        className="min-h-0 py-1.5 font-mono"
                         value={config[key] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
                     ) : spec.kind === 'array' ? (
                       // #113 — list-shaped fields (e.g. LinkedIn post_urns) get a
                       // per-line box instead of a brittle comma free-text input.
-                      <textarea
+                      <Textarea
                         id={`src-config-${key}`}
                         rows={4}
+                        size="sm"
                         placeholder={'One per line' + (spec.description ? ` — ${spec.description}` : '')}
-                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        className="min-h-0 py-1.5 font-mono"
                         value={config[key] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
@@ -756,10 +905,10 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         error when the current value is malformed. */}
                     {(() => {
                       const err = validateConfigField(providerId, key, config[key] ?? '');
-                      if (err) return <p className="text-[11px] text-error">{err}</p>;
+                      if (err) return <p className="text-meta text-error">{err}</p>;
                       if (spec.kind === 'array' || (spec.description && spec.kind !== 'json'))
                         return spec.description ? (
-                          <p className="text-[11px] text-faint">{spec.description}</p>
+                          <p className="text-meta text-muted">{spec.description}</p>
                         ) : null;
                       return null;
                     })()}
@@ -779,7 +928,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               >
                 {discoverFields.isPending ? 'Discovering…' : 'Discover fields'}
               </Button>
-              <p className="text-[11px] text-faint">
+              <p className="text-meta text-muted">
                 Runs the actor once (or reads its last successful run) to read a sample item's keys, so mapping is
                 point-and-click instead of reading the actor's docs.
               </p>
@@ -790,8 +939,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div className="flex flex-col gap-1.5">
               <Label>Schedule</Label>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  className="h-8 w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
+                  className="w-40"
                   value={recurrenceForm.kind}
                   onChange={(e) =>
                     setRecurrenceForm((prev) => ({ ...prev, kind: e.target.value as RecurrenceKind }))
@@ -802,12 +952,13 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {REPEAT_LABELS[k]}
                     </option>
                   ))}
-                </select>
+                </Select>
 
                 {recurrenceForm.kind === 'weekly' && (
-                  <select
+                  <Select
                     aria-label="Day of week"
-                    className="h-8 w-36 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    size="sm"
+                    className="w-36"
                     value={recurrenceForm.weekday}
                     onChange={(e) =>
                       setRecurrenceForm((prev) => ({ ...prev, weekday: Number(e.target.value) }))
@@ -818,16 +969,16 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         {label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
 
                 {(recurrenceForm.kind === 'daily' || recurrenceForm.kind === 'weekly') && (
-                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                  <label className="flex items-center gap-1.5 text-label text-muted">
                     at
-                    <input
+                    <Input
                       type="time"
+                      size="sm"
                       aria-label="Time of day"
-                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                       value={recurrenceForm.timeOfDay}
                       onChange={(e) =>
                         setRecurrenceForm((prev) => ({ ...prev, timeOfDay: e.target.value }))
@@ -838,14 +989,15 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 )}
 
                 {recurrenceForm.kind === 'hourly' && (
-                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                  <label className="flex items-center gap-1.5 text-label text-muted">
                     at minute
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       max={59}
+                      size="sm"
                       aria-label="Minute past the hour"
-                      className="h-8 w-20 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      className="w-20"
                       value={recurrenceForm.minute}
                       onChange={(e) =>
                         setRecurrenceForm((prev) => ({ ...prev, minute: Number(e.target.value) }))
@@ -854,7 +1006,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   </label>
                 )}
               </div>
-              <p className="text-[11px] text-faint">
+              <p className="text-meta text-muted">
                 Runs once per slot at the chosen wall-clock time — daily keeps well under API quotas.
               </p>
             </div>
@@ -862,14 +1014,14 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
 
           {providerId && catalog.length > 0 && (
             <>
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 Map each field this source will write. Pick which one is the external key (used to update the
                 same record instead of duplicating it).
               </p>
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {catalog.map((item) => (
                   <div key={item.key} className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
-                    <label className="flex items-center gap-1.5 text-[12px] text-muted" title="External key">
+                    <label className="flex items-center gap-1.5 text-label text-muted" title="External key">
                       <input
                         type="radio"
                         name="external-key"
@@ -880,11 +1032,12 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       key
                     </label>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{item.label}</p>
-                      <p className="truncate text-[11px] text-faint">{item.key}</p>
+                      <p className="truncate text-body font-medium text-ink">{item.label}</p>
+                      <p className="truncate text-meta text-muted">{item.key}</p>
                     </div>
-                    <select
-                      className="h-8 w-56 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    <Select
+                      size="sm"
+                      className="w-56"
                       value={encodedDestination(item)}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -907,7 +1060,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         </optgroup>
                       )}
                       <option value="skip">Don&apos;t import</option>
-                    </select>
+                    </Select>
                   </div>
                 ))}
               </div>
@@ -946,18 +1099,18 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   return (
     <DialogContent title={`Sync from… "${database.data?.name ?? ''}"`} className="max-w-2xl">
       <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           A source is a scheduled sync — external items land as ordinary records, upserted by an external key.
         </p>
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
           {(sources.data ?? []).length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-muted">No sources yet — add one below.</p>
+            <p className="px-4 py-6 text-body text-muted">No sources yet — add one below.</p>
           )}
           {(sources.data ?? []).map((s) => (
             <div key={s.id} className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-ink">{s.name}</p>
-                <p className="mt-0.5 truncate text-[11px] text-faint">
+                <p className="truncate text-body font-medium text-ink">{s.name}</p>
+                <p className="mt-0.5 truncate text-meta text-muted">
                   {s.provider_source} · {describeRecurrence(s.recurrence, s.schedule)} ·{' '}
                   <span className={s.status === 'error' ? 'text-error' : undefined}>{STATUS_LABEL[s.status]}</span>
                   {s.last_sync_at ? ` · last synced ${fmt.dateTime(s.last_sync_at)}` : ' · never synced'}
@@ -966,6 +1119,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               <div className="flex shrink-0 items-center gap-1">
                 <Button variant="ghost" size="sm" onClick={() => syncNow.mutate(s.id)} disabled={syncNow.isPending}>
                   Sync now
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => openEditMapping(s)}>
+                  Edit mapping
                 </Button>
                 <Button
                   variant="ghost"

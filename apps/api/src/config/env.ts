@@ -106,6 +106,22 @@ export function resolveConnectionsMasterKey(
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   /**
+   * #553 — "what commit is this deployment serving," answerable in one
+   * unauthenticated request instead of diffing chunk hashes (Vera's own
+   * words: this cost two separate multi-hour investigations before this
+   * ticket existed). Deliberately baked into the IMAGE at build time
+   * (docker/api.Dockerfile's ARG, set from `github.sha` in
+   * build-images.yml) — never read from the host's `.env` at request time,
+   * because that file is what the DEPLOY SCRIPT writes and would keep
+   * claiming the new sha even if the container swap silently failed. A
+   * baked-in value can only ever say what this exact running process was
+   * actually built from. Unset (any non-Docker dev/test boot) reads as
+   * null, never a fabricated placeholder.
+   */
+  GIT_SHA: z.string().optional(),
+  /** #553 — same reasoning as GIT_SHA, baked alongside it. */
+  BUILD_TIME: z.string().optional(),
+  /**
    * #451 — request-log verbosity. Defaults to today's behaviour ('info', and
    * 'silent' under test), so nothing changes unless an operator asks. It exists
    * because a setup script that makes several hundred API calls buries its own
@@ -231,6 +247,23 @@ export const envSchema = z.object({
     .transform((v) => (v === undefined ? true : v === 'true' || v === '1')),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Ticket #42 / MN-257 — a self-managed operator's own LinkedIn OAuth app
+   * (connections/providers/linkedin.ts's `oauth.clientIdEnv`/`clientSecretEnv`),
+   * same Tier B shape as GOOGLE_CLIENT_ID/SECRET above. Hosted StoryOS
+   * supplies its own managed app instead; see availability.ts's truth table.
+   */
+  LINKEDIN_CLIENT_ID: z.string().optional(),
+  LINKEDIN_CLIENT_SECRET: z.string().optional(),
+  /**
+   * #817 — server-side product analytics (PostHog). BOTH must be set or the API
+   * makes no network call at all and ships zero analytics: unset is the default
+   * for every fresh clone and every self-hoster, the same by-construction safety
+   * apps/web/src/lib/posthog-server.ts has. Hosted StoryOS sets them; nobody
+   * else is expected to, and nothing else changes if they do not.
+   */
+  POSTHOG_PROJECT_TOKEN: z.string().optional(),
+  POSTHOG_HOST: z.string().optional(),
   /**
    * MN-263 — extra comma-separated CIDRs (v4 or v6) net-guard.ts always
    * refuses, on top of its built-in private/reserved/metadata blocklist.

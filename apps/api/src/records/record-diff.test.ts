@@ -55,4 +55,51 @@ describe('diffSnapshots', () => {
       title: { from: 'Old', to: 'New' },
     });
   });
+
+  // #595 — rich_text fields get an additional block-level breakdown, but only
+  // when the caller identifies the field id as rich_text; every other field
+  // type's diff is byte-for-byte the same as before this ticket.
+  describe('richTextFieldIds (#595)', () => {
+    const block = (id: string, text: string) => ({
+      id,
+      type: 'paragraph',
+      content: [{ type: 'text', text, styles: {} }],
+    });
+
+    it('does nothing extra when richTextFieldIds is omitted, even for a field holding block content', () => {
+      const before = { values: { notes: [block('b1', 'Hello')] }, title: 'T' };
+      const after = { values: { notes: [block('b1', 'Goodbye')] }, title: 'T' };
+      expect(diffSnapshots(before, after)).toEqual({
+        notes: { from: [block('b1', 'Hello')], to: [block('b1', 'Goodbye')] },
+      });
+    });
+
+    it('adds a `blocks` breakdown for a field id in richTextFieldIds', () => {
+      const before = { values: { notes: [block('b1', 'Hello')] }, title: 'T' };
+      const after = { values: { notes: [block('b1', 'Goodbye')] }, title: 'T' };
+      expect(diffSnapshots(before, after, new Set(['notes']))).toEqual({
+        notes: {
+          from: [block('b1', 'Hello')],
+          to: [block('b1', 'Goodbye')],
+          blocks: [{ kind: 'changed', blockId: 'b1', from: block('b1', 'Hello'), to: block('b1', 'Goodbye') }],
+        },
+      });
+    });
+
+    it('does not enrich a field NOT in richTextFieldIds, even when other fields are', () => {
+      const before = { values: { notes: [block('b1', 'Hello')], count: 1 }, title: 'T' };
+      const after = { values: { notes: [block('b1', 'Hello')], count: 2 }, title: 'T' };
+      expect(diffSnapshots(before, after, new Set(['notes']))).toEqual({ count: { from: 1, to: 2 } });
+    });
+
+    it('leaves every other field type unenriched (MUST KEEP WORKING)', () => {
+      const before = { values: { a: 1, tags: ['x'] }, title: 'Old' };
+      const after = { values: { a: 2, tags: ['y'] }, title: 'New' };
+      expect(diffSnapshots(before, after, new Set(['notes']))).toEqual({
+        a: { from: 1, to: 2 },
+        tags: { from: ['x'], to: ['y'] },
+        title: { from: 'Old', to: 'New' },
+      });
+    });
+  });
 });

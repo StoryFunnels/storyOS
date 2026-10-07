@@ -18,6 +18,7 @@ import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
 import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
+import { resolveAgentIdentity } from '../agents/agent-identity';
 
 export interface AuthedUser {
   id: string;
@@ -51,6 +52,15 @@ export interface AuthContext {
    * ROW says which kind — unset means an ordinary PAT, which is `mcp`.
    */
   source: ChangeSource;
+  /**
+   * #541 — set only for a token minted for a specific Agent record, and only
+   * after `agent-identity.ts`'s live fail-closed check passed THIS request.
+   * `agentName` is snapshotted here (not re-read later) so every write this
+   * request makes stamps the SAME name, even if the Agent is renamed by a
+   * concurrent request mid-flight.
+   */
+  agentId?: string;
+  agentName?: string;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -118,7 +128,25 @@ export class AuthGuard implements CanActivate {
     if (typeof header === 'string' && header.startsWith('Bearer mn_pat_')) {
       const resolved = await this.tokens.resolve(header.slice('Bearer '.length));
       if (!resolved) throw new UnauthorizedException('Invalid or revoked token');
-      const account = await this.db.query.user.findFirst({ where: eq(user.id, resolved.userId) });
+
+      // #541 — an agent-scoped token's ACTUAL authority is re-resolved live,
+      // every request, from the agent record's CURRENT owner — never trusted
+      // from the token's own stored userId, which could be stale the moment
+      // ownership changes. No resolvable owner is refused outright: there is
+      // no fallback identity an agent's writes could be attributed to
+      // instead (fail closed, this ticket's own AC).
+      let agentIdentity: { agentId: string; agentName: string } | null = null;
+      let effectiveUserId = resolved.userId;
+      if (resolved.agentId) {
+        const identity = await resolveAgentIdentity(this.db, resolved.workspaceId, resolved.agentId);
+        if (!identity) {
+          throw new UnauthorizedException('This token\'s agent no longer exists or its owner is no longer an active member');
+        }
+        agentIdentity = { agentId: resolved.agentId, agentName: identity.agentName };
+        effectiveUserId = identity.ownerId;
+      }
+
+      const account = await this.db.query.user.findFirst({ where: eq(user.id, effectiveUserId) });
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
       this.enforceTokenScope(context, resolved);
 
@@ -151,6 +179,10 @@ export class AuthGuard implements CanActivate {
         allowRunButton: resolved.allowRunButton,
         // Unset origin = an ordinary PAT = `mcp`, exactly the pre-#357 behaviour.
         source: resolved.origin ?? 'mcp',
+        // #541 — undefined (not present) for every non-agent-scoped token, so
+        // a write path that doesn't know about this ticket yet still stores
+        // nothing for it, rather than an empty string reading as "captured".
+        ...(agentIdentity ? { agentId: agentIdentity.agentId, agentName: agentIdentity.agentName } : {}),
       };
       return true;
     }

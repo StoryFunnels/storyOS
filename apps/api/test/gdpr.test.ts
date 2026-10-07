@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -115,5 +116,92 @@ describe('GDPR data-subject tooling (MN-233)', () => {
   it('a removed membership can no longer be targeted', async () => {
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/members/${memberMembership}/gdpr/anonymize`);
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('#494 — subject-access export includes the Members-database row', () => {
+  let ws2: string;
+  let space2: string;
+  let member2: { token: string; email: string };
+  let member2Id: string;
+  let member2Membership: string;
+
+  beforeAll(async () => {
+    member2 = await signUpUser(app, 'Gdpr494Member');
+    member2Id = (await as(member2.token, 'GET', '/me')).json().id;
+    ws2 = (await as(admin.token, 'POST', '/workspaces', { name: 'GDPR WS 494' })).json().id;
+    space2 = (await as(admin.token, 'GET', `/workspaces/${ws2}/spaces`)).json()[0].id;
+
+    const invite = await as(admin.token, 'POST', `/workspaces/${ws2}/invites`, {
+      email: member2.email,
+      role: 'member',
+      grants: [{ space_id: space2, role: 'editor' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(member2.token, 'POST', '/invites/accept', { token });
+    await app.get(MembersProjectionSubscriber).settle(ws2);
+
+    const members = (await as(admin.token, 'GET', `/workspaces/${ws2}/members`)).json();
+    member2Membership = members.find((m: { user_id: string }) => m.user_id === member2Id).id;
+
+    // An admin adds a custom column to Members and populates it for this person.
+    const membersDb = (await as(admin.token, 'GET', `/workspaces/${ws2}/databases`)).json().find(
+      (d: { name: string }) => d.name === 'Members',
+    );
+    const phoneField = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/databases/${membersDb.id}/fields`, { display_name: 'Phone', type: 'text' })
+    ).json();
+    const rows = (await as(admin.token, 'GET', `/workspaces/${ws2}/databases/${membersDb.id}/records`)).json().data;
+    const memberRow = rows.find((r: { values: Record<string, unknown> }) => r.values['user_id'] === member2Id);
+    await as(admin.token, 'PATCH', `/workspaces/${ws2}/databases/${membersDb.id}/records/${memberRow.id}`, {
+      values: { [phoneField.apiName]: '555-0100' },
+    });
+  });
+
+  it('export before erasure includes the Members row, custom column value included', async () => {
+    const res = await as(admin.token, 'GET', `/workspaces/${ws2}/members/${member2Membership}/gdpr/export`);
+    expect(res.statusCode, res.body).toBe(200);
+    const row = res.json().members_row;
+    expect(row, 'the export must include the members_row key at all').toBeTruthy();
+    expect(row.email).toBe(member2.email);
+    const membersDb = (await as(admin.token, 'GET', `/workspaces/${ws2}/databases`)).json().find(
+      (d: { name: string }) => d.name === 'Members',
+    );
+    const fields = (await as(admin.token, 'GET', `/workspaces/${ws2}/databases/${membersDb.id}`)).json().fields;
+    const phoneApiName = fields.find((f: { displayName: string }) => f.displayName === 'Phone').apiName;
+    expect(row[phoneApiName]).toBe('555-0100');
+  });
+
+  it('DECISION: a departed member (membership already removed) gets a 404, not a partial export', async () => {
+    const anon = await as(admin.token, 'POST', `/workspaces/${ws2}/members/${member2Membership}/gdpr/anonymize`);
+    expect(anon.statusCode, anon.body).toBe(200);
+
+    const after = await as(admin.token, 'GET', `/workspaces/${ws2}/members/${member2Membership}/gdpr/export`);
+    expect(after.statusCode, 'documented decision on #494: export 404s once the membership is gone').toBe(404);
+  });
+
+  it('export degrades cleanly when the Members projection has not caught up yet — members_row is null, not an error', async () => {
+    // Deliberately does NOT await the projection subscriber's settle() —
+    // the Members-row sync is fire-and-forget off the membership-event bus
+    // (members-projection.subscriber.ts), so an export requested in the gap
+    // between "invite accepted" and "projection wrote the row" is a real,
+    // reachable state, not a hypothetical. getOwnRowForExport must degrade to
+    // null rather than throw.
+    const ws3 = (await as(admin.token, 'POST', '/workspaces', { name: 'GDPR WS 494 no members db' })).json().id;
+    const person = await signUpUser(app, 'Gdpr494NoRow');
+    const invite = await as(admin.token, 'POST', `/workspaces/${ws3}/invites`, { email: person.email, role: 'member' });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(person.token, 'POST', '/invites/accept', { token });
+    const members = (await as(admin.token, 'GET', `/workspaces/${ws3}/members`)).json();
+    const personMembership = members.find((m: { email?: string }) => m.email === person.email)?.id
+      ?? members[members.length - 1].id;
+
+    const res = await as(admin.token, 'GET', `/workspaces/${ws3}/members/${personMembership}/gdpr/export`);
+    expect(res.statusCode, res.body).toBe(200);
+    // Members provisions lazily off membership sync — by the time an invite
+    // is accepted the projection has typically already run, so this mostly
+    // guards that a MISSING row (not just a missing database) degrades to
+    // null rather than throwing, whichever way it landed.
+    expect(res.json()).toHaveProperty('members_row');
   });
 });

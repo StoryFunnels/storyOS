@@ -14,6 +14,10 @@
       "types": "./dist/markdown.d.ts",
       "default": "./dist/markdown.js"
     },
+    "./block-diff": {
+      "types": "./dist/block-diff.d.ts",
+      "default": "./dist/block-diff.js"
+    },
     "./colors": {
       "types": "./dist/colors.d.ts",
       "default": "./dist/colors.js"

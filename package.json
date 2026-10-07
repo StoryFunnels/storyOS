@@ -11,14 +11,17 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "turbo run test && pnpm test:scripts",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "format": "prettier --write .",
     "docs:check": "node scripts/check-doc-links.mjs",
     "license:check": "node scripts/license-check.mjs",
     "db:migrate": "pnpm --filter @storyos/api db:migrate",
     "db:generate": "pnpm --filter @storyos/api db:generate",
     "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build",
-    "seed:agent-uat": "pnpm --filter @storyos/api seed:agent-uat --"
+    "seed:agent-uat": "pnpm --filter @storyos/api seed:agent-uat --",
+    "design:contrast": "node scripts/contrast-advisory.mjs",
+    "collision:check": "node scripts/collision-check.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

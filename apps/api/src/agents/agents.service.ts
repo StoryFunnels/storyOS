@@ -5,19 +5,22 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
+  activityEvents,
   apiTokens,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
+  recordFieldChanges,
   records as recordsTable,
   selectOptions,
 } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -27,6 +30,11 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
 import { JobRunnerService } from '../automations/job-runner.service';
+import {
+  ApprovalsService,
+  type AgentProposedActionSnapshot,
+  type ApprovalActionSnapshot,
+} from '../automations/approvals.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
@@ -183,6 +191,11 @@ export class AgentsService implements OnModuleInit {
      * built this for, so it registers 'run_agent' the same way MN-256/257/
      * 258/259/263's provider modules register theirs. */
     private readonly jobs: JobRunnerService,
+    /** #603 — the shared approval-gate storage/lifecycle both this service
+     * and automation actions now create/resolve through. AgentsModule
+     * already imports AutomationsModule (one-way), so this needs no new
+     * module wiring. */
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
@@ -494,6 +507,36 @@ export class AgentsService implements OnModuleInit {
         { display_name: 'Cost', type: 'number', config: {} },
         { display_name: 'Started at', type: 'date', config: { include_time: true } },
         { display_name: 'Finished at', type: 'date', config: { include_time: true } },
+        /*
+         * #544 — what surface a verification claim about this run was measured
+         * against, structured rather than prose in Steps. "Unknown" is a real,
+         * selectable option, deliberately distinct from the field being left
+         * EMPTY: absent means nobody recorded a surface at all; Unknown means
+         * someone tried to and couldn't tell. Conflating the two is exactly how
+         * this information gets lost again (the incident this ticket answers).
+         * An enum alone can't say "Vera's local rig" or "commit abc123 on the
+         * frozen build" — Commit/image below carries that free-text half.
+         */
+        {
+          display_name: 'Surface',
+          type: 'select',
+          config: {},
+          options: [
+            { label: 'Local rig', color: 'gray' },
+            { label: 'Staging', color: 'gold' },
+            { label: 'Production', color: 'red' },
+            { label: 'Test suite', color: 'green' },
+            { label: 'Unknown', color: 'brown' },
+          ],
+        },
+        // #544 — the commit sha or image tag verified against, and/or a free
+        // text detail (e.g. "Vera's local rig at commit abc123") the Surface
+        // enum alone can't express. Optional like every field here: recording
+        // a run's completion stays a single write with no new required key.
+        // Named "Commit or image" (not "Commit / image") deliberately — the
+        // slugified api_name must be `commit_or_image` for ensureField's
+        // idempotency lookup below to find it; a "/" collapses differently.
+        { display_name: 'Commit or image', type: 'text', config: {} },
         { display_name: 'Steps', type: 'rich_text', config: {} },
         // #210 / ADR-0010 §4: the staged action, as DATA. Text holding JSON, not
         // rich_text — this is machine state read back by approve/reject, and a
@@ -538,6 +581,31 @@ export class AgentsService implements OnModuleInit {
     // idempotent (a no-op once the flag is already set, or on a field just
     // created above with it).
     await this.hidePendingActionField(runsDb.id);
+
+    // #544 ships after Runs (#209), so a Runs database provisioned before this
+    // change has every field above except Surface/Commit-or-image. Back-fill
+    // idempotently, same shape as Pending action above — a no-op on a
+    // database just created with these fields already, and never a guessed
+    // value written onto any EXISTING run: ensureField only creates the field
+    // going forward, so every run that predates it simply has no value
+    // (absent), which is the honest answer this ticket's AC requires.
+    await this.ensureField(runsDb.id, 'surface', {
+      display_name: 'Surface',
+      type: 'select',
+      config: {},
+      options: [
+        { label: 'Local rig', color: 'gray' },
+        { label: 'Staging', color: 'gold' },
+        { label: 'Production', color: 'red' },
+        { label: 'Test suite', color: 'green' },
+        { label: 'Unknown', color: 'brown' },
+      ],
+    });
+    await this.ensureField(runsDb.id, 'commit_or_image', {
+      display_name: 'Commit or image',
+      type: 'text',
+      config: {},
+    });
 
     // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
     // provisioned by an earlier release has a "Trigger" field on both Agents
@@ -712,6 +780,85 @@ export class AgentsService implements OnModuleInit {
         TOKEN_SCOPE_RANK[currentScope] < TOKEN_SCOPE_RANK[staged.scope]
           ? currentScope
           : staged.scope,
+    };
+  }
+
+  /**
+   * #541 AC — "given any record change made by an agent, the API can answer:
+   * which agent, under whose authority, at what time" and "queryable in bulk
+   * for a date range." Reads `record_field_changes` (field-level edits) and
+   * `activity_events` (creates + relation/other events) filtered by this
+   * agent's id — both already carry `agentId`/`agentName` per-row (auth.guard
+   * .ts resolves and stamps them at request time), so no join back to the
+   * live agent record is needed and none of this is affected by a rename or
+   * delete since. `from`/`to` bound the query — required in effect by the
+   * bulk-use-case this exists for, defaulted to "last 30 days" if omitted so
+   * an empty query can't accidentally become "every row ever."
+   *
+   * Deliberately NOT "via which run": that link doesn't exist for the
+   * dominant BYO-AI/MCP write path today (agent-runtime.ts's own doc comment
+   * — the external client drives tools directly, never through a `Run`
+   * record) — a known, separate gap, not silently pretended away here.
+   */
+  async getAgentActivity(
+    membership: Membership,
+    agentRef: string,
+    range: { from?: string; to?: string } = {},
+  ) {
+    const { agentsDb } = await this.ensurePack(membership);
+    const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
+
+    const from = range.from ? new Date(range.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = range.to ? new Date(range.to) : new Date();
+
+    const [fieldChanges, events] = await Promise.all([
+      this.db.query.recordFieldChanges.findMany({
+        where: and(
+          eq(recordFieldChanges.workspaceId, membership.workspaceId),
+          eq(recordFieldChanges.agentId, agentRecord.id),
+          gte(recordFieldChanges.createdAt, from),
+          lte(recordFieldChanges.createdAt, to),
+        ),
+        orderBy: [desc(recordFieldChanges.createdAt)],
+        limit: 500,
+      }),
+      this.db.query.activityEvents.findMany({
+        where: and(
+          eq(activityEvents.workspaceId, membership.workspaceId),
+          eq(activityEvents.agentId, agentRecord.id),
+          gte(activityEvents.createdAt, from),
+          lte(activityEvents.createdAt, to),
+        ),
+        orderBy: [desc(activityEvents.createdAt)],
+        limit: 500,
+      }),
+    ]);
+
+    return {
+      agent: { id: agentRecord.id, name: agentRecord.title },
+      field_changes: fieldChanges.map((c) => ({
+        id: c.id,
+        record_id: c.recordId,
+        field_id: c.fieldId,
+        actor_user_id: c.actorUserId,
+        source: c.source,
+        agent_id: c.agentId,
+        agent_name: c.agentName,
+        old_value: c.oldValue,
+        new_value: c.newValue,
+        created_at: c.createdAt,
+      })),
+      events: events.map((e) => ({
+        id: e.id,
+        record_id: e.recordId,
+        actor_id: e.actorId,
+        type: e.type,
+        payload: e.payload,
+        source: e.source,
+        agent_id: e.agentId,
+        agent_name: e.agentName,
+        created_at: e.createdAt,
+      })),
     };
   }
 
@@ -965,6 +1112,7 @@ export class AgentsService implements OnModuleInit {
       // Run lineage: an agent's own writes inherit the triggering event's depth,
       // so a write-back that re-triggers is bounded by the max-depth counter.
       input.depth ?? 0,
+      'agent',
     );
     if (blockedBeforeExecution) return run;
 
@@ -1079,6 +1227,39 @@ export class AgentsService implements OnModuleInit {
     // the owner is asked in the Inbox with the exact proposal in front of them.
     // Nothing has been applied — approve/reject decides whether it ever is.
     if (staged) {
+      // #603 — the gate's DECISION AUTHORITY is now the shared `approvals`
+      // table (same one automation actions use — one place to list, expire,
+      // and access-scope every pending gate, not two). `pending_action` on
+      // the run record stays a write-through DISPLAY copy for
+      // `getPendingApproval()` and the run row's own "what's blocking this"
+      // read — resolveGate below reads the AUTHORITATIVE copy from the
+      // approvals row, never this one, so the two can never disagree about
+      // which is the source of truth.
+      const previewText = `${agent.name} wants to ${staged.summary} — approve or reject (${staged.kind})`;
+      await this.approvals.createRow({
+        workspaceId,
+        databaseId: runsDb.id,
+        ruleId: null,
+        runId: run.id,
+        recordId: run.id,
+        actionIndex: 0,
+        action: {
+          type: 'agent_proposed_action',
+          runs_db_id: runsDb.id,
+          run_id: run.id,
+          proposed: staged,
+          steps,
+          principal,
+          usage: runtime.usage,
+        },
+        previewText,
+        // No rule ⇒ approverFor() falls back to this actor — exactly the
+        // "ask the owner" rule #210 always applied, now expressed through
+        // the shared resolver instead of a literal `[owner.userId]` here.
+        requesterActorId: owner.userId,
+        notification: { type: 'approval_requested', snippet: previewText },
+      });
+
       let waiting = await this.recordsService.update(
         workspaceId,
         runsDb.id,
@@ -1097,21 +1278,6 @@ export class AgentsService implements OnModuleInit {
         actorId,
       );
 
-      await this.notifications.notify({
-        workspaceId,
-        databaseId: runsDb.id,
-        recordId: run.id,
-        actorId,
-        type: 'approval_requested',
-        recipients: [owner.userId],
-        // The EXACT proposed action (ADR-0010 §4) — an approval you can't read
-        // is not an approval. The kind is spelled out too, so the owner can see
-        // which of their gates caught this.
-        snippet: `${agent.name} wants to ${staged.summary} — approve or reject (${staged.kind})`,
-        // The run acts as the agent, not as the person who pressed Run, so the
-        // owner must be asked even when they are that person (#210).
-        allowSelf: true,
-      });
       // The provider work has already happened even though a proposed mutation
       // is waiting for a human. Charge it now; approval remains idempotent.
       if (runtime.runClass === 'storyos_ai') {
@@ -1256,6 +1422,7 @@ export class AgentsService implements OnModuleInit {
       membership.workspaceId,
       runsDb.id,
       run,
+      agentRecord.id,
       agentRecord.title,
       recordId,
       membership.userId,
@@ -1296,6 +1463,7 @@ export class AgentsService implements OnModuleInit {
     workspaceId: string,
     runsDbId: string,
     run: ProjectedRecord,
+    agentId: string,
     agentName: string,
     recordId: string,
     actorId: string,
@@ -1306,7 +1474,11 @@ export class AgentsService implements OnModuleInit {
       { type: 'text', text: `🤖 Delegated to ${agentName} — ${status}. ` },
       { type: 'record', record_id: run.id, database_id: runsDbId },
     ];
-    await this.comments.create(workspaceId, recordId, body, actorId).catch(() => undefined);
+    // #734 — this comment IS the agent's own progress update; carrying its
+    // real id/name means the thread no longer needs the "🤖 Delegated to
+    // {name}" text prefix to establish who posted it (kept here anyway since
+    // rendering surfaces haven't caught up yet — see the ticket's AC2).
+    await this.comments.create(workspaceId, recordId, body, actorId, 'agent', agentId, agentName).catch(() => undefined);
   }
 
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
@@ -1362,12 +1534,33 @@ export class AgentsService implements OnModuleInit {
     this.assertActionAllowed(principal, action);
 
     if (payload.apply === 'record_delete') {
-      await this.recordsService.softDelete(
+      const result = await this.recordsService.softDelete(
         workspaceId,
         payload.database_id,
         payload.record_id,
         actorId,
+        depth,
+        // #542 Phase 2 — this used to default to 'human' by omission, which
+        // meant an agent's own delete was indistinguishable from a person's
+        // at the keyboard: a naive "skip the gate for source==='human'"
+        // check (which is exactly what a workspace-declared action-class
+        // gate needs) would have been fooled by this exact call into never
+        // gating an agent-proposed delete at all. `actorId` above is still
+        // the human OWNER for attribution (ADR-0010 §2); `source` is what
+        // the gate and the change log actually key on.
+        'agent',
       );
+      if ('pending_approval' in result) {
+        // A WORKSPACE-declared gate (separate from this agent's own
+        // approval_policy field, already checked above by the caller) held
+        // this delete. Nothing was applied — report that plainly rather than
+        // claiming success.
+        return {
+          tool: 'action.pending_approval',
+          summary: `Held for approval (${action.kind}): ${action.summary}`,
+          detail: result.message,
+        };
+      }
       return {
         tool: 'action.applied',
         summary: `Applied (${action.kind}): ${action.summary}`,
@@ -1435,11 +1628,52 @@ export class AgentsService implements OnModuleInit {
       throw new UnprocessableEntityException('This run is not waiting for approval');
     }
 
-    const staged = parseStaged(run.values['pending_action']);
+    // #603 — the AUTHORITATIVE staged data now lives on the shared `approvals`
+    // row (same table automation actions use); `run.values['pending_action']`
+    // is kept only as a display copy (see dispatchRun's staging comment) and
+    // is the fallback here purely for a run staged before this change
+    // deployed — one still `Waiting approval` with no approvals row to its
+    // name. Once every pre-deploy run has drained, this fallback is dead code
+    // (worth deleting then, not now — it costs nothing while it's rare).
+    const approvalRow = await this.approvals.findByRunId(membership.workspaceId, run.id);
+    const snapshotAction =
+      approvalRow?.actionSnapshot &&
+      (approvalRow.actionSnapshot as ApprovalActionSnapshot).action.type === 'agent_proposed_action'
+        ? ((approvalRow.actionSnapshot as ApprovalActionSnapshot).action as AgentProposedActionSnapshot)
+        : null;
+    const staged: StagedAction | null = snapshotAction
+      ? {
+          action: snapshotAction.proposed,
+          steps: snapshotAction.steps,
+          principal: snapshotAction.principal,
+          usage: snapshotAction.usage,
+        }
+      : parseStaged(run.values['pending_action']);
     if (!staged) {
       throw new UnprocessableEntityException(
         'This run is waiting for approval but has no staged action to resolve',
       );
+    }
+    // #603 — `expireStale()` (piggybacked on AutomationsService.tick(), same
+    // as automation approvals) only touches the approvals row, never this
+    // run record's own status — so the guard above (`run.values['status']
+    // !== waitingId`) stays true for a run whose gate expired a week ago.
+    // Without this second check, re-approving a long-stale run would still
+    // apply the now-ancient action. `decide()` below would itself refuse a
+    // non-pending row, but only AFTER the apply already ran — too late.
+    if (approvalRow && approvalRow.status !== 'pending') {
+      throw new UnprocessableEntityException(
+        `This approval is no longer pending (${approvalRow.status}) and cannot be resolved`,
+      );
+    }
+    // A row can be `status: 'pending'` and still be PAST its expiry — nothing
+    // has swept it yet (the sweep piggybacks a tick, same as the automation
+    // case). Checked here too, not only inside `decide()` below, for the
+    // same reason as the status check above: `decide()` runs AFTER apply,
+    // so its own expiry check alone would apply the stale action first and
+    // only fail afterward — the worst of both outcomes.
+    if (approvalRow && approvalRow.expiresAt < new Date()) {
+      throw new UnprocessableEntityException('This approval expired before it was decided');
     }
 
     const actorId = membership.userId;
@@ -1482,6 +1716,23 @@ export class AgentsService implements OnModuleInit {
         }`,
         detail: 'The proposed action was not applied. The run was canceled with no side effects.',
       });
+    }
+
+    // #603 — flip the shared approvals row (notify/audit-comment included)
+    // AFTER apply/reject succeeds above, never before: applying is what can
+    // fail, and the existing contract is that a failed apply leaves the gate
+    // open for a retry. Flipping first would mark the row "approved" against
+    // an action that was never actually applied — worse than today, not an
+    // upgrade. No row exists for a run staged before this change deployed
+    // (the `parseStaged` fallback above) — nothing to flip then, skip it.
+    if (approvalRow) {
+      await this.approvals.decide(
+        membership.workspaceId,
+        approvalRow.id,
+        actorId,
+        verdict === 'approve' ? 'approved' : 'rejected',
+        reason,
+      );
     }
 
     let resolved = await this.recordsService.update(
@@ -1679,6 +1930,7 @@ export class AgentsService implements OnModuleInit {
       human_gate?: boolean;
       enabled?: boolean;
     },
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const { agentsDb, triggersDb } = await this.ensurePack(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
@@ -1699,6 +1951,7 @@ export class AgentsService implements OnModuleInit {
       },
       membership.userId,
       0,
+      source,
     );
   }
 }

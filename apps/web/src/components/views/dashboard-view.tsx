@@ -1,18 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { Select } from '@/components/ui/select';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { Input } from '@/components/ui/input';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordAggregate } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { FilterNode, ViewConfig, FilterGroup } from './use-view-state';
-import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
+import { andFilterNodes } from './use-view-state';
+import { activeFilterNode } from './filter-config';
 import { FiltersSection } from './view-toolbar';
 import {
   TILE_OPS,
-  computeTileValue,
   defaultBlockLabel,
   defaultTileLabel,
   formatTileValue,
@@ -49,20 +51,23 @@ export interface DashboardTile {
   comparison?: { target?: number; direction: 'up' | 'down' };
 }
 
-const SELECT_CLASS =
-  'h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink';
 
 /**
- * Dashboard view (MN-225 / #168, Phase 1) — a grid of KPI / metric tiles, each
- * an aggregate (count/sum/avg/min/max) over the database's records. Records are
- * fetched through the SAME grant-scoped `/records/query` path every other view
- * uses (via `queryBodyFromConfig`), so a tile only ever aggregates records the
- * viewer can access, and the view's own filter scopes every tile. All pages are
- * pulled so the aggregate is correct over the full (filtered) dataset — a
- * server-side `/records/aggregate` endpoint is the Phase 2 optimization.
+ * Dashboard view (MN-225 / #168) — a grid of KPI / metric tiles, each an
+ * aggregate (count/sum/avg/min/max) over the database's records.
  *
- * Phase 1 is metric tiles only. Charts, cross-database tiles, per-tile filters,
- * and drag-to-arrange layout are deferred to later phases.
+ * #759 — each tile computes its value with ONE server-side `POST
+ * .../records/aggregate` call (`useRecordAggregate`), the SAME grant-scoped
+ * path `/query` uses, filtered by the identical AST — so a tile only ever
+ * aggregates records the viewer can access, the view's own filter scopes
+ * every tile, and a source the viewer cannot read fails (see `TileValue`'s
+ * own #304 comment) rather than returning a value. This used to page the
+ * whole filtered dataset client-side via `useRecordsInfinite` and reduce it
+ * in the browser — on `storyos/issues` (740 records, page size 100), one
+ * count tile cost 8 requests and 740 records transferred to display one
+ * number, and the view rendered nothing until every page of every tile had
+ * landed. The endpoint already existed and was already used by the PUBLIC
+ * dashboard (`public-views.service.ts`) — this was the only caller missing.
  */
 export function DashboardView({
   ws,
@@ -279,13 +284,16 @@ export function DashboardView({
               {/* #387 — `title` carries the full text: tiles are 220px and a
                   database name longer than a few words truncates, at which
                   point hover is the only way to read it. */}
-              <span className="truncate text-[13px] font-medium text-muted" title={heading}>
+              <span className="truncate text-body font-medium text-muted" title={heading}>
                 {heading}
               </span>
               {/* #385 — a permanently visible destructive control on a page you
                   are only reading is its own small hazard, so the delete leaves
                   view mode entirely rather than merely being discouraged. */}
               {showEditor && (
+                // #706 — KEEPS faint: this button contains only a Trash2 icon,
+                // a non-text graphic judged at 3:1, which faint clears. Its
+                // accessible name is the title attribute.
                 <button
                   type="button"
                   title="Remove tile"
@@ -309,7 +317,7 @@ export function DashboardView({
                 magnitude, which is the difference between a number you trust
                 and one you go and verify. */}
             {!showEditor && srcId && (
-              <span className="flex items-center gap-1 text-[11px] text-faint">
+              <span className="flex items-center gap-1 text-meta text-muted">
                 <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
                 {tile.filter != null && (
                   <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
@@ -322,18 +330,18 @@ export function DashboardView({
 
             {showEditor && (
               <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
-                <input
+                <Input
                   aria-label="Tile label"
                   placeholder={defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''))}
                   value={tile.label}
                   onChange={(e) => updateTile(tile.id, { label: e.target.value })}
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                  size="sm"
                 />
                 {/* #304 — what this tile measures. Scoped to the dashboard's own
                     SPACE in v1: offering a picker wider than the access story is
                     how the leak gets built (#306 defers workspace-root for the
                     same reason). */}
-                <select
+                <Select
                   aria-label="Tile source database"
                   value={tile.database_id ?? db ?? ''}
                   onChange={(e) => {
@@ -352,14 +360,14 @@ export function DashboardView({
                       toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db ?? '')}'s fields.`);
                     }
                   }}
-                  className={SELECT_CLASS}
+                  size="sm"
                 >
                   {sourceOptions.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {/* #304 — this tile's own scope. The SAME builder the view toolbar
                     uses (one filter spec, one UI), so a tile can measure a slice
                     instead of every tile repeating the view's total. No viewId is
@@ -380,7 +388,7 @@ export function DashboardView({
                   />
                 )}
                 <div className="flex gap-1.5">
-                  <select
+                  <Select
                     aria-label="Aggregation"
                     value={tile.op}
                     onChange={(e) => {
@@ -391,20 +399,21 @@ export function DashboardView({
                         : undefined;
                       updateTile(tile.id, { op, field_api_name });
                     }}
-                    className={SELECT_CLASS}
+                    size="sm"
                   >
                     {TILE_OPS.map((op) => (
                       <option key={op} value={op}>
                         {opLabel(op)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   {opNeedsField(tile.op) && (
-                    <select
+                    <Select
                       aria-label="Field"
                       value={tile.field_api_name ?? ''}
                       onChange={(e) => updateTile(tile.id, { field_api_name: e.target.value || undefined })}
-                      className={`${SELECT_CLASS} min-w-0 flex-1`}
+                      size="sm"
+                      className="min-w-0 flex-1"
                     >
                       <option value="">Select a number field…</option>
                       {numberFields.map((f) => (
@@ -412,11 +421,11 @@ export function DashboardView({
                           {f.displayName}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </div>
                 {opNeedsField(tile.op) && numberFields.length === 0 && (
-                  <span className="text-[11px] text-faint">This database has no number fields to aggregate.</span>
+                  <span className="text-meta text-muted">This database has no number fields to aggregate.</span>
                 )}
 
                 {/* #388 — a target, so the number supports a decision.
@@ -431,10 +440,12 @@ export function DashboardView({
                     180px — and a number input beside a select overflows the card
                     at that width, which is what it did on first render. */}
                 <div className="flex flex-col gap-1.5">
-                  <input
+                  <Input
                     type="number"
                     aria-label="Target"
                     placeholder="Target (optional)"
+                    size="sm"
+                    className="w-full min-w-0"
                     value={tile.comparison?.target ?? ''}
                     onChange={(e) => {
                       const raw = e.target.value;
@@ -448,10 +459,9 @@ export function DashboardView({
                         comparison: { target, direction: tile.comparison?.direction ?? 'up' },
                       });
                     }}
-                    className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
                   />
                   {tile.comparison?.target != null && (
-                    <select
+                    <Select
                       aria-label="Which direction is good"
                       value={tile.comparison.direction}
                       onChange={(e) =>
@@ -462,7 +472,8 @@ export function DashboardView({
                           },
                         })
                       }
-                      className={`${SELECT_CLASS} w-full min-w-0`}
+                      size="sm"
+                      className="w-full min-w-0"
                       /* Stated, not inferred. More revenue is good; more overdue
                          invoices is bad. A wrong guess here colours a bad number
                          green, which is worse than no colour at all. */
@@ -470,7 +481,7 @@ export function DashboardView({
                     >
                       <option value="up">Higher is better</option>
                       <option value="down">Target is a limit</option>
-                    </select>
+                    </Select>
                   )}
                 </div>
               </div>
@@ -491,7 +502,7 @@ export function DashboardView({
             type="button"
             onClick={() => setEditing((e) => !e)}
             aria-pressed={editing}
-            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-body text-ink-secondary hover:bg-hover"
           >
             {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
             {editing ? 'Done' : 'Edit'}
@@ -503,7 +514,7 @@ export function DashboardView({
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
           {!readOnly && (
-            <p className="text-[13px] text-faint">
+            <p className="text-body text-muted">
               Add a metric tile (count, sum, average) or a chart grouped by a field.
             </p>
           )}
@@ -582,7 +593,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addTile}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add tile
@@ -590,7 +601,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addWidget}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add chart
@@ -656,41 +667,41 @@ function TileValue({
     () => (crossDatabase ? tile.filter : andFilterNodes(personalFilter, tile.filter)),
     [crossDatabase, personalFilter, tile.filter],
   );
-  const queryBody = useMemo(
-    () =>
-      crossDatabase
-        ? { filters: scoped as FilterNode | undefined }
-        : queryBodyFromConfig(config, scoped as FilterNode | undefined),
-    [crossDatabase, config, scoped],
+  // #759 — the same filter `queryBodyFromConfig` would have sent to `/query`
+  // (the view's own active filter ANDed with the personal override and the
+  // tile's own scope; a cross-database tile drops the view's filter/personal
+  // override entirely, per the comment above), just handed to `/aggregate`
+  // instead of a row-fetching endpoint.
+  const aggregateFilter = useMemo(
+    () => (crossDatabase ? scoped : andFilterNodes(activeFilterNode(config.filters), scoped)),
+    [crossDatabase, config.filters, scoped],
   );
-  // `enabled` inside the hook keeps an unconfigured tile from querying at all.
-  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
-  // Aggregate over the whole matching set, not just page 1.
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
-  const loading = records.isLoading || hasNextPage || isFetchingNextPage;
+  // `enabled` keeps an unconfigured tile from querying at all.
+  const aggregate = useRecordAggregate(
+    ws,
+    sourceDb ?? '',
+    { op: tile.op, field: tile.field_api_name, filter: aggregateFilter },
+    !unconfigured,
+  );
   if (unconfigured) {
-    return <span className="text-[13px] font-normal text-muted">Pick a database</span>;
+    return <span className="text-body font-normal text-muted">Pick a database</span>;
   }
-  if (loading) return <span className="text-muted">…</span>;
+  if (aggregate.isLoading) return <span className="text-muted">…</span>;
   /**
-   * #304 — the query is grant-scoped server-side, so a source the VIEWER cannot
-   * read fails rather than returning rows. Say so. Rendering 0 here would be a
-   * lie: "no access" and "adds up to zero" are different answers, and a tile
-   * quietly reading 0 is indistinguishable from an empty database.
+   * #304 — the aggregate is grant-scoped server-side exactly like `/query`, so
+   * a source the VIEWER cannot read fails rather than returning a value. Say
+   * so. Rendering 0 here would be a lie: "no access" and "adds up to zero" are
+   * different answers, and a tile quietly reading 0 is indistinguishable from
+   * an empty database.
    */
-  if (records.isError) {
+  if (aggregate.isError) {
     return (
-      <span className="text-[13px] font-normal text-muted" title="You don't have access to this tile's database">
+      <span className="text-body font-normal text-muted" title="You don't have access to this tile's database">
         No access
       </span>
     );
   }
-  const value = computeTileValue(tile.op, tile.field_api_name, rows);
+  const value = aggregate.data ?? null;
   /*
    * #388 — the target, when there is one and it can be computed honestly.
    * `targetProgress` returns null for a missing value, a missing target or a
@@ -705,7 +716,7 @@ function TileValue({
         {formatTileValue(value)}
         <span
           className={cn(
-            'text-[12px] font-medium',
+            'text-label font-medium',
             /* Semantic, NOT the brand accent: good/bad/neutral is a different
                scale from "this is interactive", and #388 requires it legible in
                both themes. These three tokens are already theme-aware. */
@@ -729,7 +740,7 @@ function TileValue({
             style={{ width: `${progress.ratio * 100}%` }}
           />
         </span>
-        <span className="shrink-0 text-[11px] font-normal text-faint">{progress.label}</span>
+        <span className="shrink-0 text-meta font-normal text-muted">{progress.label}</span>
       </span>
     </span>
   );

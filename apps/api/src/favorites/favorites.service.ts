@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, favorites, records } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
@@ -33,7 +34,7 @@ export class FavoritesService {
   ): Promise<{ id: string; spaceId: string } | null> {
     if (targetType === 'database') {
       const db = await this.db.query.databases.findFirst({
-        where: and(eq(databases.id, targetId), eq(databases.workspaceId, workspaceId)),
+        where: and(eq(databases.id, targetId), eq(databases.workspaceId, workspaceId), notDeleted(databases.deletedAt)),
       });
       return db ? { id: db.id, spaceId: db.spaceId } : null;
     }
@@ -42,7 +43,7 @@ export class FavoritesService {
     });
     if (!record) return null;
     const db = await this.db.query.databases.findFirst({
-      where: and(eq(databases.id, record.databaseId), eq(databases.workspaceId, workspaceId)),
+      where: and(eq(databases.id, record.databaseId), eq(databases.workspaceId, workspaceId), notDeleted(databases.deletedAt)),
     });
     return db ? { id: db.id, spaceId: db.spaceId } : null;
   }
@@ -84,12 +85,17 @@ export class FavoritesService {
               inArray(records.id, recordIds),
               isNull(records.deletedAt),
               eq(databases.workspaceId, membership.workspaceId),
+              notDeleted(databases.deletedAt),
             ),
           )
       : [];
     const dbs = dbIds.length
       ? await this.db.query.databases.findMany({
-          where: and(inArray(databases.id, dbIds), eq(databases.workspaceId, membership.workspaceId)),
+          where: and(
+            inArray(databases.id, dbIds),
+            eq(databases.workspaceId, membership.workspaceId),
+            notDeleted(databases.deletedAt),
+          ),
         })
       : [];
 

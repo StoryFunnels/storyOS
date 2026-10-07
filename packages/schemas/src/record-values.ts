@@ -275,19 +275,81 @@ export const createRecordsBatchSchema = z.object({
   records: z.array(createRecordSchema).min(1).max(100),
 });
 
+/**
+ * #230 — match-or-create on a designated unique key. `key_field` names the
+ * field (must be marked `unique`, #229) whose value in `values` is looked up;
+ * a match updates that record, no match creates a new one. `values` is the
+ * single source of truth for the key's value — no separate `key_value`, so
+ * there is nothing for the two to disagree about.
+ */
+export const upsertRecordSchema = z.object({
+  key_field: z.string().min(1),
+  values: z.record(z.string(), z.unknown()),
+});
+
 export const updateRecordSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 });
 
-/** MN-050: bulk operations from the table selection bar. */
+/**
+ * MN-050: bulk operations from the table selection bar.
+ *
+ * #653 — raised from 200 to 5000. records.service.ts applies both ops in
+ * internal chunks of 200 (BULK_OP_CHUNK_SIZE) rather than one unbounded pass,
+ * so a large selection can't produce one oversized transaction/loop. Both
+ * operations are per-record idempotent (delete no-ops on an already-deleted
+ * row; update re-applying the same patch is a no-op difference), so a caller
+ * whose request was interrupted mid-flight can safely retry with the SAME
+ * record_ids — already-applied records are simply re-touched harmlessly.
+ * That is this PR's resumability guarantee; a durable, pollable job with
+ * live progress was real, separate work split to a follow-up ticket (#694,
+ * now shipped — see `bulkRecordJobSchema` below) since it needed a new
+ * job-tracking table. Undo-for-edit did NOT need a new table — see
+ * `batchUpdateUndoSchema` below.
+ */
 export const batchUpdateRecordsSchema = z.object({
-  record_ids: z.array(z.uuid()).min(1).max(200),
+  record_ids: z.array(z.uuid()).min(1).max(5000),
   values: z.record(z.string(), z.unknown()),
 });
 
 export const batchRecordIdsSchema = z.object({
-  record_ids: z.array(z.uuid()).min(1).max(200),
+  record_ids: z.array(z.uuid()).min(1).max(5000),
 });
+
+/**
+ * #653 — undo a `batchUpdate` call. `restorable` is exactly what a prior
+ * `batchUpdate` response reported: the `{record_id, version_id}` pairs for
+ * every record it actually changed. Reuses the existing `record_versions`
+ * snapshot (MN-231) rather than a new before-image table.
+ */
+export const batchUpdateUndoSchema = z.object({
+  restorable: z
+    .array(z.object({ record_id: z.uuid(), version_id: z.uuid() }))
+    .min(1)
+    .max(5000),
+});
+
+/**
+ * #694 — a bulk update/delete above batchUpdate/batchDelete's own 5000-row
+ * synchronous cap runs as a durable, pollable job instead: chunked, resumable
+ * if the process restarts mid-run, never silently partial. The synchronous
+ * endpoints (this schema's own siblings above) stay exactly as they are for
+ * a selection under the cap — this is an additive path for a larger one, not
+ * a replacement.
+ */
+export const bulkRecordJobSchema = z
+  .object({
+    op: z.enum(['update', 'delete']),
+    record_ids: z.array(z.uuid()).min(1).max(50_000),
+    /** Required when op is "update"; ignored (and should be omitted) for "delete". */
+    values: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.op === 'update' && !val.values) {
+      ctx.addIssue({ code: 'custom', message: '"values" is required when op is "update"', path: ['values'] });
+    }
+  });
+export type BulkRecordJobInput = z.infer<typeof bulkRecordJobSchema>;
 
 export const moveRecordSchema = z
   .object({
@@ -295,6 +357,13 @@ export const moveRecordSchema = z
     after_record_id: z.uuid().optional(),
     /** Optional value patch applied atomically with the move (kanban drops). */
     values: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * #499 — the board view a kanban drop came from, so the server can refuse
+     * a value patch to that view's group_by_field_id when it's read-only for
+     * grouping (text/lookup). Optional: a plain reorder (no `values`) or a
+     * move from anywhere else never needs it.
+     */
+    view_id: z.uuid().optional(),
   })
   .refine((v) => Boolean(v.before_record_id) !== Boolean(v.after_record_id) || (!v.before_record_id && !v.after_record_id && Boolean(v.values)), {
     message: 'provide exactly one of before_record_id / after_record_id (or only values)',

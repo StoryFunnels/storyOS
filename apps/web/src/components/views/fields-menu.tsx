@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { ChevronRight, GripVertical } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
@@ -12,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
+import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
 
@@ -45,6 +48,7 @@ export function FieldsMenu({
   align = 'start',
   searchPlaceholder = 'Filter fields…',
   emptyLabel = 'No fields.',
+  footer,
 }: {
   fields: Field[];
   isVisible: (field: Field) => boolean;
@@ -67,6 +71,12 @@ export function FieldsMenu({
   align?: 'start' | 'end';
   searchPlaceholder?: string;
   emptyLabel?: string;
+  /** #699 — an optional section rendered below the field list, OUTSIDE it —
+   *  for a control that must never read as "one more field in this list"
+   *  (Dara's finding: list membership itself is the promise "this becomes a
+   *  column," which is exactly the promise a merged-gutter toggle can't keep).
+   *  Not filtered by the search box; not part of `fields`/`isVisible`. */
+  footer?: ReactNode;
 }) {
   const [q, setQ] = useState('');
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -90,38 +100,48 @@ export function FieldsMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {iconOnly ? (
+      {iconOnly ? (
+        // Tooltip OUTSIDE the trigger — see record-chrome's Actions button.
+        <Tooltip label={triggerLabel}>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label={triggerLabel}
+              className={cn(
+                'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-hover hover:text-ink',
+                triggerActive ? 'text-ink' : 'text-muted',
+              )}
+            >
+              <TriggerIcon className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
+      ) : (
+        <DropdownMenuTrigger asChild>
           <button
-            title={triggerLabel}
-            aria-label={triggerLabel}
             className={cn(
-              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-hover hover:text-ink',
-              triggerActive ? 'text-ink' : 'text-muted',
-            )}
-          >
-            <TriggerIcon className="h-4 w-4" />
-          </button>
-        ) : (
-          <button
-            className={cn(
-              'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+              'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover hover:text-ink',
               triggerActive ? 'text-ink' : 'text-muted',
             )}
           >
             <TriggerIcon className="h-3.5 w-3.5" /> {triggerLabel}
           </button>
-        )}
-      </DropdownMenuTrigger>
+        </DropdownMenuTrigger>
+      )}
       <DropdownMenuContent align={align} className="w-64">
-        <input
+        <Input
           autoFocus
           placeholder={searchPlaceholder}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           // Radix menus grab keystrokes for typeahead — keep them in the box.
           onKeyDown={(e) => e.stopPropagation()}
-          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          size="sm"
+          // #688 group B — this joins `sm` rather than keeping its own copy; its
+          // plain `rounded` (4px) was the one hand-rolled input site NOT using
+          // the `--radius-control` token (6px), called out on the ticket as
+          // "almost certainly an oversight" — going through the primitive
+          // fixes it as a side effect of removing the duplication.
+          className="mb-1 w-full outline-none"
         />
         <div className="max-h-72 overflow-y-auto">
           {onReorder ? (
@@ -139,8 +159,9 @@ export function FieldsMenu({
           ) : (
             rows
           )}
-          {list.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">{emptyLabel}</p>}
+          {list.length === 0 && <p className="px-2 py-1.5 text-label text-faint">{emptyLabel}</p>}
         </div>
+        {footer}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -171,20 +192,22 @@ function FieldRow({
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        'group/fm flex items-center gap-1 rounded px-1.5 py-1.5 text-[13px] text-ink hover:bg-hover',
+        'group/fm flex items-center gap-1 rounded px-1.5 py-1.5 text-body text-ink hover:bg-hover',
         isDragging && 'opacity-50',
       )}
     >
       {reorderable ? (
-        <button
-          className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover/fm:opacity-100"
-          title="Drag to reorder"
-          onClick={(e) => e.preventDefault()}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip label="Drag" side="left">
+          <button
+            className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted focus-visible:opacity-100 group-hover/fm:opacity-100"
+            aria-label="Drag to reorder"
+            onClick={(e) => e.preventDefault()}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       ) : (
         <span className="w-2.5 shrink-0" />
       )}
@@ -208,14 +231,16 @@ function FieldRow({
         <span className="truncate">{field.displayName}</span>
       </button>
       {onOpenConfig && (
-        <button
-          type="button"
-          onClick={onOpenConfig}
-          title="Field options"
-          className="shrink-0 rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/fm:opacity-100"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip label="Options" side="right">
+          <button
+            type="button"
+            onClick={onOpenConfig}
+            aria-label="Field options"
+            className="shrink-0 rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink focus-visible:opacity-100 group-hover/fm:opacity-100"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       )}
     </div>
   );

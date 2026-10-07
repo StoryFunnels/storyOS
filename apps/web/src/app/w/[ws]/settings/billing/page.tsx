@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -92,9 +93,29 @@ export default function BillingPage() {
     onError: () => toast.error('Could not start the trial'),
   });
 
-  if (billing.isLoading) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
+  if (billing.isLoading) return <div className="p-4 text-body text-muted sm:p-8">Loading…</div>;
   if (!billing.data) return null;
   const b = billing.data;
+
+  // #490 — `enabled` reflects whether Stripe is configured on this instance at
+  // all (billing.controller.ts's own comment). The settings nav already hides
+  // this link when it's false (layout.tsx), so anyone here arrived by direct
+  // navigation — a bookmark, a shared link. Matches referrals/page.tsx's
+  // identical pattern for the identical reason, per Otto's ruling on this
+  // ticket: an explicit unavailable state, not a 404 or a page that pretends
+  // this feature doesn't exist. The four CTAs below never render at all in
+  // this branch — not disabled, absent — so there is no enabled-looking
+  // control that cannot work.
+  if (!b.enabled) {
+    return (
+      <div className="mx-auto max-w-3xl p-4 sm:p-8">
+        <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
+        <p className="text-body text-muted">
+          Billing is a cloud feature and isn’t available on this self-hosted instance.
+        </p>
+      </div>
+    );
+  }
 
   const trialDaysLeft = b.trialEndsAt
     ? Math.max(0, Math.ceil((new Date(b.trialEndsAt).getTime() - Date.now()) / 86_400_000))
@@ -105,11 +126,11 @@ export default function BillingPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
-      <p className="mb-6 text-[13px] text-muted">Plan, usage, and payment for this workspace.</p>
+      <p className="mb-6 text-body text-muted">Plan, usage, and payment for this workspace.</p>
 
       <div className="flex flex-col gap-8">
         {isTrialing && (
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-[13px]">
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
             <p className="font-medium text-ink">
               {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} left of your Pro trial
             </p>
@@ -124,9 +145,9 @@ export default function BillingPage() {
           <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-ink">{PLAN_LABEL[b.plan]}</p>
-              <p className="text-[13px] text-muted">{PLAN_PRICE[b.plan]}</p>
+              <p className="text-body text-muted">{PLAN_PRICE[b.plan]}</p>
               {b.currentPeriodEnd && (
-                <p className="mt-1 text-[12px] text-faint">
+                <p className="mt-1 text-label text-faint">
                   {b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {new Date(b.currentPeriodEnd).toLocaleDateString()}
                 </p>
               )}
@@ -154,26 +175,36 @@ export default function BillingPage() {
           </div>
         </Section>
 
-        <Section title="Usage this month" description="StoryOS never limits records — this is scale, not capability.">
+        <Section title="Usage this month" description="StoryOS never limits items — this is scale, not capability.">
           <UsageRow
             label="Non-AI automation runs"
             used={b.usage.automationRunsThisMonth}
             limit={b.limits.automationRunsPerMonth}
           />
           <UsageRow
-            label="Members"
+            label="Billable seats"
             used={b.usage.billableSeats}
             limit={b.limits.includedSeats}
             suffix={
               b.limits.includedSeats !== null && b.usage.billableSeats >= b.limits.includedSeats
-                ? '— next member adds $12/mo'
+                ? '— next seat adds $12/mo'
                 : undefined
+            }
+            caption={
+              <>
+                Admins, members, and guests with edit access or higher. Viewer and commenter guests,
+                and pending invites, don&apos;t count — see{' '}
+                <Link href={`/w/${ws}/settings/members`} className="underline hover:text-ink">
+                  Members
+                </Link>{' '}
+                for everyone with access.
+              </>
             }
           />
         </Section>
 
         <Section title="Your own AI" description="Connect your own Claude or ChatGPT over MCP.">
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-[13px]">
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
             <p className="font-medium text-ink">Unlimited, and never metered</p>
             <p className="mt-1 text-muted">
               Runs driven by your own AI provider never count against any allowance on any plan and
@@ -191,19 +222,34 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="border-b border-border-default pb-8 last:border-b-0 last:pb-0">
       <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-[13px] text-muted">{description}</p>}
+      {description && <p className="mb-3 text-body text-muted">{description}</p>}
       {children}
     </section>
   );
 }
 
 /** `limit === null` means unlimited (self-host/enterprise) — no bar, just the count. */
-function UsageRow({ label, used, limit, suffix }: { label: string; used: number; limit: number | null; suffix?: string }) {
+function UsageRow({
+  label,
+  used,
+  limit,
+  suffix,
+  caption,
+}: {
+  label: string;
+  used: number;
+  limit: number | null;
+  suffix?: string;
+  /** #489 — a correct-but-terse label still leaves "why is this lower than the members
+   *  page" unanswered. Always visible, not a hover-only tooltip, since the reading that
+   *  sends someone to support is the one where they never thought to hover. */
+  caption?: React.ReactNode;
+}) {
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const over80 = limit !== null && pct >= 80;
   return (
     <div className="mb-3 last:mb-0">
-      <div className="flex items-baseline justify-between text-[13px]">
+      <div className="flex items-baseline justify-between text-body">
         <span className="text-ink-secondary">{label}</span>
         <span className={over80 ? 'font-medium text-warning' : 'text-muted'}>
           {used} {limit !== null ? `/ ${limit}` : '(unlimited)'} {suffix && <span className="text-faint">{suffix}</span>}
@@ -217,6 +263,7 @@ function UsageRow({ label, used, limit, suffix }: { label: string; used: number;
           />
         </div>
       )}
+      {caption && <p className="mt-1 text-label text-faint">{caption}</p>}
     </div>
   );
 }

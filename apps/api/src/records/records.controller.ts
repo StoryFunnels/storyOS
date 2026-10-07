@@ -18,12 +18,16 @@ import { z } from 'zod';
 import {
   batchRecordIdsSchema,
   batchUpdateRecordsSchema,
+  batchUpdateUndoSchema,
+  bulkRecordJobSchema,
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
   queryRecordsSchema,
   updateRecordSchema,
+  upsertRecordSchema,
   aggregateRecordsSchema,
+  groupedAggregateRecordsSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
@@ -31,14 +35,19 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from './records.service';
+import { BulkRecordJobsService } from './bulk-record-jobs.service';
 
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
+class UpsertRecordDto extends createZodDto(upsertRecordSchema) {}
 class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
 class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
+class BatchUpdateUndoDto extends createZodDto(batchUpdateUndoSchema) {}
+class BulkRecordJobDto extends createZodDto(bulkRecordJobSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
+class GroupedAggregateRecordsDto extends createZodDto(groupedAggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
 
 const listQuerySchema = z.object({
@@ -56,6 +65,7 @@ export class RecordsController {
   constructor(
     private readonly recordsService: RecordsService,
     private readonly databases: DatabasesService,
+    private readonly bulkJobs: BulkRecordJobsService,
   ) {}
 
   /** Access-checked (ADR-0007): 404 without a grant, 403 below min. */
@@ -75,7 +85,7 @@ export class RecordsController {
     @Query() query: ListRecordsQueryDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.list(databaseId, query);
+    return this.recordsService.list(databaseId, query, req.membership);
   }
 
   @Post()
@@ -91,6 +101,36 @@ export class RecordsController {
       databaseId,
       body.values,
       req.user.id,
+      0,
+      req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
+    );
+  }
+
+  @Post('upsert')
+  // Always 200, not Nest's default 201 — the response body's `created` flag
+  // is the actual signal, and a fixed decorator cannot vary the code by
+  // which branch (create or update) this particular call took.
+  @HttpCode(200)
+  @ApiOperation({
+    summary: '#230: match-or-create on a unique key. key_field must be a field marked unique (#229); values[key_field] is the match value.',
+  })
+  async upsert(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: UpsertRecordDto,
+  ) {
+    await this.assertDb(req, databaseId, 'contributor');
+    return this.recordsService.upsert(
+      req.membership.workspaceId,
+      databaseId,
+      body.key_field,
+      body.values,
+      req.user.id,
+      req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 
@@ -103,7 +143,7 @@ export class RecordsController {
     @Body() body: QueryRecordsDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.query(databaseId, body, req.user.id);
+    return this.recordsService.query(databaseId, body, req.user.id, req.membership);
   }
 
   /**
@@ -125,7 +165,25 @@ export class RecordsController {
     @Body() body: AggregateRecordsDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.aggregate(databaseId, body, req.user.id);
+    return this.recordsService.aggregate(databaseId, body, req.user.id, req.membership);
+  }
+
+  /**
+   * #750 — same shape decision as `aggregate` above: a sibling endpoint, not
+   * a flag on `aggregate`, because a grouped result is a different SHAPE
+   * (`groups: [...]` instead of `value`) and a caller wanting one total
+   * should not parse an array to find it.
+   */
+  @Post('aggregate/grouped')
+  @HttpCode(200)
+  @ApiOperation({ summary: "One aggregate value per group — a board/dashboard column's true total, in one query" })
+  async aggregateGrouped(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: GroupedAggregateRecordsDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.groupedAggregate(databaseId, body, req.user.id, req.membership);
   }
 
   @Post('batch')
@@ -141,12 +199,14 @@ export class RecordsController {
       databaseId,
       body.records.map((r) => r.values),
       req.user.id,
+      0,
+      { source: req.auth?.source ?? 'human' },
     );
     return { data: created };
   }
 
   @Patch('batch')
-  @ApiOperation({ summary: 'Apply one values patch to up to 200 records (partial failures reported)' })
+  @ApiOperation({ summary: 'Apply one values patch to up to 5000 records (partial failures reported)' })
   async batchUpdate(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
@@ -159,29 +219,97 @@ export class RecordsController {
       body.record_ids,
       body.values,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
+  @Post('batch-update-undo')
+  @ApiOperation({
+    summary: "#653 — undo a batch update using the `restorable` list its response reported",
+  })
+  async batchUpdateUndo(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BatchUpdateUndoDto,
+  ) {
+    await this.assertDb(req, databaseId, 'contributor');
+    return this.recordsService.undoBatchUpdate(
+      req.membership.workspaceId,
+      databaseId,
+      body.restorable,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
+  }
+
+  /**
+   * #694 — for a selection above batch/batch-delete's synchronous 5000-row
+   * cap. Runs as a durable, chunked, resumable job instead of one request;
+   * poll GET .../batch-jobs/:id for progress. The synchronous endpoints
+   * above are unaffected and remain the right choice under the cap.
+   */
+  @Post('batch-jobs')
+  @ApiOperation({ summary: '#694 — enqueue a durable bulk update/delete job (poll via GET .../batch-jobs/:id)' })
+  async enqueueBulkJob(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BulkRecordJobDto,
+  ) {
+    await this.assertDb(req, databaseId, body.op === 'delete' ? 'editor' : 'contributor');
+    return this.bulkJobs.enqueue(
+      req.membership.workspaceId,
+      databaseId,
+      body.op,
+      body.record_ids,
+      body.values,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
+  }
+
+  @Get('batch-jobs/:id')
+  @ApiOperation({ summary: "#694 — poll a bulk record job's status and progress" })
+  async getBulkJob(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.bulkJobs.get(req.membership.workspaceId, id);
+  }
+
   @Post('batch-delete')
-  @ApiOperation({ summary: 'Soft-delete up to 200 records' })
+  @ApiOperation({ summary: 'Soft-delete up to 5000 records' })
   async batchDelete(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: BatchRecordIdsDto,
   ) {
     await this.assertDb(req, databaseId, 'editor');
-    return this.recordsService.batchDelete(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
+    return this.recordsService.batchDelete(
+      req.membership.workspaceId,
+      databaseId,
+      body.record_ids,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
   }
 
   @Post('batch-restore')
-  @ApiOperation({ summary: 'Restore up to 200 records from trash' })
+  @ApiOperation({ summary: 'Restore up to 5000 records from trash' })
   async batchRestore(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: BatchRecordIdsDto,
   ) {
     await this.assertDb(req, databaseId, 'editor');
-    return this.recordsService.batchRestore(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
+    return this.recordsService.batchRestore(
+      req.membership.workspaceId,
+      databaseId,
+      body.record_ids,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
   }
 
   @Get('trash')
@@ -201,7 +329,7 @@ export class RecordsController {
     await this.assertDb(req, databaseId);
     const n = Number.parseInt(number, 10);
     if (!Number.isInteger(n)) throw new NotFoundException('Record not found');
-    return this.recordsService.getByNumber(databaseId, n);
+    return this.recordsService.getByNumber(databaseId, n, req.membership);
   }
 
   @Get(':rec')
@@ -211,8 +339,8 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId);
-    return this.recordsService.get(databaseId, recordId);
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
+    return this.recordsService.get(databaseId, recordId, req.membership);
   }
 
   @Patch(':rec')
@@ -223,7 +351,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: UpdateRecordDto,
   ) {
-    await this.assertDb(req, databaseId, 'contributor');
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'contributor');
     return this.recordsService.update(
       req.membership.workspaceId,
       databaseId,
@@ -249,6 +377,8 @@ export class RecordsController {
        * write was human would be a lie in the direction that matters.
        */
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 
@@ -259,12 +389,14 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'editor');
     return this.recordsService.softDelete(
       req.membership.workspaceId,
       databaseId,
       recordId,
       req.user.id,
+      0,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -281,6 +413,7 @@ export class RecordsController {
       databaseId,
       recordId,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -320,6 +453,7 @@ export class RecordsController {
       recordId,
       body,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -336,6 +470,7 @@ export class RecordsController {
       databaseId,
       recordId,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 }

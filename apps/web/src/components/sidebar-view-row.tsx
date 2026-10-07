@@ -6,7 +6,7 @@ import { SidebarRowMenu, type SidebarMenuAction } from '@/components/sidebar-row
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { GlyphSlot, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -42,7 +42,7 @@ export function SidebarViewRow({
   onRename,
   onDelete,
   canEdit,
-  depth = 2,
+  depth = 0,
 }: {
   ws: string;
   view: SidebarView;
@@ -53,7 +53,11 @@ export function SidebarViewRow({
   onRename?: (view: SidebarView) => void;
   onDelete?: (view: SidebarView) => void;
   canEdit: boolean;
-  /** #380 — 2 when nested under its database, 1 at the space root. */
+  /** #380/#742 — 0 at the space root or nested under its database (the
+   * database-expanded-views wrapper supplies that one step itself); 0 inside
+   * a folder too, for the same reason. There is only one real indent step
+   * left in the whole tree (SIDEBAR_INDENT_PX[1], a folder's own body), and
+   * it always comes from a WRAPPER, never stacked again on the row itself. */
   depth?: SidebarDepth;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
@@ -79,8 +83,10 @@ export function SidebarViewRow({
 
   const label = (
     <>
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
-      <span className="truncate">{view.name}</span>
+      <GlyphSlot>
+        <Icon className="h-3.5 w-3.5 text-muted" />
+      </GlyphSlot>
+      <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {view.personal && (
         // #291 — badge that it is private. Never say whose: the payload does
         // not carry an owner id, and this must not become the place it leaks.
@@ -132,11 +138,11 @@ export function SidebarViewRow({
       className={isDragging ? 'opacity-50' : undefined}
     >
       {href ? (
-        <Link href={href} className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Link href={href} className="flex min-w-0 flex-1 items-center gap-2">
           {label}
         </Link>
       ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">{label}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2">{label}</span>
       )}
 
       {/**

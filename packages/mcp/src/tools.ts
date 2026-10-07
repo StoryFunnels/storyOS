@@ -15,11 +15,29 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
+// #392 — a plain number mirrored from packages/schemas/src/query.ts's own
+// AUTOMATION_TOP_N_LIMIT_CEILING, not imported: importing a VALUE (rather
+// than a type) from the zod-bearing @storyos/schemas barrel inlines the whole
+// module graph into this bundle and breaks the MCP Docker image (see this
+// file's own note by the @storyos/schemas/colors import below).
+const AUTOMATION_TOP_N_LIMIT_CEILING = 200;
+// #542 — mirrors apps/api/src/records/records.service.ts's own
+// `PendingApprovalResult` (not imported: this package builds standalone from
+// its own openapi-fetch client, with no dependency on the api app's source
+// tree). softDelete/batchDelete return this union instead of throwing when a
+// workspace-declared gate holds the delete, and the REST layer passes it
+// through as a plain 200 body — a caller that doesn't check for this key
+// reports a held delete as a completed one.
+interface PendingApprovalResult {
+  pending_approval: true;
+  approval_id: string;
+  message: string;
+}
 // Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
-import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
 import {
@@ -201,10 +219,20 @@ interface RecordRow {
  * multi_select/user via mapFilterValues below.
  */
 export const OPS_BY_FIELD_TYPE = {
-  'text/url/email': ['eq', 'neq', 'contains', 'is_empty', 'not_empty'],
+  // #429 — `not_contains` added alongside the web filter panel's own
+  // "does not contain" op; kept in the same row rather than a separate one
+  // so this table and apps/web's OPS_BY_TYPE never have a reason to diverge.
+  'text/url/email': ['eq', 'neq', 'contains', 'not_contains', 'is_empty', 'not_empty'],
   'number/id': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'],
   date: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'],
   select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  // #558 — a workflow field is single-select-shaped (query-compiler.ts's own
+  // comment: "a workflow value is a single option id — filtered exactly like
+  // select"), so it shares select's exact op list rather than getting its own.
+  // Absence from THIS table (not from query-compiler.ts, which already
+  // supported it) was the whole defect: nothing told a caller workflow was
+  // filterable at all.
+  workflow: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   multi_select: ['has', 'has_none', 'is_empty', 'not_empty'],
   user: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   // #391 — presence only, matching query-compiler.ts, which refuses everything
@@ -213,6 +241,32 @@ export const OPS_BY_FIELD_TYPE = {
   relation: ['has', 'has_none', 'is_empty', 'not_empty'],
   checkbox: ['eq', 'neq'],
 } satisfies Record<string, FilterOp[]>;
+
+/**
+ * A stored field's `type` string → its OPS_BY_FIELD_TYPE key, so describe_database
+ * can attach a per-field `ops` array (#558) without a second, driftable copy of
+ * the matrix. Only field types query-compiler.ts filters on a FIXED op set are
+ * listed — formula/rollup are filterable but their ops depend on the field's own
+ * config (a number-typed formula takes number ops, a date-typed one takes date
+ * ops), so a static entry here would be wrong as often as right; omitting `ops`
+ * for them is honest, "not statically known" rather than a guess. rich_text,
+ * color, button and lookup have no filter case in query-compiler.ts at all — no
+ * entry here matches current server behaviour exactly.
+ */
+const FIELD_TYPE_TO_OPS_KEY: Partial<Record<string, keyof typeof OPS_BY_FIELD_TYPE>> = {
+  text: 'text/url/email',
+  url: 'text/url/email',
+  email: 'text/url/email',
+  number: 'number/id',
+  date: 'date',
+  select: 'select',
+  workflow: 'workflow',
+  multi_select: 'multi_select',
+  user: 'user',
+  attachment: 'attachment',
+  relation: 'relation',
+  checkbox: 'checkbox',
+};
 
 function opsRow(label: keyof typeof OPS_BY_FIELD_TYPE, hint?: string): string {
   const ops = OPS_BY_FIELD_TYPE[label];
@@ -231,6 +285,10 @@ export const FILTER_GUIDE = [
   opsRow('number/id', 'value = a number'),
   opsRow('date', 'value = ISO string, or a relative token for "within"'),
   opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none'),
+  // #558 — was missing entirely; the canonical status field on every database
+  // (e.g. "state") is workflow-typed, so this was the single most commonly
+  // needed row absent from the cheat sheet.
+  opsRow('workflow', 'the canonical status field; same ops and auto-mapping as select'),
   opsRow('multi_select', 'value = [labels or ids]'),
   opsRow('user', 'value = "@me" or user id(s); eq/neq auto-map to has/has_none'),
   // #391 — presence only. Nobody filters on a file uuid; "posts with no cover"
@@ -242,7 +300,11 @@ export const FILTER_GUIDE = [
   'next_7_days, this_month, next_30_days.',
   'System fields — every database has these built-in columns, filterable AND sortable',
   'by these api_names (read-only, never in create/update values):',
-  ...SYSTEM_FIELDS.map(
+  // #770 — a deprecated entry (e.g. `number`, superseded by `id`) still
+  // resolves for a stored filter/sort that already references it, but is
+  // never newly offered here — same hide-not-relabel treatment #743 shipped
+  // for the web picker.
+  ...SYSTEM_FIELDS.filter((f) => !f.deprecated).map(
     (f) => `  ${f.api_name.padEnd(14)} : ${f.filter_ops.join(', ')}${f.sortable ? '  (sortable)' : ''}`,
   ),
   '  number/id are the record\'s sequential public number; created_by/updated_by take a',
@@ -272,9 +334,24 @@ function describeFields(db: DatabaseDetail) {
           ...(o.icon ? { icon: o.icon } : {}),
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
+      /*
+       * #558 — system fields already carried `ops` (below); a user-defined
+       * field never did, so the schema advertised the OPTIONS you'd filter
+       * select/workflow by without ever saying whether you could. Omitted
+       * (not `ops: []`) for a type FIELD_TYPE_TO_OPS_KEY doesn't cover —
+       * `[]` would falsely read as "filterable, but nothing works"; omission
+       * honestly means "not statically known" (formula/rollup: depends on the
+       * field's own config) or "not filterable" (rich_text/color/button/lookup
+       * have no case in query-compiler.ts at all).
+       */
+      const opsKey = FIELD_TYPE_TO_OPS_KEY[f.type];
+      if (opsKey) out.ops = OPS_BY_FIELD_TYPE[opsKey];
       return out;
     });
-  const system = SYSTEM_FIELDS.map((f) => ({
+  // #770 — same omission as the get_started cheat sheet above: a deprecated
+  // entry is never newly enumerated, though it still resolves if a stored
+  // filter/sort already references it.
+  const system = SYSTEM_FIELDS.filter((f) => !f.deprecated).map((f) => ({
     api_name: f.api_name,
     name: f.display_name,
     type: f.type,
@@ -456,6 +533,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // read
   get_started: 'read',
   list_workspaces: 'read',
+  get_workspace: 'read',
   list_databases: 'read',
   describe_database: 'read',
   search: 'read',
@@ -474,6 +552,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_trash: 'read',
   list_records: 'read',
   list_comments: 'read',
+  // #240 — DatabaseActivityController has no @RequiresScope, so GET defaults
+  // to 'read' (token-scope.guard.ts), matching list_comments.
+  list_database_comments: 'read',
+  // #674 — ActivityController's hierarchy route has no @RequiresScope either
+  // (same GET-defaults-to-read rule), matching list_database_comments.
+  list_hierarchy_activity: 'read',
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
@@ -494,10 +578,20 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_document: 'write',
   update_document: 'write',
   delete_document: 'write',
+  // #293 — same 'write' ceiling as the rest of this row; the controller has
+  // no scope override on either route, so it defaults the same way.
+  move_document_to_space: 'write',
+  copy_document_to_personal_space: 'write',
   list_folders: 'admin',
   create_folder: 'admin',
   update_folder: 'admin',
   delete_folder: 'admin',
+  // #742 finding 04 — same ceiling as folders above; presentational-only,
+  // no access semantics (Otto's 2026-09-24 ruling).
+  list_space_groups: 'admin',
+  create_space_group: 'admin',
+  update_space_group: 'admin',
+  delete_space_group: 'admin',
   // #394 — the pack gallery is public/read-only; installing one is admin.
   list_packs: 'read',
   /*
@@ -550,6 +644,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
   // an agent can queue work for a human to decide but never decide for one.
   list_approvals: 'read',
+  // #542 Phase 2 — read-only by design, and deliberately not write-capable
+  // even at admin scope: an agent that could create/disable the very gate
+  // meant to constrain agents would defeat the ticket's own point ("the
+  // platform stops the agent, not the prompt"). Declaring/changing a gate
+  // is a human act, same line #441 draws for grants — see coverage.ts.
+  list_action_gates: 'read',
   /*
    * #439 — the inbox. Reads are `read`. Marking read/archived is a `write`
    * because it changes what a PERSON will see next time they look, even though
@@ -566,10 +666,22 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    */
   get_view: 'read',
   list_space_views: 'read',
+  list_personal_views: 'read',
   get_personal_filter: 'read',
   set_personal_filter: 'write',
+  get_personal_collection_filter: 'read',
+  set_personal_collection_filter: 'write',
   duplicate_view: 'admin',
   set_default_view: 'admin',
+  // #293 — publish_view turns a personal view into a shared one, so it sits at
+  // the same 'admin' ceiling as create_view/update_view/delete_view (the
+  // controller has no scope override on that route either). copy_view_to_
+  // personal_space is the inverse fork and mirrors create_personal_view's own
+  // 'write' — it writes only the caller's own private content.
+  publish_view: 'admin',
+  copy_view_to_personal_space: 'write',
+  share_view: 'admin',
+  unshare_view: 'admin',
   create_space_view: 'admin',
   update_space_view: 'admin',
   delete_space_view: 'admin',
@@ -590,7 +702,16 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    */
   list_members: 'read',
   list_grants: 'admin',
+  list_audit_log: 'admin',
   list_invites: 'admin',
+  // #534 — a recipient's token is a standing credential to workspace content,
+  // same trust tier as a grant/invite (all three: 'admin').
+  list_portal_recipients: 'admin',
+  create_portal_recipient: 'admin',
+  revoke_portal_recipient: 'admin',
+  rotate_portal_recipient: 'admin',
+  // #537 — same tier as list_audit_log: a workspace-wide activity read, admin-only.
+  list_portal_activity: 'admin',
   get_my_work: 'read',
   set_favorite: 'write',
   list_notifications: 'read',
@@ -611,6 +732,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
   get_staged_action: 'read',
@@ -634,6 +756,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * mutation is `write` (the controller additionally requires `creator` on the
    * database, which the API enforces and this cannot loosen).
    */
+  // #491/#507 — both mirror ConnectionsController's own @RequiresScope('read')
+  // for their routes. The write half (connect/disconnect/test/resume/oauth
+  // start) stays unreachable at any scope; see coverage.ts.
+  list_connections: 'read',
+  list_connection_providers: 'read',
   list_sources: 'read',
   list_source_providers: 'read',
   list_source_runs: 'read',
@@ -665,8 +792,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_automation: 'admin',
   update_automation: 'admin',
   delete_automation: 'admin',
+  test_automation: 'admin',
+  get_automation_last_payload: 'admin',
   // write (record + content mutations)
   create_record: 'write',
+  upsert_record: 'write',
   update_record: 'write',
   update_record_description: 'write',
   delete_record: 'write',
@@ -676,10 +806,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
   delete_comment: 'write',
   restore_version: 'write',
+  restore_document_version: 'write',
   watch_record: 'write',
   attach_file: 'write',
   delete_attachment: 'write',
@@ -689,18 +821,33 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_database: 'admin',
   update_database: 'admin',
   delete_database: 'admin',
+  duplicate_database: 'admin',
+  // #37 — same ceiling as delete_database/delete_space/delete_view: restoring
+  // a structural deletion is exactly as sensitive as making it.
+  list_databases_trash: 'admin',
+  restore_database: 'admin',
   add_field: 'admin',
   update_field: 'admin',
+  get_field_usage: 'read',
   delete_field: 'admin',
   change_field_type: 'admin',
   reorder_fields: 'admin',
   create_view: 'admin',
   update_view: 'admin',
   delete_view: 'admin',
+  // #37
+  list_views_trash: 'admin',
+  restore_view: 'admin',
   reorder_views: 'admin',
   create_relation: 'admin',
   delete_relation: 'admin',
   create_space: 'admin',
+  // #520 — both write only for the calling identity and are invisible to
+  // everyone else (personal-space.md §1), the same reasoning set_personal_filter
+  // and watch_record already get — a `write`, not an admin act, even though
+  // create_view/create_space (their SHARED counterparts) are admin.
+  get_or_create_personal_space: 'write',
+  create_personal_view: 'write',
   // #400/#397 — both PATCH endpoints already existed and neither had a tool, so
   // a description was settable over HTTP and not over MCP. Same admin ceiling as
   // their controllers (`@MinRole('admin')` on the workspace, `@RequiresScope('admin')`
@@ -709,6 +856,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // #416 — admin, and destructive: the API refuses it without the typed name
   // whenever the space still holds databases (#417).
   delete_space: 'admin',
+  // #37
+  list_spaces_trash: 'admin',
+  restore_space: 'admin',
   update_workspace: 'admin',
   // #394 — schema building. Same admin ceiling as create_database, and the
   // ArchitectController is admin-gated for the same reason: building a workflow
@@ -720,6 +870,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // count is not what decides the privilege.
   create_records: 'write',
   update_records: 'write',
+  undo_batch_update: 'write',
+  enqueue_bulk_record_job: 'write',
 };
 
 /** Tools gated by run_button on top of write scope (MN-134). */
@@ -765,8 +917,35 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     // rejectUnknownArgs is: no tool gets to be the strict one, and a client that
     // stringifies arguments works uniformly instead of on whichever tools
     // happened to declare only strings.
-    const coerced = { ...config, inputSchema: coerceInputSchema(config.inputSchema) };
-    server.registerTool(name as string, coerced as never, rejectUnknownArgs(name, coerced, handler) as never);
+    const shape = coerceInputSchema(config.inputSchema) as Record<string, unknown>;
+    // rejectUnknownArgs needs the RAW SHAPE to know which keys are valid, so it
+    // is wrapped against `shape`, never against `sdkInputSchema` below.
+    const wrapped = rejectUnknownArgs(name, { ...config, inputSchema: shape }, handler);
+    /*
+     * #450 — this cast to a ZodObject().catchall(z.unknown()) is the actual fix,
+     * not decoration.
+     *
+     * McpServer.validateToolInput() parses the RAW client arguments against
+     * this schema BEFORE our handler (and rejectUnknownArgs, which wraps it) is
+     * ever invoked. Handed a plain shape — `{ workspace: z.string(), ... }` —
+     * the SDK builds its own `z.object(shape)` with Zod's DEFAULT behaviour:
+     * strip unknown keys. So `create_relation({ field_a_name: 'Next', ... })`
+     * had `field_a_name` deleted before rejectUnknownArgs's `given` object ever
+     * contained it — the exact silent-discard #374 exists to stop, just moved
+     * one layer up to where that defense could not see it. Confirmed against
+     * the real transport (Client+Server over InMemoryTransport, not the direct
+     * -handler-call stub every existing test used): an unknown top-level key
+     * on ANY tool was swallowed this way, not only create_relation's.
+     *
+     * `.catchall(z.unknown())` tells the SDK's parse to keep an unrecognized
+     * key in its output instead of stripping it, so it reaches rejectUnknownArgs
+     * intact and gets our existing, specific error message (names the bad key
+     * AND every valid one) instead of Zod's own terse "Unrecognized key" dump —
+     * or, before this fix, instead of silent success.
+     */
+    const keys = Object.keys(shape);
+    const sdkInputSchema = keys.length ? z.object(shape as z.ZodRawShape).catchall(z.unknown()) : shape;
+    server.registerTool(name as string, { ...config, inputSchema: sdkInputSchema } as never, wrapped as never);
   };
   reg(
     'get_started',
@@ -810,6 +989,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // #297: these all shipped and worked, but nothing an agent reads mentioned
         // them — so in practice they did not exist.
         'A record_linked trigger takes direction:"link"|"unlink" (omit = both). EVERY action takes an optional `condition` — a non-match skips just that action. ' +
+        '#230: a create_record action can take `upsert: { key_field_id, on_match: "update"|"skip" }` (key_field_id must be a field on the target database marked unique) so a re-triggered rule matches an existing record on that key instead of duplicating it — "update" (default) refreshes it with the new values, "skip" leaves it untouched. ' +
         'Template tokens: {Field Name} · {linked.Field Name} (the just-linked record) · {changesSummary} → "State: Urgent → Done" · {index} inside create_records. ' +
         'list_automations / get_automation read them back with names AND ids; update_automation enables/disables or edits (it replaces a trigger WHOLE — read first, pass back what you keep); delete_automation needs confirm=true; get_runs shows why a rule did or didn\'t fire.',
         '',
@@ -850,6 +1030,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => text(await listWorkspaces(client))),
+  );
+
+  reg(
+    'get_workspace',
+    {
+      title: 'Get workspace',
+      description: 'One workspace, addressed directly by name/slug/id — its full metadata, including settings.',
+      inputSchema: { workspace: z.string().describe('Workspace name, slug, or id (from list_workspaces).') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
   );
 
   reg(
@@ -973,8 +1169,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Count records in a database, or total/average a numeric field — computed in the database, ' +
         'returning one number. USE THIS FOR ANY "how many" QUESTION rather than fetching records and ' +
         'counting them: query_records is paginated, so counting its results gives you the size of one ' +
-        'page, not the total. Takes the same filter AST as query_records, so "how many are still open" ' +
-        'is one call.',
+        'page, not the total. Takes the same filter AST as query_records — select/workflow/user labels ' +
+        '("Done", not an option id) resolve the same way too — so "how many are still open" is one call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -991,15 +1187,98 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       async ({ workspace, database, op, field, filter, q }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
+        /*
+         * #558 — query_records resolves select/workflow/user filter LABELS to
+         * option ids via mapFilterValues before sending; count_records sent
+         * `filter` straight through, so `{field:"state", op:"eq", value:"Done"}`
+         * — the exact shape get_started's cheat sheet tells a caller to use —
+         * reached the API as a literal label and 422'd with "unknown option id
+         * \"Done\"". Not workflow-specific: the same call failed identically for
+         * a plain `select` field. Fetching the schema costs one extra call only
+         * when a filter is actually present.
+         */
+        const detail = filter !== undefined ? await getDetail(ws.id, db.id) : undefined;
         const res = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { op: op ?? 'count', field, filter, q } as never,
+            body: { op: op ?? 'count', field, filter: detail ? mapFilterValues(detail, filter) : filter, q } as never,
           }),
         );
         return text(res);
       },
     ),
+  );
+
+  /**
+   * #750 — the per-column sibling of count_records, for the exact "how many
+   * of each" shape count_records cannot answer without one call per value:
+   * asking for a database's Bug/Feature/Chore totals one column at a time
+   * hits the same page-one-undercount problem #404 already fixed for a
+   * single total, just per group — a board grouping a paginated fetch
+   * client-side undercounts every column that didn't fit on the page it saw.
+   */
+  reg(
+    'count_records_grouped',
+    {
+      title: 'Count records, grouped',
+      description:
+        'Count records (or total/average/min/max a numeric field) PER GROUP of another field, in one call — ' +
+        'computed in the database. USE THIS for "how many of each type", "totals by status", or any board/' +
+        'dashboard column count, rather than calling count_records once per value or grouping query_records ' +
+        'results yourself (query_records is paginated, so a client-side group-by undercounts every value that ' +
+        "didn't fit on the page it saw). group_by can be: select, workflow, multi_select, checkbox, a " +
+        'single-person user field, a date field (with group_by_granularity), a number field with configured ' +
+        'bins, the single side of a one-to-many relation, text, or lookup. TWO THINGS THAT DIFFER FROM A ' +
+        'BOARD COLUMN: a multi_select counts a record in EVERY one of its options, so the group counts can ' +
+        'add up to MORE than the number of records (a record with no option is in the `null` group); and a ' +
+        'checkbox has keys "true" and "false", with a record that never had it set in `null`. Group keys are ' +
+        'raw (an option id, not its label). Same filter AST and label resolution as count_records/query_records.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Database name, api slug, or id.'),
+        group_by: z.string().describe('Field api_name to group by — see the type list above.'),
+        group_by_granularity: z
+          .enum(['week', 'month', 'quarter', 'year'])
+          .optional()
+          .describe('Required when group_by is a date field; ignored otherwise. Each group\'s key is that bucket\'s start date.'),
+        op: z
+          .enum(['count', 'sum', 'avg', 'min', 'max'])
+          .optional()
+          .describe('Default "count". The others need `field` and aggregate its numeric values within each group.'),
+        field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
+        filter: z.any().optional().describe('Same filter AST as query_records — see get_started.'),
+        q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      group_by: string;
+      group_by_granularity?: string;
+      op?: string;
+      field?: string;
+      filter?: unknown;
+      q?: string;
+    }>(async ({ workspace, database, group_by, group_by_granularity, op, field, filter, q }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      // #558's own fix applies identically here — see count_records above.
+      const detail = filter !== undefined ? await getDetail(ws.id, db.id) : undefined;
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: {
+            op: op ?? 'count',
+            field,
+            group_by,
+            group_by_granularity,
+            filter: detail ? mapFilterValues(detail, filter) : filter,
+            q,
+          } as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(
@@ -1329,6 +1608,45 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'upsert_record',
+    {
+      title: 'Upsert record',
+      description:
+        '#230: match-or-create on a unique key. key_field must be a field marked unique via update_field/add_field\'s unique config (#229). ' +
+        'values must include key_field — that value is the match. A matching record is updated (merge, same as update_record); ' +
+        'no match creates a new record. Returns { record, created }, so a caller can tell which branch it took.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        key_field: z.string().describe('api_name of the unique field to match on.'),
+        values: z
+          .record(z.string(), z.any())
+          .describe('Field values by api_name; must include key_field. Relation fields work the same as create_record.'),
+      },
+    },
+    handle<{ workspace: string; database: string; key_field: string; values: Record<string, unknown> }>(
+      async ({ workspace, database, key_field, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const result = await unwrap<{ record: RecordRow; created: boolean }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/upsert', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: {
+              key_field,
+              values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>),
+            } as never,
+          }),
+        );
+        // Read back rather than echoing the write response, same reasoning as
+        // create_record — relation chips only show up on a fresh read.
+        const record = await readRecord(detail, ws.id, db.id, result.record.id);
+        return text({ record, created: result.created });
+      },
+    ),
+  );
+
+  reg(
     'update_record',
     {
       title: 'Update record',
@@ -1451,9 +1769,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const rec = await resolveRecordId(ws.id, db.id, record);
-      await unwrap(
+      const res = await unwrap<{ deleted: true } | PendingApprovalResult>(
         client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
       );
+      // #542 — a workspace-declared gate can hold this delete instead of
+      // performing it (the REST call still answers 200, since "held for
+      // approval" is not an error). Reporting `deleted` unconditionally here
+      // told an MCP-driven agent the delete succeeded when it hadn't —
+      // flagged by Vera on #542; matches how AgentsService.applyProposedAction
+      // already reports the same union honestly.
+      if ('pending_approval' in res) {
+        return text({ deleted: false, pending_approval: true, approval_id: res.approval_id, message: res.message });
+      }
       return text({ deleted: rec });
     }),
   );
@@ -1636,12 +1963,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const ids = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
-      const res = await unwrap<{ deleted: number }>(
+      const raw = await unwrap<{ deleted: number; record_ids: string[] } | PendingApprovalResult>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete', {
           params: { path: { ws: ws.id, db: db.id } },
           body: { record_ids: ids } as never,
         }),
       );
+      // #542 — a workspace-declared gate holds the WHOLE selection rather than
+      // deleting any of it (see records.service.ts's own doc comment on why
+      // that's gated once over the whole batch, not per-chunk). Reporting
+      // `deleted` unconditionally here told an MCP-driven agent the batch
+      // succeeded when nothing was applied — flagged by Vera on #542.
+      if ('pending_approval' in raw) {
+        return text({ deleted: 0, requested: ids.length, pending_approval: true, approval_id: raw.approval_id, message: raw.message });
+      }
+      const res = raw;
       // The API only trashes rows that were live, so `deleted` can be lower than
       // what was asked for — reported rather than smoothed over, because a silent
       // shortfall reads as success (#343's lesson applied to a batch).
@@ -1703,6 +2039,50 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       const detail = await getDetail(ws.id, db.id);
       return text({ duplicated_from: rec, record: await readRecord(detail, ws.id, db.id, created.id) });
+    }),
+  );
+
+  reg(
+    'copy_records',
+    {
+      title: 'Copy records to another database',
+      description:
+        '#521 — copy one or more records into a DIFFERENT database (unlike duplicate_record, which copies within the same one). Fields are auto-matched by name; a field that carries a value and has no match in the destination BLOCKS the copy rather than silently dropping it — call with dry_run:true (the default) first to see the field mapping and any blocking fields, resolve each with `skip` (drop it) or `override` (send it to a SPECIFIC destination field instead of the auto-match, or resolve an ambiguous relation by naming which candidate from that field\'s own `ambiguousWith` to use), then call again with dry_run:false to actually create the records. An override naming an invalid or wrong-type destination reports blocking too, not a silent fallback.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Source database.'),
+        records: z.array(z.string()).min(1).describe('Record uuids or public numbers to copy.'),
+        target_database: z.string().describe('Destination database.'),
+        skip: z.array(z.string()).optional().describe('Source field api_names to skip explicitly — resolves a blocking field.'),
+        override: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            'Source field api_name -> destination field id (from a dry_run plan\'s own field ids, or an ambiguousWith candidate\'s field_id). Wins over auto-match and resolves an ambiguous relation by naming the exact one to use.',
+          ),
+        dry_run: z.boolean().optional().describe('Default true: preview the mapping and any blocking fields without writing anything.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      records: string[];
+      target_database: string;
+      skip?: string[];
+      override?: Record<string, string>;
+      dry_run?: boolean;
+    }>(async ({ workspace, database, records, target_database, skip, override, dry_run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const targetDb = await resolveDatabase(client, ws.id, target_database);
+      const recordIds = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
+      const result = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/copy', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: { record_ids: recordIds, target_database_id: targetDb.id, skip, override, dry_run: dry_run ?? true } as never,
+        }),
+      );
+      return text(result);
     }),
   );
 
@@ -1819,7 +2199,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List comments',
       description:
-        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author and timestamps.',
+        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author, timestamps, and #734\'s real `source` (human/agent/automation/mcp, plus agent_id/agent_name when source is "agent") — read this instead of hand-typing your own name into a comment body to establish provenance; null means the comment predates this field.',
       inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
     },
     handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
@@ -1827,7 +2207,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const db = await resolveDatabase(client, ws.id, database);
       const rec = await resolveRecordId(ws.id, db.id, record);
       const res = await unwrap<{
-        data: Array<{ id: string; body: unknown; author: { id: string; name: string }; edited_at: string | null; created_at: string }>;
+        data: Array<{
+          id: string;
+          body: unknown;
+          author: { id: string; name: string };
+          source: string | null;
+          agent_id: string | null;
+          agent_name: string | null;
+          edited_at: string | null;
+          created_at: string;
+        }>;
       }>(client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments', { params: { path: { ws: ws.id, db: db.id, rec } } }));
       return text({
         record: rec,
@@ -1836,9 +2225,161 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           text: commentToText(c.body),
           author: c.author.name,
           author_id: c.author.id,
+          source: c.source,
+          agent_id: c.agent_id,
+          agent_name: c.agent_name,
           created_at: c.created_at,
           edited_at: c.edited_at,
         })),
+      });
+    }),
+  );
+
+  /*
+   * #240 phase 1 — the cross-record half of comments. list_comments answers
+   * "what was said on THIS record"; nothing answered "what's been said lately
+   * ACROSS this database" — the exact gap the ticket names ("a feed of
+   * comments on the Task database as a quick overview of recent work").
+   *
+   * #670 — @mentions/references are now included too (`reference.created`
+   * entries alongside `comment.created`), each with the same real source
+   * attribution. Discriminated by `type` in the response, since a reference
+   * entry has no comment body — a `#record` mention, not a written comment.
+   */
+  /** Shared response shape for both #240/#670's per-database feed and #674's
+   *  per-hierarchy feed — same underlying activity_events rows either way. */
+  interface ActivityFeedRow {
+    id: string;
+    type: 'comment.created' | 'reference.created';
+    record: { id: string; title: string; number: number | null } | null;
+    comment?: { id: string; body: unknown };
+    reference?: { target_record: { id: string; title: string; number: number | null } | null };
+    actor: { id: string; name: string } | null;
+    created_at: string;
+    source: string | null;
+  }
+  const mapActivityEntry = (e: ActivityFeedRow) =>
+    e.type === 'reference.created'
+      ? {
+          type: 'reference' as const,
+          record: e.record,
+          references: e.reference!.target_record,
+          author: e.actor?.name ?? null,
+          author_id: e.actor?.id ?? null,
+          source: e.source,
+          created_at: e.created_at,
+        }
+      : {
+          type: 'comment' as const,
+          id: e.comment!.id,
+          text: commentToText(e.comment!.body),
+          record: e.record,
+          author: e.actor?.name ?? null,
+          author_id: e.actor?.id ?? null,
+          source: e.source,
+          created_at: e.created_at,
+        };
+
+  reg(
+    'list_database_comments',
+    {
+      title: 'List database comments',
+      description:
+        'Every comment AND #record reference across every record in a database, newest first — a quick "what happened recently" overview, without visiting each record. Different from list_comments, which reads ONE record\'s thread; this is the cross-record feed. ' +
+        'Each entry names which record it is on, so you can jump to it, and (for a reference entry) which record it now links to. Every entry\'s `source` says who/what wrote it (human/agent/automation/mcp/null-if-not-recorded) — never assume an entry is human-written.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max entries (default 50).'),
+        cursor: z.string().optional().describe('next_cursor from a prior call.'),
+      },
+    },
+    handle<{ workspace: string; database: string; limit?: number; cursor?: string }>(
+      async ({ workspace, database, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ data: ActivityFeedRow[]; next_cursor: string | null; has_more: boolean }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/activity/comments', {
+            params: { path: { ws: ws.id, db: db.id }, query: { limit, cursor } },
+          } as never),
+        );
+        return text({
+          entries: res.data.map(mapActivityEntry),
+          next_cursor: res.next_cursor,
+          has_more: res.has_more,
+        });
+      },
+    ),
+  );
+
+  /*
+   * #674 — the hierarchy half #670 split off. list_database_comments answers
+   * "what's happened in this ONE database"; this walks DOWN a caller-named
+   * chain of relation fields (Epic's own "Stories" field, then Story's own
+   * "Tasks" field, ...) and unions the same comment+reference feed across
+   * every record reached — the tree can span several databases, which is
+   * exactly what a single database-scoped feed cannot answer.
+   */
+  reg(
+    'list_hierarchy_activity',
+    {
+      title: 'List hierarchy activity',
+      description:
+        'Comments AND #record references across a whole relation TREE rooted at one record — e.g. every comment/reference on an Epic AND its Stories AND their Tasks, not just the Epic itself. Walks DOWN a chain of relation fields, one per level, since each level is a DIFFERENT field on a DIFFERENT database (Epic\'s "Stories" field, then Story\'s "Tasks" field). ' +
+        'Permission-checked: a record you cannot see is excluded from the walk entirely, and the whole call 404s if the ROOT record itself is not visible to you.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('The ROOT record\'s database — name, api slug, or id.'),
+        record: z.string().describe('The ROOT record — number or id.'),
+        relation_fields: z
+          .array(
+            z.object({
+              database: z
+                .string()
+                .describe('The database THIS level\'s relation field lives on (the previous level\'s target database; for level 1, the root\'s own database).'),
+              field: z.string().describe('Relation field name, api_name, or id on that database.'),
+            }),
+          )
+          .min(1)
+          .max(5)
+          .describe(
+            'One entry per level, e.g. [{database: "Epics", field: "Stories"}, {database: "Stories", field: "Tasks"}] to walk Epic → Story → Task.',
+          ),
+        limit: z.number().int().min(1).max(100).optional().describe('Max entries (default 50).'),
+        cursor: z.string().optional().describe('next_cursor from a prior call.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      record: string;
+      relation_fields: Array<{ database: string; field: string }>;
+      limit?: number;
+      cursor?: string;
+    }>(async ({ workspace, database, record, relation_fields, limit, cursor }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const recordId = await resolveRecordId(ws.id, db.id, record);
+
+      const fieldIds: string[] = [];
+      for (const level of relation_fields) {
+        const levelDb = await resolveDatabase(client, ws.id, level.database);
+        const detail = await getDetail(ws.id, levelDb.id);
+        fieldIds.push(resolveFieldId(detail, level.field, ['relation'], 'relation'));
+      }
+
+      const res = await unwrap<{ data: ActivityFeedRow[]; next_cursor: string | null; has_more: boolean }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy', {
+          params: {
+            path: { ws: ws.id, db: db.id, rec: recordId },
+            query: { relation_field_ids: fieldIds.join(','), limit, cursor },
+          },
+        } as never),
+      );
+      return text({
+        entries: res.data.map(mapActivityEntry),
+        next_cursor: res.next_cursor,
+        has_more: res.has_more,
       });
     }),
   );
@@ -1906,17 +2447,24 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get record history',
       description:
-        'What happened to this record, newest first, through one of three lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. Three lenses on one question, so pick by what you are answering rather than calling all three.',
+        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         record: z.string().describe('Record uuid or public number.'),
-        kind: z.enum(['fields', 'versions', 'activity']).optional().describe('Default "fields".'),
+        kind: z.enum(['fields', 'versions', 'activity', 'document_versions']).optional().describe('Default "fields".'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 20.'),
         cursor: z.string().optional().describe('next_cursor from a previous call.'),
       },
     },
-    handle<{ workspace: string; database: string; record: string; kind?: 'fields' | 'versions' | 'activity'; limit?: number; cursor?: string }>(
+    handle<{
+      workspace: string;
+      database: string;
+      record: string;
+      kind?: 'fields' | 'versions' | 'activity' | 'document_versions';
+      limit?: number;
+      cursor?: string;
+    }>(
       async ({ workspace, database, record, kind, limit, cursor }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
@@ -1933,11 +2481,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
               ? await unwrap<unknown>(
                   client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity', { params: { path, query } as never }),
                 )
-              : await unwrap<unknown>(
-                  client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes', {
-                    params: { path, query } as never,
-                  }),
-                );
+              : which === 'document_versions'
+                ? await unwrap<unknown>(
+                    client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions', {
+                      params: { path, query } as never,
+                    }),
+                  )
+                : await unwrap<unknown>(
+                    client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes', {
+                      params: { path, query } as never,
+                    }),
+                  );
         const body = res as { data?: unknown; next_cursor?: string | null };
         return text({ record: rec, kind: which, entries: body.data ?? [], next_cursor: body.next_cursor ?? null });
       },
@@ -1974,23 +2528,60 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'restore_document_version',
+    {
+      title: 'Restore document version',
+      description:
+        '#677 — roll a record\'s DESCRIPTION document back to a previously captured version. Get the version id from get_history with kind:"document_versions". Separate from restore_version, which only ever touches field values, never the description. This OVERWRITES the current document content with the old content and is itself recorded as a new version, so it is undoable too.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        version: z.string().describe('Version id from get_history kind:"document_versions".'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; version: string }>(
+      async ({ workspace, database, record, version }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<{ content?: unknown; version?: number }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document/versions/{version}/restore', {
+            params: { path: { ws: ws.id, db: db.id, rec, version } } as never,
+          }),
+        );
+        return text({ restored_version: version, document_version: res.version ?? null });
+      },
+    ),
+  );
+
+  reg(
     'list_backlinks',
     {
       title: 'List backlinks',
       description:
-        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about.',
-      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about. #512: paged like query_records — total is the true count (not just this page), pass next_cursor back to get the rest.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        limit: z.number().int().min(1).max(200).optional().describe('Default 100.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
     },
-    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
-      const ws = await resolveWorkspace(client, workspace);
-      const db = await resolveDatabase(client, ws.id, database);
-      const rec = await resolveRecordId(ws.id, db.id, record);
-      const res = await unwrap<unknown>(
-        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks', { params: { path: { ws: ws.id, db: db.id, rec } } }),
-      );
-      const body = res as { data?: unknown };
-      return text({ record: rec, mentioned_in: body.data ?? res });
-    }),
+    handle<{ workspace: string; database: string; record: string; limit?: number; cursor?: string }>(
+      async ({ workspace, database, record, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<{ data: unknown[]; total: number; has_more: boolean; next_cursor: string | null }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks', {
+            params: { path: { ws: ws.id, db: db.id, rec }, query: { limit, cursor } as never },
+          }),
+        );
+        return text({ record: rec, mentioned_in: res.data, total: res.total, has_more: res.has_more, next_cursor: res.next_cursor });
+      },
+    ),
   );
 
   reg(
@@ -2440,7 +3031,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update records (batch)',
       description:
-        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call.',
+        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call. The response\'s `restorable` list (one {record_id, version_id} pair per record actually changed) can be passed straight to undo_batch_update to revert the whole call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2462,6 +3053,97 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res);
       },
     ),
+  );
+
+  reg(
+    'undo_batch_update',
+    {
+      title: 'Undo a batch update (#653)',
+      description:
+        "Revert a prior update_records call using the `restorable` list from ITS response — pass that array back verbatim. Restores each record to its exact pre-edit snapshot; a record edited again since the batch runs restores to the WRONG point in time only if you reuse a stale restorable list, so use the one from the call you actually want to undo.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        restorable: z
+          .array(z.object({ record_id: z.string(), version_id: z.string() }))
+          .min(1)
+          .max(5000)
+          .describe('The `restorable` array from a prior update_records response.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      restorable: Array<{ record_id: string; version_id: string }>;
+    }>(async ({ workspace, database, restorable }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-update-undo', {
+          params: { path: { ws: ws.id, db: db.id } } as never,
+          body: { restorable } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'enqueue_bulk_record_job',
+    {
+      title: 'Enqueue a durable bulk record job (#694)',
+      description:
+        'For a selection bigger than update_records/delete_records can take in one call (over 5000 ids): runs as a durable, chunked, resumable background job instead of one request. Returns immediately with a job id — poll get_bulk_record_job with it to see progress. Prefer update_records/delete_records for anything under 5000 ids; they answer in one call.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        op: z.enum(['update', 'delete']),
+        record_ids: z.array(z.string()).min(1).max(50_000),
+        values: z.record(z.string(), z.any()).optional().describe('Required when op is "update"; omit for "delete".'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      op: 'update' | 'delete';
+      record_ids: string[];
+      values?: Record<string, unknown>;
+    }>(async ({ workspace, database, op, record_ids, values }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs', {
+          params: { path: { ws: ws.id, db: db.id } } as never,
+          body: { op, record_ids, values: values ? mapWriteValues(detail, values) : undefined } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_bulk_record_job',
+    {
+      title: 'Poll a bulk record job (#694)',
+      description:
+        'Status and progress for a job from enqueue_bulk_record_job — total/processed/succeeded, any per-record failures, and (for an update job) the restorable list for undo_batch_update once it settles.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        job_id: z.string(),
+      },
+    },
+    handle<{ workspace: string; database: string; job_id: string }>(async ({ workspace, database, job_id }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}', {
+          params: { path: { ws: ws.id, db: db.id, id: job_id } } as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(
@@ -2522,6 +3204,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   const FIELD_TYPES = [
     'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow',
     'url', 'email', 'color', 'user', 'attachment', 'lookup', 'rollup', 'button', 'formula',
+    // #571 — a field computed by an LLM call. Config: {prompt, output}, where
+    // output is {kind:'text'} or {kind:'choice', options:[...]}.
+    'ai',
   ] as const;
   /**
    * #216 — an option may carry a curated `icon` ref (`set:<name>` / `brand:<slug>`),
@@ -2548,7 +3233,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
-        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) Returns the field.',
+        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) ' +
+        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2587,6 +3273,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         database: z.string(),
         field: z.string().describe('Field to update (name, api_name, or id).'),
         rename_to: z.string().optional(),
+        unique: z
+          .boolean()
+          .optional()
+          .describe(
+            '#229 — mark a text/number field Unique (rejects a duplicate value on create/edit) or turn it off. ' +
+              'Turning it on scans existing records first and refuses (naming the conflicting ones) instead of silently enabling.',
+          ),
+        unique_normalize: z
+          .boolean()
+          .optional()
+          .describe('With `unique: true` — fold case and trim whitespace before comparing (default true).'),
         add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
         /*
          * #398 — the gap that pushed a careful agent toward a DESTRUCTIVE path.
@@ -2627,11 +3324,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       database: string;
       field: string;
       rename_to?: string;
+      unique?: boolean;
+      unique_normalize?: boolean;
       add_options?: Array<string | { label: string; color?: string; icon?: string }>;
       update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null }>;
       remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
     }>(
-      async ({ workspace, database, field, rename_to, add_options, update_options, remove_options }) => {
+      async ({ workspace, database, field, rename_to, unique, unique_normalize, add_options, update_options, remove_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -2664,6 +3363,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
               params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
               body: { display_name: rename_to } as never,
+            }),
+          );
+        }
+        if (unique !== undefined) {
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: {
+                config: {
+                  unique,
+                  ...(unique_normalize !== undefined ? { unique_normalize } : {}),
+                },
+              } as never,
             }),
           );
         }
@@ -2711,10 +3423,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'get_field_usage',
+    {
+      title: 'Get field usage',
+      description:
+        'What depends on this field, before you delete it: records carrying a value, plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
+      inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
+    },
+    handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = anyField(detail, field);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/usage', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'delete_field',
     {
       title: 'Delete field',
-      description: 'Soft-delete a field (records keep their other values). Returns records_with_value.',
+      description:
+        'Soft-delete a field (records keep their other values). Returns records_with_value. Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -2732,7 +3467,47 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   const VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form'] as const;
-  type FormFieldOpt = string | { field: string; required?: boolean; label?: string; help?: string };
+  const FORM_VISIBILITY_OPS = ['eq', 'neq', 'is_empty', 'not_empty', 'in'] as const;
+  type FormVisibilityRuleOpt = { field: string; op: (typeof FORM_VISIBILITY_OPS)[number]; value?: unknown };
+  type FormFieldOpt =
+    | string
+    | {
+        field: string;
+        required?: boolean;
+        label?: string;
+        help?: string;
+        visible_when?: FormVisibilityRuleOpt;
+        required_when?: FormVisibilityRuleOpt;
+        hidden?: boolean;
+        value?: unknown;
+      };
+  /** Stored shape of one form field (packages/schemas/src/views.ts) — what a
+   *  form actually persists, and therefore everything #715/#716's fix must
+   *  not drop on a write that didn't mean to touch it. `relation_filter` is
+   *  intentionally not yet MCP-settable (it resolves against the relation's
+   *  TARGET database, not this one — a real coverage gap, left for a
+   *  follow-up rather than half-done here) but IS preserved on every write. */
+  type StoredFormField = {
+    field_id: string;
+    required?: boolean;
+    label?: string;
+    help?: string;
+    visible_when?: { field_id: string; op: string; value?: unknown };
+    required_when?: { field_id: string; op: string; value?: unknown };
+    relation_filter?: unknown;
+    hidden?: boolean;
+    value?: unknown;
+  };
+  type StoredForm = {
+    title?: string;
+    description?: string;
+    submit_text?: string;
+    fields?: StoredFormField[];
+    public_token?: string;
+    access?: 'members' | 'link' | 'public';
+    success_message?: string;
+    redirect_url?: string;
+  };
   type ViewOpts = {
     group_by?: string;
     card_fields?: string[];
@@ -2749,7 +3524,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     form_success_message?: string;
     form_redirect_url?: string;
   };
-  function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
+  /**
+   * #715 — building `config.form` USED to mean rebuilding it wholesale from
+   * only the `form_*` params this call happened to pass, every time. Since
+   * `patch.config = {...existingConfig, ...buildViewConfig(...)}` is a
+   * SHALLOW merge, any call that touched `sorts` alone (nothing form-related)
+   * still ran this whole branch — `v.type` is the view's STORED type, not
+   * something the caller chose this call — and the freshly rebuilt `form`
+   * object replaced the real one outright: every field's `visible_when` /
+   * `required_when` / `relation_filter` gone (never in `formFieldShape` to
+   * begin with, so there was never a way to carry them forward), the whole
+   * `fields` array emptied if `form_fields` wasn't passed, and `access`
+   * silently reset to 'members' (silently unpublishing a live public/link
+   * form) if `form_access` wasn't passed either. Confirmed live against a
+   * real form (not just read from source) before this fix: an update_view
+   * call touching only `sorts` took a 2-field form with a `visible_when`
+   * down to 0 fields and 'link' down to 'members'.
+   *
+   * Fix: `existingForm` is the view's CURRENTLY stored form (undefined for
+   * create_view, where there is none yet). Every property falls back to what
+   * was already there instead of to "unset", and a field's `relation_filter`
+   * — not yet MCP-settable at all (it resolves against the relation's
+   * TARGET database, a real but separate coverage gap) — is preserved
+   * unconditionally rather than silently dropped.
+   */
+  function buildViewConfig(
+    detail: DatabaseDetail,
+    type: string,
+    o: ViewOpts,
+    existingForm?: StoredForm,
+  ): Record<string, unknown> {
     // #191: only emit keys the caller actually passed. viewConfigSchema fills the
     // per-field defaults (sorts:[], hidden_field_ids:[], …) on parse, so create
     // still gets a complete config — and update can MERGE this partial onto the
@@ -2766,34 +3570,98 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       if (o.end_date_field) config.end_date_field_id = anyField(detail, o.end_date_field);
     }
     if (type === 'form') {
-      const access = o.form_access ?? 'members';
-      const fields = (o.form_fields ?? []).map((f) => {
-        const ref = typeof f === 'string' ? f : f.field;
-        const field_id = anyField(detail, ref);
-        if (typeof f === 'string') return { field_id };
-        return {
-          field_id,
-          ...(f.required !== undefined ? { required: f.required } : {}),
-          ...(f.label ? { label: f.label } : {}),
-          ...(f.help ? { help: f.help } : {}),
-        };
-      });
+      const existingByFieldId = new Map((existingForm?.fields ?? []).map((f) => [f.field_id, f]));
+      const resolveRule = (r: FormVisibilityRuleOpt) => ({ field_id: anyField(detail, r.field), op: r.op, value: r.value });
+
+      // #716 — SPREAD THE EXISTING FIELD FIRST, same reasoning #718 already
+      // established one level up for the form object as a whole: naming keys
+      // one at a time (required/label/help/…) is exactly how `hidden`/`value`
+      // themselves would have been silently dropped the moment #716 shipped,
+      // if this had stayed a hand-enumerated rebuild. Spreading `existing`
+      // makes the NEXT property #716-shaped ticket adds safe by construction
+      // instead of by remembering to update this function again.
+      const fields =
+        o.form_fields !== undefined
+          ? o.form_fields.map((f): StoredFormField => {
+              const ref = typeof f === 'string' ? f : f.field;
+              const field_id = anyField(detail, ref);
+              const existing = existingByFieldId.get(field_id);
+              if (typeof f === 'string') {
+                // A bare ref names only WHICH field shows — carry every other
+                // setting forward rather than resetting it to unset.
+                return existing ? { ...existing, field_id } : { field_id };
+              }
+              return {
+                ...existing,
+                field_id,
+                required: f.required !== undefined ? f.required : existing?.required,
+                label: f.label ?? existing?.label,
+                help: f.help ?? existing?.help,
+                visible_when: f.visible_when ? resolveRule(f.visible_when) : existing?.visible_when,
+                required_when: f.required_when ? resolveRule(f.required_when) : existing?.required_when,
+                hidden: f.hidden !== undefined ? f.hidden : existing?.hidden,
+                value: f.value !== undefined ? f.value : existing?.value,
+              };
+            })
+          : (existingForm?.fields ?? []);
+
+      const access = o.form_access ?? existingForm?.access ?? 'members';
+      // #718 (AC2, corrected by Dara after this was first written — the
+      // ORIGINAL version here minted a fresh token whenever form_access was
+      // explicitly re-passed, which is the OTHER half of the same bug: the
+      // careful caller who passes form_access: 'link' specifically to avoid
+      // the members-only default still got a dead embed, because a brand
+      // new token silently invalidated every URL already pasted somewhere.
+      // Mint ONLY when moving to link/public AND there isn't one already —
+      // an existing token is reused unconditionally, never rotated by an
+      // ordinary update_view call. Rotating one on purpose isn't something
+      // this tool does at all yet (no dedicated regenerate action, unlike
+      // automations' regenerate-hook) — a real, separate capability gap.
+      const public_token = access !== 'members' ? (existingForm?.public_token ?? randomUUID().replace(/-/g, '')) : undefined;
+
+      // #718 — SPREAD THE EXISTING FORM FIRST, then overlay. #797 fixed the
+      // three defaults this tool actually models (fields, access, token) by
+      // naming each one, which is correct for those and silently wrong for
+      // everything else: the object below is still a REBUILD from a known-key
+      // list, so any property of config.form that MCP does not model is
+      // dropped by omission rather than by decision.
+      //
+      // `theme` (#711, the embed's brand config) is exactly that. There is no
+      // form_theme argument and there should not be one — a theme comes from
+      // the builder's colour pickers, not from an agent — so it cannot be
+      // preserved by checking whether it was passed. Verified against main
+      // before this change: update_view({ view, form_title }) on a themed form
+      // returned the form with fields, token and access intact and `theme`
+      // gone, destroying a customer's brand configuration.
+      //
+      // Spreading first makes the NEXT property added to config.form safe by
+      // construction, which naming keys one at a time never will.
+      // The old token is excluded from the spread rather than overridden: an
+      // explicit `public_token: undefined` key is dropped on the wire but is
+      // still PRESENT on the object, and create_view's own test asserts the
+      // members-only form has no such property. Excluding it here keeps the
+      // emitted shape byte-for-byte what #797 produced.
+      const existingFormRest: Record<string, unknown> = { ...(existingForm ?? {}) };
+      delete existingFormRest.public_token;
       config.form = {
-        ...(o.form_title ? { title: o.form_title } : {}),
-        ...(o.form_description ? { description: o.form_description } : {}),
-        ...(o.form_submit_text ? { submit_text: o.form_submit_text } : {}),
+        ...existingFormRest,
+        title: o.form_title !== undefined ? o.form_title : existingForm?.title,
+        description: o.form_description !== undefined ? o.form_description : existingForm?.description,
+        submit_text: o.form_submit_text !== undefined ? o.form_submit_text : existingForm?.submit_text,
         fields,
-        // link/public is unreachable without a token — generate one (same shape
-        // as the web app's "Enable link" action) so the access level is usable
-        // right away instead of a silently dead public view.
-        ...(access !== 'members' ? { public_token: randomUUID().replace(/-/g, '') } : {}),
+        ...(public_token ? { public_token } : {}),
         access,
-        ...(o.form_success_message ? { success_message: o.form_success_message } : {}),
-        ...(o.form_redirect_url ? { redirect_url: o.form_redirect_url } : {}),
+        success_message: o.form_success_message !== undefined ? o.form_success_message : existingForm?.success_message,
+        redirect_url: o.form_redirect_url !== undefined ? o.form_redirect_url : existingForm?.redirect_url,
       };
     }
     return config;
   }
+  const formVisibilityRuleShape = z.object({
+    field: z.string().describe('An EARLIER field in this same form (by name or id) whose answer controls this one.'),
+    op: z.enum(FORM_VISIBILITY_OPS),
+    value: z.unknown().optional().describe('Ignored by is_empty/not_empty. `in` takes an array.'),
+  });
   const formFieldShape = z.union([
     z.string(),
     z.object({
@@ -2801,6 +3669,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       required: z.boolean().optional(),
       label: z.string().optional(),
       help: z.string().optional(),
+      visible_when: formVisibilityRuleShape.optional().describe('#715 — show this field only when an earlier answer matches.'),
+      required_when: formVisibilityRuleShape
+        .optional()
+        .describe('#715 — `required` above only bites when this also holds (or is unset).'),
+      hidden: z
+        .boolean()
+        .optional()
+        .describe(
+          '#716 — never shown to the visitor; pair with `value` to stamp a fixed value onto every submission (a tenant/job/source id, a UTM tag). Cannot be combined with visible_when (the API rejects that as a config error) — hidden means never rendered to anyone, visible_when means conditionally rendered.',
+        ),
+      value: z
+        .unknown()
+        .optional()
+        .describe(
+          '#716 — the fixed value a hidden field stamps onto every record this form creates, applied server-side from stored config — a visitor can never override it by posting their own value for that field. Shape depends on the field\'s type (a relation target id/number, a select/workflow option, plain text); validated when the view is saved.',
+        ),
     }),
   ]);
 
@@ -2825,7 +3709,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
         form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
         form_submit_text: z.string().max(50).optional().describe('form: submit button label (default "Submit").'),
-        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help} for per-field overrides. Omit to fall back to card_fields.'),
+        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when, hidden, value} for per-field overrides. `hidden`+`value` stamps a fixed value onto every submission without ever showing that field to the visitor — a job/tenant id, a UTM tag. Omit to fall back to card_fields.'),
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
         form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
@@ -2850,11 +3734,47 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'create_personal_view',
+    {
+      title: 'Create personal view',
+      description:
+        '#520 — a view owned by ME, invisible to everyone else including admins: a private lens over a shared database\'s data, not a private copy (deleting a record through it deletes it for everyone). Needs only read access to the database, unlike create_view. No folder placement — a personal view is never in the shared sidebar folder tree.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string(),
+        type: z.enum(VIEW_TYPES),
+        group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
+        card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        date_field: z.string().optional().describe('calendar: the date field.'),
+        start_date_field: z.string().optional().describe('timeline: start date field.'),
+        end_date_field: z.string().optional().describe('timeline: end date field.'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
+        sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
+      async ({ workspace, database, name, type, ...rest }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const view = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/personal', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { name, type, config: buildViewConfig(detail, type, rest) } as never,
+          }),
+        );
+        return text(view);
+      },
+    ),
+  );
+
+  reg(
     'update_view',
     {
       title: 'Update view',
       description:
-        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change, but a form_* change rebuilds the whole form config from what you pass this call (it does not merge with the previous form config) — re-passing form_access on a form that already has a public/link token issues a NEW token, invalidating the old link.',
+        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change — including per-field form settings like `visible_when`/`hidden`/`value` on a field `form_fields` did not mention, which stay exactly as stored (#715/#716), and a form\'s live public_token, which is never rotated by this call (#718) — a link/public form keeps its existing token whether or not you re-pass form_access, and a token is only EVER minted the first time access moves off \'members\'. One exception, unavoidable and worth knowing: re-passing `form_fields` replaces the field LIST wholesale (it is an ordered list — passing a subset is how you drop a field), though each field you DO re-list keeps its own visible_when/required_when/hidden/value unless you override them.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2907,9 +3827,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           'form_success_message', 'form_redirect_url',
         ] as const;
         if (CONFIG_KEYS.some((k) => rest[k] !== undefined)) {
+          const existingForm = (v.config as { form?: StoredForm } | undefined)?.form;
           patch.config = {
             ...((v.config ?? {}) as Record<string, unknown>),
-            ...buildViewConfig(detail, v.type, rest),
+            ...buildViewConfig(detail, v.type, rest, existingForm),
           };
         }
         const updated = await unwrap<unknown>(
@@ -2927,7 +3848,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'delete_view',
     {
       title: 'Delete view',
-      description: 'Delete a view (409 if it is the last view on the database).',
+      description: '#37 — soft delete: recoverable via restore_view (see list_views_trash). 409 if it is the last shared view on the database.',
       inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
     },
     handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
@@ -2938,6 +3859,46 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
           params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_views_trash',
+    {
+      title: 'List deleted views',
+      description: '#37 — deleted views on this database. Call before restore_view — a deleted view no longer resolves by name via list_views/get_database.',
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/views/trash', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text({ views: trash, restore_with: 'restore_view' });
+    }),
+  );
+
+  reg(
+    'restore_view',
+    {
+      title: 'Restore view',
+      description: '#37 — bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back via restore_database/restore_space instead.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View id (from list_views_trash) — a deleted view has no live name to resolve by.'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/restore', {
+          params: { path: { ws: ws.id, db: db.id, view } } as never,
         }),
       );
       return text(res);
@@ -3241,6 +4202,61 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     ),
   );
 
+  reg(
+    'move_document_to_space',
+    {
+      title: 'Move document to a shared space',
+      description:
+        'Move a document out of Personal into a shared space — a one-way publish (personal-space.md): the item becomes visible and exportable to everyone with access to the target space, and any @mentions in its body that were suppressed while it was personal now notify for the first time. Coming back is copy_document_to_personal_space, an independent fork, not an un-publish. Moving between two already-shared spaces is a plain re-file — nothing was hidden, so nothing notifies.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('The space the document is in now.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+        target_space: z.string().describe('The shared space to move it into (from list_spaces). Must not be a personal space.'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string; target_space: string }>(
+      async ({ workspace, space, document, target_space }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const spaceId = await resolveSpaceId(ws.id, space);
+        const docId = await resolveDocumentId(ws.id, spaceId, document);
+        const targetSpaceId = await resolveSpaceId(ws.id, target_space);
+        const moved = await unwrap<SpaceDocRow>(
+          client.POST('/api/v1/workspaces/{ws}/documents/{doc}/move', {
+            params: { path: { ws: ws.id, doc: docId } } as never,
+            body: { space_id: targetSpaceId } as never,
+          }),
+        );
+        return text(serializeDoc(ws.id, moved));
+      },
+    ),
+  );
+
+  reg(
+    'copy_document_to_personal_space',
+    {
+      title: 'Copy document to my personal space',
+      description:
+        'Fork a document you can see into your own Personal space — an independent copy, never synced back (personal-space.md\'s answer to "publishing is one-way"). Editing either copy afterward never touches the other.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('The space the document is in now.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string }>(async ({ workspace, space, document }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const docId = await resolveDocumentId(ws.id, spaceId, document);
+      const copy = await unwrap<SpaceDocRow>(
+        client.POST('/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal', {
+          params: { path: { ws: ws.id, doc: docId } } as never,
+        }),
+      );
+      return text(serializeDoc(ws.id, copy));
+    }),
+  );
+
   // ---- Folders: the sidebar grouping documents, databases and views sit in ----
 
   reg(
@@ -3349,6 +4365,102 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     }),
   );
 
+  // ---- Space groups (#742 finding 04): a presentational tier ABOVE spaces ----
+  // in the sidebar, distinct from folders (which sit INSIDE a space). Otto's
+  // 2026-09-24 ruling: presentational only, no access semantics — a space's
+  // visibility never depends on its group.
+
+  reg(
+    'list_space_groups',
+    {
+      title: 'List space groups',
+      description:
+        'The workspace\'s sidebar groups — a presentational tier above spaces, distinct from list_folders (which groups things INSIDE one space). Read this before create_space_group so you file a space under an existing group instead of inventing a near-duplicate.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data: Array<{ id: string; name: string; color: string | null; position: number }> }>(
+        client.GET('/api/v1/workspaces/{ws}/space-groups', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ groups: res.data ?? [] });
+    }),
+  );
+
+  reg(
+    'create_space_group',
+    {
+      title: 'Create space group',
+      description: 'Add a presentational sidebar group. Move a space into it with update_space\'s `group` param.',
+      inputSchema: {
+        workspace: z.string(),
+        name: z.string().describe('Group name, max 100 chars.'),
+        color: z.string().optional().describe('CSS colour for the group\'s letter-mark avatar.'),
+      },
+    },
+    handle<{ workspace: string; name: string; color?: string }>(async ({ workspace, name, color }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const created = await unwrap<{ id: string; name: string; color: string | null }>(
+        client.POST('/api/v1/workspaces/{ws}/space-groups', {
+          params: { path: { ws: ws.id } } as never,
+          body: { name, color } as never,
+        }),
+      );
+      return text(created);
+    }),
+  );
+
+  reg(
+    'update_space_group',
+    {
+      title: 'Update space group',
+      description: 'Rename a group, change its colour, or move it up/down the sidebar with `position`.',
+      inputSchema: {
+        workspace: z.string(),
+        group: z.string().describe('Group name or id (from list_space_groups).'),
+        name: z.string().optional(),
+        color: z.string().nullable().optional().describe('Pass null to clear.'),
+        position: z.number().int().optional().describe('Sidebar order — lower sorts first.'),
+      },
+    },
+    handle<{ workspace: string; group: string; name?: string; color?: string | null; position?: number }>(
+      async ({ workspace, group, name, color, position }) => {
+        if (name === undefined && color === undefined && position === undefined) {
+          throw new Error('Nothing to change — pass at least one of name, color, position.');
+        }
+        const ws = await resolveWorkspace(client, workspace);
+        const groupId = await resolveSpaceGroup(client, ws.id, group);
+        const updated = await unwrap<{ id: string; name: string; color: string | null }>(
+          client.PATCH('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws: ws.id, group: groupId } } as never,
+            body: { name, color, position } as never,
+          }),
+        );
+        return text(updated);
+      },
+    ),
+  );
+
+  reg(
+    'delete_space_group',
+    {
+      title: 'Delete space group',
+      description:
+        'Remove a sidebar group. Its spaces are NOT deleted — they fall back to the ungrouped list. That makes this the safe way to undo a grouping you got wrong.',
+      inputSchema: { workspace: z.string(), group: z.string().describe('Group name or id (from list_space_groups).') },
+    },
+    handle<{ workspace: string; group: string }>(async ({ workspace, group }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const groupId = await resolveSpaceGroup(client, ws.id, group);
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/space-groups/{group}', {
+          params: { path: { ws: ws.id, group: groupId } } as never,
+        }),
+      );
+      return text({ deleted: groupId, note: 'Its spaces fell back to ungrouped; nothing was destroyed.' });
+    }),
+  );
+
   // ============ Relations (MN-146 fast-follow): link databases ============
 
   reg(
@@ -3357,6 +4469,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create relation',
       description:
         'Link two databases with a relation field on each side. one_to_many: each record in `database` links to ONE record in `related_database`, and each related record gets MANY back — e.g. database=Tasks, related_database=Projects means each task has one project and each project has many tasks. many_to_many: both sides link to many. Use the space/database form for names that exist in more than one space. ' +
+        // #450 — the API's own request body uses `cardinality`, `field_a_name`
+        // and `field_b_name` (relations.service.ts). This tool's arguments are
+        // named differently on purpose (`type`, `field_name`, `reverse_field_name`
+        // — see below), and a caller guessing the API's names instead of these
+        // gets an explicit "no argument named" error, never a silent default.
+        'Argument names here (`type`, `field_name`, `reverse_field_name`) are NOT the same as the underlying API request body\'s (`cardinality`, `field_a_name`, `field_b_name`) — use the ones in this tool\'s schema, not the API\'s. There is no cardinality "flip": what you pass as `type` is exactly what is stored. ' +
         // #344: a self-relation IS supported, with names you choose, and you can
         // have several of them — none of which this description said, so the
         // Parent/Sub-items defaults read like a hard-wired special case.
@@ -3875,11 +4993,30 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'get_or_create_personal_space',
+    {
+      title: 'Get or create my personal space',
+      description:
+        "#520 — MY OWN personal space: private, including from admins, holds only documents and views (never databases). Idempotent — lazily provisioned on first call, returns the same space on every later call for this identity.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const space = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/personal', {
+          params: { path: { ws: ws.id } } as never,
+        }),
+      );
+      return text(space);
+    }),
+  );
+
+  reg(
     'update_space',
     {
       title: 'Update space',
       description:
-        'Rename a space, or set its icon, colour or description. Only the fields you pass change; pass null to clear colour or description.',
+        'Rename a space, set its icon/colour/description, or move it into a sidebar group (#742 finding 04). Only the fields you pass change; pass null to clear colour, description, or group.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug or id.'),
@@ -3892,6 +5029,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+        group: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Group name or id (from list_space_groups) to file this space under. Pass null to ungroup it.'),
       },
     },
     handle<{
@@ -3901,7 +5043,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       icon?: string;
       color?: string | null;
       description?: string | null;
-    }>(async ({ workspace, space, rename_to, icon, color, description }) => {
+      group?: string | null;
+    }>(async ({ workspace, space, rename_to, icon, color, description, group }) => {
       const ws = await resolveWorkspace(client, workspace);
       const spaceId = await resolveSpaceId(ws.id, space);
       const body: Record<string, unknown> = {};
@@ -3911,6 +5054,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // would silently drop it.
       if (color !== undefined) body.color = color;
       if (description !== undefined) body.description = description;
+      if (group !== undefined) body.groupId = group === null ? null : await resolveSpaceGroup(client, ws.id, group);
       const res = await unwrap<unknown>(
         client.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
           params: { path: { ws: ws.id, space: spaceId } } as never,
@@ -3926,7 +5070,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete space',
       description:
-        'Permanently delete a space AND every database and record inside it. Irreversible — the trash cannot recover any of it. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
+        '#453/#37 — soft delete: the space, every database and record inside it. Recoverable via restore_space (see list_spaces_trash) as long as it stays undone — this tool does not warn "irreversible" the way it used to, because it no longer is one. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug or id.'),
@@ -3962,11 +5106,45 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'list_spaces_trash',
+    {
+      title: 'List deleted spaces',
+      description: '#37 — deleted spaces in this workspace. Call before restore_space — a deleted space no longer resolves by name anywhere else.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/spaces/trash', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text({ spaces: trash, restore_with: 'restore_space' });
+    }),
+  );
+
+  reg(
+    'restore_space',
+    {
+      title: 'Restore space',
+      description: '#37 — bring a deleted space back, along with every database (and its fields/records/views) that was deleted WITH it (see list_spaces_trash for the id). A database independently deleted BEFORE the space was deleted stays in trash — restore that separately via restore_database.',
+      inputSchema: { workspace: z.string(), space: z.string().describe('Space id (from list_spaces_trash) — a deleted space has no live name/slug to resolve by.') },
+    },
+    handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/{space}/restore', {
+          params: { path: { ws: ws.id, space } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'update_workspace',
     {
       title: 'Update workspace',
       description:
-        'Rename the workspace or set its description — the top-level "what this company is doing here" line that list_workspaces returns. Only the fields you pass change.',
+        'Rename the workspace, set its description, or set the logo/accent colour shown on the public portal page (#539) — the top-level "what this company is doing here" line that list_workspaces returns, or an agency\'s own brand on the pages it shares with clients. Only the fields you pass change.',
       inputSchema: {
         workspace: z.string(),
         rename_to: z.string().optional(),
@@ -3976,38 +5154,62 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+        portal_logo_url: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Logo shown on the public portal page. Must be an https:// URL. Pass null to clear.'),
+        portal_accent_color: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Accent colour for the public portal page, as a 6-digit hex like "#3366ff". Pass null to clear.'),
       },
     },
-    handle<{ workspace: string; rename_to?: string; description?: string | null }>(
-      async ({ workspace, rename_to, description }) => {
-        const ws = await resolveWorkspace(client, workspace);
-        const body: Record<string, unknown> = {};
-        if (rename_to) body.name = rename_to;
-        if (description !== undefined) body.description = description;
-        /*
-         * Deliberately NOT exposing `private_attachments`, the other key on
-         * updateWorkspaceSchema. It is a security posture switch for the whole
-         * workspace (#201), and "rename this workspace" is not a reason to put a
-         * lever like that within reach of a model. #397's principle is that every
-         * CAPABILITY is reachable, not that every field of every schema is —
-         * this is a deliberate exclusion, recorded here rather than left silent.
-         */
-        const res = await unwrap<unknown>(
-          client.PATCH('/api/v1/workspaces/{ws}', {
-            params: { path: { ws: ws.id } } as never,
-            body: body as never,
-          }),
-        );
-        return text(res);
-      },
-    ),
+    handle<{
+      workspace: string;
+      rename_to?: string;
+      description?: string | null;
+      portal_logo_url?: string | null;
+      portal_accent_color?: string | null;
+    }>(async ({ workspace, rename_to, description, portal_logo_url, portal_accent_color }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const body: Record<string, unknown> = {};
+      if (rename_to) body.name = rename_to;
+      if (description !== undefined) body.description = description;
+      /*
+       * Deliberately NOT exposing `private_attachments`, the other key on
+       * updateWorkspaceSchema. It is a security posture switch for the whole
+       * workspace (#201), and "rename this workspace" is not a reason to put a
+       * lever like that within reach of a model. #397's principle is that every
+       * CAPABILITY is reachable, not that every field of every schema is —
+       * this is a deliberate exclusion, recorded here rather than left silent.
+       *
+       * `branding` (#539) is the opposite call: cosmetic client-portal
+       * configuration, not a security posture, so it's exposed like rename/
+       * description above rather than excluded like private_attachments.
+       */
+      if (portal_logo_url !== undefined || portal_accent_color !== undefined) {
+        body.branding = {
+          ...(portal_logo_url !== undefined ? { logo_url: portal_logo_url } : {}),
+          ...(portal_accent_color !== undefined ? { accent_color: portal_accent_color } : {}),
+        };
+      }
+      const res = await unwrap<unknown>(
+        client.PATCH('/api/v1/workspaces/{ws}', {
+          params: { path: { ws: ws.id } } as never,
+          body: body as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(
     'delete_database',
     {
       title: 'Delete database',
-      description: 'Permanently delete a database and all its records (irreversible). Guardrail: `confirm` must equal the database name exactly. Set sever_relations to also drop relations pointing at it.',
+      description: '#453/#37 — soft delete: the database and all its records. Recoverable via restore_database (see list_databases_trash), unless sever_relations is set — that part IS irreversible (it hard-deletes the relation and its paired field on the other database, along with every link). Guardrail: `confirm` must equal the database name exactly.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -4028,6 +5230,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res ?? { deleted: true });
       },
     ),
+  );
+
+  reg(
+    'list_databases_trash',
+    {
+      title: 'List deleted databases',
+      description: '#37 — deleted databases in this workspace. Call before restore_database — a deleted database no longer resolves by name anywhere else.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/trash', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text({ databases: trash, restore_with: 'restore_database' });
+    }),
+  );
+
+  reg(
+    'restore_database',
+    {
+      title: 'Restore database',
+      description: '#37 — bring a deleted database back, along with whatever fields/records/views were deleted with it (see list_databases_trash for the id). A record independently trashed BEFORE the database was deleted stays in trash — restore that separately via restore_records.',
+      inputSchema: { workspace: z.string(), database: z.string().describe('Database id (from list_databases_trash) — a deleted database has no live name/slug to resolve by.') },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/restore', {
+          params: { path: { ws: ws.id, db: database } } as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(
@@ -4074,6 +5310,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
             params: { path: { ws: ws.id, db: db.id } } as never,
             body: body as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'duplicate_database',
+    {
+      title: 'Duplicate database',
+      description:
+        "Copy a database's schema — fields (including select/multi-select/workflow options with their colours), views and self-relations — into a new, fully independent database in the same space. Formulas and filtered views keep working in the copy (api_names are preserved; only internal ids are fresh). A relation to a DIFFERENT database can't come along (it would point at nothing in the copy) and is reported as skipped, along with any lookup/rollup that depended on it. Pass include_records to also copy up to 50 rows (option values remapped to the copy's own options); relation/user/attachment-valued cells are never copied. Automations, agents and other databases' data never move.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().optional().describe('Name for the copy. Defaults to "<source> copy", disambiguated if that name is taken.'),
+        include_records: z.boolean().optional().describe('Copy up to 50 records along with the schema. Default false (schema only).'),
+      },
+    },
+    handle<{ workspace: string; database: string; name?: string; include_records?: boolean }>(
+      async ({ workspace, database, name, include_records }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{
+          id: string;
+          name: string;
+          records_copied: number;
+          skipped_relations: string[];
+          skipped_derived_fields: Array<{ name: string; reason: string }>;
+        }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/duplicate', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: { name, include_records: include_records ?? false } as never,
           }),
         );
         return text(res);
@@ -4539,6 +5809,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'list_agent_activity',
+    {
+      title: 'What an agent has done',
+      description:
+        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — the run each write happened via is NOT tracked yet for the common BYO-AI path (a known gap, not hidden here). Only writes made through a token minted FOR this agent show up; an ordinary token\'s writes never carry agent attribution.',
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+        from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
+        to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; from?: string; to?: string }>(async ({ workspace, agent, from, to }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const query: Record<string, string> = {};
+      if (from) query.from = from;
+      if (to) query.to = to;
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/activity', {
+          params: { path: { ws: ws.id, agent }, query },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'setup_agents',
     {
       title: 'Set up the agent engine',
@@ -4857,6 +6154,124 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'publish_view',
+    {
+      title: 'Publish my personal view to the shared database',
+      description:
+        'Turn a view you own privately (made with create_personal_view) into an ordinary shared view everyone with access to the database can see. One-way (personal-space.md) — the way back is copy_view_to_personal_space, an independent fork, never an un-publish. Only the view\'s owner can publish it, and it must still be personal (already-shared views 422 here).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('Your personal view\'s name or id (from list_personal_views).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const published = await unwrap<{ id: string; name: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/publish', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ ...published, url: viewUrl(ws.id, db.id, published.id) });
+    }),
+  );
+
+  reg(
+    'copy_view_to_personal_space',
+    {
+      title: 'Copy a shared view to my personal space',
+      description:
+        'Fork a shared view into your own private copy — an independent clone of its config, never synced back (personal-space.md\'s answer to "publishing is one-way"). Reconfiguring either view afterward never touches the other.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('The shared view to copy (from describe_database).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const copy = await unwrap<{ id: string; name: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ ...copy, url: viewUrl(ws.id, db.id, copy.id) });
+    }),
+  );
+
+  reg(
+    'share_view',
+    {
+      title: 'Publish a view to a public read-only link',
+      description:
+        "Publish a saved view (or update an already-published one's allowlist) to a public, unauthenticated read-only link for clients or stakeholders — the API half only; there is no web page for the link yet. Nothing leaks beyond what you name here: pass visible_field_api_names to allowlist columns (omit for the view's own non-hidden fields), include_relation_api_names to let specific relation fields travel as {id, title, number} chips only — never the linked record's other fields (omit or leave empty and NO related data travels at all, which is the safe default). A rollup, formula or lookup is NEVER exposed unless visible_field_api_names explicitly names it, even if it isn't hidden — it can read data the visitor never sees. Re-sharing an already-published view keeps the same link; only a database-owned view (not a dashboard) can be published.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+        visible_field_api_names: z.array(z.string()).optional().describe("Field api_names to expose. Omit for the view's own non-hidden fields. A rollup/formula/lookup must be named here explicitly or it never appears."),
+        include_relation_api_names: z.array(z.string()).optional().describe('Relation field api_names allowed to travel, as id/title/number chips only. Omit or [] = no related data leaves.'),
+        indexable: z.boolean().optional().describe('Allow search engines to index the link. Default false (noindex).'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      view: string;
+      visible_field_api_names?: string[];
+      include_relation_api_names?: string[];
+      indexable?: boolean;
+    }>(async ({ workspace, database, view, visible_field_api_names, include_relation_api_names, indexable }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const res = await unwrap<{ token: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+          body: { visible_field_api_names, include_relation_api_names, indexable } as never,
+        }),
+      );
+      return text({
+        published: true,
+        token: res.token,
+        note: 'No public web page for this token exists yet (#264 ships the API first) — this confirms the link is live at the API level.',
+      });
+    }),
+  );
+
+  reg(
+    'unshare_view',
+    {
+      title: 'Revoke a view\'s public link',
+      description: 'Take a published view back offline. The link 404s immediately — no cache, no grace window.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ unpublished: true });
+    }),
+  );
+
+  reg(
     'get_personal_filter',
     {
       title: 'Get my personal filter',
@@ -4925,6 +6340,86 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'get_personal_collection_filter',
+    {
+      title: 'Get my personal filter on an embedded collection',
+      description:
+        "The extra filter the CALLING identity has layered on a record page's embedded relation collection (the linked-records list under a relation field), on top of what everyone else sees, or null if none. Same shape as get_personal_filter but for a field's collection widget rather than a saved view — worth checking when a person says a linked-records list looks wrong: a personal filter here is invisible to teammates by design.",
+      inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
+    },
+    handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+      const res = await unwrap<{ config: Record<string, unknown> | null }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+        }),
+      );
+      return text({ field: detail.fields.find((f) => f.id === fieldId)?.displayName, personal_filter: res.config?.['filters'] ?? null, visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'set_personal_collection_filter',
+    {
+      title: 'Set my personal filter on an embedded collection',
+      description:
+        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — same all-or-nothing reset the "Reset" button in the UI does). ' +
+        "It writes for the identity this token belongs to and cannot filter anyone else's screen. Filter syntax is identical to query_records, applied against the collection's TARGET database (the one the relation links to), not this one. " +
+        'Only the filter is settable here — sort order, color-by, and inline columns are display preferences with no query semantics, not exposed to agents individually.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string(),
+        filter: z.record(z.string(), z.unknown()).optional().describe('A query_records-style filter, evaluated against the TARGET database. Omit with clear:true.'),
+        clear: z.boolean().optional().describe('Remove your entire personal override for this collection (filter, sort, color, columns).'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; filter?: Record<string, unknown>; clear?: boolean }>(
+      async ({ workspace, database, field, filter, clear }) => {
+        if (!clear && !filter) throw new Error('Pass a `filter`, or clear: true to remove the personal filter.');
+        if (clear && filter) throw new Error('Pass either `filter` or clear: true, not both.');
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+        const relField = detail.fields.find((f) => f.id === fieldId);
+        const path = { ws: ws.id, db: db.id, field: fieldId };
+        if (clear) {
+          await unwrap(
+            client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+              params: { path } as never,
+            }),
+          );
+          return text({ field: relField?.displayName, personal_filter: null });
+        }
+        const targetDbId = relField?.relation?.target_database_id;
+        if (!targetDbId) throw new Error(`Field "${field}" has no relation target.`);
+        // Preserve any existing personal sort/color/column choices — this tool
+        // only ever REPLACES `filters`, same narrow scope as the view-level tool.
+        const current = await unwrap<{ config: Record<string, unknown> | null }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+            params: { path } as never,
+          }),
+        );
+        // Mapped against the TARGET database's schema (option labels → ids) —
+        // the collection's rows and fields live there, not on this database.
+        const targetDetail = await getDetail(ws.id, targetDbId);
+        const mapped = mapFilterValues(targetDetail, filter);
+        await unwrap(
+          client.PUT('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/personal-collection-view', {
+            params: { path } as never,
+            body: { ...(current.config ?? {}), filters: mapped } as never,
+          }),
+        );
+        return text({ field: relField?.displayName, personal_filter: mapped, visible_to: 'you only' });
+      },
+    ),
+  );
+
+  reg(
     'list_space_views',
     {
       title: 'List space views',
@@ -4938,6 +6433,25 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/spaces/{space}/views', {
           params: { path: { ws: ws.id, space: spaceId } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_personal_views',
+    {
+      title: 'List my personal views',
+      description:
+        "#551 — every PERSONAL view I own, across the whole workspace (not scoped to one database or space). A personal view is invisible to everyone else, including admins, and is only otherwise reachable per-database — this is the one call that lists all of mine at once, for a workspace-wide 'my personal views' surface.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/views/personal', {
+          params: { path: { ws: ws.id } } as never,
         }),
       );
       return text(res);
@@ -5114,6 +6628,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ grants: res, note: 'Read-only — grants are changed in-app.' });
     }),
+  );
+
+  reg(
+    'list_audit_log',
+    {
+      title: 'Workspace-wide audit log',
+      description:
+        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). KNOWN GAP: structural deletions of a database, view or space are NOT captured here yet — only record-level create/update/delete/restore. Read-only.',
+      inputSchema: {
+        workspace: z.string(),
+        actor: z.string().optional().describe('Narrow to one user id (from list_members).'),
+        entity: z.string().optional().describe('Narrow to one record id.'),
+        from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
+        to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+      },
+    },
+    handle<{ workspace: string; actor?: string; entity?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, from, to }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const query: Record<string, string> = {};
+        if (actor) query.actor = actor;
+        if (entity) query.entity = entity;
+        if (from) query.from = from;
+        if (to) query.to = to;
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/audit-log', { params: { path: { ws: ws.id }, query } } as never),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
@@ -5374,6 +6918,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'list_action_gates',
+    {
+      title: 'List action-class gate policies',
+      description:
+        '#542: this workspace\'s declared gate policies over an action class (currently only "delete_records") — scope (workspace/space/database), ' +
+        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only in the app, not reachable via MCP — ' +
+        'an agent that could change the gate meant to constrain agents would defeat the point.',
+      inputSchema: {
+        workspace: z.string(),
+      },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/action-gates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'get_runs',
     {
       title: 'Get runs',
@@ -5403,6 +6968,59 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     }),
   );
 
+  // ---- #491: read what is already connected, so create_source has a connection_id
+  // to reach for without a human reading a uuid out of the app. ----
+  //
+  // The write half of connections stays deliberately unreachable — creating,
+  // deleting, testing, resuming and the OAuth start redirect all hold a
+  // credential decision (coverage.ts). This is the read half only: the same
+  // shape as list_sources already exposing what a database syncs from, without
+  // the auth material. `present()` on the API side never includes a secret —
+  // asserted on the response body, not just claimed here.
+  reg(
+    'list_connections',
+    {
+      title: 'List connections',
+      description:
+        'The accounts already connected to this workspace — id, provider, a human name, status, scopes and recent health (last_ok_at, error_count_24h). NO credential or token is ever included; auth material never leaves the app. ' +
+        'This is where a connection_id for create_source comes from when the target database has no source yet (list_sources only shows connections already IN USE). ' +
+        'Connecting a NEW account is not available over MCP — a connect flow needs a live credential, which must never pass through a tool argument or land in a transcript. Connect it in the app (Settings → Connections), then reference it here by id.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/connections', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
+  // ---- #507: what COULD be connected, not what already is. ----
+  //
+  // A different question from list_connections (#491), and one #491 was never
+  // asked to answer: this instance's catalog of connectable provider TYPES —
+  // useful for "does this workspace support connecting to X" or recommending a
+  // provider correctly, without an ability to act on it (nobody can create a
+  // connection over MCP either way — that stays credential-gated below).
+  reg(
+    'list_connection_providers',
+    {
+      title: 'List connection providers',
+      description:
+        'The catalog of provider TYPES this StoryOS instance can connect (Slack, GitHub, a raw API key, etc.) — id, label, auth_kind, its access `tier`, and whether it is actually connectable RIGHT NOW on this deployment (`availability`: connectable / operator_config — a self-managed operator has not set the env var yet / cloud_only — hosted-only, off here). ' +
+        'This answers "what CAN be connected", not "what IS" — see list_connections (#491) for the accounts already connected. Nothing here can be acted on: connecting a NEW account is not available over MCP (a connect flow needs a live credential, which must never pass through a tool argument or land in a transcript) — this only tells you whether it is worth directing a human to go do it.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/connections/providers', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
   reg(
     'list_sources',
     {
@@ -5411,7 +7029,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'The scheduled syncs feeding this database from an external provider — provider, schedule, status, field_mapping, connection_id and last_sync_at for each. ' +
         'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. ' +
         'Configuring a source IS reachable over MCP (#438): list_source_providers → discover_source_fields → create_source, then sync_source and list_source_runs. ' +
-        'This is also the only place an existing connection_id is readable — see create_source.',
+        'For a connection_id: this shows one already IN USE by a source; list_connections (#491) shows every connected account, including ones with no source yet.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -5444,12 +7062,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   // that is #491, and `create_source` says so rather than leaving it to be
   // discovered by failure.
 
+  /** #280 — a mapping entry as the API stores it: the legacy bare field id
+   * (direction `in`), or `{field_id, direction}` for `out`/`both`. */
+  type ApiFieldMappingEntry = string | { field_id: string; direction?: string };
+
   interface SourceRow {
     id: string;
     name: string;
     connection_id: string;
     provider_source: string;
-    field_mapping?: Record<string, string>;
+    field_mapping?: Record<string, ApiFieldMappingEntry>;
+  }
+
+  /** The field id out of an entry, regardless of shape — for the
+   * external_key_field membership checks, which don't care about direction. */
+  function mappingEntryFieldId(entry: ApiFieldMappingEntry): string {
+    return typeof entry === 'string' ? entry : entry.field_id;
   }
 
   /** Name-or-id resolution for a source (MN-076 convention), scoped to one database. */
@@ -5488,14 +7116,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     return f.id;
   }
 
-  /** Map a caller's `{ externalKey: fieldNameOrId }` onto the API's `{ externalKey: fieldId }`. */
-  function resolveFieldMapping(detail: DatabaseDetail, mapping: Record<string, unknown>): Record<string, string> {
-    const out: Record<string, string> = {};
+  /** Map a caller's `{ externalKey: fieldNameOrId | {field, direction} }` onto
+   * the API's `{ externalKey: fieldId | {field_id, direction} }` (#280). A bare
+   * string stays a bare string — the API's own permanent shorthand for `in`,
+   * not something this tool needs to upgrade. */
+  function resolveFieldMapping(
+    detail: DatabaseDetail,
+    mapping: Record<string, unknown>,
+  ): Record<string, ApiFieldMappingEntry> {
+    const out: Record<string, ApiFieldMappingEntry> = {};
     for (const [key, ref] of Object.entries(mapping)) {
-      if (typeof ref !== 'string') {
-        throw new Error(`field_mapping["${key}"] must be a field name or id, got ${JSON.stringify(ref)}.`);
+      if (typeof ref === 'string') {
+        out[key] = resolveAnyFieldId(detail, ref);
+        continue;
       }
-      out[key] = resolveAnyFieldId(detail, ref);
+      if (ref && typeof ref === 'object' && 'field' in ref && typeof (ref as { field: unknown }).field === 'string') {
+        const { field, direction } = ref as { field: string; direction?: string };
+        out[key] = direction !== undefined ? { field_id: resolveAnyFieldId(detail, field), direction } : { field_id: resolveAnyFieldId(detail, field) };
+        continue;
+      }
+      throw new Error(
+        `field_mapping["${key}"] must be a field name/id, or { field, direction }, got ${JSON.stringify(ref)}.`,
+      );
     }
     return out;
   }
@@ -5641,10 +7283,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create source',
       description:
         'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
-        'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id`. There is no MCP tool that lists connections yet (#491), so today a connection_id comes from list_sources on a database that already syncs, or from a human. ' +
+        'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id` — get one from list_connections (#491), or from list_sources if the target database already has a source. ' +
         'Run list_source_providers then discover_source_fields first — `field_mapping` should be a mapping somebody has looked at, not a guess. ' +
-        'field_mapping maps the provider\'s external keys to fields in THIS database, and takes field names or ids ("Comment text" or a uuid). Keys you leave out are simply not stored. ' +
-        'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets, and it is what makes the next sync update a record rather than duplicate it. ' +
+        'field_mapping maps the provider\'s external keys to fields in THIS database. A value is either a field name/id ("Comment text" or a uuid, meaning pull-only — the common case) or { field, direction } where direction is "in" (pull, default), "out" (push-only — never overwritten by a sync) or "both". Keys you leave out are simply not stored. ' +
+        'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets (any direction), and it is what makes the next sync update a record rather than duplicate it. ' +
+        'config.conflict_policy controls what wins when both sides changed: "external_wins" (default — a pull overwrites a local edit), "storyos_wins", or "newest_wins" (only for a provider whose config_schema entry lists supports_newest_wins). ' +
+        'An "out"/"both" field_mapping entry alone does not push anything — config.write_back must ALSO be true, or every edit is silently ignored (no push, no error). With write_back true, config.require_approval_for_push (default false) holds each push as an approval in the Inbox instead of sending it immediately; approve or reject it there, or via the approvals endpoints. ' +
         'Defaults to a daily sync when neither schedule nor recurrence is given. The source is created active — call sync_source to run it immediately instead of waiting for the schedule.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -5655,15 +7299,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('Id of the stored connection to sync through. NOT a credential — see this tool\'s description for where it comes from.'),
         provider_source: z.string().describe('Provider id from list_source_providers, e.g. "youtube.comments".'),
         field_mapping: z
-          .record(z.string(), z.string())
-          .describe('{ "provider_external_key": "field name or id" }. Start from discover_source_fields\' proposed_field_mapping.'),
+          .record(
+            z.string(),
+            z.union([
+              z.string(),
+              z.object({ field: z.string(), direction: z.enum(['in', 'out', 'both']).optional() }),
+            ]),
+          )
+          .describe(
+            '{ "provider_external_key": "field name or id" } for a pull-only mapping (the common case), or { "provider_external_key": { field, direction } } — direction "in" (default), "out" (push-only, never overwritten by a sync), or "both". Start from discover_source_fields\' proposed_field_mapping.',
+          ),
         external_key_field: z
           .string()
           .describe('Field (name or id) holding the provider\'s stable id. Must be one of field_mapping\'s target fields.'),
         config: z
           .record(z.string(), z.any())
           .optional()
-          .describe('Provider config; shape is in list_source_providers\' config_schema.'),
+          .describe('Provider config; shape is in list_source_providers\' config_schema. May also set conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins".'),
         schedule: z
           .enum(['15m', 'hour', 'day'])
           .optional()
@@ -5680,7 +7332,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       name: string;
       connection_id: string;
       provider_source: string;
-      field_mapping: Record<string, string>;
+      field_mapping: Record<string, unknown>;
       external_key_field: string;
       config?: Record<string, unknown>;
       schedule?: string;
@@ -5694,11 +7346,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       /*
        * The API enforces this too (400). Catching it here costs nothing and
        * answers with the field NAMES the caller used, rather than making them
-       * match uuids by eye to find out which one they meant.
+       * match uuids by eye to find out which one they meant. Direction doesn't
+       * matter for this check — the key field just has to be SOME target.
        */
-      if (!Object.values(mapping).includes(externalKeyFieldId)) {
+      if (!Object.values(mapping).some((entry) => mappingEntryFieldId(entry) === externalKeyFieldId)) {
         throw new Error(
-          `external_key_field "${a.external_key_field}" is not one of field_mapping's target fields (${Object.values(a.field_mapping).join(', ')}). ` +
+          `external_key_field "${a.external_key_field}" is not one of field_mapping's target fields. ` +
             'The external key must be a field the provider actually writes to, or a re-sync cannot match an existing record.',
         );
       }
@@ -5735,10 +7388,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         source: z.string().describe('Source name or id (from list_sources).'),
         name: z.string().optional().describe('New human label.'),
         connection_id: z.string().optional().describe('Point the source at a different stored connection.'),
-        config: z.record(z.string(), z.any()).optional().describe('Replacement provider config.'),
+        config: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe(
+            'Replacement provider config (replaces the whole object — read the current one from list_sources first if you\'re only changing one key). May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins", write_back (required true before any "out"/"both" field_mapping entry actually pushes — see create_source\'s description), and require_approval_for_push (default false — holds each push as an Inbox approval instead of sending it immediately).',
+          ),
         field_mapping: z
-          .record(z.string(), z.string())
-          .describe('{ "provider_external_key": "field name or id" } — the COMPLETE mapping, which replaces the existing one.')
+          .record(
+            z.string(),
+            z.union([
+              z.string(),
+              z.object({ field: z.string(), direction: z.enum(['in', 'out', 'both']).optional() }),
+            ]),
+          )
+          .describe(
+            '{ "provider_external_key": "field name or id" } or { "provider_external_key": { field, direction } } (direction "in"/"out"/"both") — the COMPLETE mapping, which replaces the existing one.',
+          )
           .optional(),
         external_key_field: z.string().optional().describe('Field (name or id) holding the provider\'s stable id.'),
         schedule: z.enum(['15m', 'hour', 'day']).optional().describe('Coarse cadence.'),
@@ -5759,7 +7425,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       name?: string;
       connection_id?: string;
       config?: Record<string, unknown>;
-      field_mapping?: Record<string, string>;
+      field_mapping?: Record<string, unknown>;
       external_key_field?: string;
       schedule?: string;
       recurrence?: Record<string, unknown>;
@@ -5785,11 +7451,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          * The API's create path enforces "external key must be one of the
          * mapping's targets"; on update the two arrive independently, so a
          * caller changing only one can strand the pair. Check against the
-         * EFFECTIVE post-patch pair (new value, else the stored one).
+         * EFFECTIVE post-patch pair (new value, else the stored one) —
+         * direction doesn't matter here, only which field ids are targeted.
          */
-        const effectiveMapping = (body.field_mapping as Record<string, string>) ?? src.field_mapping ?? {};
+        const effectiveMapping = (body.field_mapping as Record<string, ApiFieldMappingEntry>) ?? src.field_mapping ?? {};
         const effectiveKey = (body.external_key_field_id as string) ?? undefined;
-        if (effectiveKey && Object.keys(effectiveMapping).length && !Object.values(effectiveMapping).includes(effectiveKey)) {
+        if (
+          effectiveKey &&
+          Object.keys(effectiveMapping).length &&
+          !Object.values(effectiveMapping).some((entry) => mappingEntryFieldId(entry) === effectiveKey)
+        ) {
           throw new Error(
             'external_key_field is not one of field_mapping\'s target fields after this change. ' +
               'Send field_mapping and external_key_field together when either one moves, or the source loses its ability to match an existing record on re-sync.',
@@ -6269,7 +7940,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'create_records{database, count, values, link_via_relation_field?} — batch-create `count` records, where count is a number ' +
         'or a {token} resolved at run time (max 200); use {index} in templates for the 1-based position · ' +
         'add_comment{body_template} · ' +
-        'notify_user{user:"@me"|"<person field>", message} · update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
+        'notify_user{user:"@me"|"@member:<id>"|"<person field>", message} — @member:<id> targets one specific workspace member (get the id from list_members), validated against active membership · ' +
+        'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
         'run_agent{agent, prompt?, ...}. ' +
@@ -6281,6 +7953,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'TEMPLATE TOKENS usable in any templated field: {Field Name} for the triggering record · {linked.Field Name} for the record that ' +
         'was just linked/unlinked (record_linked triggers) · {changesSummary} renders "State: Urgent → Done" · {index} inside create_records. ' +
         'Field/relation/person names and select labels resolve server-side; describe_database first. ' +
+        'A `schedule` trigger only, ADDITIONALLY, can carry `sort`/`limit` to act on a TOP-N SET instead of every condition-matching ' +
+        'record — "top 5 by engagement" rather than "every post over some threshold". `sort` reuses query_records\' sort shape (field ' +
+        'api_name + direction, max 3 keys); ties break deterministically by record id. `limit` is capped — see this tool\'s limit ' +
+        'description for the ceiling. Rejected on every other trigger, since "top N" has no meaning for a rule firing on one record. ' +
+        'get_runs\' selection_rank on each run shows the leaderboard position that got a record selected. ' +
         'The API validates the whole rule and returns a structured error for any bad reference. Rules are enabled by default.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -6294,10 +7971,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('Optional filter AST (same shape as query_records) — the rule only runs on records that match. Not allowed on webhook_received.'),
         enabled: z.boolean().optional().describe('Start enabled (default true).'),
         approver: z.string().optional().describe('User id who approves this rule\'s require_approval actions (defaults to the rule owner).'),
+        sort: z
+          .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
+          .max(3)
+          .optional()
+          .describe('Schedule-only top-N ordering — sort keys by field api_name, same shape as query_records\' sorts. Rejected on any other trigger.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(AUTOMATION_TOP_N_LIMIT_CEILING)
+          .optional()
+          .describe(`Schedule-only top-N count, capped at ${AUTOMATION_TOP_N_LIMIT_CEILING}. Rejected on any other trigger.`),
       },
     },
-    handle<{ workspace: string; database: string; name: string; trigger: unknown; actions: unknown; condition?: unknown; enabled?: boolean; approver?: string }>(
-      async ({ workspace, database, name, trigger, actions, condition, enabled, approver }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      name: string;
+      trigger: unknown;
+      actions: unknown;
+      condition?: unknown;
+      enabled?: boolean;
+      approver?: string;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }>;
+      limit?: number;
+    }>(
+      async ({ workspace, database, name, trigger, actions, condition, enabled, approver, sort, limit }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -6311,6 +8011,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         if (condition !== undefined && condition !== null) body.condition = mapFilterValues(detail, condition);
         if (enabled !== undefined) body.enabled = enabled;
         if (approver !== undefined) body.approverId = approver;
+        if (sort !== undefined) body.sort = sort;
+        if (limit !== undefined) body.limit = limit;
         const row = await unwrap<AutomationRow>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations', {
             params: { path: { ws: ws.id, db: db.id } },
@@ -6337,6 +8039,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // rule created in the UI, because the write side dropped it. Say it is kept.
         'action\'s optional `condition`. Replacing a trigger replaces it WHOLE — read it with get_automation first and pass back ' +
         'the parts you want to keep (direction included), or they are dropped. Pass condition: null to clear a condition. ' +
+        'sort/limit (schedule-only top-N, see create_automation) — pass null to CLEAR either one; omit to leave unchanged. ' +
         'Re-validated the same way.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -6348,10 +8051,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         condition: z.any().optional().describe('Replacement filter AST, or null to clear it.'),
         enabled: z.boolean().optional().describe('Enable (true) or disable (false) the rule.'),
         approver: z.string().nullable().optional().describe('Approver user id, or null to revert to the rule owner.'),
+        sort: z
+          .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
+          .max(3)
+          .nullable()
+          .optional()
+          .describe('Schedule-only top-N ordering (see create_automation), or null to clear it.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(AUTOMATION_TOP_N_LIMIT_CEILING)
+          .nullable()
+          .optional()
+          .describe('Schedule-only top-N count (see create_automation), or null to clear it.'),
       },
     },
-    handle<{ workspace: string; database: string; automation: string; name?: string; trigger?: unknown; actions?: unknown; condition?: unknown; enabled?: boolean; approver?: string | null }>(
-      async ({ workspace, database, automation, name, trigger, actions, condition, enabled, approver }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      automation: string;
+      name?: string;
+      trigger?: unknown;
+      actions?: unknown;
+      condition?: unknown;
+      enabled?: boolean;
+      approver?: string | null;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+      limit?: number | null;
+    }>(
+      async ({ workspace, database, automation, name, trigger, actions, condition, enabled, approver, sort, limit }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -6367,6 +8096,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body.condition = condition === null ? null : mapFilterValues(detail, parseStructuredParam(condition, 'condition'));
         if (enabled !== undefined) body.enabled = enabled;
         if (approver !== undefined) body.approverId = approver;
+        if (sort !== undefined) body.sort = sort;
+        if (limit !== undefined) body.limit = limit;
         const row = await unwrap<AutomationRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
             params: { path: { ws: ws.id, db: db.id, id: automation } },
@@ -6426,5 +8157,184 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text({ deleted: true, affected });
       },
     ),
+  );
+
+  reg(
+    'test_automation',
+    {
+      title: 'Test automation',
+      description:
+        "#684 — dry-run a rule against one record before trusting it live. Omit `action_index` to just check whether the rule's condition matches this record and see which actions WOULD run (no side effects). Pass `action_index` to actually send that one http_request action for real — everything else is not currently testable this way.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+        record: z.string().describe('Record uuid or public number to test against.'),
+        action_index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Index into the rule\'s actions array — actually SENDS that http_request action. Omit for a side-effect-free condition check.'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string; record: string; action_index?: number }>(
+      async ({ workspace, database, automation, record, action_index }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        await fetchAutomation(ws.id, db.id, automation); // 404s early on a bad rule id
+        const recordId = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } } as never,
+            body: { record_id: recordId, ...(action_index !== undefined ? { action_index } : {}) } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'get_automation_last_payload',
+    {
+      title: 'Get automation last payload',
+      description:
+        "#684 — the most recent inbound payload a webhook_received rule received, and when. For mapping the sender's field names to this rule's actions before trusting it live. Never includes the rule's own hook token or secret.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string }>(
+      async ({ workspace, database, automation }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        await fetchAutomation(ws.id, db.id, automation); // 404s early on a bad rule id
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  // #534 — portal recipients: a named external party who can read published
+  // content without a user account, an invitation, or a billable seat. This
+  // ticket ships identity and lifecycle only; row scoping (which content a
+  // recipient can see) is a separate ticket and does not exist yet.
+  reg(
+    'list_portal_recipients',
+    {
+      title: 'List portal recipients',
+      description:
+        'External parties (clients, not users) with standing access to this workspace\'s published portal content — no login, no seat. Read-only here.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/portal-recipients', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ recipients: res });
+    }),
+  );
+
+  reg(
+    'create_portal_recipient',
+    {
+      title: 'Create a portal recipient',
+      description:
+        'Names a new external party for the portal (#534) — never creates a user, sends no invitation, and never counts toward billable seats. Returns a signed token (#602 — id.version.hmac, not a bare opaque value); what content it can reach is not yet wired to anything (row scoping ships separately).',
+      inputSchema: {
+        workspace: z.string(),
+        label: z.string().describe('Display name for this recipient, e.g. a client\'s company name.'),
+        email: z.string().optional().describe('Optional — for your own reference, not used for delivery yet.'),
+        expires_at: z.string().optional().describe('ISO datetime. Absent = never expires. An expired token is refused the same way a revoked one is.'),
+      },
+    },
+    handle<{ workspace: string; label: string; email?: string; expires_at?: string }>(
+      async ({ workspace, label, email, expires_at }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/portal-recipients', {
+            params: { path: { ws: ws.id } },
+            body: { label, email, expires_at } as never,
+          } as never),
+        );
+        return text({ recipient: res });
+      },
+    ),
+  );
+
+  reg(
+    'revoke_portal_recipient',
+    {
+      title: 'Revoke a portal recipient',
+      description:
+        'Closes a recipient\'s access immediately — no cache, no TTL. Irreversible as a token (a new recipient would need a new token); the row itself stays for audit.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().describe('Recipient id (from list_portal_recipients).'),
+      },
+    },
+    handle<{ workspace: string; recipient: string }>(async ({ workspace, recipient }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke', {
+          params: { path: { ws: ws.id, recipient } },
+        } as never),
+      );
+      return text({ revoked: res });
+    }),
+  );
+
+  reg(
+    'rotate_portal_recipient',
+    {
+      title: 'Rotate a portal recipient\'s token',
+      description:
+        '#602 — issues a new signed token for this recipient and atomically invalidates the old one (no window where both or neither work). Use this when a token may have leaked but the recipient should keep access — revoke ends access permanently instead.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().describe('Recipient id (from list_portal_recipients).'),
+      },
+    },
+    handle<{ workspace: string; recipient: string }>(async ({ workspace, recipient }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate', {
+          params: { path: { ws: ws.id, recipient } },
+        } as never),
+      );
+      return text({ recipient: res });
+    }),
+  );
+
+  reg(
+    'list_portal_activity',
+    {
+      title: 'Portal recipient activity log',
+      description:
+        '#537 — "what each client actually saw and did": every recipient-scoped portal access, filterable by recipient and/or published view. served = they got content (even if a fail-closed scope left it empty — this answers "did they look", not "did they see rows"); rejected = turned away, with a reason. A revoked recipient\'s history survives. No IP address or user-agent is ever recorded, by design. A garbage or expired token has no resolvable recipient to attribute an attempt to, so it is never logged here. Read-only.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().optional().describe('Narrow to one recipient id (from list_portal_recipients).'),
+        view: z.string().optional().describe('Narrow to one published view id.'),
+      },
+    },
+    handle<{ workspace: string; recipient?: string; view?: string }>(async ({ workspace, recipient, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const query: Record<string, string> = {};
+      if (recipient) query.recipient = recipient;
+      if (view) query.view = view;
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/portal-activity', { params: { path: { ws: ws.id }, query } } as never),
+      );
+      return text(res);
+    }),
   );
 }

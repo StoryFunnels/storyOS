@@ -6,6 +6,8 @@ import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
 import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
+import { env } from '../config/env';
+import { classRulesFor } from '../action-gates/action-classes';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
@@ -25,6 +27,15 @@ import { ApprovalsService } from './approvals.service';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
+
+/**
+ * #730 — `notify_user`'s `user` target naming a specific workspace member, as
+ * opposed to `'@me'` or the api_name of a person field on the record. A field
+ * api_name is always slugify()'d (lowercase, digits, underscore only — see
+ * databases.service.ts), so an `@`-prefixed token can never collide with one,
+ * the same convention `'@me'` already uses.
+ */
+const MEMBER_TARGET_RE = /^@member:(.+)$/;
 
 /** #244: full-value match — `{linked.Due Date}`, nothing else. Like the payload
  * form, a value that is entirely one linked token resolves to the underlying
@@ -239,6 +250,14 @@ export class AutomationActionsService {
     actions: AutomationAction[],
     triggerType?: string,
     actorRole?: string,
+    /**
+     * #542 — carried alongside `actorRole` for the same MN-256 check below.
+     * `actorRole` alone answers "is this person an admin"; it says nothing
+     * about whether a HUMAN typed this save or an agent (Tyron, an MCP
+     * client) made it on their behalf while acting with their role. Only
+     * omitted by the same two callers `actorRole` already is.
+     */
+    source?: ChangeSource,
   ): Promise<void> {
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
@@ -271,6 +290,23 @@ export class AutomationActionsService {
         });
         if (!target)
           throw new UnprocessableEntityException(`${action.type} targets an unknown database`);
+        if (action.type === 'create_record' && action.upsert) {
+          const keyField = await this.db.query.fields.findFirst({
+            where: and(
+              eq(fields.id, action.upsert.key_field_id),
+              eq(fields.databaseId, action.database_id),
+              isNull(fields.deletedAt),
+            ),
+          });
+          if (!keyField) {
+            throw new UnprocessableEntityException('upsert.key_field_id must be a field on the target database');
+          }
+          if (!(keyField.config as Record<string, unknown>)['unique']) {
+            throw new UnprocessableEntityException(
+              `upsert.key_field_id ("${keyField.displayName}") is not marked unique — only a unique field (#229) can be an upsert key`,
+            );
+          }
+        }
         if (action.link_via_relation_field_id) {
           const relField = await this.db.query.fields.findFirst({
             where: and(
@@ -288,11 +324,32 @@ export class AutomationActionsService {
       }
       if (action.type === 'notify_user') {
         if (action.user !== '@me') {
-          const uf = live.find((f) => f.apiName === action.user);
-          if (!uf || uf.type !== 'user') {
-            throw new UnprocessableEntityException(
-              'notify_user "user" must be @me or a person field',
-            );
+          const memberMatch = MEMBER_TARGET_RE.exec(action.user);
+          if (memberMatch) {
+            // #730 — validated against ACTUAL, ACTIVE workspace membership so
+            // a stale or foreign id can't be set: a removed member's row is
+            // gone (MembersService.remove() hard-deletes), and an id that was
+            // never a member of this workspace never had one.
+            const targetUserId = memberMatch[1]!;
+            const membership = await this.db.query.memberships.findFirst({
+              where: and(
+                eq(memberships.workspaceId, workspaceId),
+                eq(memberships.userId, targetUserId),
+                eq(memberships.status, 'active'),
+              ),
+            });
+            if (!membership) {
+              throw new UnprocessableEntityException(
+                'notify_user targets a member who is not an active member of this workspace',
+              );
+            }
+          } else {
+            const uf = live.find((f) => f.apiName === action.user);
+            if (!uf || uf.type !== 'user') {
+              throw new UnprocessableEntityException(
+                'notify_user "user" must be @me, @member:<id>, or a person field',
+              );
+            }
           }
         }
       }
@@ -326,9 +383,25 @@ export class AutomationActionsService {
         // MN-256: only an admin may save a send_email action with the
         // approval gate explicitly turned off — a member can still turn it
         // ON (require_approval: true), or leave it at the default.
-        if (action.require_approval === false && actorRole !== undefined && actorRole !== 'admin') {
+        //
+        // #542 — `actorRole` alone let an agent acting AS an admin (Tyron,
+        // an admin-scoped PAT) turn the gate off just as freely as the
+        // admin themselves typing it in — an instruction can author its way
+        // around the one action class this codebase otherwise gates well.
+        // The role check establishes WHO; this establishes that a HUMAN
+        // actually made the call, not something generated on their behalf.
+        // `source === undefined` (the two run-time-only callers noted on
+        // `validate`'s own doc) is treated as human — it means "no request
+        // context", never "an agent with the context stripped".
+        if (
+          action.require_approval === false &&
+          actorRole !== undefined &&
+          (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
+        ) {
           throw new UnprocessableEntityException(
-            'Only a workspace admin can turn off approval for a send_email action.',
+            source !== undefined && source !== 'human'
+              ? 'Turning off approval for a send_email action has to be a human decision, typed by a workspace admin — not something authored on their behalf.'
+              : 'Only a workspace admin can turn off approval for a send_email action.',
           );
         }
       }
@@ -354,6 +427,63 @@ export class AutomationActionsService {
             );
           }
         }
+      }
+      if (action.type === 'post_social') {
+        const connection = await this.db.query.connections.findFirst({
+          where: and(eq(connections.id, action.connection_id), eq(connections.workspaceId, workspaceId)),
+        });
+        if (!connection) {
+          throw new UnprocessableEntityException('post_social references an unknown connection');
+        }
+        const expectedProvider = action.target === 'x' ? 'x' : 'linkedin';
+        if (connection.provider !== expectedProvider) {
+          throw new UnprocessableEntityException(
+            `post_social's connection must be a '${expectedProvider}' connection for target "${action.target}" (got "${connection.provider}")`,
+          );
+        }
+        // Ticket #42 — LinkedIn needs its own app-review clearance (restricted
+        // w_organization_social/r_organization_social scopes) before a
+        // linkedin_org/linkedin_member post_social can actually run; reuses
+        // MN-261's LINKEDIN_ACTIONS_ENABLED kill-switch (env.ts) rather than a
+        // second flag. `x` carries no such gate — it is bring-your-own-tier
+        // and always available once connected.
+        if (action.target !== 'x' && !env().LINKEDIN_ACTIONS_ENABLED) {
+          throw new UnprocessableEntityException(
+            'LinkedIn post_social actions are not enabled on this deployment — the LinkedIn provider is not enabled yet.',
+          );
+        }
+        if (action.media_field_id) {
+          const mediaField = live.find((f) => f.id === action.media_field_id);
+          if (!mediaField) {
+            throw new UnprocessableEntityException('post_social media_field_id must be a field on this database');
+          }
+        }
+        if (action.result_field_id) {
+          const resultField = live.find((f) => f.id === action.result_field_id);
+          if (!resultField) {
+            throw new UnprocessableEntityException('post_social result_field_id must be a field on this database');
+          }
+        }
+      }
+
+      // #781 — a class's save-time rule, declared once in action-classes.ts rather than
+      // re-typed inside each action. For `publish_externally` (today: post_social) an
+      // explicit `require_approval: false` is the decision that removes the only thing
+      // standing between an automation and a public post, so only an admin, typing it
+      // themselves (never an agent or MCP client authoring on their behalf), may save it.
+      // Same rule and same wording send_email has; the messages are unchanged for post_social.
+      const classRules = classRulesFor(action.type);
+      if (
+        classRules?.ungateNeedsHumanAdmin &&
+        action.require_approval === false &&
+        actorRole !== undefined &&
+        (actorRole !== 'admin' || (source !== undefined && source !== 'human'))
+      ) {
+        throw new UnprocessableEntityException(
+          source !== undefined && source !== 'human'
+            ? `Turning off approval for a ${action.type} action has to be a human decision, typed by a workspace admin — not something authored on their behalf.`
+            : `Only a workspace admin can turn off approval for a ${action.type} action.`,
+        );
       }
     }
   }
@@ -614,10 +744,15 @@ export class AutomationActionsService {
       }
       case 'create_record': {
         const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
-        return {
-          snapshot: { ...action, values },
-          previewText: `Create a record${typeof values.name === 'string' ? ` "${values.name}"` : ''}`,
-        };
+        const named = typeof values.name === 'string' ? ` "${values.name}"` : '';
+        // #230 — a gated create_record configured to upsert might actually
+        // match and update (or skip) an existing record instead of creating
+        // one; the approver deserves the real possibility, not a guaranteed
+        // "Create" that the run itself might not honor.
+        const previewText = action.upsert
+          ? `Create${named}, or update/skip a matching existing record (upsert)`
+          : `Create a record${named}`;
+        return { snapshot: { ...action, values }, previewText };
       }
       case 'create_records': {
         // #246: the per-item {index}/token resolution happens at execute() time
@@ -684,6 +819,17 @@ export class AutomationActionsService {
       case 'http_request': {
         const snapshot = { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
         return { snapshot, previewText: `${action.method} ${snapshot.url}` };
+      }
+      case 'post_social': {
+        // Ticket #42 — rendered here (once) the same way send_email's body is,
+        // whether or not this ends up gated; the executor (post-social.action
+        // .ts) never touches {Field}/{payload} interpolation itself.
+        const text = this.interpolate(action.text, ctx, displayToApi);
+        const link = action.link ? this.interpolate(action.link, ctx, displayToApi) : action.link;
+        return {
+          snapshot: { ...action, text, link },
+          previewText: `Post to ${action.target}: ${text.slice(0, 200)}`,
+        };
       }
     }
   }
@@ -803,6 +949,13 @@ export class AutomationActionsService {
       // saved. An explicit `true`/`false` on the action always wins outright:
       // this defaulting only ever applies when the field was left unset.
       let requireApproval = action.require_approval;
+      // #781 — a gated CLASS is held by default when the author left the field unset
+      // (publish_externally: post_social). Before this, only send_email had a default, so
+      // an unset post_social was queued and PUBLISHED with no approval at all, while #42's
+      // own title says "approval-gated by default". An explicit true/false still wins.
+      if (requireApproval === undefined && classRulesFor(action.type)?.approvalWhenUnset === 'gated') {
+        requireApproval = true;
+      }
       if (action.type === 'send_email' && requireApproval === undefined) {
         requireApproval = true;
         const addresses = splitEmailAddresses(
@@ -865,7 +1018,7 @@ export class AutomationActionsService {
         // registered kind today (run_agent's own case returns the action
         // verbatim).
         const enqueueAction: AutomationAction =
-          action.type === 'send_email'
+          action.type === 'send_email' || action.type === 'post_social'
             ? this.renderForApproval(action, ctx, displayToApi).snapshot
             : action.type === 'http_request'
               ? { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) }
@@ -942,15 +1095,48 @@ export class AutomationActionsService {
           displayToApi,
           await this.numericContext(ctx.databaseId, action.database_id),
         );
-        const created = await this.recordsService.create(
-          ctx.workspaceId,
-          action.database_id,
-          values,
-          ctx.actorId,
-          ctx.depth ?? 0,
-        );
+        let created: { id: string; title: string };
+        let wasCreated = true;
+        if (action.upsert) {
+          // #230 — match-or-create on the configured key, via the SAME
+          // RecordsService.upsert() the REST/MCP endpoint uses. validate()
+          // already confirmed key_field_id is a unique field on this
+          // database, so the only new lookup here is its api_name.
+          const defs = await this.recordsService.fieldDefs(action.database_id);
+          const keyDef = defs.find((d) => d.id === action.upsert!.key_field_id);
+          if (!keyDef) {
+            throw new UnprocessableEntityException(
+              'upsert.key_field_id no longer exists on the target database',
+            );
+          }
+          const result = await this.recordsService.upsert(
+            ctx.workspaceId,
+            action.database_id,
+            keyDef.api_name,
+            values,
+            ctx.actorId,
+            ctx.source ?? 'automation',
+            undefined,
+            undefined,
+            action.upsert.on_match,
+          );
+          created = result.record;
+          wasCreated = result.created;
+        } else {
+          created = await this.recordsService.create(
+            ctx.workspaceId,
+            action.database_id,
+            values,
+            ctx.actorId,
+            ctx.depth ?? 0,
+            ctx.source ?? 'automation',
+          );
+        }
         // MN-254: a webhook-triggered create_record has no source record to link
-        // back to — skip the link rather than crash.
+        // back to — skip the link rather than crash. Linking runs even when an
+        // upsert matched-and-skipped: addLinks is idempotent, and a rule that
+        // runs repeatedly over time should keep the relation present rather
+        // than only setting it up the first time the record is created.
         if (action.link_via_relation_field_id && ctx.record) {
           await this.relationsService.addLinks(
             ctx.workspaceId,
@@ -959,12 +1145,19 @@ export class AutomationActionsService {
             action.link_via_relation_field_id,
             [ctx.record.id],
             ctx.actorId,
+            ctx.source ?? 'automation',
           );
         }
         effects.push({
           type: 'create_record',
           record_id: created.id,
-          summary: `Created "${created.title}"`,
+          summary: action.upsert
+            ? wasCreated
+              ? `Created "${created.title}"`
+              : action.upsert.on_match === 'skip'
+                ? `Matched existing "${created.title}" — left unchanged (skip)`
+                : `Updated existing "${created.title}"`
+            : `Created "${created.title}"`,
         });
       } else if (action.type === 'create_records') {
         // #246: a dynamic-count batch create. Each record shares one template;
@@ -983,6 +1176,7 @@ export class AutomationActionsService {
             values,
             ctx.actorId,
             ctx.depth ?? 0,
+            ctx.source ?? 'automation',
           );
           createdCount += 1;
           if (action.link_via_relation_field_id && ctx.record) {
@@ -993,6 +1187,7 @@ export class AutomationActionsService {
               action.link_via_relation_field_id,
               [ctx.record.id],
               ctx.actorId,
+              ctx.source ?? 'automation',
             );
           }
         }
@@ -1010,17 +1205,21 @@ export class AutomationActionsService {
           record.id,
           [{ type: 'text', text }],
           ctx.actorId,
+          'automation',
         );
         effects.push({ type: 'add_comment', record_id: record.id, summary: 'Commented' });
       } else if (action.type === 'notify_user') {
         const message = this.interpolate(action.message, ctx, displayToApi);
         let recipients: string[];
+        const memberMatch = action.user === '@me' ? null : MEMBER_TARGET_RE.exec(action.user);
         if (action.user === '@me') recipients = [ctx.actorId];
+        else if (memberMatch) recipients = [memberMatch[1]!];
         else if (ctx.record) {
           const raw = ctx.record.values[action.user];
           recipients = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
         } else {
-          // validate() only allows a non-'@me' user field when a record exists.
+          // validate() only allows a non-'@me'/non-member-target user field
+          // when a record exists.
           recipients = [];
         }
         await this.notificationsService.notify({

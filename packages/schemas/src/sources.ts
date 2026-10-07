@@ -58,9 +58,42 @@ export type SourceStatus = z.infer<typeof sourceStatusSchema>;
 export const sourceRunStatusSchema = z.enum(['running', 'ok', 'error', 'skipped_quota', 'skipped_cap']);
 export type SourceRunStatus = z.infer<typeof sourceRunStatusSchema>;
 
-/** `{ external_key: field_id }` — which provider-emitted key writes which field. */
-export const sourceFieldMappingSchema = z.record(z.string().min(1), z.uuid());
+/**
+ * #280 (write-back, slice B) — a mapped field's direction: `in` (pull only,
+ * the only thing that existed before this ticket), `out` (push only), or
+ * `both`. Unset/legacy (a bare field id, see the union below) means `in` —
+ * every source made before this ticket keeps behaving exactly as it did.
+ */
+export const sourceFieldDirectionSchema = z.enum(['in', 'out', 'both']);
+export type SourceFieldDirection = z.infer<typeof sourceFieldDirectionSchema>;
+
+/**
+ * `{ external_key: field_id }` — which provider-emitted key writes which
+ * field. The bare-uuid form is what every source stored before #280 and is
+ * NOT deprecated — it's the permanent shorthand for "in, no push" (the
+ * common case), so a source's stored data never needs migrating; only a
+ * field that actually wants `out`/`both` needs the object form.
+ */
+export const sourceFieldMappingEntrySchema = z.union([
+  z.uuid(),
+  z.object({ field_id: z.uuid(), direction: sourceFieldDirectionSchema.default('in') }),
+]);
+export const sourceFieldMappingSchema = z.record(z.string().min(1), sourceFieldMappingEntrySchema);
+export type SourceFieldMappingEntry = z.infer<typeof sourceFieldMappingEntrySchema>;
 export type SourceFieldMapping = z.infer<typeof sourceFieldMappingSchema>;
+
+/**
+ * #280 — per-source resolution when both sides changed. `external_wins`
+ * (a pull overwrites a local edit) is the safe default because it's what
+ * every source already does today, byte-for-byte, before this ticket — a
+ * different default would be a silent behavior change for every existing
+ * source, not just new ones. `newest_wins` needs a comparable external
+ * timestamp; a provider that doesn't expose one (see
+ * `SourceProviderDescriptor.supportsNewestWins`) must refuse it rather than
+ * silently comparing incomparable clocks.
+ */
+export const sourceConflictPolicySchema = z.enum(['external_wins', 'storyos_wins', 'newest_wins']);
+export type SourceConflictPolicy = z.infer<typeof sourceConflictPolicySchema>;
 
 export const createSourceSchema = z.object({
   name: z.string().trim().min(1).max(100),

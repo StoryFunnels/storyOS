@@ -10,6 +10,8 @@ import { API_URL } from '@/lib/api';
 import { matchExistingField } from '@storyos/schemas';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 
@@ -30,6 +32,21 @@ interface DryRun {
   new_fields: Array<{ display_name: string; type: string }>;
   warnings: Array<{ row: number; column: string; message: string }>;
   warnings_total: number;
+  /** #378 — present only when a key column is set; counts a plain create-only
+   *  run never needs. */
+  will_update?: number;
+  will_skip?: number;
+}
+
+/** #378 — how an incoming row relates to a record that already exists,
+ *  mirroring UpsertOptions on the server (import.service.ts). Undefined
+ *  means create-only — the only behaviour possible before this ticket, and
+ *  still the default: choosing a key column is opt-in. */
+interface Upsert {
+  column: string;
+  match_field_id?: string;
+  on_match: 'update' | 'skip' | 'create';
+  on_no_match: 'create' | 'skip';
 }
 
 /**
@@ -78,11 +95,14 @@ export class ImportError extends Error {
   }
 }
 
-async function post(ws: string, db: string, file: File, mapping: unknown, dryRun: boolean) {
+async function post(ws: string, db: string, file: File, mapping: unknown, dryRun: boolean, upsert?: Upsert) {
   const form = new FormData();
   form.append('mapping', JSON.stringify(mapping));
   form.append('dry_run', String(dryRun));
   form.append('file', file);
+  // #378 — omitted entirely for a create-only run, matching the server's own
+  // "absent = create-only, the previous behaviour" contract (import.controller.ts).
+  if (upsert) form.append('upsert', JSON.stringify(upsert));
   const res = await fetch(`${API_URL}/api/v1/workspaces/${ws}/databases/${db}/import`, {
     method: 'POST',
     credentials: 'include',
@@ -124,9 +144,10 @@ function RelationMatchPicker({
   const target = useDatabase(ws, targetDatabaseId);
   const candidates = (target.data?.fields ?? []).filter((f) => MATCHABLE.has(f.type));
   return (
-    <select
+    <Select
       aria-label="Match on which field"
-      className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+      size="sm"
+      className="w-40 shrink-0"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
     >
@@ -140,7 +161,7 @@ function RelationMatchPicker({
             match on {f.displayName}
           </option>
         ))}
-    </select>
+    </Select>
   );
 }
 
@@ -154,8 +175,21 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
   const [sampleRows, setSampleRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Map<string, Destination>>(new Map());
   const [dryRun, setDryRun] = useState<DryRun | null>(null);
-  const [result, setResult] = useState<{ created: number; warnings_total: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated: number; skipped: number; warnings_total: number } | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
+  /** #378 — '' means create-only, the default and the only choice before this
+   *  ticket. Set once, in the mapping step, applied to both the dry run and
+   *  the commit — a key chosen for the check and dropped for the real run
+   *  would report numbers that do not match what actually happened. */
+  const [upsertColumn, setUpsertColumn] = useState('');
+  const [upsertMatchField, setUpsertMatchField] = useState<string | undefined>(undefined);
+  const [onMatch, setOnMatch] = useState<Upsert['on_match']>('update');
+  const [onNoMatch, setOnNoMatch] = useState<Upsert['on_no_match']>('create');
+  const upsert: Upsert | undefined = upsertColumn
+    ? { column: upsertColumn, match_field_id: upsertMatchField, on_match: onMatch, on_no_match: onNoMatch }
+    : undefined;
   /**
    * #373 — kept in STATE, not only in a toast. A toast cannot be scrolled when
    * many rows fail and cannot be selected, and people paste these into support
@@ -235,7 +269,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
     setBusy(true);
     setFailure(null);
     try {
-      setDryRun(await post(ws, db, file!, mappingArray(), true));
+      setDryRun(await post(ws, db, file!, mappingArray(), true, upsert));
     } catch (error) {
       const err = error instanceof ImportError ? error : new ImportError((error as Error).message);
       setFailure(err);
@@ -249,11 +283,12 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
     setBusy(true);
     setFailure(null);
     try {
-      const res = await post(ws, db, file!, mappingArray(), false);
+      const res = await post(ws, db, file!, mappingArray(), false, upsert);
       setResult(res);
       void qc.invalidateQueries();
       posthog.capture('csv_import_completed', {
         records_created: res.created,
+        records_updated: res.updated,
         warnings_total: res.warnings_total,
       });
     } catch (error) {
@@ -278,7 +313,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
         {failure && (
           /* #373 — the specifics the server sent, shown instead of discarded.
              `select-text` because these get pasted into support threads. */
-          <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-[13px]">
+          <div className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-body">
             <p className="font-medium text-error">{failure.message}</p>
             {/* Whether ANYTHING landed was previously unstated, and it is the
                 first thing you want to know before retrying. */}
@@ -286,7 +321,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
               {step === 4 ? 'Some rows may have been imported — check the summary.' : 'Nothing was imported.'}
             </p>
             {failure.details.length > 0 && (
-              <ul className="mt-2 max-h-40 select-text space-y-1 overflow-y-auto font-mono text-[12px] text-ink-secondary">
+              <ul className="mt-2 max-h-40 select-text space-y-1 overflow-y-auto font-mono text-label text-ink-secondary">
                 {failure.details.map((d, i) => (
                   <li key={i}>
                     {d.path ? <span className="text-faint">{d.path}: </span> : null}
@@ -298,7 +333,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
           </div>
         )}
         {step === 1 && (
-          <label className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-border-strong text-[13px] text-muted hover:bg-hover">
+          <label className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-border-strong text-body text-muted hover:bg-hover">
             {busy ? 'Parsing…' : 'Click to choose a .csv file (≤10MB)'}
             <input
               type="file"
@@ -314,12 +349,93 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
 
         {step === 2 && (
           <>
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               {/* #376 — with 22 columns there was no sense of scale: no count, and
                   no way to tell how far down you had got. */}
               Map each column — <span className="text-ink">{inferred.length} columns</span>. Exactly one must be
               the record title.
             </p>
+
+            {/* #378 — opt-in key matching. Absent by default: the overwhelming
+                majority of imports are still plain create-only, and this must
+                render identically to before when no key column is chosen. */}
+            <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-body">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-ink-secondary">Match existing items by</span>
+                <Select
+                  aria-label="Key column"
+                  size="sm"
+                  value={upsertColumn}
+                  onChange={(e) => setUpsertColumn(e.target.value)}
+                >
+                  <option value="">nothing — always create new items</option>
+                  {inferred.map((c) => (
+                    <option key={c.column} value={c.column}>
+                      {c.column}
+                    </option>
+                  ))}
+                </Select>
+                {upsertColumn && (
+                  <>
+                    <span className="text-ink-secondary">against</span>
+                    <Select
+                      aria-label="Match on which field"
+                      size="sm"
+                      value={upsertMatchField ?? ''}
+                      onChange={(e) => setUpsertMatchField(e.target.value || undefined)}
+                    >
+                      <option value="">the item title</option>
+                      {(database.data?.fields ?? [])
+                        .filter((f) => MATCHABLE.has(f.type) && f.type !== 'title')
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.displayName}
+                          </option>
+                        ))}
+                    </Select>
+                  </>
+                )}
+              </div>
+              {upsertColumn && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-ink-secondary">If a row matches:</span>
+                    <Select
+                      aria-label="If a row matches"
+                      size="sm"
+                      value={onMatch}
+                      onChange={(e) => setOnMatch(e.target.value as Upsert['on_match'])}
+                    >
+                      <option value="update">Update it</option>
+                      <option value="skip">Skip it</option>
+                      <option value="create">Create a new item anyway</option>
+                    </Select>
+                    <span className="text-ink-secondary">If it doesn&apos;t match:</span>
+                    <Select
+                      aria-label="If a row doesn't match"
+                      size="sm"
+                      value={onNoMatch}
+                      onChange={(e) => setOnNoMatch(e.target.value as Upsert['on_no_match'])}
+                    >
+                      <option value="create">Create it</option>
+                      <option value="skip">Skip it</option>
+                    </Select>
+                  </div>
+                  {/* #478 AC — the one place a user makes an irreversible choice;
+                      the risk is stated here, not left in a docs page they may
+                      not have read. import.service.ts:718-724: an update has no
+                      before-image, so a failed import cannot undo it the way a
+                      failed create-only import can. */}
+                  {onMatch === 'update' && (
+                    <p className="text-label text-warning">
+                      If this import fails partway through, newly created records are automatically
+                      removed — but any records already updated stay updated. Only creates roll back.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
             {/*
               The clip must land BETWEEN rows, never through one: a half-row reads
               as a rendering bug, a clean edge reads as "scroll me". #333 learned
@@ -359,8 +475,8 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                     className="box-border flex h-[52px] items-center gap-3 border-b border-border-default px-3 last:border-b-0"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{c.column}</p>
-                      <p className="truncate text-[11px] text-faint">
+                      <p className="truncate text-body font-medium text-ink">{c.column}</p>
+                      <p className="truncate text-meta text-faint">
                         {/* #379 — say when the choice was made automatically. */}
                         {autoMatched.has(c.column) && to.kind === 'existing' ? (
                           <span className="text-accent">matched to an existing field · </span>
@@ -376,9 +492,10 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         failed run had no way to import the same column under a
                         different name. */}
                     {to.kind === 'new' && (
-                      <input
+                      <Input
                         aria-label={`Name for the new field from "${c.column}"`}
-                        className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        size="sm"
+                        className="w-40 shrink-0"
                         value={to.display_name}
                         onChange={(e) => {
                           const next = new Map(mapping);
@@ -403,8 +520,9 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         }}
                       />
                     )}
-                    <select
-                      className="h-8 w-56 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    <Select
+                      size="sm"
+                      className="w-56 shrink-0"
                       value={encoded}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -423,7 +541,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         setMapping(next);
                       }}
                     >
-                      <option value="title">→ Record title</option>
+                      <option value="title">→ Item title</option>
                       <optgroup label="New field">
                         {offerableTypes.map((t) => (
                           <option key={t} value={`new:${t}`}>
@@ -464,7 +582,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         </optgroup>
                       )}
                       <option value="skip">Don't import</option>
-                    </select>
+                    </Select>
                   </div>
                 );
               })}
@@ -475,15 +593,20 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
         {step === 3 && dryRun && (
           <>
             <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4">
-              <p className="text-[14px] font-medium text-ink">
-                {dryRun.will_create} of {dryRun.rows} rows will import
+              <p className="text-prose font-medium text-ink">
+                {/* #378 — a create-only run (no key column) shows the original
+                    sentence unchanged; update/skip counts only appear once
+                    they mean something. */}
+                {upsertColumn
+                  ? `${dryRun.will_create} will create, ${dryRun.will_update ?? 0} will update, ${dryRun.will_skip ?? 0} will skip — of ${dryRun.rows} rows`
+                  : `${dryRun.will_create} of ${dryRun.rows} rows will import`}
                 {dryRun.new_fields.length > 0 && ` · ${dryRun.new_fields.length} new fields`}
                 {dryRun.warnings_total > 0 && ` · ${dryRun.warnings_total} warnings`}
               </p>
               {dryRun.warnings.length > 0 && (
                 <div className="mt-2 max-h-40 overflow-y-auto">
                   {dryRun.warnings.map((w, i) => (
-                    <p key={i} className="text-[12px] text-muted">
+                    <p key={i} className="text-label text-muted">
                       Row {w.row} · {w.column}: {w.message}
                     </p>
                   ))}
@@ -495,9 +618,13 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
 
         {step === 4 && result && (
           <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4 text-center">
-            <p className="text-[15px] font-semibold text-ink">Imported {result.created} records 🎉</p>
+            <p className="text-title font-semibold text-ink">
+              {upsertColumn
+                ? `Created ${result.created}, updated ${result.updated}, skipped ${result.skipped} 🎉`
+                : `Imported ${result.created} records 🎉`}
+            </p>
             {result.warnings_total > 0 && (
-              <p className="mt-1 text-[12px] text-muted">{result.warnings_total} cells were dropped with warnings.</p>
+              <p className="mt-1 text-label text-muted">{result.warnings_total} cells were dropped with warnings.</p>
             )}
           </div>
         )}

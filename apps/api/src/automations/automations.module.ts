@@ -18,6 +18,7 @@ import { HooksController } from './hooks.controller';
 import { HookRateLimiterService } from './hook-rate-limiter.service';
 import { HttpRequestActionService } from './http-request-action.service';
 import { JobRunnerService } from './job-runner.service';
+import { PostSocialActionService } from './post-social.action';
 import { SendEmailActionService } from './send-email.action';
 
 @Module({
@@ -44,6 +45,8 @@ import { SendEmailActionService } from './send-email.action';
     // boot (onModuleInit) — never referenced directly outside this module
     // except by AutomationsService for the editor's "send test request".
     HttpRequestActionService,
+    // Ticket #42 / MN-257: registers the 'post_social' executor the same way.
+    PostSocialActionService,
   ],
   exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService, HttpRequestActionService],
 })

@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, memberships, records, user } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -117,14 +118,19 @@ export class CommentsService {
   }
 
   /** #140: comments feed record backlinks — resync after any comment write. Best-effort. */
-  private resyncMentions(workspaceId: string, recordId: string, actorId: string): void {
+  private resyncMentions(workspaceId: string, recordId: string, actorId: string, source: ChangeSource): void {
     void this.db.query.records
       .findFirst({ where: eq(records.id, recordId), columns: { databaseId: true } })
       .then((r) =>
         r
-          ? this.mentionsService.syncRecordMentions(workspaceId, r.databaseId, recordId, actorId, {
-              notify: false, // comments notify their own @mentions
-            })
+          ? this.mentionsService.syncRecordMentions(
+              workspaceId,
+              r.databaseId,
+              recordId,
+              actorId,
+              { notify: false }, // comments notify their own @mentions
+              source,
+            )
           : undefined,
       )
       .catch(() => undefined);
@@ -133,7 +139,9 @@ export class CommentsService {
   async list(recordId: string, limit = 100) {
     const rows = await this.db.query.comments.findMany({
       where: and(eq(comments.recordId, recordId), isNull(comments.deletedAt)),
-      orderBy: [desc(comments.createdAt)],
+      // #771 — createdAt alone leaves two same-millisecond comments in
+      // undefined order; id is a stable, arbitrary-but-fixed tiebreak.
+      orderBy: [desc(comments.createdAt), desc(comments.id)],
       limit,
     });
     const authors = rows.length
@@ -151,6 +159,12 @@ export class CommentsService {
           name: byId.get(c.authorId)?.name ?? '(deactivated)',
           image: byId.get(c.authorId)?.image ?? null,
         },
+        // #734 — real provenance (api_tokens.origin, via #481/#541's shared
+        // vocabulary), null for a comment posted before this shipped. No
+        // more hand-typing a name into the body to fake it.
+        source: c.source,
+        agent_id: c.agentId,
+        agent_name: c.agentName,
         edited_at: c.editedAt,
         created_at: c.createdAt,
       })),
@@ -162,13 +176,18 @@ export class CommentsService {
     recordId: string,
     body: CommentBody,
     authorId: string,
+    source: ChangeSource = 'human',
+    // #734 — same optional trailing pair every other write path (records,
+    // documents) already accepts.
+    agentId?: string,
+    agentName?: string,
   ) {
     const { mentions } = await this.validateBody(workspaceId, body);
 
     const created = await this.db.transaction(async (tx) => {
       const [comment] = await tx
         .insert(comments)
-        .values({ recordId, authorId, body, mentions })
+        .values({ recordId, authorId, body, mentions, source, agentId, agentName })
         .returning();
       await tx.insert(activityEvents).values({
         workspaceId,
@@ -176,6 +195,7 @@ export class CommentsService {
         actorId: authorId,
         type: 'comment.created',
         payload: { comment_id: comment!.id },
+        source,
       });
       return comment!;
     });
@@ -218,8 +238,15 @@ export class CommentsService {
       recipients: participants,
       snippet,
     });
-    this.resyncMentions(workspaceId, recordId, authorId);
-    return { id: created.id, body: created.body, created_at: created.createdAt };
+    this.resyncMentions(workspaceId, recordId, authorId, source);
+    return {
+      id: created.id,
+      body: created.body,
+      source: created.source,
+      agent_id: created.agentId,
+      agent_name: created.agentName,
+      created_at: created.createdAt,
+    };
   }
 
   private async notifyMentions(
@@ -268,7 +295,14 @@ export class CommentsService {
     await this.slackService.sendMessage(workspaceId, { text: slackText }).catch(() => undefined);
   }
 
-  async update(recordId: string, commentId: string, body: CommentBody, actorId: string, workspaceId: string) {
+  async update(
+    recordId: string,
+    commentId: string,
+    body: CommentBody,
+    actorId: string,
+    workspaceId: string,
+    source: ChangeSource = 'human',
+  ) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId) throw new ForbiddenException('Only the author can edit a comment');
     const { mentions } = await this.validateBody(workspaceId, body);
@@ -277,18 +311,25 @@ export class CommentsService {
       .set({ body, mentions, editedAt: new Date() })
       .where(eq(comments.id, commentId))
       .returning();
-    this.resyncMentions(workspaceId, recordId, actorId);
+    this.resyncMentions(workspaceId, recordId, actorId, source);
     return { id: updated!.id, body: updated!.body, edited_at: updated!.editedAt };
   }
 
-  async remove(recordId: string, commentId: string, actorId: string, isAdmin: boolean, workspaceId?: string) {
+  async remove(
+    recordId: string,
+    commentId: string,
+    actorId: string,
+    isAdmin: boolean,
+    workspaceId?: string,
+    source: ChangeSource = 'human',
+  ) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId && !isAdmin) {
       throw new ForbiddenException('Only the author or an admin can delete a comment');
     }
     await this.db.update(comments).set({ deletedAt: new Date() }).where(eq(comments.id, commentId));
     // A deleted comment's #mentions must drop their backlinks (#140).
-    if (workspaceId) this.resyncMentions(workspaceId, recordId, actorId);
+    if (workspaceId) this.resyncMentions(workspaceId, recordId, actorId, source);
     return { deleted: true };
   }
 

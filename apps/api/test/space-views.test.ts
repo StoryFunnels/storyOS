@@ -382,13 +382,16 @@ describe('GET /spaces/:space/views (#347)', () => {
       return res.json().id as string;
     };
 
-    it('deletes it, and it stops listing in the space', async () => {
+    it('soft-deletes it (#453) and it stops listing in the space', async () => {
       const id = await makeSpaceDashboard('Delete me');
       const res = await as(admin.token, 'DELETE', `/workspaces/${wsId}/views/${id}`);
       expect(res.statusCode, res.body).toBeLessThan(300);
 
-      const { rows } = await db.pool.query(`SELECT id FROM views WHERE id = $1`, [id]);
-      expect(rows, 'the row is really gone, not just hidden').toHaveLength(0);
+      // #453: views/databases/spaces are soft-deleted now — the row survives
+      // with deleted_at set, it just stops appearing in reads.
+      const { rows } = await db.pool.query(`SELECT deleted_at FROM views WHERE id = $1`, [id]);
+      expect(rows, 'the row must still exist').toHaveLength(1);
+      expect(rows[0].deleted_at, 'deleted_at must be set').not.toBeNull();
 
       const list = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
       const names = (JSON.parse(list.body).data as Array<{ name: string }>).map((v) => v.name);

@@ -56,6 +56,18 @@ export class SpaceViewsController {
   }
 
   /**
+   * #551 — every personal view the caller owns, across the whole workspace,
+   * for the Personal sidebar section (#292). Registered BEFORE `views/:view`
+   * below — a static segment declared after a dynamic one would never be
+   * reached, since Nest matches routes in declaration order.
+   */
+  @Get('views/personal')
+  @ApiOperation({ summary: "My own personal views across the workspace, for the Personal sidebar section (#551)" })
+  async listPersonal(@Req() req: WorkspaceRequest) {
+    return { data: await this.spaceViews.listPersonal(req.membership) };
+  }
+
+  /**
    * #306 — the view-first route. A view with no database cannot be addressed
    * under /databases/:db, and this resolves EITHER kind, so the existing
    * database-scoped URLs did not have to change.

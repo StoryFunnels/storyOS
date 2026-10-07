@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewConfig } from '@storyos/schemas';
-import { boardGroupError, cleanViewConfig, defaultBoardGroupBy } from './views.service';
+import { boardGroupError, boardGroupIsReadOnly, cleanViewConfig, defaultBoardGroupBy } from './views.service';
 
 /**
  * MN-258: cleanViewConfig's `cleanFilters` walk was already recursive (it has to
@@ -18,6 +18,7 @@ const BASE: Omit<ViewConfig, 'filters'> = {
   card_field_ids: [],
   dashboard_tiles: [],
   dashboard_widgets: [],
+  summary_widgets: [],
   column_widths: {},
 };
 
@@ -327,6 +328,58 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
   });
 });
 
+describe('cleanViewConfig — inline summary widgets (#228)', () => {
+  const summaries = (summary_widgets: ViewConfig['summary_widgets']) =>
+    cleanViewConfig({ ...BASE, summary_widgets }, new Set(), new Set(['stage', 'amount']))
+      .summary_widgets;
+
+  const sw = (over: Partial<NonNullable<ViewConfig['summary_widgets']>[number]>) => ({
+    id: '66666666-6666-4666-8666-666666666666',
+    type: 'stat' as const,
+    title: '',
+    op: 'count' as const,
+    ...over,
+  });
+
+  it('keeps a plain count widget (no field, no group-by)', () => {
+    expect(summaries([sw({})])).toHaveLength(1);
+  });
+
+  it('keeps a numeric stat widget whose field is live', () => {
+    expect(summaries([sw({ op: 'sum', field_api_name: 'amount' })])).toHaveLength(1);
+  });
+
+  it('drops a stat widget whose field was deleted', () => {
+    expect(summaries([sw({ op: 'sum', field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('keeps a chart widget whose group-by field is live', () => {
+    expect(summaries([sw({ type: 'bar', group_by_field_api_name: 'stage' })])).toHaveLength(1);
+  });
+
+  it('drops a chart widget whose group-by field was deleted', () => {
+    expect(summaries([sw({ type: 'bar', group_by_field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  // #305 — "Add widget" creates one with no group-by/field yet; requiring one
+  // here would strip it on the very next read, the same defect tiles/widgets
+  // already had to fix.
+  it('keeps a freshly added chart widget with no group-by field yet (#305)', () => {
+    expect(summaries([sw({ type: 'bar' })])).toHaveLength(1);
+  });
+
+  it('has no database_id/filter exemption — unlike a dashboard tile/widget, always the view\'s own', () => {
+    // #228's own AC forbids a summary widget from diverging from the view's
+    // scope, so — unlike #304/#367's cross-database carve-out — a dangling
+    // reference here is ALWAYS dropped, with nothing to check it against.
+    expect(summaries([sw({ op: 'sum', field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('defaults to an empty array when widgets are absent', () => {
+    expect(summaries(undefined as unknown as ViewConfig['summary_widgets'])).toEqual([]);
+  });
+});
+
 describe('cleanViewConfig — empty-values placement (MN-252 / #196)', () => {
   const withSort = (over: Partial<ViewConfig>): ViewConfig =>
     cleanViewConfig(
@@ -385,6 +438,42 @@ describe('boardGroupError — #307: a date field groups a board into periods', (
   });
 });
 
+describe('boardGroupError — #498/#499: number bins, text, lookup', () => {
+  it('rejects a number field with no bins configured', () => {
+    expect(boardGroupError({ type: 'number', config: {} }, null)).toContain('configure bins');
+    expect(boardGroupError({ type: 'number', config: { bins: [] } }, null)).toContain('configure bins');
+  });
+
+  it('accepts a number field once bins are configured', () => {
+    expect(
+      boardGroupError({ type: 'number', config: { bins: [{ label: 'Small', min: null, max: 10 }] } }, null),
+    ).toBeNull();
+  });
+
+  it('accepts text and lookup — single-valued, so groupable, even though read-only', () => {
+    expect(boardGroupError({ type: 'text', config: {} }, null)).toBeNull();
+    expect(boardGroupError({ type: 'lookup', config: {} }, null)).toBeNull();
+  });
+
+  it('still rejects rollup and formula — cut from #499\'s scope, not just "computed"', () => {
+    expect(boardGroupError({ type: 'rollup', config: {} }, null)).toContain('cannot group by');
+    expect(boardGroupError({ type: 'formula', config: {} }, null)).toContain('cannot group by');
+  });
+});
+
+describe('boardGroupIsReadOnly — #499: the classification move() and the client both key off', () => {
+  it('is true for exactly text and lookup', () => {
+    expect(boardGroupIsReadOnly('text')).toBe(true);
+    expect(boardGroupIsReadOnly('lookup')).toBe(true);
+  });
+
+  it('is false for every draggable-today type, and for rollup/formula (never reachable as a group field)', () => {
+    for (const t of ['select', 'workflow', 'date', 'user', 'relation', 'number', 'rollup', 'formula']) {
+      expect(boardGroupIsReadOnly(t)).toBe(false);
+    }
+  });
+});
+
 /**
  * #227 + a guard for every key after it. `cleanViewConfig` is an explicit
  * ALLOWLIST: it rebuilds the config key by key, so any key added to
@@ -433,6 +522,36 @@ describe('#227 — the timeline baseline pair survives a read', () => {
   });
 });
 
+describe('cleanViewConfig — #233 table hierarchy field survives a read', () => {
+  const FIELD_A = '11111111-1111-4111-8111-111111111111';
+
+  const withHierarchy = (over: Partial<ViewConfig> = {}): ViewConfig => ({
+    ...BASE,
+    filters: undefined,
+    hierarchy_field_id: FIELD_A,
+    ...over,
+  });
+
+  it('keeps a hierarchy_field_id whose field is live', () => {
+    const out = cleanViewConfig(withHierarchy(), new Set([FIELD_A]), new Set());
+    expect(out.hierarchy_field_id).toBe(FIELD_A);
+  });
+
+  it('drops a hierarchy_field_id whose field was deleted — dangling, #305\'s rule', () => {
+    const out = cleanViewConfig(withHierarchy(), new Set(), new Set());
+    expect(out.hierarchy_field_id).toBeUndefined();
+  });
+
+  it('leaves an un-nested (flat) view alone — unconfigured is not invalid', () => {
+    const out = cleanViewConfig(
+      withHierarchy({ hierarchy_field_id: undefined }),
+      new Set([FIELD_A]),
+      new Set(),
+    );
+    expect(out.hierarchy_field_id).toBeUndefined();
+  });
+});
+
 /**
  * The generic guard. Rather than trusting whoever adds the NEXT config key to
  * remember this function, assert that every scalar id-ish key the schema accepts
@@ -452,6 +571,7 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
       'end_date_field_id',
       'baseline_start_date_field_id',
       'baseline_end_date_field_id',
+      'hierarchy_field_id',
     ] as const;
 
     const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
@@ -463,5 +583,61 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
     >;
     const dropped = idKeys.filter((k) => out[k] !== LIVE);
     expect(dropped, `cleanViewConfig dropped these live keys: ${dropped.join(', ')}`).toEqual([]);
+  });
+
+  /**
+   * #559 — the id-key guard above didn't (and still doesn't, by design — these
+   * aren't *_field_id keys) cover `form`/`share`, which is exactly how `share`
+   * fell into this same trap unnoticed: it was added to viewConfigSchema after
+   * cleanViewConfig's explicit key list was written, and the id-key guard's own
+   * list never claimed to cover it. A second, narrower guard for the "opaque
+   * object minted by its own write path" keys, so the NEXT one of these doesn't
+   * repeat the gap either.
+   */
+  it('round-trips opaque, write-path-owned object keys (form, share) verbatim', () => {
+    const opaqueKeys = ['form', 'share'] as const;
+    const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
+    for (const k of opaqueKeys) config[k] = { marker: k };
+
+    const out = cleanViewConfig(config as unknown as ViewConfig, new Set(), new Set()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const dropped = opaqueKeys.filter((k) => JSON.stringify(out[k]) !== JSON.stringify({ marker: k }));
+    expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
+  });
+
+  /**
+   * #739 — neither guard above covers a PLAIN preference: a scalar that names
+   * no field id (so the id-key guard doesn't apply) and isn't a write-path-owned
+   * opaque object (so the opaque-key guard doesn't apply either). `row_height`
+   * fell exactly into this gap: added to viewConfigSchema, passed through the
+   * id-key guard's list (not a `*_field_id`) and the opaque-key guard's list
+   * (not `form`/`share`), and was silently dropped by `cleanViewConfig` anyway —
+   * caught only by a live PATCH-then-reload check, not by this suite, which is
+   * the same class of miss #227/#391/#559 each describe above. A third guard
+   * for this category, so the next plain preference doesn't repeat it.
+   */
+  it('round-trips plain preference keys (no field id, not write-path-owned) verbatim', () => {
+    const preferenceKeys = [
+      'column_sort',
+      'hide_empty_groups',
+      'hide_empty_no_value_group',
+      'calendar_mode',
+      'calendar_increment_minutes',
+      'calendar_collapsed_hours',
+      'card_size',
+      'group_by_granularity',
+      'row_height',
+    ] as const;
+    const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
+    for (const k of preferenceKeys) config[k] = 'marker';
+
+    const out = cleanViewConfig(config as unknown as ViewConfig, new Set(), new Set()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const dropped = preferenceKeys.filter((k) => out[k] !== 'marker');
+    expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
   });
 });

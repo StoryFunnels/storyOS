@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,7 +12,9 @@ import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
+import { Textarea } from '@/components/ui/textarea';
 import { RelationChips } from './relation-cell';
+import { chipVariants } from '@/components/ui/chip';
 import type { LinkChip } from './relation-cell';
 import { AgentRefCell } from './agent-ref-cell';
 import { isAgentConfigRefValue } from '@/lib/database-labels';
@@ -63,7 +66,7 @@ function ColorEditor({
     <Popover open onOpenChange={(open) => !open && onCancel()}>
       <PopoverParentAnchor />
       <PopoverContent
-        className="flex w-56 flex-col gap-2 p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]"
+        className="flex w-56 flex-col gap-2 p-2 shadow-[var(--shadow-panel)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-1.5">
@@ -82,7 +85,7 @@ function ColorEditor({
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') onCancel();
             }}
-            className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-[13px] tabular-nums text-ink outline-none"
+            className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-body tabular-nums text-ink outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-1">
@@ -96,7 +99,7 @@ function ColorEditor({
             />
           ))}
         </div>
-        <div className="flex justify-end gap-1.5 text-[12px]">
+        <div className="flex justify-end gap-1.5 text-label">
           <button className="rounded px-1.5 py-0.5 text-muted hover:bg-hover" onClick={() => onCommit(null)}>
             Clear
           </button>
@@ -125,13 +128,22 @@ export function optionColor(
 }
 
 /**
- * Select-value badge (#207, soft-tint): a faint wash of the option's own colour
- * with that colour as the TEXT, normal-case, 4px corners. Replaces the old solid
- * uppercase white-on-colour "mini-tag" (#281) — in a dense table that read as a
- * wall of loud colour; this is far calmer while keeping the colour-coding. The
- * `${color}22` alpha bg is theme-adaptive (tints over cream in light, over ink in
- * dark). Still visually distinct from RelationChips' outline treatment below, so a
- * category value is never mistaken for a link to another record.
+ * Select-value badge (#207, soft-tint): a faint wash of the option's own colour,
+ * normal-case, 4px corners. Replaces the old solid uppercase white-on-colour
+ * "mini-tag" (#281) — in a dense table that read as a wall of loud colour; this
+ * is far calmer while keeping the colour-coding. The `${color}22` alpha bg is
+ * theme-adaptive (tints over cream in light, over ink in dark). Still visually
+ * distinct from RelationChips' outline treatment below, so a category value is
+ * never mistaken for a link to another record.
+ *
+ * The TEXT used to be the raw option colour, which is the one part that was NOT
+ * theme-adaptive: a mid-tone hex sitting on a near-black surface. All 15 colours
+ * failed WCAG AA on every surface in both themes, worst 2.47:1 (ticket #638). It
+ * now goes through `.option-tint` in globals.css, which mixes that same colour
+ * toward black on light and toward white on dark — so the hue still reads and
+ * the worst case is 5.27:1. The colour is handed over as the `--option-color`
+ * custom property; keep it that way rather than reintroducing a literal, and
+ * note Tailwind cannot generate a class for a runtime hex anyway.
  */
 /**
  * #202/#214: an option's optional curated icon, rendered before its label on the
@@ -179,8 +191,10 @@ export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
-      style={{ backgroundColor: `${color}22`, color }}
+      /* #533 — the shape, type step and weight come from the shared chip
+         primitive; `option-tint` and `max-w-full` are this surface's own. */
+      className={cn(chipVariants({ variant: 'value' }), 'option-tint max-w-full')}
+      style={{ backgroundColor: `${color}22`, ['--option-color' as string]: color } as CSSProperties}
     >
       <OptionIcon icon={option.icon} />
       <span className="truncate">{option.label}</span>
@@ -246,11 +260,41 @@ interface DisplayProps {
 import { cellToText, isPercentField, isPercentNumberField, richTextPreview } from './cell-text';
 export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
 
+/**
+ * #812 — the one drawing of a boolean's value. CellDisplay used to return a
+ * native `<input type="checkbox" readOnly>` (the OS's control, unthemed, the
+ * brightest thing in dark mode, and a "click me" shape wherever the surface
+ * doesn't toggle). Tokens only, so it follows light/dark; a role=img rather
+ * than a form control so nothing here pretends to be interactive. Both states
+ * occupy the same box (tick vs. empty muted box) so a grid column stays
+ * scannable — Dara's ruling on #812. Unset (null/undefined) never reaches here:
+ * CellDisplay renders blank for it, so unset/false/true stay three distinct marks.
+ */
+export function CheckGlyph({ checked, className }: { checked: boolean; className?: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={checked ? 'Checked' : 'Unchecked'}
+      className={cn(
+        'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border',
+        checked ? 'border-ink bg-card text-ink' : 'border-border-strong bg-card',
+        className,
+      )}
+    >
+      {checked && <Check size={11} strokeWidth={3} aria-hidden />}
+    </span>
+  );
+}
+
 export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
   if (value === undefined || value === null || value === '') {
+    /* #669 — this and the two like it below hold a bare space, NO GLYPH. They
+       exist to give an empty cell a height. Contrast here is not merely
+       acceptable, it is meaningless: there is nothing to read. Left faint so a
+       future sweep does not "fix" three spans that render nothing. */
     return <span className="text-faint"> </span>;
   }
   // #317 (residual): agent-config text fields hold bare entity UUIDs
@@ -265,20 +309,20 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'rich_text': {
       const preview = richTextPreview(value);
       return preview ? (
-        <span className={cn('text-[13px] text-ink-secondary', prose)}>{preview}</span>
+        <span className={cn('text-body text-ink-secondary', prose)}>{preview}</span>
       ) : (
         <span className="text-faint"> </span>
       );
     }
     case 'formula': {
       const rt = field.config['result_type'] as string | undefined;
-      if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
-      if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
+      if (rt === 'checkbox') return <CheckGlyph checked={value === true} />;
+      if (rt === 'number') return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
       // A date-returning formula used to fall through to String(value) and render
       // the raw ISO ("2026-02-28T00:00:00.000Z"). #288's add_months/end_of_month/
       // to_date made that the common case rather than a curiosity.
-      if (rt === 'date') return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{formatDateValue(fmt, value)}</span>;
-      return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
+      if (rt === 'date') return <span className="truncate text-body tabular-nums text-ink-secondary">{formatDateValue(fmt, value)}</span>;
+      return <span className="truncate text-body text-ink-secondary">{String(value)}</span>;
     }
     case 'rollup': {
       if (value === null || value === undefined) return <span className="text-faint"> </span>;
@@ -298,15 +342,15 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       }
       if (typeof value !== 'number') {
         if (value === true || value === false) {
-          return <span className="truncate text-[13px] text-ink-secondary">{value === true ? '✓' : '—'}</span>;
+          return <span className="truncate text-body text-ink-secondary">{value === true ? '✓' : '—'}</span>;
         }
         // A first/last rollup over a date field returns an ISO string — same raw-ISO
         // problem as the formula branch above, so route it through the same formatter.
         const asDate = formatDateValue(fmt, value);
-        return <span className="truncate text-[13px] text-ink-secondary">{asDate ?? String(value)}</span>;
+        return <span className="truncate text-body text-ink-secondary">{asDate ?? String(value)}</span>;
       }
       const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
-      return <span className="w-full truncate text-right text-[13px] tabular-nums">{shown}</span>;
+      return <span className="w-full truncate text-right text-body tabular-nums">{shown}</span>;
     }
     case 'lookup': {
       // Server resolves values (select ids → labels); scalar or array by cardinality.
@@ -314,7 +358,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       const text = items
         .map((v) => (v === true ? '✓' : v === false ? '—' : String(v)))
         .join(', ');
-      return <span className="truncate text-[13px] text-ink-secondary">{text}</span>;
+      return <span className="truncate text-body text-ink-secondary">{text}</span>;
     }
     case 'relation':
       return (
@@ -326,7 +370,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
         />
       );
     case 'checkbox':
-      return <input type="checkbox" checked={Boolean(value)} readOnly className="pointer-events-none" />;
+      return <CheckGlyph checked={Boolean(value)} />;
     // #172: a workflow value renders as the same coloured state badge as select.
     case 'select':
     case 'workflow': {
@@ -353,7 +397,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       return (
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           {ids.map((id) => (
-            <span key={id} className="flex min-w-0 items-center gap-1 text-[13px]">
+            <span key={id} className="flex min-w-0 items-center gap-1 text-body">
               <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
               <span className="truncate">{memberNames.get(id) ?? '(unknown)'}</span>
             </span>
@@ -365,14 +409,14 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'created_at':
     case 'updated_at': {
       const d = new Date(String(value));
-      if (Number.isNaN(d.getTime())) return <span className="truncate text-[13px]">{String(value)}</span>;
+      if (Number.isNaN(d.getTime())) return <span className="truncate text-body">{String(value)}</span>;
       // System timestamps carry a time; plain date fields show the day only.
       const shown = field.type === 'date' ? fmt.date(d) : fmt.dateTime(d);
-      return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{shown}</span>;
+      return <span className="truncate text-body tabular-nums text-ink-secondary">{shown}</span>;
     }
     case 'color':
       return (
-        <span className="flex min-w-0 items-center gap-1.5 text-[13px] tabular-nums text-ink-secondary">
+        <span className="flex min-w-0 items-center gap-1.5 text-body tabular-nums text-ink-secondary">
           <span
             className="h-3.5 w-3.5 shrink-0 rounded-[3px] border border-border-default"
             style={{ backgroundColor: String(value) }}
@@ -386,7 +430,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
           href={String(value)}
           target="_blank"
           rel="noreferrer"
-          className={cn('block max-w-full text-[13px] text-info underline', wrap ? 'break-all' : 'truncate')}
+          className={cn('block max-w-full text-body text-info underline', wrap ? 'break-all' : 'truncate')}
           onClick={(e) => e.stopPropagation()}
         >
           {String(value).replace(/^https?:\/\//, '')}
@@ -408,7 +452,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
             <span
               key={f.id}
               title={`${f.filename} · ${formatBytes(f.size)}`}
-              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-[12px] text-muted"
+              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-label text-muted"
             >
               <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
               <span className="truncate">{f.filename}</span>
@@ -418,17 +462,20 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       );
     }
     case 'number':
-      return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
+      return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
     case 'id':
       // Public per-database sequential id (MN-087) — muted, monospace-ish.
-      return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;
+      // #669 — STAYS faint. #326 names the record number as its FIRST example of
+      // genuinely decorative text, and #741 kept `#{row.number}` on the same
+      // grounds. Consistent by decision rather than by oversight.
+      return <span className="truncate text-label tabular-nums text-faint">{String(value)}</span>;
     case 'title':
-      return <span className={cn('text-[13px] font-medium text-ink', prose)}>{String(value)}</span>;
+      return <span className={cn('text-body font-medium text-ink', prose)}>{String(value)}</span>;
     case 'email':
-      return <span className={cn('text-[13px]', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
+      return <span className={cn('text-body', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
     default:
       // text and anything else prose-like.
-      return <span className={cn('text-[13px]', prose)}>{String(value)}</span>;
+      return <span className={cn('text-body', prose)}>{String(value)}</span>;
   }
 }
 
@@ -470,7 +517,7 @@ export function EmptyFieldAffordance({
 }) {
   // An em dash on a read-only/computed field is decoration, not a control —
   // nothing to click, so `faint` is the right weight for it.
-  if (!editable) return <span className={cn('text-[13px] text-faint', className)}>—</span>;
+  if (!editable) return <span className={cn('text-body text-faint', className)}>—</span>;
   /*
    * #326: `muted`, not `faint`. Measured on the record page, `faint` gave
    * 2.72:1 in dark and 2.02:1 in light — under WCAG AA (4.5:1) and under even
@@ -482,7 +529,7 @@ export function EmptyFieldAffordance({
    * than a filled value (`text-ink`), so the hierarchy survives.
    */
   return (
-    <span className={cn('truncate text-[13px] text-muted transition-colors hover:text-ink', className)}>
+    <span className={cn('truncate text-body text-muted transition-colors hover:text-ink', className)}>
       {emptyAffordanceVerb(field.type)} {field.displayName}
     </span>
   );
@@ -577,7 +624,20 @@ export function CellEditor({ ws, db, rec, field, value, members, onCommit, onTog
         return <ComputedTitleNotice value={value == null ? '' : String(value)} onCancel={onCancel} />;
       }
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
+    // #758 — the multiline setting already exists on `text` fields; this is
+    // the read side. url/email are never multiline — the config key only
+    // applies to `text`, so they always keep the single-line editor.
     case 'text':
+      if (field.config['multiline'] === true) {
+        return (
+          <MultilineTextEditor
+            initial={value == null ? '' : String(value)}
+            onCommit={(v) => onCommit(v === '' ? null : v)}
+            onCancel={onCancel}
+          />
+        );
+      }
+      return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
     case 'url':
     case 'email':
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
@@ -593,7 +653,7 @@ export function CellEditor({ ws, db, rec, field, value, members, onCommit, onTog
       // "set this file on 40 rows" is not a thing this can honestly offer.
       if (!rec) {
         return (
-          <div className="rounded-[var(--radius-control)] border border-border-strong bg-card p-2 text-[12px] text-muted">
+          <div className="rounded-[var(--radius-control)] border border-border-strong bg-card p-2 text-label text-muted">
             Files are added on a single record.
           </div>
         );
@@ -697,7 +757,7 @@ function TextEditor({
     <input
       autoFocus
       inputMode={inputMode}
-      className="h-full w-full bg-card px-2 text-[13px] text-ink outline-none"
+      className="h-full w-full bg-card px-2 text-body text-ink outline-none"
       value={val}
       onChange={(e) => setVal(e.target.value)}
       onFocus={(e) => e.target.select()}
@@ -720,6 +780,59 @@ function TextEditor({
 }
 
 /**
+ * #758 — multiline `text` fields need real room to type in, which a 32px-tall
+ * virtualized grid row (table-view.tsx's ROW_HEIGHT) can't give an inline
+ * child without breaking every other row's position. Same fix the table
+ * already uses for this exact shape of problem (RelationEditor, ColorEditor
+ * above): grow via a `Popover` anchored to the cell's own `relative` wrapper
+ * (`PopoverParentAnchor`) instead of the row itself, so the editor overlays
+ * rather than resizing. Unlike `TextEditor`, Enter inserts a newline — the
+ * whole point of the control — so committing needs its own key.
+ */
+function MultilineTextEditor({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [val, setVal] = useState(initial);
+  const committed = useRef(false);
+  const commit = () => {
+    committed.current = true;
+    onCommit(val.trim());
+  };
+  return (
+    <Popover open onOpenChange={(open) => !open && onCancel()}>
+      <PopoverParentAnchor />
+      <PopoverContent className="w-80 p-1" onClick={(e) => e.stopPropagation()}>
+        <Textarea
+          autoFocus
+          size="default"
+          className="w-full"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onBlur={() => {
+            if (!committed.current) onCommit(val.trim());
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit();
+            if (e.key === 'Escape') {
+              committed.current = true;
+              onCancel();
+            }
+            e.stopPropagation();
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
  * MN-131: read-only stand-in shown when a computed-name title cell is "edited".
  * The name is derived from a template, so there's nothing to type — mirror the
  * text editor's focus/blur/Escape lifecycle (so the table closes the editor the
@@ -728,7 +841,7 @@ function TextEditor({
 function ComputedTitleNotice({ value, onCancel }: { value: string; onCancel: () => void }) {
   return (
     <div
-      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-[13px] text-muted"
+      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-body text-muted"
       title="This name is computed from a template — edit the template in the Name field’s settings."
     >
       <Sigma className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -772,7 +885,7 @@ function NumberEditor({
       <input
         autoFocus
         inputMode="decimal"
-        className="h-full min-w-0 flex-1 bg-transparent px-2 text-[13px] text-ink outline-none"
+        className="h-full min-w-0 flex-1 bg-transparent px-2 text-body text-ink outline-none"
         value={val}
         onChange={(e) => setVal(e.target.value)}
         onFocus={(e) => e.target.select()}
@@ -939,18 +1052,50 @@ function OptionList({
     }
   }
 
+  // #810 — while a picker is open the cell renders ONLY this component, so the
+  // field went blank and the list opened under an empty box: the value you are
+  // changing was the one thing you could no longer see. Keep it on screen, in
+  // place, drawn from the same chips as the list rows. Fixed here, in the shared
+  // control, so every select / multi-select / workflow / person picker inherits
+  // it (CLAUDE.md field-surface rule). Nothing selected renders nothing, so the
+  // batch editor (which has no single current value) is unchanged.
+  const currentOptions = current
+    .map((id) => options.find((o) => o.id === id))
+    .filter((o): o is NonNullable<typeof o> => o !== undefined);
+
   return (
+    <>
+      {currentOptions.length > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-1" data-testid="option-list-current">
+          {currentOptions.map((option) =>
+            option.image !== undefined ? (
+              <span key={option.id} className="flex items-center gap-1.5 text-body text-ink">
+                <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                {option.label}
+              </span>
+            ) : (
+              <OptionChip key={option.id} option={option} />
+            ),
+          )}
+        </div>
+      )}
     <Popover open onOpenChange={handleOpenChange}>
       <PopoverParentAnchor />
       <PopoverContent
-        className="flex max-h-80 w-56 flex-col gap-1 p-1"
+        // Bounded by what the viewport leaves (Radix's available-height var), so
+        // when it flips above a field near an edge the list scrolls instead of
+        // running off-screen with its search box.
+        className="flex max-h-[min(20rem,var(--radix-popover-content-available-height))] w-56 flex-col gap-1 p-1"
         onClick={(e) => e.stopPropagation()}
       >
         <input
           autoFocus
           value={query}
           placeholder="Search…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          // #717 — plain `rounded` bypassed the radius token; --radius-control
+          // is the fix, not the `<Input>` primitive (its `sm` size would also
+          // swap py-1 for a fixed h-8, a restyle this ticket's AC forbids).
+          className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
           onChange={(e) => {
             setQuery(e.target.value);
             setActive(0);
@@ -969,14 +1114,14 @@ function OptionList({
             e.stopPropagation();
           }}
         />
-        <div className="max-h-60 overflow-y-auto">
+        <div className="min-h-0 max-h-60 overflow-y-auto">
           {filtered.map((option, idx) => {
             const isSelected = current.includes(option.id);
             return (
               <button
                 key={option.id}
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
+                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body hover:bg-hover',
                   (isSelected || idx === active) && 'bg-hover',
                 )}
                 onMouseEnter={() => setActive(idx)}
@@ -985,7 +1130,7 @@ function OptionList({
                 <span className="flex min-w-0 items-center gap-2">
                   {multi && <input type="checkbox" readOnly checked={isSelected} />}
                   {option.image !== undefined ? (
-                    <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                    <span className="flex items-center gap-1.5 text-body text-ink">
                       <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
                       {option.label}
                     </span>
@@ -1000,12 +1145,20 @@ function OptionList({
             );
           })}
           {filtered.length === 0 && !showCreate && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No matches</p>
+            /* #669 — reachable only when NO create affordance is offered:
+                 `showCreate` is allowCreate && query && !exactMatch, so on a
+                 field you CAN add options to, a non-matching query renders the
+                 Create button instead of this. So this is the empty-dropdown
+                 explanation for fields you cannot extend (or that have no
+                 options at all) — narrower than "your search found nothing",
+                 which is what I first wrote here and had to correct. Still the
+                 only text explaining an empty list, hence muted. */
+            <p className="px-2 py-1.5 text-label text-muted">No matches</p>
           )}
           {showCreate && (
             <button
               className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover',
+                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-info hover:bg-hover',
                 active === filtered.length && 'bg-hover',
               )}
               onMouseEnter={() => setActive(filtered.length)}
@@ -1018,17 +1171,18 @@ function OptionList({
           )}
         </div>
         <div className="flex justify-between border-t border-border-default px-2 pt-1">
-          <button className="text-[12px] text-muted hover:text-ink" onClick={onClear}>
+          <button className="text-label text-muted hover:text-ink" onClick={onClear}>
             Clear
           </button>
           {multi && (
-            <button className="text-[12px] text-ink underline" onClick={() => onToggle?.(current)}>
+            <button className="text-label text-ink underline" onClick={() => onToggle?.(current)}>
               Done
             </button>
           )}
         </div>
       </PopoverContent>
     </Popover>
+    </>
   );
 }
 
@@ -1091,7 +1245,7 @@ export function PressButton({
       type="button"
       title={disabled ? 'Requires editor access' : undefined}
       className={cn(
-        'rounded-full px-2.5 py-0.5 text-[12px] font-medium',
+        'rounded-full px-2.5 py-0.5 text-label font-medium',
         disabled ? 'cursor-not-allowed opacity-50' : 'hover:brightness-95',
       )}
       style={{ backgroundColor: `${color}26`, color }}

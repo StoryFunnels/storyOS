@@ -58,13 +58,24 @@ interface ArrangeableColumn {
 export function arrangeBoardColumns<T extends ArrangeableColumn>(
   columns: T[],
   prefs: BoardColumnPrefs,
-  opts: { groupType: string },
+  opts: {
+    groupType: string;
+    /**
+     * #755 AC3 — while more pages remain unloaded, a column with nothing on
+     * the pages loaded SO FAR is not a column with nothing in it — hiding it
+     * loses real records with no indication (measured: Finding/Chore, 56
+     * records, vanished from a Type-grouped board over page 1 of 740). Both
+     * hide-empty toggles below are gated on this; neither may drop a column
+     * until the set is fully loaded (`hasMore` false).
+     */
+    hasMore: boolean;
+  },
 ): T[] {
   const isDate = opts.groupType === 'date';
   const noValue = columns.filter((c) => c.id === NO_VALUE);
   let defs = columns.filter((c) => c.id !== NO_VALUE);
 
-  if (prefs.hide_empty_groups) defs = defs.filter((c) => c.rows.length > 0);
+  if (prefs.hide_empty_groups && !opts.hasMore) defs = defs.filter((c) => c.rows.length > 0);
 
   if (!isDate && prefs.column_sort && prefs.column_sort !== 'natural') {
     const sorted = [...defs];
@@ -82,7 +93,7 @@ export function arrangeBoardColumns<T extends ArrangeableColumn>(
   }
 
   const keepNoValue = noValue.filter(
-    (c) => !(prefs.hide_empty_no_value_group && c.rows.length === 0),
+    (c) => !(prefs.hide_empty_no_value_group && c.rows.length === 0 && !opts.hasMore),
   );
 
   // The no-value bucket stays LAST regardless of sort — it is not a value, so

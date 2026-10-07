@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,12 +10,13 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, OPTION_COLORS } from '@/components/table-view/cells';
+import { Input } from '@/components/ui/input';
 import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
   AddFilterButton,
   FilterChip,
-  OPS_BY_TYPE,
+  opsForField,
   SortButton,
 } from '@/components/views/view-toolbar';
 import type { FilterCondition } from '@/components/views/use-view-state';
@@ -28,7 +30,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
-import { NOT_INLINE } from './entity-field-utils';
+import {
+  NOT_INLINE,
+  useClearCollectionViewOverride,
+  useCollectionViewOverride,
+  useSetCollectionViewOverride,
+} from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { FieldsMenu } from '@/components/views/fields-menu';
@@ -131,11 +138,22 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
       setCreating(false);
       invalidateCollection();
     },
-    onError: () => toast.error('Could not create the record'),
+    onError: () => toast.error('Could not create the item'),
   });
-  const cv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
+  // #736 — the field's own `config.collection_view` is the shared DEFAULT every
+  // viewer without a personal override still sees (never written to again by
+  // this component); a personal override, when set, takes priority for THIS
+  // viewer only. `overrideQuery.data` is `null` (loaded, no override) or
+  // `undefined` (still loading) — both fall through to the shared default
+  // rather than flashing an empty collection while the override loads.
+  const defaultCv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
+  const overrideQuery = useCollectionViewOverride(ws, db, field.id);
+  const hasPersonalOverride = Boolean(overrideQuery.data);
+  const cv = overrideQuery.data ?? defaultCv;
+  const setOverride = useSetCollectionViewOverride(ws, db);
+  const clearOverride = useClearCollectionViewOverride(ws, db);
   const setCv = (patch: Partial<CollectionView>) =>
-    setConfig.mutate({ fieldId: field.id, config: { collection_view: { ...cv, ...patch } } });
+    setOverride.mutate({ fieldId: field.id, config: { ...cv, ...patch } });
 
   const linked = useQuery({
     queryKey: ['collection', ws, targetDbId, rec, field.id, cv],
@@ -170,7 +188,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     const opt = colorField.options?.find((o) => o.id === row.values[colorField.apiName]);
     return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
   };
-  const filterable = targetFields.filter((f) => OPS_BY_TYPE[f.type]);
+  const filterable = targetFields.filter((f) => opsForField(f).length > 0);
   const conditions = cv.filters?.and ?? [];
   const setConditions = (next: FilterCondition[]) => setCv({ filters: next.length ? { and: next } : undefined });
 
@@ -198,8 +216,8 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           collapsed={collapsed}
           onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
         />
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
-        <span className="text-[11px] text-faint">{total}</span>
+        <h2 className="text-label font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
+        <span className="text-meta text-faint">{total}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={ws} db={db} collection />}
         {schemaEditable && !collapsed && targetDb.data && (
           <span className="flex flex-wrap items-center gap-1">
@@ -216,7 +234,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             <AddFilterButton
               fields={filterable}
               onAdd={(f) => {
-                const op = OPS_BY_TYPE[f.type]![0]!;
+                const op = opsForField(f)[0]!;
                 setConditions([...conditions, { field: f.apiName, op: op.op as FilterCondition['op'], value: undefined }]);
               }}
             />
@@ -248,6 +266,30 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 setCv({ fields: arrayMove(columnApiNames, from, to) });
               }}
             />
+            {/*
+             * #736 AC2 — a personal override reads identically to the shared
+             * default otherwise (same filter chips, same sort/color/columns
+             * controls), so without this a viewer has no way to tell "this is
+             * what I set for myself" from "this is what everyone sees". Only
+             * shown once an override actually exists — the common case (no
+             * override, seeing the shared default) stays exactly as before.
+             */}
+            {hasPersonalOverride && (
+              <span
+                className="flex items-center gap-1 rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-muted"
+                title="This view of the collection is set for you only — other members see the database's shared default."
+              >
+                Personal
+                <button
+                  type="button"
+                  className="underline hover:text-ink disabled:opacity-50"
+                  disabled={clearOverride.isPending}
+                  onClick={() => clearOverride.mutate(field.id)}
+                >
+                  Reset
+                </button>
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -262,7 +304,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             )}
           >
             {rows.length === 0 && (
-              <p className="px-3 py-2.5 text-[13px] text-faint">
+              /* #669 — the other site ticket #637 named BY NAME. Both strings are
+                 the panel's only explanation of why it is empty, and "No
+                 matches." in particular is the sole signal that a FILTER is
+                 hiding rows rather than there being none. */
+              <p className="px-3 py-2.5 text-body text-muted">
                 {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
               </p>
             )}
@@ -273,7 +319,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 // editors and must never live inside the anchor (MN-206 pt 2).
                 <div
                   key={row.id}
-                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
+                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-body text-ink last:border-b-0 hover:bg-hover"
                 >
                   <Link
                     href={recordHref(ws, targetDbId, row)}
@@ -291,6 +337,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                     <DbColorMarker color={targetDb.data?.color} />
                     {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
                     {row.number != null && (
+                      /* #669 — the record number STAYS faint. #326 names it as its
+                         first example of genuinely decorative text, so this is the
+                         rule working, not an exception to it. */
                       <span className="mr-1 shrink-0 tabular-nums text-faint">#{row.number}</span>
                     )}
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
@@ -304,7 +353,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                       <span
                         key={col.id}
                         className={cn(
-                          'relative flex max-w-[9rem] shrink-0 items-center text-[12px]',
+                          'relative flex max-w-[9rem] shrink-0 items-center text-label',
                           editable && 'cursor-pointer rounded px-0.5 hover:bg-active',
                         )}
                         onClick={
@@ -334,7 +383,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                           // #187: empty editable column cell invites a fill
                           // ("Add/Set <field>") instead of a bare dash; the row's
                           // own onClick (above) opens the same CellEditor.
-                          <EmptyFieldAffordance field={col} editable={editable} className="text-[12px]" />
+                          <EmptyFieldAffordance field={col} editable={editable} className="text-label" />
                         )}
                         {isEditing && (
                           // CellEditor self-positions (MN-230d, viewport-collision-aware);
@@ -367,7 +416,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             })}
             {rows.length > COLLECTION_CAP && (
               <button
-                className="flex w-full items-center gap-1 px-3 py-2 text-[12px] text-info hover:bg-hover"
+                className="flex w-full items-center gap-1 px-3 py-2 text-label text-info hover:bg-hover"
                 onClick={() => setShowAll((s) => !s)}
               >
                 {showAll ? 'Show less' : `Show all ${rows.length}`}
@@ -378,14 +427,14 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           {!readOnly && (
             <div className="relative mt-1 flex items-center gap-3 px-1">
               <button
-                className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                className="inline-flex items-center gap-1 text-body text-muted hover:text-ink"
                 onClick={() => setAdding(true)}
               >
                 <Plus className="h-3.5 w-3.5" /> Add
               </button>
               {canEditTargets && !creating && (
                 <button
-                  className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                  className="inline-flex items-center gap-1 text-body text-muted hover:text-ink"
                   // MN-144: computed-title target has no name to type — create straight away.
                   onClick={() => (targetTitleComputed ? createLinked.mutate('') : setCreating(true))}
                   disabled={createLinked.isPending}
@@ -395,9 +444,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 </button>
               )}
               {creating && !targetTitleComputed && (
-                <input
+                <Input
                   autoFocus
-                  className="h-7 w-64 rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
+                  size="sm"
+                  className="h-7 w-64"
                   placeholder={`New ${targetDb.data?.name ?? 'record'} — Enter to create, linked here`}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
@@ -488,7 +538,7 @@ function ColorByButton({
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover hover:text-ink',
             value ? 'text-ink' : 'text-muted',
           )}
         >
@@ -511,12 +561,15 @@ function ColorByButton({
 /** Chevron that collapses/expands a field or section (persisted in config.entity_collapsed). */
 export function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
-    <button
-      className="-ml-1 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
-      onClick={onToggle}
-      title={collapsed ? 'Expand' : 'Collapse'}
-    >
-      {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-    </button>
+    <Tooltip label={collapsed ? 'Expand' : 'Collapse'}>
+      <button
+        className="-ml-1 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+        onClick={onToggle}
+        aria-label={collapsed ? 'Expand section' : 'Collapse section'}
+        aria-expanded={!collapsed}
+      >
+        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+    </Tooltip>
   );
 }

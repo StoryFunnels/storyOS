@@ -69,18 +69,15 @@ describe('checkout/portal — MN-166: a clear signal when billing is not configu
   });
 });
 
-describe('POST /billing/trial — MN-192: the no-card trial works regardless of Stripe config', () => {
-  it('starts a 30-day Pro trial with no Stripe subscription', async () => {
+describe('POST /billing/trial — #510: refuses on a billing-disabled instance rather than faking a Pro plan', () => {
+  it('503s — matching checkout/portal\'s own Stripe-disabled convention — and writes nothing', async () => {
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/billing/trial`);
-    expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().plan).toBe('pro');
-    expect(res.json().trialEndsAt).toBeTruthy();
-  });
+    expect(res.statusCode, res.body).toBe(503);
 
-  it('is idempotent — calling it again on an active trial is a no-op', async () => {
-    const before = await as(admin.token, 'GET', `/workspaces/${wsId}/billing`);
-    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/billing/trial`);
-    expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().trialEndsAt).toBe(before.json().trialEndsAt);
+    // No fake pro/trialing row was written — not written-then-relying-on-the-
+    // lazy-downgrade-to-clean-up-later (AC7).
+    const status = await as(admin.token, 'GET', `/workspaces/${wsId}/billing`);
+    expect(status.json().plan).toBe('free');
+    expect(status.json().enabled).toBe(false);
   });
 });

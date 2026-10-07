@@ -122,6 +122,7 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
         },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 ];

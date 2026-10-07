@@ -100,14 +100,22 @@ export function isFormFieldVisible(
  * ever depend on an earlier answer. A field whose controlling field is itself
  * hidden is hidden too — otherwise a two-step branch would leak its second step
  * once the first was dismissed.
+ *
+ * #716 — a field carrying `hidden: true` is NEVER visible, unconditionally:
+ * it never enters `visible` and never joins `shown`, so (a) the caller's own
+ * client-value allowlist (built from this function's result) never accepts a
+ * submitted value for it, and (b) any later field whose `visible_when` names
+ * a hidden field as its controller is itself never shown either — the same
+ * "controller hidden ⇒ dependent hidden" rule this function already applies
+ * to a conditionally-hidden controller.
  */
-export function visibleFormFields<T extends { api_name: string; visible_when?: PublicFormVisibilityRule }>(
-  formFields: T[],
-  answers: Record<string, unknown>,
-): T[] {
+export function visibleFormFields<
+  T extends { api_name: string; visible_when?: PublicFormVisibilityRule; hidden?: boolean },
+>(formFields: T[], answers: Record<string, unknown>): T[] {
   const visible: T[] = [];
   const shown = new Set<string>();
   for (const field of formFields) {
+    if (field.hidden) continue;
     const rule = field.visible_when;
     const controllerOk = !rule || shown.has(rule.field);
     if (controllerOk && isFormFieldVisible(rule, answers)) {

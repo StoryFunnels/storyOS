@@ -7,6 +7,7 @@ import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as Inbox
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
@@ -138,7 +139,7 @@ export default function InboxPage() {
               key={t.key}
               onClick={() => setType(t.key)}
               className={cn(
-                'shrink-0 rounded px-2.5 py-1 text-[12px] font-medium',
+                'shrink-0 rounded px-2.5 py-1 text-label font-medium',
                 type === t.key ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
               )}
             >
@@ -149,7 +150,7 @@ export default function InboxPage() {
         <button
           onClick={() => setArchived((v) => !v)}
           className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium',
+            'flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-label font-medium',
             archived ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
           )}
         >
@@ -168,7 +169,7 @@ export default function InboxPage() {
           )}
         >
           {rows.length === 0 && !list.isLoading && (
-            <p className="p-6 text-center text-[13px] text-muted">
+            <p className="p-6 text-center text-body text-muted">
               {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
             </p>
           )}
@@ -188,7 +189,7 @@ export default function InboxPage() {
                 <span className="h-6 w-6 rounded-full bg-hover" />
               )}
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] text-ink">
+                <span className="block text-body text-ink">
                   {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
                   <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
                   {NOTIFICATION_VERBS[n.type]}
@@ -196,22 +197,22 @@ export default function InboxPage() {
                 </span>
                 {n.record ? (
                   <span
-                    className={cn('block truncate text-[12px]', n.record.deleted ? 'text-faint line-through' : 'text-muted')}
+                    className={cn('block truncate text-label', n.record.deleted ? 'text-faint line-through' : 'text-muted')}
                   >
                     {n.record.title || 'Untitled'} · {n.record.database_name}
                   </span>
                 ) : (
-                  n.snippet && <span className="block truncate text-[12px] text-muted">{n.snippet}</span>
+                  n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>
                 )}
               </span>
-              <span className="text-[11px] text-faint">{relativeTime(n.created_at)}</span>
+              <span className="text-meta text-faint">{relativeTime(n.created_at)}</span>
             </button>
           ))}
           {list.hasNextPage && (
             <button
               onClick={() => list.fetchNextPage()}
               disabled={list.isFetchingNextPage}
-              className="w-full py-3 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+              className="w-full py-3 text-center text-label text-muted hover:bg-hover disabled:opacity-50"
             >
               {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
             </button>
@@ -228,12 +229,12 @@ export default function InboxPage() {
           )}
         >
           {!selected ? (
-            <p className="text-[13px] text-muted">Select a notification to preview it.</p>
+            <p className="text-body text-muted">Select a notification to preview it.</p>
           ) : (
             <div className="mx-auto max-w-2xl">
               <button
                 onClick={() => setSelectedId(null)}
-                className="mb-3 flex items-center gap-1 text-[13px] text-muted hover:text-ink md:hidden"
+                className="mb-3 flex items-center gap-1 text-body text-muted hover:text-ink md:hidden"
               >
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
@@ -243,13 +244,13 @@ export default function InboxPage() {
                     <Avatar userId={selected.actor.id} name={selected.actor.name} image={selected.actor.image} size={32} />
                   )}
                   <div>
-                    <p className="text-[14px] text-ink">
+                    <p className="text-prose text-ink">
                       <span className="font-medium">
                         {selected.actor?.name ?? (selected.record ? 'Someone' : 'StoryOS')}
                       </span>{' '}
                       {NOTIFICATION_VERBS[selected.type]}
                     </p>
-                    <p className="text-[12px] text-faint">{relativeTime(selected.created_at)} ago</p>
+                    <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -274,14 +275,14 @@ export default function InboxPage() {
               <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
                 {selected.record && (
                   <>
-                    <p className="text-[13px] font-medium text-ink">{selected.record.title || 'Untitled'}</p>
-                    <p className="text-[12px] text-muted">{selected.record.database_name}</p>
+                    <p className="text-body font-medium text-ink">{selected.record.title || 'Untitled'}</p>
+                    <p className="text-label text-muted">{selected.record.database_name}</p>
                   </>
                 )}
                 {selected.snippet && (
                   <p
                     className={cn(
-                      'text-[13px] text-ink-secondary',
+                      'text-body text-ink-secondary',
                       selected.record && 'mt-2 border-t border-border-default pt-2',
                     )}
                   >
@@ -289,7 +290,7 @@ export default function InboxPage() {
                   </p>
                 )}
                 {selected.record?.deleted && (
-                  <p className="mt-2 text-[12px] text-faint">This record has been deleted.</p>
+                  <p className="mt-2 text-label text-faint">This item has been deleted.</p>
                 )}
               </div>
 
@@ -302,15 +303,16 @@ export default function InboxPage() {
               {selected.type === 'approval_requested' && selected.record && !selected.record.deleted && (
                 <div className="mt-4 flex flex-col gap-2">
                   {staged.isLoading && (
-                    <p className="text-[12px] text-muted">Loading the proposed action…</p>
+                    <p className="text-label text-muted">Loading the proposed action…</p>
                   )}
                   {staged.data && <StagedActionView staged={staged.data} />}
-                  <textarea
+                  <Textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                    size="default"
+                    className="min-h-0 w-full bg-app px-2.5"
                   />
                   <div className="flex gap-3">
                     <button
@@ -324,7 +326,7 @@ export default function InboxPage() {
                         });
                         setRejectReason('');
                       }}
-                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-prose font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
                     >
                       <X className="h-4 w-4" /> Reject
                     </button>
@@ -332,7 +334,7 @@ export default function InboxPage() {
                       type="button"
                       disabled={resolveRun.isPending}
                       onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'approve' })}
-                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-prose font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" /> Approve
                     </button>
@@ -347,12 +349,13 @@ export default function InboxPage() {
                   triggered gated action has none). */}
               {selected.type === 'action_approval_requested' && selected.ref_id && (
                 <div className="mt-4 flex flex-col gap-2">
-                  <textarea
+                  <Textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                    size="default"
+                    className="min-h-0 w-full bg-app px-2.5"
                   />
                   <div className="flex gap-3">
                     <button
@@ -366,7 +369,7 @@ export default function InboxPage() {
                         });
                         setRejectReason('');
                       }}
-                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-prose font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
                     >
                       <X className="h-4 w-4" /> Reject
                     </button>
@@ -374,7 +377,7 @@ export default function InboxPage() {
                       type="button"
                       disabled={resolveApproval.isPending}
                       onClick={() => resolveApproval.mutate({ approvalId: selected.ref_id!, verdict: 'approve' })}
-                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-prose font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" /> Approve
                     </button>

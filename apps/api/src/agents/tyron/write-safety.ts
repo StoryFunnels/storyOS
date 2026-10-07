@@ -38,8 +38,13 @@ export type SafetyVerdict =
  */
 const STRUCTURAL_DELETES = new Set(['delete_field', 'delete_database', 'delete_relation']);
 
-/** Row-level deletes — confirm, but the loss is visible and countable. */
-const RECORD_DELETES = new Set(['delete_record']);
+/** Row-level deletes — confirm, but the loss is visible and countable.
+ *  `delete_records` (plural, the bulk tool) added per the #542 audit: without
+ *  it, a 200-record bulk delete fell through to DESTRUCTIVE_NAME's generic
+ *  "I don't recognise it" wording instead of a real count — see turn-loop.ts's
+ *  extractIntent fix (the `records` vs `record_ids` param-name mismatch) for
+ *  the other half of this bug. */
+const RECORD_DELETES = new Set(['delete_record', 'delete_records']);
 
 /**
  * Deletes that destroy no DATA, so they do not stop to ask (#363).
@@ -84,14 +89,47 @@ const OUT_OF_REACH: Record<string, string> = {
 };
 
 /**
- * Outward actions — they leave the workspace and reach a person.
+ * Outward actions — they leave the workspace and reach a person or place
+ * outside it.
  *
  * `run_button` and `run_skill` are here because either can be wired to send
  * something; the product already treats them as gated classes in
  * `APPROVAL_POLICY_KINDS` (agent-runtime.ts), and this mirrors that list rather
  * than inventing a second opinion about what counts as outward.
+ *
+ * #542 audit correction: `send_message`/`post_social` were never real MCP tool
+ * names (grepped the live catalog — zero matches), so they classified nothing;
+ * `send_email` is likewise never called directly (it only exists as an
+ * automation-action type, gated separately and more precisely in
+ * actions.service.ts's own require_approval logic) — kept here anyway as a
+ * defensive no-op in case a `send_email` tool is ever added directly to the
+ * catalog. The same audit found the actual gap: several tools that DO exist
+ * and ARE genuinely outward were never in this set at all, so they fell
+ * through to `proceed` with no confirmation of any kind:
+ *  - `share_view` / `create_portal_recipient`: make workspace data reachable
+ *    by someone outside it.
+ *  - `update_webhook`: repoints an outbound delivery to an external URL.
+ *  - `sync_source`: pulls from (and, for a two-way source, can push to) an
+ *    external system.
+ *  - `rerun_action`: re-fires an already-queued action's stored payload —
+ *    the same effect class as whatever kind that payload is, so it belongs
+ *    wherever the ORIGINAL action would have landed.
+ * Deliberately NOT added: `create_view`/`update_view` with a public
+ * `form_access` — genuinely outward, but classifying it needs reading the
+ * call's arguments (not just its name), which this name-only classifier
+ * doesn't do anywhere else. Flagged as a follow-up rather than silently
+ * left unfixed.
  */
-const OUTWARD = new Set(['run_button', 'run_skill', 'send_email', 'send_message', 'post_social']);
+const OUTWARD = new Set([
+  'run_button',
+  'run_skill',
+  'send_email',
+  'share_view',
+  'create_portal_recipient',
+  'update_webhook',
+  'sync_source',
+  'rerun_action',
+]);
 
 /**
  * Deletes that this file does not know about yet.

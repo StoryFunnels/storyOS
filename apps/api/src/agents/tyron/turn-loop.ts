@@ -288,7 +288,12 @@ export async function* runTurn(
 function extractIntent(call: ChatToolCall): { affected?: number; databaseName?: string; fieldName?: string } {
   const a = call.arguments;
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
-  const ids = a['record_ids'];
+  // #542 audit correction: `update_records`/the bulk-job enqueue tool take
+  // `record_ids`, but `delete_records`/`restore_records`/`copy_records` take
+  // `records` (packages/mcp/src/tools.ts) — this only ever checked the
+  // first, so a real bulk delete's `affected` came back `undefined` and fell
+  // through to the generic unrecognised-tool wording instead of a real count.
+  const ids = a['record_ids'] ?? a['records'];
   return {
     affected: Array.isArray(ids) ? ids.length : a['record'] != null ? 1 : undefined,
     databaseName: str(a['database']),

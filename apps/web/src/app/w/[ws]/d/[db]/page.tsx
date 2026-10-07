@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
@@ -10,13 +11,10 @@ import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, 
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
+import { editableCalendarDateFields } from '@/components/views/calendar-date-fields';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
-import {
-  boardGroupDisabledReason,
-  canGroupBoardBy,
-  listGroupDisabledReason,
-} from '@/components/views/groupable-fields';
+import { canGroupBoardBy } from '@/components/views/groupable-fields';
 import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
@@ -24,7 +22,11 @@ import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
+import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
+import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
+import { ShareViewDialog } from '@/components/views/share-view-dialog';
+import { defaultTableHiddenFieldIds } from './default-table-columns';
 import {
   EMPTY_CONFIG,
   queryBodyFromConfig,
@@ -32,16 +34,14 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
-import { useDatabase, useMembers, useReorderFields, useUpdateDatabaseIcon } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
+import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { fieldReorderMoves } from '@/lib/reorder';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 function DatabasePageInner() {
@@ -52,9 +52,14 @@ function DatabasePageInner() {
   const database = useDatabase(ws, db);
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const schemaEditable = atLeast(database.data?.my_access, 'creator');
-  const updateIcon = useUpdateDatabaseIcon(ws, db);
+  const updateDatabase = useUpdateDatabase(ws, db);
 
   const viewId = searchParams.get('view');
+  // #497 — the ontology diagram's edge deep-link: `?field={id}` opens that
+  // field's Edit dialog on load (table-view.tsx / HeaderCell), rather than
+  // just landing on the database. Cleared from the URL once consumed so a
+  // refresh or re-visit doesn't keep reopening it.
+  const openFieldId = searchParams.get('field');
   const { views, activeView, config, patch, personalFilter } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
   const members = useMembers(ws, !readOnly);
@@ -66,6 +71,10 @@ function DatabasePageInner() {
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // #527 — the view being published/managed, or null when the dialog is closed.
+  const [sharingViewId, setSharingViewId] = useState<string | null>(null);
+  const [describing, setDescribing] = useState(false);
+  const sharingView = views.find((v) => v.id === sharingViewId);
 
   // Drag-to-reorder the canonical field order from the "Hide fields" panel (#338)
   // — the same field.position the table columns use, so both surfaces agree.
@@ -105,10 +114,11 @@ function DatabasePageInner() {
             )
           ) : (
             <DropdownMenu>
+              <Tooltip label="Change icon">
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  title="Change icon & color"
+                  aria-label="Change icon & color"
                   className="rounded-[6px] hover:bg-hover"
                 >
                   <EntityIconChip
@@ -120,11 +130,12 @@ function DatabasePageInner() {
                   />
                 </button>
               </DropdownMenuTrigger>
+              </Tooltip>
               <DropdownMenuContent align="start" className="w-auto p-2">
                 <IconColorPicker
                   icon={database.data?.icon ?? null}
                   color={database.data?.color ?? null}
-                  onChange={(patch) => updateIcon.mutate(patch)}
+                  onChange={(patch) => updateDatabase.mutate(patch)}
                 />
               </DropdownMenuContent>
             </DropdownMenu>
@@ -145,8 +156,21 @@ function DatabasePageInner() {
                   canManage={!readOnly}
                   canDelete={!readOnly && views.length > 1}
                   mutations={viewMutations}
+                  fields={database.data?.fields ?? []}
                   onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
                   onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+                  // #751 — #555 shipped board/dashboard support in the public
+                  // payload (board grouping, dashboard tiles) and #709 shipped
+                  // rendering both on the public page itself; this gate was
+                  // never widened to match; a "Share…" action never existed
+                  // to reach either, so the API's own publish-time validation
+                  // (cross-database tiles, hidden-field references) was
+                  // unreachable from the UI at all.
+                  onShare={
+                    view.type === 'table' || view.type === 'board' || view.type === 'dashboard'
+                      ? () => setSharingViewId(view.id)
+                      : undefined
+                  }
                   onDelete={async () => {
                     if (
                       !(await confirm({
@@ -169,6 +193,7 @@ function DatabasePageInner() {
           <div className="shrink-0">
             <NewViewDialog
               fields={database.data.fields}
+              existingNames={views.map((v) => v.name)}
               onCreate={(name, type, configPatch) =>
                 viewMutations.createView.mutate(
                   { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
@@ -179,6 +204,15 @@ function DatabasePageInner() {
           </div>
         )}
       </div>
+      {sharingView && database.data && (
+        <ShareViewDialog
+          open
+          onOpenChange={(o) => !o && setSharingViewId(null)}
+          view={sharingView}
+          fields={database.data.fields}
+          mutations={viewMutations}
+        />
+      )}
 
       {/*
         #400 — the purpose line, rendered ONLY when there is one.
@@ -189,11 +223,53 @@ function DatabasePageInner() {
         described. Absent means absent (#305: unconfigured is not invalid) — no
         placeholder, no empty line that reads as a rendering bug.
       */}
-      {database.data?.description && (
-        <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
-          {database.data.description}
-        </p>
-      )}
+      {database.data?.description &&
+        (schemaEditable ? (
+          /*
+            #731 — the banner is the obvious place to fix a wrong description and
+            was the one place you could not. The capability existed; only the
+            sidebar's ⋯ menu could reach it, which is not where anyone looks when
+            they are staring at the sentence itself.
+
+            GATED ON `schemaEditable`, NOT `readOnly`. The PATCH behind this
+            requires `creator` on the database; `readOnly` tests for `editor`,
+            a rung lower. Using it here would offer click-to-edit to someone the
+            API then refuses — which is the very defect this ticket is about, in
+            a new place (see also #725: a control shown where it does nothing).
+
+            The sidebar menu item stays exactly as it is: when a database has NO
+            description there is no banner to click, so the menu remains the only
+            way to ADD one.
+          */
+          <Dialog open={describing} onOpenChange={setDescribing}>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                title="Edit description"
+                className="shrink-0 cursor-pointer border-b border-border-default px-3 py-1.5 text-left text-label text-muted hover:bg-hover hover:text-ink"
+              >
+                {database.data.description}
+              </button>
+            </DialogTrigger>
+            {describing && (
+              <DescriptionDialogContent
+                name={database.data.name}
+                noun="database"
+                initial={database.data.description}
+                onSave={(description) => {
+                  updateDatabase.mutate({ description });
+                  setDescribing(false);
+                }}
+              />
+            )}
+          </Dialog>
+        ) : (
+          /* Without `creator` this is exactly what it was: a read-only line.
+             No hover, no cursor, nothing implying an edit that would be refused. */
+          <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-label text-muted">
+            {database.data.description}
+          </p>
+        ))}
 
       {/*
         #424 — the toolbar is the highest-risk widget on this route: it renders
@@ -212,17 +288,53 @@ function DatabasePageInner() {
         onPatch={patch}
         ws={ws}
         db={db}
+        databaseId={database.data?.id}
         viewId={activeView?.id}
         personalFilter={personalFilter}
         onReorderFields={schemaEditable ? onReorderFields : undefined}
+        readOnly={readOnly}
       />
       </ErrorBoundary>
 
+      {/*
+        #228 — the strip's own boundary, same reasoning as the toolbar's just
+        above: it renders user-authored config (a widget naming a field that's
+        since been deleted, though cleanViewConfig already prunes that on
+        read) and sits in the parent that owns layout, so a broken widget
+        costs the strip, never the grid underneath it.
+
+        Only for the record-grid view types — table/board/gallery/list are
+        "a view with rows a widget could summarise"; calendar/timeline/feed
+        have their own window/date framing a stray count would misrepresent,
+        form has no rows to summarise, and dashboard already has this exact
+        capability as its own tiles/widgets.
+      */}
+      {viewSupportsSummaryWidgets(activeView?.type) && (
+        <ErrorBoundary label="The summary widgets" onReset={() => patch({ summary_widgets: [] })}>
+          <SummaryWidgetStrip
+            ws={ws}
+            db={db}
+            fields={database.data?.fields ?? []}
+            config={config}
+            activeFilter={queryBody.filter}
+            readOnly={readOnly}
+            onPatch={patch}
+          />
+        </ErrorBoundary>
+      )}
+
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (
-          <BoardView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <BoardView
+            ws={ws}
+            db={db}
+            viewId={activeView.id}
+            config={config}
+            readOnly={readOnly}
+            personalFilter={personalFilter}
+          />
         ) : activeView?.type === 'calendar' ? (
-          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'gallery' ? (
           <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'list' ? (
@@ -239,6 +351,7 @@ function DatabasePageInner() {
           <TableView
             ws={ws}
             db={db}
+            viewId={activeView?.id}
             readOnly={readOnly}
             schemaEditable={schemaEditable}
             queryBody={queryBody}
@@ -246,6 +359,13 @@ function DatabasePageInner() {
             columnWidths={config.column_widths}
             config={config}
             onPatch={patch}
+            autoOpenFieldId={openFieldId}
+            onAutoOpenFieldConsumed={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('field');
+              const qs = next.toString();
+              router.replace(`/w/${ws}/d/${db}${qs ? `?${qs}` : ''}`);
+            }}
             onColumnResize={(fieldId, width) =>
               // Round at the source: a drag yields fractional px, which the saved
               // config rejects — and auto-save would then retry it forever (#78).
@@ -276,29 +396,29 @@ const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   form: 'Form',
   dashboard: 'Dashboard',
 };
-const VIEW_KIND_LABELS = Object.values(VIEW_KIND_LABEL);
-
+/**
+ * #660 — "why do I need to name the view I am creating? Give it a dumb name
+ * and id, that's enough" (Ievgen, live). Picking a Type is now the WHOLE
+ * action: the view is created immediately with an auto-generated, collision-
+ * avoided name (Table, Table 2, …) and sensible defaults for whatever a type
+ * needs (board/list group-by, calendar/timeline date field) — the exact same
+ * fallbacks this dialog already computed before, just applied without an
+ * extra click. Naming and every one of those defaults stays adjustable
+ * afterward through the view's own existing mechanisms (rename — the same
+ * one #277's bug is in — and its own toolbar's Group By / date-field
+ * pickers), never a second naming/config system.
+ */
 function NewViewDialog({
   fields,
+  existingNames,
   onCreate,
 }: {
   fields: Field[];
+  existingNames: string[];
   onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(VIEW_KIND_LABEL.table);
-  const [type, setType] = useState<ViewKind>('table');
-
-  // MN-222: prefill the name from the picked type, but never clobber a name the
-  // user typed — only overwrite when the field is empty or still holds a type default.
-  function selectType(kind: ViewKind) {
-    setName((prev) => (prev.trim() === '' || VIEW_KIND_LABELS.includes(prev.trim()) ? VIEW_KIND_LABEL[kind] : prev));
-    setType(kind);
-  }
   const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
-  const [dateField, setDateField] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   // #272: both group-by pickers now read the SHARED rule (./groupable-fields), which
   // mirrors the API's `boardGroupError`. This List list used to be
   // `f.type === 'select'` inline, which silently hid the workflow/State field from
@@ -308,160 +428,75 @@ function NewViewDialog({
   // user, or the single side of a one-to-many relation. The API enforces the same rule.
   const boardGroupFields = fields.filter(canGroupBoardBy);
   // #181: a Board defaults to grouping by the database's workflow field when it
-  // has one — the shown default and the created view both prefer it (below).
+  // has one.
   const workflowField = fields.find((f) => f.type === 'workflow');
   const boardDefaultGroupId = workflowField?.id || boardGroupFields[0]?.id;
-  const [groupBy, setGroupBy] = useState('');
+
+  // Mirrors packs.service.ts's uniqueDuplicateName (database duplication) — same
+  // "base, base 2, base 3…" shape, scoped here to this database's own view names.
+  function uniqueViewName(base: string): string {
+    const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()));
+    if (!taken.has(base.toLowerCase())) return base;
+    for (let i = 2; ; i++) {
+      const candidate = `${base} ${i}`;
+      if (!taken.has(candidate.toLowerCase())) return candidate;
+    }
+  }
+
+  function createView(kind: ViewKind) {
+    const patch: Partial<ViewConfig> = {};
+    if (kind === 'table') patch.hidden_field_ids = defaultTableHiddenFieldIds(fields);
+    if (kind === 'board') patch.group_by_field_id = boardDefaultGroupId;
+    // #808 — a calendar defaults to a WRITABLE date: defaulting to created_at (the
+    // first date-capable field on most databases) built a view that could not move
+    // a card, which is the dead view this ticket is about.
+    if (kind === 'calendar') patch.date_field_id = editableCalendarDateFields(fields)[0]?.id;
+    if (kind === 'timeline') patch.start_date_field_id = dateFields[0]?.id;
+    onCreate(uniqueViewName(VIEW_KIND_LABEL[kind]), kind, patch);
+    setOpen(false);
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-ink">
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </DialogTrigger>
+      <Tooltip label="New view">
+        <DialogTrigger asChild>
+          <button aria-label="New view" className="flex items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink">
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </DialogTrigger>
+      </Tooltip>
       <DialogContent title="New view">
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // Empty is never sent — fall back to the type's label (MN-222).
-            const finalName = name.trim() || VIEW_KIND_LABEL[type];
-            const patch: Partial<ViewConfig> = {};
-            if (type === 'board') patch.group_by_field_id = groupBy || boardDefaultGroupId;
-            if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
-            if (type === 'calendar') patch.date_field_id = dateField || dateFields[0]?.id;
-            if (type === 'timeline') {
-              patch.start_date_field_id = startDate || dateFields[0]?.id;
-              if (endDate) patch.end_date_field_id = endDate;
-            }
-            onCreate(finalName, type, patch);
-            setOpen(false);
-            setName(VIEW_KIND_LABEL[type]);
-          }}
-        >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="view-name">Name</Label>
-            <Input id="view-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Type</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {(
-                [
-                  { kind: 'table', label: 'Table', Icon: Table2 },
-                  { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
-                  { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
-                  { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
-                  { kind: 'list', label: 'List', Icon: ListIcon },
-                  { kind: 'feed', label: 'Feed', Icon: Newspaper },
-                  { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
-                  { kind: 'form', label: 'Form', Icon: FormInput },
-                  { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-                ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
-              ).map(({ kind, label, Icon, need }) => (
-                <button
-                  key={kind}
-                  type="button"
-                  disabled={Boolean(need)}
-                  title={need ?? undefined}
-                  onClick={() => selectType(kind)}
-                  className={cn(
-                    'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px]',
-                    type === kind ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                    need && 'cursor-not-allowed opacity-50',
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{label}</span>
-                  {need && <span className="text-[10px] text-faint">{need}</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-          {type === 'timeline' && (
-            <div className="flex gap-2">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="start-date">Start date</Label>
-                <select
-                  id="start-date"
-                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                  value={startDate || dateFields[0]?.id || ''}
-                  onChange={(e) => setStartDate(e.target.value)}
-                >
-                  {dateFields.map((f) => (
-                    <option key={f.id} value={f.id}>{f.displayName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="end-date">End date (optional)</Label>
-                <select
-                  id="end-date"
-                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                >
-                  <option value="">None</option>
-                  {dateFields.map((f) => (
-                    <option key={f.id} value={f.id}>{f.displayName}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {type === 'calendar' && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="date-field">Date field</Label>
-              <select
-                id="date-field"
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={dateField || dateFields[0]?.id || ''}
-                onChange={(e) => setDateField(e.target.value)}
-              >
-                {dateFields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {((type === 'board' && boardGroupFields.length > 0) || type === 'list') && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
-              <select
-                id="group-by"
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={type === 'board' ? groupBy || boardDefaultGroupId || '' : groupBy}
-                onChange={(e) => setGroupBy(e.target.value)}
-              >
-                {type === 'list' && <option value="">None</option>}
-                {/* #225: every field is listed. One that can't group is disabled with
-                    the reason, because a silently-omitted field reads as a bug — that
-                    is literally how #267 and #272 were both reported. */}
-                {fields.map((f) => {
-                  const reason =
-                    type === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
-                  return (
-                    <option key={f.id} value={f.id} disabled={reason !== null}>
-                      {f.displayName}
-                      {reason ? ` — ${reason}` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          )}
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit">Create view</Button>
-          </div>
-        </form>
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              { kind: 'table', label: 'Table', Icon: Table2 },
+              { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
+              { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: editableCalendarDateFields(fields).length === 0 ? 'Needs an editable date field' : null },
+              { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
+              { kind: 'list', label: 'List', Icon: ListIcon },
+              { kind: 'feed', label: 'Feed', Icon: Newspaper },
+              { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
+              { kind: 'form', label: 'Form', Icon: FormInput },
+              { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+            ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
+          ).map(({ kind, label, Icon, need }) => (
+            <button
+              key={kind}
+              type="button"
+              disabled={Boolean(need)}
+              title={need ?? undefined}
+              onClick={() => createView(kind)}
+              className={cn(
+                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-body border-border-default text-muted hover:border-[var(--accent)] hover:bg-accent-soft hover:text-ink',
+                need && 'cursor-not-allowed opacity-50 hover:border-border-default hover:bg-transparent hover:text-muted',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{label}</span>
+              {need && <span className="text-micro text-faint">{need}</span>}
+            </button>
+          ))}
+        </div>
       </DialogContent>
     </Dialog>
   );

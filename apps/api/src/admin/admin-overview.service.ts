@@ -31,6 +31,9 @@ export interface AdminWorkspaceSummary {
   includedSeats: number;
   recordCount: number;
   createdAt: Date;
+  /** #650 AC2 — null until SalesSignalService fires once for this workspace. */
+  salesSignalSentAt: Date | null;
+  salesSignalReason: string | null;
 }
 
 /**
@@ -103,6 +106,8 @@ export class AdminOverviewService {
         name: workspaces.name,
         createdAt: workspaces.createdAt,
         plan: billingSubscriptions.plan,
+        salesSignalSentAt: workspaces.salesSignalSentAt,
+        salesSignalReason: workspaces.salesSignalReason,
       })
       .from(workspaces)
       .leftJoin(billingSubscriptions, eq(billingSubscriptions.workspaceId, workspaces.id))
@@ -122,6 +127,8 @@ export class AdminOverviewService {
           includedSeats: PLANS[plan].includedSeats,
           recordCount: recordCounts.get(r.id) ?? 0,
           createdAt: r.createdAt,
+          salesSignalSentAt: r.salesSignalSentAt,
+          salesSignalReason: r.salesSignalReason,
         };
       }),
     );

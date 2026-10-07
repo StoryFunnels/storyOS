@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import type { EffectiveRole } from './access';
 
 export interface Space {
   id: string;
@@ -12,6 +13,21 @@ export interface Space {
   /** #400's purpose line. Absent from this type until #457 — which is part of why
    *  nothing in the app ever offered to write one. */
   description?: string | null;
+  /** #293 — the backend row (spaces.personal, schema.ts) was always on the wire;
+   *  this type just didn't declare it. Needed to filter a personal space out of a
+   *  "move to shared space" destination picker without a second round-trip. */
+  personal?: boolean;
+  ownerUserId?: string | null;
+  /** #742 finding 04 — presentational sidebar group; null/absent = ungrouped. */
+  groupId?: string | null;
+}
+/** #742 finding 04 — a presentational-only sidebar tier above spaces. Carries
+ *  no access semantics; see the schema comment on `spaceGroups` in the API. */
+export interface SpaceGroup {
+  id: string;
+  name: string;
+  color: string | null;
+  position: number;
 }
 export interface DatabaseSummary {
   id: string;
@@ -26,6 +42,26 @@ export interface DatabaseSummary {
   qualifiedSlug?: string;
   /** #400 — the one-line purpose. Null/absent is the normal state. */
   description?: string | null;
+  /** #562/#611 — the caller's own effective role on this database, batched
+   * server-side. Present on the LIST endpoint only (`DatabasesService.list`,
+   * where a write-access-only picker like #433's Copy-to dialog needs it) —
+   * absent on create/update's response, same as `spaceSlug`/`qualifiedSlug`
+   * above, so optional rather than a type lie. */
+  my_access?: EffectiveRole | null;
+}
+// #524 — hand-typed because the API's OpenAPI doc has no response schema for
+// this endpoint (see duplicateDatabase mutation below); matches
+// PacksService.duplicateDatabase's actual return type verbatim.
+export interface DuplicateDatabaseResult {
+  id: string;
+  name: string;
+  records_copied: number;
+  skipped_relations: string[];
+  skipped_derived_fields: Array<{ name: string; reason: string }>;
+}
+export interface WorkspaceBranding {
+  logo_url?: string | null;
+  accent_color?: string | null;
 }
 export interface WorkspaceInfo {
   id: string;
@@ -33,6 +69,10 @@ export interface WorkspaceInfo {
   role: 'admin' | 'member' | 'guest';
   /** #400's purpose line, writable from the app since #457. */
   description?: string | null;
+  /** #539 — the shared jsonb `settings` bag was always on the wire (same
+   *  under-typed-response pattern #293 found for `Space`); this type just
+   *  didn't declare the one key the settings page needs to read/round-trip. */
+  settings?: { branding?: WorkspaceBranding };
 }
 
 function unwrap<T>({ data, error }: { data?: unknown; error?: unknown }): T {
@@ -53,6 +93,21 @@ export function useSpaces(ws: string, enabled = true) {
     queryKey: ['spaces', ws],
     queryFn: async () =>
       unwrap<Space[]>(await api.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws } } })),
+    enabled: enabled && Boolean(ws),
+  });
+}
+
+/** #742 finding 04 — the workspace's presentational sidebar groups. */
+export function useSpaceGroups(ws: string, enabled = true) {
+  return useQuery({
+    queryKey: ['space-groups', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/space-groups', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: SpaceGroup[] }).data;
+    },
     enabled: enabled && Boolean(ws),
   });
 }
@@ -105,6 +160,7 @@ export function useSidebarMutations(ws: string) {
     // until F5). Invalidating the singular key too keeps the two in step.
     void qc.invalidateQueries({ queryKey: ['database', ws] });
   };
+  const invalidateGroups = () => void qc.invalidateQueries({ queryKey: ['space-groups', ws] });
 
   return {
     /**
@@ -113,7 +169,7 @@ export function useSidebarMutations(ws: string) {
      * be described by an agent but not by a person.
      */
     updateWorkspace: useMutation({
-      mutationFn: async (body: { name?: string; description?: string | null }) =>
+      mutationFn: async (body: { name?: string; description?: string | null; branding?: WorkspaceBranding }) =>
         unwrap<WorkspaceInfo>(
           await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
         ),
@@ -130,7 +186,19 @@ export function useSidebarMutations(ws: string) {
       onSuccess: invalidate,
     }),
     updateSpace: useMutation({
-      mutationFn: async ({ id, ...body }: { id: string; name?: string; icon?: string | null; color?: string | null; position?: number; description?: string | null }) =>
+      mutationFn: async ({
+        id,
+        ...body
+      }: {
+        id: string;
+        name?: string;
+        icon?: string | null;
+        color?: string | null;
+        position?: number;
+        description?: string | null;
+        /** #742 finding 04 — null removes the space from its group. */
+        groupId?: string | null;
+      }) =>
         unwrap<Space>(
           await api.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
             params: { path: { ws, space: id } },
@@ -152,6 +220,40 @@ export function useSidebarMutations(ws: string) {
           }),
         ),
       onSuccess: invalidate,
+    }),
+    // #742 finding 04 — presentational sidebar groups, above spaces.
+    createGroup: useMutation({
+      mutationFn: async (body: { name: string; color?: string }) =>
+        unwrap<SpaceGroup>(
+          await api.POST('/api/v1/workspaces/{ws}/space-groups', {
+            params: { path: { ws } },
+            body,
+          } as never),
+        ),
+      onSuccess: invalidateGroups,
+    }),
+    updateGroup: useMutation({
+      mutationFn: async ({ id, ...body }: { id: string; name?: string; color?: string | null; position?: number }) =>
+        unwrap<SpaceGroup>(
+          await api.PATCH('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws, group: id } },
+            body,
+          } as never),
+        ),
+      onSuccess: invalidateGroups,
+    }),
+    deleteGroup: useMutation({
+      mutationFn: async (id: string) =>
+        unwrap<unknown>(
+          await api.DELETE('/api/v1/workspaces/{ws}/space-groups/{group}', {
+            params: { path: { ws, group: id } },
+          } as never),
+        ),
+      // Spaces fall back to ungrouped server-side (FK set null) — refresh both.
+      onSuccess: () => {
+        invalidateGroups();
+        invalidate();
+      },
     }),
     createDatabase: useMutation({
       mutationFn: async (body: { space_id: string; name: string }) =>
@@ -192,6 +294,20 @@ export function useSidebarMutations(ws: string) {
             // The typed-name confirm already covers the destructive intent;
             // relations into a deleted database cannot outlive it.
             body: { confirm, sever_relations: true },
+          }),
+        ),
+      onSuccess: invalidate,
+    }),
+    // #524 — the controller has no @ApiResponse decorator, so the generated
+    // SDK types this response `never`; the real shape is PacksService
+    // .duplicateDatabase's own return type, hand-typed here the same way
+    // deleteDatabase's `unknown` result is above.
+    duplicateDatabase: useMutation({
+      mutationFn: async ({ id, name, include_records }: { id: string; name?: string; include_records?: boolean }) =>
+        unwrap<DuplicateDatabaseResult>(
+          await api.POST('/api/v1/workspaces/{ws}/databases/{db}/duplicate', {
+            params: { path: { ws, db: id } },
+            body: { name, include_records },
           }),
         ),
       onSuccess: invalidate,

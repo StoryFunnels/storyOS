@@ -114,6 +114,17 @@ function makeService(db: Db) {
     // an unlimited window keeps them honest either way (a 0 would silently
     // disable capture and make a future capture test pass for the wrong reason).
     { getLimits: vi.fn().mockResolvedValue({ historyRetentionDays: Infinity }) } as never,
+    // #469: these unit tests never exercise a guest-scoped call (membership is
+    // always omitted), so AccessService is never consulted.
+    { effectiveForDatabase: vi.fn() } as never,
+    // #273: these unit tests never exercise notifyWatchers' email leg.
+    { notify: vi.fn() } as never,
+    // #599: these unit tests never exercise duplicate(), so AttachmentsService
+    // is never consulted.
+    { duplicateAll: vi.fn() } as never,
+    // #542 Phase 2: these unit tests never exercise a delete path, so the
+    // action-class gate is never consulted.
+    { check: vi.fn().mockResolvedValue({ held: false }) } as never,
   );
 }
 

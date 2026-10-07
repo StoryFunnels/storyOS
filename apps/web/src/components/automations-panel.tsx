@@ -4,29 +4,55 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MousePointerClick, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
+import { AUTOMATION_TOP_N_LIMIT_CEILING } from '@storyos/schemas';
 import { api, API_URL } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/button-actions-editor';
 import type { ButtonAction } from '@/components/table-view/button-actions-editor';
-import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import { useDatabase, useMailConnections, useMembers } from '@/components/table-view/use-table-data';
+import { FlowDiagramEditor } from '@/components/automations/flow-diagram-editor';
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
-import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
+import { opsForField, SortButton } from '@/components/views/view-toolbar';
+import type { SortSpec } from '@/components/views/sort-config';
+import { FlowDiagram } from '@/components/automations/flow-diagram';
+import { triggerLabel } from '@/components/automations/flow-diagram-model';
+import type { DiagramCondition, DiagramRule } from '@/components/automations/flow-diagram-model';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+
+/* #738 — stable identity across renders. */
+const ACTIONS_VIEW_OPTIONS = [
+  { value: 'list' as const, label: 'List' },
+  { value: 'canvas' as const, label: 'Canvas' },
+];
 
 interface Rule {
   id: string;
   name: string;
   enabled: boolean;
-  trigger: { type: string; field_id?: string; every?: string; at?: string; weekday?: number };
+  trigger: {
+    type: string;
+    field_id?: string;
+    /** #270 — set only when trigger.type is 'record_linked'. */
+    relation_field_id?: string;
+    direction?: 'link' | 'unlink';
+    every?: string;
+    at?: string;
+    weekday?: number;
+  };
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
   failureStreak: number;
+  /** #392/#583 — a schedule-only "top N" selection; null on every other trigger. */
+  sort?: SortSpec[] | null;
+  topNLimit?: number | null;
   /** MN-254: set only while trigger.type is "webhook_received". */
   hookToken?: string | null;
   hookSecret?: string | null;
@@ -42,21 +68,48 @@ interface Run {
   createdAt: string;
 }
 
+/** Thin rule-level wrapper over the shared `triggerLabel` (#283): adds the
+ * schedule-only top-N suffix, which is a rule fact, not a trigger fact. */
 function triggerSentence(rule: Rule, fields: Field[]): string {
-  const t = rule.trigger;
-  if (t.type === 'record_created') return 'When a record is created';
-  if (t.type === 'record_updated') {
-    const field = fields.find((f) => f.id === t.field_id);
-    return field ? `When "${field.displayName}" changes` : 'When a record changes';
-  }
-  if (t.type === 'schedule') return `Every ${t.every}${t.at ? ` at ${t.at}` : ''} (server time)`;
-  if (t.type === 'webhook_received') return 'A webhook is received';
-  return t.type;
+  const base = triggerLabel(rule.trigger, fields);
+  if (rule.trigger.type === 'schedule' && rule.topNLimit) return `${base} — top ${rule.topNLimit}`;
+  return base;
 }
 
 /** The public endpoint lives on the API host, not the web app's own origin. */
 function hookUrl(ws: string, hookToken: string): string {
   return `${API_URL.replace(/\/$/, '')}/api/v1/hooks/${ws}/${hookToken}`;
+}
+
+/**
+ * #703 — save()'s trigger-building ternary, extracted so it's unit-testable
+ * without rendering the form: it previously had no `record_linked` branch at
+ * all, silently falling through to `{ type: triggerType }` and dropping the
+ * schema-required `relation_field_id` (plus the optional `direction`) on
+ * every save, a 422 the server correctly rejected but the editor never
+ * recovered from — a record_linked rule couldn't be re-saved at all.
+ */
+export function buildAutomationTrigger(params: {
+  triggerType: string;
+  triggerFieldId: string;
+  relationFieldId: string;
+  linkDirection: '' | 'link' | 'unlink';
+  every: string;
+  at: string;
+}): Record<string, unknown> {
+  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at } = params;
+  if (triggerType === 'schedule') return { type: 'schedule', every, at };
+  if (triggerType === 'record_updated') {
+    return { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) };
+  }
+  if (triggerType === 'record_linked') {
+    return {
+      type: 'record_linked',
+      relation_field_id: relationFieldId,
+      ...(linkDirection ? { direction: linkDirection } : {}),
+    };
+  }
+  return { type: triggerType };
 }
 
 /** Buttons & automations panel (MN-046/047) — per-database sections. */
@@ -121,30 +174,39 @@ export function AutomationsPanel({
       className="max-w-2xl"
     >
       <div className="flex max-h-[75vh] flex-col gap-3 overflow-y-auto pr-1">
-        <div className="flex gap-1">
-          {(['rules', 'buttons'] as const).map((t) => (
-            <button
-              key={t}
-              className={cn(
-                'flex items-center gap-1.5 rounded px-2.5 py-1 text-[13px] capitalize',
-                tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
-              )}
-              onClick={() => setTab(t)}
-            >
-              {t === 'rules' ? (
-                <Zap className="h-3.5 w-3.5" />
-              ) : (
-                <MousePointerClick className="h-3.5 w-3.5" />
-              )}
-              {t === 'rules' ? 'Automation rules' : 'Buttons'}
-            </button>
-          ))}
-        </div>
+        {/* #767 — the second hand-rolled switcher #738 left in this file; the
+            other one, `actionsView` below, already migrated to `Segmented`. */}
+        <Segmented
+          label="Buttons & automations view"
+          value={tab}
+          onChange={setTab}
+          size="default"
+          options={[
+            {
+              value: 'rules',
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" />
+                  Automation rules
+                </span>
+              ),
+            },
+            {
+              value: 'buttons',
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <MousePointerClick className="h-3.5 w-3.5" />
+                  Buttons
+                </span>
+              ),
+            },
+          ]}
+        />
 
         {tab === 'buttons' && (
           <div className="flex flex-col gap-1.5">
             {buttons.length === 0 && (
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 No buttons yet — add a <strong>Button</strong> field from the table's "New field".
               </p>
             )}
@@ -153,8 +215,8 @@ export function AutomationsPanel({
                 key={b.id}
                 className="rounded-[var(--radius-card)] border border-border-default p-3"
               >
-                <p className="text-[13px] font-medium text-ink">{b.displayName}</p>
-                <p className="text-[12px] text-muted">
+                <p className="text-body font-medium text-ink">{b.displayName}</p>
+                <p className="text-label text-muted">
                   {((b.config['actions'] as ButtonAction[]) ?? [])
                     .map((a) => a.type.replace('_', ' '))
                     .join(' → ')}
@@ -188,7 +250,7 @@ export function AutomationsPanel({
               />
             ))}
             {(rules.data ?? []).length === 0 && (
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 No rules yet. Rules run actions when records change or on a schedule.
               </p>
             )}
@@ -250,6 +312,7 @@ function RuleRow({
   onDelete: () => void;
 }) {
   const [showRuns, setShowRuns] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(false);
   const fmt = useDateFormat();
   const runs = useQuery({
     queryKey: ['automation-runs', ws, db, rule.id],
@@ -276,32 +339,49 @@ function RuleRow({
           title="Enabled"
         />
         <button className="min-w-0 flex-1 text-left" onClick={onEdit}>
-          <p className="truncate text-[13px] font-medium text-ink">{rule.name}</p>
-          <p className="truncate text-[12px] text-muted">
+          <p className="truncate text-body font-medium text-ink">{rule.name}</p>
+          <p className="truncate text-label text-muted">
             {triggerSentence(rule, fields)} →{' '}
             {rule.actions.map((a) => a.type.replace('_', ' ')).join(', ')}
           </p>
         </button>
         <button
-          className="text-[12px] text-muted hover:text-ink"
+          className="text-label text-muted hover:text-ink"
+          onClick={() => setShowDiagram((s) => !s)}
+        >
+          Diagram
+        </button>
+        <button
+          className="text-label text-muted hover:text-ink"
           onClick={() => setShowRuns((s) => !s)}
         >
           Runs
         </button>
-        <button className="text-[12px] text-error hover:underline" onClick={onDelete}>
+        <button className="text-label text-error hover:underline" onClick={onDelete}>
           Delete
         </button>
       </div>
       {!rule.enabled && rule.failureStreak >= 10 && (
-        <p className="mt-1 text-[12px] text-warning">
+        <p className="mt-1 text-label text-warning">
           Auto-disabled after repeated failures — fix the actions and re-enable.
         </p>
       )}
+      {showDiagram && (
+        <div className="mt-2 border-t border-border-default pt-2">
+          <FlowDiagram rule={rule as DiagramRule} fields={fields} />
+          <button
+            className="mt-2 text-label text-muted hover:text-ink hover:underline"
+            onClick={onEdit}
+          >
+            Edit in form
+          </button>
+        </div>
+      )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
-          {(runs.data ?? []).length === 0 && <p className="text-[12px] text-faint">No runs yet.</p>}
+          {(runs.data ?? []).length === 0 && <p className="text-label text-muted">No runs yet.</p>}
           {(runs.data ?? []).slice(0, 10).map((run) => (
-            <p key={run.id} className="text-[12px] text-muted">
+            <p key={run.id} className="text-label text-muted">
               <span
                 className={cn(
                   'mr-1.5 inline-block h-1.5 w-1.5 rounded-full',
@@ -357,8 +437,22 @@ function RuleEditor({
   const [triggerFieldId, setTriggerFieldId] = useState(
     rule ? (rule.trigger.field_id ?? '') : (fields.find((f) => f.type === 'workflow')?.id ?? ''),
   );
+  // #703 — record_linked's own scoping field: WHICH relation, and optionally
+  // link-only/unlink-only. Defaults to the database's first relation field so
+  // a brand-new rule already names something real rather than an empty picker.
+  const [relationFieldId, setRelationFieldId] = useState(
+    rule?.trigger.relation_field_id ?? fields.find((f) => f.type === 'relation')?.id ?? '',
+  );
+  const [linkDirection, setLinkDirection] = useState<'' | 'link' | 'unlink'>(
+    rule?.trigger.direction ?? '',
+  );
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
+  // #392/#583 — top-N selection, schedule-only. `limit` is a free-text string
+  // so a user can clear it back to "no cap" (empty string), rather than a
+  // number input silently coercing an empty field to 0.
+  const [sort, setSort] = useState<SortSpec[]>(rule?.sort ?? []);
+  const [limit, setLimit] = useState<string>(rule?.topNLimit != null ? String(rule.topNLimit) : '');
   const [actions, setActions] = useState<ButtonAction[]>(
     rule?.actions ?? [{ type: 'add_comment', body_template: '' }],
   );
@@ -377,10 +471,20 @@ function RuleEditor({
   // #156 — a NEW rule starts at the recipe gallery; editing an existing rule goes
   // straight to the form. "Start from scratch" is always one click away.
   const [showRecipes, setShowRecipes] = useState(!rule);
+  // #285 — two views of the SAME `actions`/`setActions` state, not two
+  // separate edit paths: "Canvas" (reorder/add/remove via the flow diagram)
+  // and "List" (the existing per-action settings form). Switching does not
+  // touch `actions` at all, so opening either view and saving with no
+  // changes is byte-identical to not having opened it (#285's own AC).
+  const [actionsView, setActionsView] = useState<'list' | 'canvas'>('list');
   const confirm = useConfirm();
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   const isWebhookTrigger = triggerType === 'webhook_received';
+  // #285 — the canvas's own "add action" needs the same defaults
+  // ButtonActionsEditor's type-select already builds via defaultActionFor.
+  const relationFields = fields.filter((f) => f.type === 'relation');
+  const mailConnections = useMailConnections(ws);
 
   const lastPayloadQuery = useQuery({
     queryKey: ['automation-last-payload', ws, db, rule?.id],
@@ -443,11 +547,9 @@ function RuleEditor({
     toast.success('Webhook token regenerated');
   }
 
-  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  const conditionable = fields.filter((f) => opsForField(f).length > 0);
   const selectedConditionField = fields.find((f) => f.apiName === conditionField);
-  const conditionOps = selectedConditionField
-    ? (OPS_BY_TYPE[selectedConditionField.type] ?? [])
-    : [];
+  const conditionOps = selectedConditionField ? opsForField(selectedConditionField) : [];
   const currentOp = conditionOps.find((o) => o.op === conditionOp);
   const scopableFields = fields.filter((f) => !f.isSystem && f.type !== 'title');
 
@@ -475,19 +577,41 @@ function RuleEditor({
 
   async function save() {
     setBusy(true);
-    const trigger =
-      triggerType === 'schedule'
-        ? { type: 'schedule', every, at }
-        : triggerType === 'record_updated'
-          ? { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) }
-          : { type: triggerType };
+    const trigger = buildAutomationTrigger({
+      triggerType,
+      triggerFieldId,
+      relationFieldId,
+      linkDirection,
+      every,
+      at,
+    });
     // Webhook rules have no triggering record for a condition to evaluate
     // against — v1 rejects one server-side, so don't even build it here.
+    // #392/#583 — sort/limit (top-N) only apply to a schedule trigger. On an
+    // UPDATE, both are sent EXPLICITLY (sort/limit: null when not schedule, or
+    // when cleared back to empty) rather than omitted — omitting means "leave
+    // unchanged" server-side (see AutomationsService.update's "effective"
+    // fallback), which would silently 422 a save that just switched the
+    // trigger AWAY from schedule while an old top-N selection was still
+    // stored. On a fresh CREATE there's no stale value to clear, so omitting
+    // outside 'schedule' is fine (create's schema is optional, not nullable).
+    const parsedLimit = limit.trim() === '' ? null : Number(limit);
+    // CREATE's schema is optional-but-not-nullable (no prior value to clear);
+    // UPDATE's is nullable (null is the explicit "clear" signal) — see above.
+    const topN =
+      triggerType === 'schedule'
+        ? rule
+          ? { sort: sort.length ? sort : null, limit: parsedLimit }
+          : { sort: sort.length ? sort : undefined, limit: parsedLimit ?? undefined }
+        : rule
+          ? { sort: null, limit: null }
+          : {};
     const body = {
       name,
       trigger,
       condition: isWebhookTrigger ? undefined : buildCondition(),
       actions,
+      ...topN,
     };
     const call = rule
       ? api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
@@ -532,8 +656,8 @@ function RuleEditor({
     return (
       <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default p-3">
         <div>
-          <p className="text-[13px] font-medium text-ink">Start from a recipe</p>
-          <p className="text-[12px] text-muted">
+          <p className="text-body font-medium text-ink">Start from a recipe</p>
+          <p className="text-label text-muted">
             Pick one and edit it — every recipe fills in the same form you'd build by hand.
           </p>
         </div>
@@ -545,12 +669,12 @@ function RuleEditor({
               className="rounded-[var(--radius-card)] border border-border-default p-2 text-left hover:bg-hover"
               onClick={() => applyRecipe(fill)}
             >
-              <p className="text-[13px] text-ink">{recipe.title}</p>
-              <p className="text-[11px] text-faint">{recipe.description}</p>
+              <p className="text-body text-ink">{recipe.title}</p>
+              <p className="text-meta text-muted">{recipe.description}</p>
             </button>
           ))}
           {recipes.length === 0 && (
-            <p className="text-[12px] text-faint">
+            <p className="text-label text-muted">
               No recipes fit this database yet — build a rule from scratch below.
             </p>
           )}
@@ -583,19 +707,49 @@ function RuleEditor({
       <div className="flex flex-col gap-1.5">
         <Label>When</Label>
         <div className="flex flex-wrap gap-2">
-          <select
-            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+          <Select
+            size="sm"
             value={triggerType}
             onChange={(e) => setTriggerType(e.target.value)}
           >
             <option value="record_created">A record is created</option>
             <option value="record_updated">A record changes</option>
+            <option value="record_linked">A record is linked/unlinked</option>
             <option value="schedule">On a schedule</option>
             <option value="webhook_received">A webhook is received</option>
-          </select>
+          </Select>
+          {triggerType === 'record_linked' &&
+            (relationFields.length === 0 ? (
+              <p className="text-label text-muted">
+                This database has no relation fields yet — add one first.
+              </p>
+            ) : (
+              <>
+                <Select
+                  size="sm"
+                  value={relationFieldId}
+                  onChange={(e) => setRelationFieldId(e.target.value)}
+                >
+                  {relationFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      via "{f.displayName}"
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  size="sm"
+                  value={linkDirection}
+                  onChange={(e) => setLinkDirection(e.target.value as '' | 'link' | 'unlink')}
+                >
+                  <option value="">linked or unlinked</option>
+                  <option value="link">linked</option>
+                  <option value="unlink">unlinked</option>
+                </Select>
+              </>
+            ))}
           {triggerType === 'record_updated' && (
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={triggerFieldId}
               onChange={(e) => setTriggerFieldId(e.target.value)}
             >
@@ -605,19 +759,19 @@ function RuleEditor({
                   only "{f.displayName}"
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           {triggerType === 'schedule' && (
             <>
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              <Select
+                size="sm"
                 value={every}
                 onChange={(e) => setEvery(e.target.value)}
               >
                 <option value="hour">every hour</option>
                 <option value="day">every day</option>
                 <option value="week">every week</option>
-              </select>
+              </Select>
               {every !== 'hour' && (
                 <Input
                   className="h-8 w-24"
@@ -629,13 +783,45 @@ function RuleEditor({
             </>
           )}
         </div>
+        {/* #392/#583 — "top N" only exists for a schedule trigger: a single
+            triggering record has no "top N" to pick from, so record-triggered
+            rules get a short explanation instead of a silently absent control. */}
+        {triggerType === 'schedule' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-label text-muted">Select</span>
+            <SortButton
+              fields={fields}
+              sorts={sort}
+              onChange={setSort}
+              onNullsChange={() => {}}
+              showNulls={false}
+            />
+            <Input
+              type="number"
+              min={1}
+              max={AUTOMATION_TOP_N_LIMIT_CEILING}
+              className="h-8 w-20"
+              placeholder="all"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+            />
+            <span className="text-label text-muted">
+              records (up to {AUTOMATION_TOP_N_LIMIT_CEILING}) — leave blank for no cap
+            </span>
+          </div>
+        ) : (
+          <p className="text-label text-muted">
+            Top-N selection (sort + a record cap) is only available on a schedule trigger — a
+            single triggering record has no "top N" to pick from.
+          </p>
+        )}
       </div>
 
       {isWebhookTrigger && (
         <div className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default bg-card/50 p-2.5">
           <Label>Webhook endpoint</Label>
           {!rule ? (
-            <p className="text-[12px] text-muted">
+            <p className="text-label text-muted">
               Save this rule once to mint its URL and secret.
             </p>
           ) : (
@@ -643,7 +829,7 @@ function RuleEditor({
               <div className="flex items-center gap-1.5">
                 <Input
                   readOnly
-                  className="h-7 font-mono text-[12px]"
+                  className="h-7 font-mono text-label"
                   value={
                     hookToken && workspaceQuery.data
                       ? hookUrl(workspaceQuery.data.slug, hookToken)
@@ -666,7 +852,7 @@ function RuleEditor({
                 </Button>
               </div>
               <div className="flex items-center gap-1.5">
-                <Input readOnly className="h-7 font-mono text-[12px]" value={hookSecret ?? ''} />
+                <Input readOnly className="h-7 font-mono text-label" value={hookSecret ?? ''} />
                 <Button
                   variant="secondary"
                   size="sm"
@@ -684,18 +870,18 @@ function RuleEditor({
               {/* #158 — lead with what a non-technical user actually does: paste the
                   URL into the tool that will call it. Signing/tokens/raw payload are
                   developer concerns and move behind Advanced. */}
-              <p className="text-[11px] text-muted">
+              <p className="text-meta text-muted">
                 Paste this URL into the tool that should trigger this rule — in Typeform:
                 <em> Connect → Webhooks → Add a webhook</em>; in Zapier or Make: choose a
                 “Webhooks” action and paste it as the destination URL. Nothing else is
                 required — send a test from that tool and this rule runs.
               </p>
               <details className="rounded border border-border-default">
-                <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+                <summary className="cursor-pointer select-none px-2 py-1 text-meta text-muted hover:text-ink">
                   Advanced — signing, payload tokens &amp; last delivery
                 </summary>
                 <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
-                  <p className="text-[11px] text-faint">
+                  <p className="text-meta text-muted">
                     Sign requests with the secret above (X-StoryOS-Signature: sha256=…,
                     X-StoryOS-Timestamp) to have them verified; unsigned requests are accepted
                     if no signature is sent.{' '}
@@ -704,13 +890,13 @@ function RuleEditor({
                   </p>
                   <button
                     type="button"
-                    className="self-start text-[12px] text-muted hover:text-ink"
+                    className="self-start text-label text-muted hover:text-ink"
                     onClick={() => setShowLastPayload((s) => !s)}
                   >
                     {showLastPayload ? 'Hide' : 'Show'} last received payload
                   </button>
                   {showLastPayload && (
-                    <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-[11px] text-muted">
+                    <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-meta text-muted">
                       {lastPayloadQuery.isLoading
                         ? 'Loading…'
                         : lastPayloadQuery.data?.last_hook_payload
@@ -729,15 +915,15 @@ function RuleEditor({
         <div className="flex flex-col gap-1.5">
           <Label>Only if (optional)</Label>
           <div className="flex flex-wrap gap-2">
-            <select
-              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
               value={conditionField}
               onChange={(e) => {
                 const next = e.target.value;
                 setConditionField(next);
                 const field = fields.find((f) => f.apiName === next);
                 // Auto-pick the first operator so the dropdown never sits on a bare "op…".
-                setConditionOp(field ? (OPS_BY_TYPE[field.type]?.[0]?.op ?? '') : '');
+                setConditionOp(field ? (opsForField(field)[0]?.op ?? '') : '');
                 setConditionValue('');
               }}
             >
@@ -747,10 +933,10 @@ function RuleEditor({
                   {f.displayName}
                 </option>
               ))}
-            </select>
+            </Select>
             {selectedConditionField && (
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              <Select
+                size="sm"
                 value={conditionOp}
                 onChange={(e) => setConditionOp(e.target.value)}
               >
@@ -759,14 +945,14 @@ function RuleEditor({
                     {o.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {selectedConditionField &&
               currentOp &&
               currentOp.input !== 'none' &&
               (currentOp.input === 'options' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
@@ -784,10 +970,10 @@ function RuleEditor({
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : currentOp.input === 'relative' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue || 'next_7_days'}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
@@ -796,16 +982,16 @@ function RuleEditor({
                       {r.replaceAll('_', ' ')}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : currentOp.input === 'boolean' ? (
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                <Select
+                  size="sm"
                   value={conditionValue || 'true'}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
                   <option value="true">checked</option>
                   <option value="false">unchecked</option>
-                </select>
+                </Select>
               ) : (
                 <Input
                   type={
@@ -825,23 +1011,63 @@ function RuleEditor({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label>Then</Label>
-        <ButtonActionsEditor
-          ws={ws}
-          db={db}
-          fields={fields}
-          actions={actions}
-          onChange={setActions}
-          restrictToWebhookSafe={isWebhookTrigger}
-          ruleId={rule?.id}
-        />
+        <div className="flex items-center justify-between">
+          <Label>Then</Label>
+          {/* #285 — List and Canvas are two views of the SAME `actions` state
+              (declared once, above), not two edit paths: switching tabs never
+              touches `actions`, so a rule opened and saved with no edits is
+              byte-identical regardless of which view was last shown. */}
+          {/* #738 — this site's selected tab was `bg-hover`, which read far
+              fainter than the `bg-active` the other subtle groups use. Not a
+              live bug (its unselected items had no hover background), but the
+              primitive adds one, so `bg-hover` would now collide with it. */}
+          <Segmented
+            label="Actions view"
+            value={actionsView}
+            onChange={setActionsView}
+            options={ACTIONS_VIEW_OPTIONS}
+          />
+        </div>
+        {actionsView === 'canvas' ? (
+          <FlowDiagramEditor
+            trigger={{ type: triggerType, field_id: triggerFieldId || undefined }}
+            condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}
+            actions={actions}
+            onChange={setActions}
+            onEditSettings={() => setActionsView('list')}
+            fields={fields}
+            db={db}
+            relationFields={relationFields}
+            mailConnectionId={mailConnections.data?.[0]?.id}
+            restrictToWebhookSafe={isWebhookTrigger}
+          />
+        ) : (
+          <ButtonActionsEditor
+            ws={ws}
+            db={db}
+            fields={fields}
+            actions={actions}
+            onChange={setActions}
+            restrictToWebhookSafe={isWebhookTrigger}
+            ruleId={rule?.id}
+          />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">
         <Button variant="secondary" size="sm" onClick={() => onDone()}>
           Cancel
         </Button>
-        <Button size="sm" disabled={busy || !name.trim() || actions.length === 0} onClick={save}>
+        <Button
+          size="sm"
+          disabled={
+            busy ||
+            !name.trim() ||
+            actions.length === 0 ||
+            (triggerType === 'record_linked' && !relationFieldId)
+          }
+          onClick={save}
+        >
           <Play className="mr-1 h-3.5 w-3.5" /> Save rule
         </Button>
       </div>

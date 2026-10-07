@@ -136,7 +136,10 @@ describe('workspace export contents (#320)', () => {
   it('contains a manifest indexing the databases', () => {
     const manifest = JSON.parse(zip.readAsText('manifest.json'));
     expect(manifest.format).toBe('storyos-workspace-export');
-    expect(manifest.format_version).toBe(1);
+    // #293 — bumped to 2 when documents.json (standalone space documents +
+    // shared views) was added; a future importer keys off this to know
+    // whether that file exists.
+    expect(manifest.format_version).toBe(2);
     expect(manifest.workspace.id).toBe(wsId);
     expect(manifest.counts.databases).toBe(2);
     expect(manifest.counts.relations).toBe(1);
@@ -193,5 +196,106 @@ describe('workspace export contents (#320)', () => {
     const bytes = zip.readFile(path);
     expect(bytes, 'the attachment file is in the archive').toBeTruthy();
     expect(bytes!.equals(ATTACHMENT_BYTES)).toBe(true);
+  });
+});
+
+/**
+ * #293 — the export boundary for standalone space documents and shared
+ * views. Vera's live reproduction (2026-09-24): a real export on a workspace
+ * with a moved (now-shared) document produced a zip with no `documents`
+ * entry at all and no `counts.documents` key — `workspace-export.service.ts`
+ * had zero references to `documents`/`spaceDocuments`. Fixed by adding
+ * `documents.json`, scoped by the SAME personal-space exclusion the rest of
+ * the export already applies (spaceRows already excludes personal spaces —
+ * nothing personal-space-specific needed re-deriving for documents).
+ *
+ * Per personal-space.md / #291: a VIEW's privacy is `ownerUserId`, not
+ * `spaceId` — a personal view is a private window onto shared data, not a
+ * private container — so its exclusion is checked independently of which
+ * space it's under, exactly like the rest of this export already treats
+ * personal content as private from admins too.
+ */
+describe('#293 — the export boundary follows a document/view\'s CURRENT container', () => {
+  let ws2: string;
+  let personalSpaceId: string;
+  let sharedSpaceId: string;
+  let sharedDb2: string;
+
+  beforeAll(async () => {
+    ws2 = (await as(admin.token, 'POST', '/workspaces', { name: '293 Export WS' })).json().id;
+    sharedSpaceId = (await as(admin.token, 'GET', `/workspaces/${ws2}/spaces`)).json()[0].id;
+    sharedDb2 = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/databases`, { space_id: sharedSpaceId, name: 'Notes DB' })
+    ).json().id;
+    personalSpaceId = (await as(admin.token, 'POST', `/workspaces/${ws2}/spaces/personal`)).json().id;
+  });
+
+  async function exportZip293() {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${ws2}/export/workspace.zip`,
+      headers: authed(admin.token),
+    });
+    return new AdmZip(res.rawPayload);
+  }
+
+  it('AC1/AC3 — a document moved OUT of Personal is present, with a non-zero manifest count', async () => {
+    const draft = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/spaces/${personalSpaceId}/documents`, { title: 'Still private' })
+    ).json();
+    // Baseline: still in Personal, must not appear at all.
+    const zipStillPersonal = await exportZip293();
+    const docsStillPersonal = JSON.parse(zipStillPersonal.readAsText('documents.json'));
+    expect(docsStillPersonal.documents.find((d: { id: string }) => d.id === draft.id)).toBeUndefined();
+    expect(JSON.parse(zipStillPersonal.readAsText('manifest.json')).counts.documents).toBe(0);
+
+    await as(admin.token, 'POST', `/workspaces/${ws2}/documents/${draft.id}/move`, { space_id: sharedSpaceId });
+
+    const zip = await exportZip293();
+    const manifest = JSON.parse(zip.readAsText('manifest.json'));
+    expect(manifest.counts.documents).toBe(1);
+    expect(zip.getEntries().map((e) => e.entryName)).toContain('documents.json');
+    const docs = JSON.parse(zip.readAsText('documents.json'));
+    const exported = docs.documents.find((d: { id: string }) => d.id === draft.id);
+    expect(exported, 'the moved document is now present').toBeTruthy();
+    expect(exported.title).toBe('Still private');
+    expect(exported.space_id).toBe(sharedSpaceId);
+  });
+
+  it('AC2 — MUST KEEP WORKING both directions: a shared item forked into Personal via Copy to My Space drops OUT of the export, while the original stays', async () => {
+    const shared = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/spaces/${sharedSpaceId}/documents`, { title: 'Shared page' })
+    ).json();
+
+    const forked = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/documents/${shared.id}/copy-to-personal`)
+    ).json();
+    expect(forked.id).not.toBe(shared.id);
+
+    const zip = await exportZip293();
+    const docs = JSON.parse(zip.readAsText('documents.json'));
+    expect(docs.documents.find((d: { id: string }) => d.id === shared.id), 'the original stays exportable').toBeTruthy();
+    expect(docs.documents.find((d: { id: string }) => d.id === forked.id), 'the personal fork is excluded').toBeUndefined();
+  });
+
+  it('a shared (published) view is present; a personal view is excluded regardless of its database\'s space', async () => {
+    const sharedView = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/databases/${sharedDb2}/views`, { name: 'Shared View', type: 'table' })
+    ).json();
+    const personalView = (
+      await as(admin.token, 'POST', `/workspaces/${ws2}/databases/${sharedDb2}/views/personal`, { name: 'My View', type: 'table' })
+    ).json();
+
+    const zip = await exportZip293();
+    const docs = JSON.parse(zip.readAsText('documents.json'));
+    expect(docs.views.find((v: { id: string }) => v.id === sharedView.id), 'shared view is exported').toBeTruthy();
+    expect(docs.views.find((v: { id: string }) => v.id === personalView.id), 'personal view is excluded').toBeUndefined();
+
+    // Publishing the personal view (clearing ownerUserId) must move it into
+    // the export too — same "current container" rule as a document's move.
+    await as(admin.token, 'POST', `/workspaces/${ws2}/databases/${sharedDb2}/views/${personalView.id}/publish`);
+    const zipAfter = await exportZip293();
+    const docsAfter = JSON.parse(zipAfter.readAsText('documents.json'));
+    expect(docsAfter.views.find((v: { id: string }) => v.id === personalView.id), 'published view now present').toBeTruthy();
   });
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { useMemo, useRef, useState } from 'react';
 import {
   ArrowUpDown,
@@ -27,7 +28,7 @@ import { ChangeTypeDialog } from './change-type-dialog';
 import { EditFieldDialog } from './edit-field-dialog';
 import { useDeleteField } from './field-dialog-shared';
 import type { Field } from './use-table-data';
-import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
+import { opsForField, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
 import {
   buildFilterGroup,
@@ -82,6 +83,14 @@ export function HeaderCell({
   const startRef = useRef<{ x: number; width: number } | null>(null);
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
+  // #492 — this used to gate the WHOLE menu's visibility, conflating two
+  // different questions: "can I run destructive schema ops on this field"
+  // (still exactly this) and "does this column get a menu at all" (now
+  // `hasMenu`, below the per-item flags it depends on). A system field
+  // answers the first "no" and the second "yes, a reduced one" — the same
+  // shape `canConfigureTitle` already gives the title field, generalised
+  // rather than copied a third time (the drift this codebase has shipped at
+  // least six times: #375/#380/#383/#399/#408/#422).
   const canManage = !readOnly && field.type !== 'title' && !field.isSystem;
   // MN-131: the title field isn't a normal managed field (no delete/change-type),
   // but its name mode (free text ⇆ computed) is configured through the same edit
@@ -90,10 +99,10 @@ export function HeaderCell({
   const sortable = useSortable({ id: field.id, disabled: !reorderable });
 
   // Header ⋯ menu: seed a filter clause for this field (MN-225), mirroring AddFilterButton.
-  const canFilter = Boolean(config && onPatch && OPS_BY_TYPE[field.type]);
+  const canFilter = Boolean(config && onPatch && opsForField(field).length > 0);
   function filterByField() {
     if (!config || !onPatch) return;
-    const first = OPS_BY_TYPE[field.type]?.[0];
+    const first = opsForField(field)[0];
     if (!first) return;
     const connector = filterConnector(config.filters);
     const existing = filterConditions(config.filters);
@@ -137,6 +146,17 @@ export function HeaderCell({
   const canSort = Boolean(
     config && onPatch && SORTABLE.has(field.type) && isSortableFormula(field, byApiName),
   );
+  // #492 — the trigger's own visibility: canManage (destructive ops) OR any of
+  // the already-independently-gated safe items. For an ordinary field this is
+  // identical to `canManage` alone (canFilter/canSort/canHide are never the
+  // ONLY true one there in practice, but even if they were, canManage is
+  // already true so the OR is a no-op) — the only field type this actually
+  // changes is `isSystem`, which is exactly this ticket's scope. readOnly
+  // still hides the menu entirely for every field, unchanged: canManage
+  // requires !readOnly, and canFilter/canSort/canHide are independent of
+  // readOnly today (a view-level permission, not a schema one) — same as
+  // before this change, not something this ticket alters.
+  const hasMenu = canManage || canFilter || canSort || canHide;
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
   const sortLabel = !currentSort
     ? 'Sort by this field'
@@ -191,11 +211,11 @@ export function HeaderCell({
       {...(reorderable ? sortable.listeners : {})}
       title={reorderable ? 'Drag to reorder' : undefined}
       className={cn(
-        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted',
+        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-label font-medium text-muted',
         // #413 — the cursor must cover exactly what responds, or the header
         // grows a region that looks draggable and is not (and vice versa).
         reorderable && 'cursor-grab touch-none active:cursor-grabbing',
-        sticky && 'bg-app shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+        sticky && 'bg-app shadow-[var(--shadow-edge-right)]',
         /* #409/#411 — `z-40 opacity-70` is what let the dragged header paint
            over its neighbours AND over the frozen first column (whose sticky z
            is 30 + …). The content now floats in the shared portalled overlay,
@@ -228,34 +248,43 @@ export function HeaderCell({
         )}
       </span>
       {isFirst && onTogglePin && (
-        <button
-          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/header:opacity-100"
-          title={pinned ? 'Unfreeze column' : 'Freeze column'}
-          /* #413 — see the note on the menu triggers: pinning is not a drag. */
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onTogglePin}
-        >
-          {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-        </button>
+        <Tooltip label={pinned ? 'Unfreeze' : 'Freeze'}>
+          <button
+            className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink focus-visible:opacity-100 group-hover/header:opacity-100"
+            aria-label={pinned ? 'Unfreeze column' : 'Freeze column'}
+            /* #413 — see the note on the menu triggers: pinning is not a drag. */
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onTogglePin}
+          >
+            {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+          </button>
+        </Tooltip>
       )}
-      {canManage && (
+      {hasMenu && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              /* #413 — the cell is the drag handle now, so every control inside
-                 it must keep its own gesture off the reorder sensor. Same guard
-                 the resize handle has carried since MN-225. */
-              onPointerDown={(e) => e.stopPropagation()}
-              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip label="Options">
+            <DropdownMenuTrigger asChild>
+              <button
+                /* #413 — the cell is the drag handle now, so every control inside
+                   it must keep its own gesture off the reorder sensor. Same guard
+                   the resize handle has carried since MN-225. */
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={`Options for ${field.displayName}`}
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent>
-            <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>
+            {/* #492 — Edit/Change-type/Delete are the three destructive schema
+                ops a system field genuinely must not offer (read_only per
+                system-fields.ts) — gated on canManage individually now, not by
+                the whole menu's presence. */}
+            {canManage && <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>}
+            {canManage && <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>}
             {field.type === 'relation' && onAddLookup && (
-              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked records</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked items</DropdownMenuItem>
             )}
             {canFilter && (
               <DropdownMenuItem onSelect={filterByField}>
@@ -277,25 +306,30 @@ export function HeaderCell({
                 <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide field
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
-              Delete field
-            </DropdownMenuItem>
+            {canManage && (
+              <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
+                Delete field
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
       {canConfigureTitle && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              /* #413 — the cell is the drag handle now, so every control inside
-                 it must keep its own gesture off the reorder sensor. Same guard
-                 the resize handle has carried since MN-225. */
-              onPointerDown={(e) => e.stopPropagation()}
-              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip label="Options">
+            <DropdownMenuTrigger asChild>
+              <button
+                /* #413 — the cell is the drag handle now, so every control inside
+                   it must keep its own gesture off the reorder sensor. Same guard
+                   the resize handle has carried since MN-225. */
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={`Options for ${field.displayName}`}
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>
           </DropdownMenuContent>

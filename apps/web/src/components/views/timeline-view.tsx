@@ -5,11 +5,13 @@ import type { MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
-import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
+import { CellDisplay, fieldValue, isDateField, isSystemDate, optionColor } from '../table-view/cells';
+import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
+import { activeFilterNode, andFilterNodes } from './filter-config';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import type { DragKind } from './timeline-math';
@@ -194,6 +196,11 @@ export function TimelineView({
   const dateFields = useMemo(() => fields.filter((f) => isDateField(f)), [fields]);
   const startField = fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
   const endField = fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
+  // #757 — created_at/updated_at pass isDateField (MN-150: usable anywhere a date
+  // is) but are system-managed and read_only server-side. isSystemDate is the
+  // paired check; using isDateField alone to gate a WRITE (as opposed to display)
+  // is exactly the bug this ticket fixes.
+  const startIsSystemDate = startField ? isSystemDate(startField.type) : false;
   /* #227 — the optional baseline (planned) pair. Independent of the primary pair;
      dragging a bar rewrites only the primary dates, so the baseline stays put and
      the comparison remains meaningful. */
@@ -238,21 +245,6 @@ export function TimelineView({
     window.addEventListener('pointerup', up);
   }
 
-  // Bars: only records with a start date get placed. A record with no end (or
-  // end <= start) is a single-day milestone, not a zero-width bar.
-  const bars = useMemo(() => {
-    if (!startField) return [];
-    const out: Array<{ row: RecordRow; start: number; end: number; milestone: boolean }> = [];
-    for (const row of rows) {
-      const start = toDay(fieldValue(row, startField));
-      if (start === null) continue;
-      const rawEnd = endField ? toDay(fieldValue(row, endField)) : null;
-      const end = rawEnd !== null && rawEnd > start ? rawEnd : start;
-      out.push({ row, start, end, milestone: end <= start });
-    }
-    return out;
-  }, [rows, startField, endField]);
-
   /* #227 — baseline spans by record id. A record missing the baseline pair simply
      has no entry and renders its primary bar alone, rather than being dropped or
      drawn against a fabricated zero-length baseline. */
@@ -268,7 +260,51 @@ export function TimelineView({
     return map;
   }, [rows, baselineStartField, baselineEndField]);
 
-  const undated = rows.length - bars.length;
+  // Bars: a record with no primary start still gets placed if it has a baseline
+  // (actual) pair — #227's symmetric-handling decision, mirroring the primary-only
+  // case this always supported. `fromBaseline` marks that shape so rendering draws
+  // it in the solid/primary style (there's nothing to compare it against) and
+  // skips the dashed comparison overlay a baseline entry would otherwise trigger.
+  // A record with no end (or end <= start) is a single-day milestone, not a bar.
+  const bars = useMemo(() => {
+    const out: Array<{ row: RecordRow; start: number; end: number; milestone: boolean; fromBaseline: boolean }> = [];
+    for (const row of rows) {
+      const primaryStart = startField ? toDay(fieldValue(row, startField)) : null;
+      if (primaryStart !== null) {
+        const rawEnd = endField ? toDay(fieldValue(row, endField)) : null;
+        const end = rawEnd !== null && rawEnd > primaryStart ? rawEnd : primaryStart;
+        out.push({ row, start: primaryStart, end, milestone: end <= primaryStart, fromBaseline: false });
+        continue;
+      }
+      const base = baselineById.get(row.id);
+      if (!base) continue;
+      out.push({ row, start: base.start, end: base.end, milestone: base.end <= base.start, fromBaseline: true });
+    }
+    return out;
+  }, [rows, startField, endField, baselineById]);
+
+  /*
+   * #791 (T2) — this notice's SHAPE was already right ("N records without a
+   * Due Date are hidden," only shown when N > 0 — exactly what #753 asks the
+   * calendar to copy). But the number was `rows.length - bars.length`: the
+   * LOADED page (`limit: 200` above), not the database. On a 740-record
+   * table this undercounts exactly the way #755 already fixed for the board
+   * and the list — being the good example on shape didn't exempt it on scope.
+   * Server-computed via the same is_empty aggregate #753/#754 use elsewhere:
+   * a record is undated when NEITHER the primary start NOR the baseline
+   * start is set (#227's "narrowed to rows with NEITHER pair" rule, unchanged
+   * — just counted correctly now).
+   */
+  const undatedFilter = useMemo(() => {
+    if (!startField) return undefined;
+    const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
+    const clauses: unknown[] = active ? [active] : [];
+    clauses.push({ field: startField.apiName, op: 'is_empty' });
+    if (baselineStartField) clauses.push({ field: baselineStartField.apiName, op: 'is_empty' });
+    return { and: clauses };
+  }, [startField, baselineStartField, config.filters, personalFilter]);
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(startField));
+  const undated = startField ? (undatedCountQuery.data ?? 0) : 0;
 
   const today = Math.floor(Date.now() / DAY);
   const range = useMemo(() => {
@@ -331,7 +367,7 @@ export function TimelineView({
     bar: { row: RecordRow; start: number; end: number },
     kind: DragKind,
   ) {
-    if (readOnly || !startField) return;
+    if (readOnly || !startField || startIsSystemDate) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const threshold = 3;
@@ -398,11 +434,14 @@ export function TimelineView({
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          {/* #706 — the only --text-faint left in this file, and deliberately.
+              An icon is a non-text graphic, judged at 3:1, which faint clears;
+              icon-only sites are explicitly out of scope for the sweep. */}
           <CalendarRange className="h-8 w-8 text-faint" />
           {dateFields.length === 0 ? (
             <>
               <p className="text-sm font-medium text-ink">This database has no date field</p>
-              <p className="text-[13px] text-muted">
+              <p className="text-body text-muted">
                 Add a Start (and optional Due) date field to the database, then choose it here to lay records out on a
                 timeline.
               </p>
@@ -410,17 +449,17 @@ export function TimelineView({
           ) : readOnly ? (
             <>
               <p className="text-sm font-medium text-ink">Timeline not configured</p>
-              <p className="text-[13px] text-muted">No start-date field has been chosen for this timeline yet.</p>
+              <p className="text-body text-muted">No start-date field has been chosen for this timeline yet.</p>
             </>
           ) : (
             <>
               <p className="text-sm font-medium text-ink">Choose the dates to lay out</p>
-              <p className="text-[13px] text-muted">Pick which date field starts each bar, and optionally one that ends it.</p>
+              <p className="text-body text-muted">Pick which date field starts each bar, and optionally one that ends it.</p>
               <div className="mt-1 flex flex-col gap-2 text-left">
-                <label className="flex items-center justify-between gap-3 text-[13px] text-ink">
+                <label className="flex items-center justify-between gap-3 text-body text-ink">
                   <span className="text-muted">Start date</span>
-                  <select
-                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  <Select
+                    size="sm"
                     value=""
                     onChange={(e) => e.target.value && onPatch({ start_date_field_id: e.target.value })}
                   >
@@ -428,7 +467,7 @@ export function TimelineView({
                     {dateFields.map((f) => (
                       <option key={f.id} value={f.id}>{f.displayName}</option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               </div>
             </>
@@ -445,13 +484,13 @@ export function TimelineView({
     <div className="flex h-full flex-col">
       {/* Controls: zoom, date-field selectors, today */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border-default px-3 py-1.5">
-        <span className="mr-1 text-[12px] text-faint">Zoom</span>
+        <span className="mr-1 text-label text-muted">Zoom</span>
         {(['day', 'week', 'month', 'quarter'] as const).map((z) => (
           <button
             key={z}
             onClick={() => setZoom(z)}
             className={cn(
-              'rounded px-2 py-0.5 text-[12px]',
+              'rounded px-2 py-0.5 text-label',
               zoom === z ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
             )}
           >
@@ -462,17 +501,17 @@ export function TimelineView({
         <div className="mx-1 h-4 w-px bg-border-default" />
         <button
           onClick={scrollToToday}
-          className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
         >
           Today
         </button>
 
         {!readOnly && (
           <div className="ml-auto flex items-center gap-1.5">
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-label text-muted">
               Start
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={startField.id}
                 onChange={(e) => onPatch({ start_date_field_id: e.target.value })}
               >
@@ -481,10 +520,10 @@ export function TimelineView({
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-label text-muted">
               End
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={endField?.id ?? ''}
                 onChange={(e) => onPatch({ end_date_field_id: e.target.value || undefined })}
               >
@@ -500,10 +539,10 @@ export function TimelineView({
                 baseline start is what turns the feature on — the end is optional,
                 exactly like the primary pair, so a single planned date still
                 renders as a point rather than being rejected. */}
-            <label className="flex items-center gap-1 text-[12px] text-faint">
+            <label className="flex items-center gap-1 text-label text-muted">
               Planned
               <select
-                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={baselineStartField?.id ?? ''}
                 onChange={(e) =>
                   onPatch({
@@ -521,10 +560,10 @@ export function TimelineView({
               </select>
             </label>
             {baselineStartField && (
-              <label className="flex items-center gap-1 text-[12px] text-faint">
+              <label className="flex items-center gap-1 text-label text-muted">
                 to
                 <select
-                  className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                  className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
                   value={baselineEndField?.id ?? ''}
                   onChange={(e) => onPatch({ baseline_end_date_field_id: e.target.value || undefined })}
                 >
@@ -539,6 +578,16 @@ export function TimelineView({
         )}
       </div>
 
+      {/* #757 — said once, before a drag is ever attempted (not a silent refusal
+          like the calendar's #753). Only for a system-date start field: these
+          dates are recorded, not chosen, so there is nothing to reschedule. */}
+      {startIsSystemDate && (
+        <div className="border-b border-border-default px-3 py-1.5 text-label text-muted">
+          {/* One template string — see calendar-view.tsx for why. */}
+          {`${startField.displayName} is recorded automatically and can't be edited — bars here are read-only.`}
+        </div>
+      )}
+
       {/* Scrollable canvas: left panel (sticky) + axis, sharing one vertical scroll */}
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
         <div className="relative flex" style={{ minWidth: panelWidth + axisWidth }}>
@@ -548,7 +597,7 @@ export function TimelineView({
               {leftFields.map((f, i) => (
                 <div
                   key={f.id}
-                  className="relative flex items-center border-r border-border-default px-3 text-[11px] font-semibold uppercase tracking-wide text-faint"
+                  className="relative flex items-center border-r border-border-default px-3 text-meta font-semibold uppercase tracking-wide text-muted"
                   style={{ width: colW(f) }}
                 >
                   <span className="truncate">{f.displayName}</span>
@@ -670,7 +719,7 @@ export function TimelineView({
                 {primary.map((s) => (
                   <div
                     key={s.key}
-                    className="absolute flex items-center border-r border-border-default px-1.5 text-[11px] font-medium text-muted"
+                    className="absolute flex items-center border-r border-border-default px-1.5 text-meta font-medium text-muted"
                     style={{ left: s.left, width: s.width, height: HEADER_H / 2 }}
                   >
                     <span className="truncate">{s.label}</span>
@@ -681,7 +730,7 @@ export function TimelineView({
                 {secondary.map((s) => (
                   <div
                     key={s.key}
-                    className="absolute flex items-center justify-center border-r border-border-default text-[10px] tabular-nums text-faint"
+                    className="absolute flex items-center justify-center border-r border-border-default text-micro tabular-nums text-muted"
                     style={{ left: s.left, width: s.width, height: HEADER_H / 2 }}
                   >
                     {s.width > 18 ? s.label : ''}
@@ -695,7 +744,7 @@ export function TimelineView({
                 local visual state (`drag`); the record write happens once, on
                 pointerup, via startBarPointer. */}
             {displayBars.map((bar) => {
-              const { row, start, end, milestone } = bar;
+              const { row, start, end, milestone, fromBaseline } = bar;
               const color = (colorField && optionColor(colorField, row.values[colorField.apiName])) || 'var(--accent)';
               const x = (start - range.min) * px;
               const handleClick = (e: MouseEvent) => {
@@ -709,15 +758,19 @@ export function TimelineView({
                   () => router.push(recordHref(ws, db, row)),
                 );
               };
+              // #227 — a bar drawn from the baseline pair (no primary set) carries
+              // no plan to compare against; marked distinctly so it doesn't read as
+              // an ordinary scheduled bar, without inventing a new visual language.
+              const baselineOnlyTitle = fromBaseline ? ' (actual — no plan set)' : '';
               if (milestone) {
                 const size = 14;
                 return (
                   <div key={row.id} className="relative border-b border-border-default" style={{ height: ROW_H }}>
                     <button
                       onClick={handleClick}
-                      onPointerDown={(e) => startBarPointer(e, bar, 'move')}
-                      title={row.title || 'Untitled'}
-                      className={cn('absolute rounded-[3px] shadow-sm hover:brightness-110', !readOnly && 'cursor-grab active:cursor-grabbing')}
+                      onPointerDown={startIsSystemDate ? undefined : (e) => startBarPointer(e, bar, 'move')}
+                      title={(row.title || 'Untitled') + baselineOnlyTitle}
+                      className={cn('absolute rounded-[3px] shadow-sm hover:brightness-110', fromBaseline && 'opacity-70', !readOnly && !startIsSystemDate && 'cursor-grab active:cursor-grabbing')}
                       style={{
                         left: x + px / 2 - size / 2,
                         top: ROW_H / 2 - size / 2,
@@ -728,10 +781,11 @@ export function TimelineView({
                       }}
                     />
                     <span
-                      className="pointer-events-none absolute truncate text-[11px] text-ink-secondary"
+                      className="pointer-events-none absolute truncate text-meta text-ink-secondary"
                       style={{ left: x + px / 2 + size, top: ROW_H / 2 - 8, maxWidth: 220 }}
                     >
                       {row.title || 'Untitled'}
+                      {fromBaseline && <span className="ml-1 text-muted">(actual)</span>}
                     </span>
                   </div>
                 );
@@ -740,8 +794,10 @@ export function TimelineView({
               /* #227 — the baseline sits BEHIND the primary bar as a slimmer, muted
                  outline, so the two are comparable at a glance without competing:
                  the actual dates are the thing you act on, the plan is the ruler.
-                 It is not interactive — dragging must only ever move the primary. */
-              const base = baselineById.get(row.id);
+                 It is not interactive — dragging must only ever move the primary.
+                 #227 — a baseline-ONLY row has no primary to compare against, so
+                 it never gets this overlay (it IS the only bar, not a comparison). */
+              const base = fromBaseline ? undefined : baselineById.get(row.id);
               const slip = slippageDays(bar, base);
               const slipText = slippageLabel(slip);
               return (
@@ -761,20 +817,24 @@ export function TimelineView({
                   )}
                   <button
                     onClick={handleClick}
-                    onPointerDown={(e) => startBarPointer(e, bar, 'move')}
-                    title={row.title || 'Untitled'}
+                    onPointerDown={startIsSystemDate ? undefined : (e) => startBarPointer(e, bar, 'move')}
+                    title={(row.title || 'Untitled') + baselineOnlyTitle}
                     className={cn(
-                      'absolute flex items-center overflow-hidden rounded-md text-left text-[11px] text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
-                      !readOnly && 'cursor-grab active:cursor-grabbing',
+                      'absolute flex items-center overflow-hidden rounded-md text-left text-meta text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
+                      fromBaseline && 'opacity-70',
+                      !readOnly && !startIsSystemDate && 'cursor-grab active:cursor-grabbing',
                     )}
                     style={{ left: x, top: ROW_H / 2 - 11, width, height: 22, backgroundColor: color }}
                   >
-                    <span className="truncate px-1.5">{row.title || 'Untitled'}</span>
+                    <span className="truncate px-1.5">
+                      {row.title || 'Untitled'}
+                      {fromBaseline && <span className="opacity-80"> (actual)</span>}
+                    </span>
                   </button>
                   {slipText && slip !== 0 && (
                     <span
                       className={cn(
-                        'pointer-events-none absolute text-[10px] tabular-nums',
+                        'pointer-events-none absolute text-micro tabular-nums',
                         slip! > 0 ? 'text-error' : 'text-success',
                       )}
                       style={{ left: x + width + 6, top: ROW_H / 2 - 6 }}
@@ -782,7 +842,7 @@ export function TimelineView({
                       {slipText}
                     </span>
                   )}
-                  {!readOnly && endField && (
+                  {!readOnly && !startIsSystemDate && endField && (
                     <>
                       <span
                         onPointerDown={(e) => startBarPointer(e, bar, 'resize-start')}
@@ -806,8 +866,12 @@ export function TimelineView({
       </div>
 
       {undated > 0 && (
-        <div className="border-t border-border-default px-3 py-1.5 text-[12px] text-faint">
-          {undated} record{undated === 1 ? '' : 's'} without a {startField.displayName} date {undated === 1 ? 'is' : 'are'} hidden.
+        <div className="border-t border-border-default px-3 py-1.5 text-label text-muted">
+          {/* #227 — a baseline-only record now renders (see `bars`), so what's
+              actually hidden is narrower than "no start date" once a baseline
+              pair is mapped: neither a planned NOR an actual start exists. */}
+          {undated} record{undated === 1 ? '' : 's'} without a {startField.displayName}
+          {baselineStartField ? ` or ${baselineStartField.displayName}` : ''} date {undated === 1 ? 'is' : 'are'} hidden.
         </div>
       )}
     </div>

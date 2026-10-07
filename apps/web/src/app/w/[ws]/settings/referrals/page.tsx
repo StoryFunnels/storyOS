@@ -34,7 +34,7 @@ export default function ReferralsPage() {
     },
   });
 
-  if (referrals.isLoading) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
+  if (referrals.isLoading) return <div className="p-4 text-body text-muted sm:p-8">Loading…</div>;
   if (!referrals.data) return null;
   const r = referrals.data;
 
@@ -42,7 +42,7 @@ export default function ReferralsPage() {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
         <h1 className="mb-1 text-lg font-semibold text-ink">Referrals</h1>
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Referrals is a cloud feature and isn’t available on this self-hosted instance.
         </p>
       </div>
@@ -52,7 +52,7 @@ export default function ReferralsPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Referrals</h1>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Invite people to StoryOS. When someone signs up through your link and their workspace
         goes paid, you earn a reward.
       </p>
@@ -82,7 +82,7 @@ export default function ReferralsPage() {
       </Section>
 
       <Section title="Terms">
-        <p className="text-[13px] text-muted">{r.terms}</p>
+        <p className="text-body text-muted">{r.terms}</p>
       </Section>
     </div>
   );
@@ -92,7 +92,7 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="mb-8 border-b border-border-default pb-8 last:border-b-0 last:pb-0">
       <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-[13px] text-muted">{description}</p>}
+      {description && <p className="mb-3 text-body text-muted">{description}</p>}
       {children}
     </section>
   );
@@ -102,7 +102,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4">
       <p className="text-lg font-semibold text-ink">{value}</p>
-      <p className="text-[12px] text-muted">{label}</p>
+      <p className="text-label text-muted">{label}</p>
     </div>
   );
 }

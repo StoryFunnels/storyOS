@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
+import { evaluateFormula, formulaTypeOfFieldType, parseFormula, typecheck } from '@storyos/schemas';
 import type { FormulaFieldInfo, RelatedBags } from '@storyos/schemas';
 
 /**
@@ -124,6 +124,86 @@ describe('a bare relation is not a value (#298)', () => {
 
   it('cannot be passed to an ordinary function', () => {
     expect(() => type('upper({Issues})')).toThrow(/cannot take a link field/);
+  });
+});
+
+/**
+ * #615 — a dotted reference through a relation to a `workflow`-typed field
+ * (StoryOS's "State" field type) failed in the web editor while validating
+ * server-side, because the shared type→formula-type map (this codebase's
+ * THIRD copy of one concept drifting into two, after #287/#299) omitted
+ * `workflow` on the web side only. `formulaTypeOfFieldType` is now the one
+ * mapping both the API and the web editor call — this pins the actual root
+ * cause, not just the parser/evaluator behavior every OTHER field type here
+ * already exercises via a pre-resolved fixture.
+ */
+describe('formulaTypeOfFieldType maps every referenceable field type (#615)', () => {
+  it('maps workflow to text, same as select — the exact #615 regression', () => {
+    expect(formulaTypeOfFieldType('workflow')).toBe('text');
+  });
+
+  it('a dotted reference to a workflow field resolves and typechecks, end to end', () => {
+    const fields: FormulaFieldInfo[] = [
+      {
+        api_name: 'issues',
+        display_name: 'Issues',
+        formula_type: 'relation',
+        related: [{ api_name: 'state', display_name: 'State', formula_type: formulaTypeOfFieldType('workflow')! }],
+      },
+    ];
+    const bags: RelatedBags = { issues: [{ state: 'Done' }, { state: 'Open' }] };
+    expect(evaluateFormula(parseFormula('count({Issues}, {Issues.State} = "Done")', fields), {}, bags)).toBe(1);
+  });
+
+  it('still excludes types that were never referenceable (rich_text, relation, user)', () => {
+    expect(formulaTypeOfFieldType('rich_text')).toBeNull();
+    expect(formulaTypeOfFieldType('relation')).toBeNull();
+    expect(formulaTypeOfFieldType('user')).toBeNull();
+  });
+});
+
+/**
+ * #615 criterion 5 — a related field excluded for a legitimate reason (its
+ * type isn't formula-referenceable) is kept as a named placeholder rather
+ * than silently dropped, so the error says WHY instead of claiming the field
+ * doesn't exist at all.
+ */
+describe('a deliberately-unsupported related field names its reason (#615)', () => {
+  const FIELDS_WITH_PLACEHOLDER: FormulaFieldInfo[] = [
+    {
+      api_name: 'issues',
+      display_name: 'Issues',
+      formula_type: 'relation',
+      related: [
+        { api_name: 'estimate', display_name: 'Estimate', formula_type: 'number' },
+        {
+          api_name: 'notes',
+          display_name: 'Notes',
+          formula_type: 'null',
+          unsupported_reason: 'is a "rich_text" field and can\'t be used in a formula',
+        },
+      ],
+    },
+  ];
+
+  it('names the reason, not "not a field"', () => {
+    expect(() => parseFormula('{Issues.Notes}', FIELDS_WITH_PLACEHOLDER)).toThrow(
+      /is a "rich_text" field and can't be used in a formula/,
+    );
+  });
+
+  it('a genuinely absent field still gets the "not a field" message', () => {
+    expect(() => parseFormula('{Issues.Nonexistent}', FIELDS_WITH_PLACEHOLDER)).toThrow(
+      /not a field on the records/,
+    );
+  });
+
+  it('a real, usable related field is unaffected', () => {
+    expect(
+      evaluateFormula(parseFormula('sum({Issues.Estimate})', FIELDS_WITH_PLACEHOLDER), {}, {
+        issues: [{ estimate: 3 }, { estimate: 5 }],
+      }),
+    ).toBe(8);
   });
 });
 

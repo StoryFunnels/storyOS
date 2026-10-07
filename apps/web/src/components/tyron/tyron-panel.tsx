@@ -190,7 +190,7 @@ export function TyronPanel() {
         <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border-default px-3">
           <span className="flex min-w-0 items-center gap-2">
             <AgentAvatar name="Tyron" size="sm" />
-            <span className="truncate text-[13px] font-medium text-ink">Tyron</span>
+            <span className="truncate text-body font-medium text-ink">Tyron</span>
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
             {/* Half / third, the two docked widths. */}
@@ -219,7 +219,7 @@ export function TyronPanel() {
               )}
             >
               {isFull ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              {isFull && <span className="text-[12px] font-medium">Exit full screen</span>}
+              {isFull && <span className="text-label font-medium">Exit full screen</span>}
             </button>
             <button
               type="button"
@@ -240,7 +240,7 @@ export function TyronPanel() {
           // is workspace-scoped. Better to say so than to render a composer whose
           // every message would fail.
           <div className="min-h-0 flex-1 overflow-auto p-4">
-            <p className="text-[13px] text-muted">Open a workspace to talk to Tyron.</p>
+            <p className="text-body text-muted">Open a workspace to talk to Tyron.</p>
           </div>
         )}
       </div>

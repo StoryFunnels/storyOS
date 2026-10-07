@@ -13,6 +13,7 @@ import { memberships, spaces, user, views } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { SalesSignalService } from '../billing/sales-signal.service';
 import { MembershipEventsService } from '../events/membership-events.service';
 
 /** admin/member are always billable; guest never is via role alone (grants decide — MN-121). */
@@ -24,6 +25,7 @@ export class MembersService {
     @Inject(DB) private readonly db: Db,
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
+    private readonly salesSignal: SalesSignalService,
     private readonly membershipEvents: MembershipEventsService,
   ) {}
 
@@ -86,6 +88,9 @@ export class MembersService {
     const becomingBillable =
       patch.role && !BILLABLE_ROLES.includes(target.role) && BILLABLE_ROLES.includes(patch.role);
     if (becomingBillable && !(await this.entitlements.can(workspaceId, 'add_seat'))) {
+      // #650 AC2 — hooked at the EXISTING rejection, same as invites.service.ts's
+      // identical block; not a new detection path.
+      void this.salesSignal.maybeFire(workspaceId, 'free_seats_blocked');
       throw new HttpException(
         'Free plan is limited to 2 members — upgrade to Pro to promote another one.',
         HttpStatus.PAYMENT_REQUIRED,
@@ -97,6 +102,11 @@ export class MembersService {
       .set({ role: patch.role ?? target.role })
       .where(eq(memberships.id, membershipId))
       .returning();
+
+    // #650 AC2 — the promotion just committed, so this is the real crossing
+    // point (same reasoning as invites.service.ts's accept()): a billable
+    // seat only counts once the membership is actually active at that role.
+    if (becomingBillable) void this.salesSignal.checkSeatCrossing(workspaceId);
 
     if (patch.role && patch.role !== target.role) {
       await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);

@@ -20,6 +20,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { CellEditor, OptionChip } from '@/components/table-view/cells';
 import { DbColorMarker } from '@/components/table-view/relation-cell';
+import { DbMarker } from './db-marker';
 import { useOpenInSplit } from './split-panel-context';
 import {
   useDatabase,
@@ -191,11 +192,8 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
       contentEditable={false}
       className="inline-flex max-w-full select-none items-center gap-1 whitespace-nowrap rounded border border-border-default bg-hover px-1 py-0.5 align-baseline text-[0.9em] text-ink"
     >
-      <EntityIcon
-        icon={database.data?.icon ?? null}
-        color={database.data?.color ?? null}
-        fallback={<DbColorMarker color={database.data?.color ?? 'gray'} />}
-      />
+      {/* #811 — no icon and no colour means NO SLOT (null), not an empty box. */}
+      <DbMarker icon={database.data?.icon} color={database.data?.color} />
       <Link
         href={`/w/${ws}/d/${db}/r/${id}`}
         onClick={openInSplit({ db, rec: id, title, number: rec?.number ?? null })}
@@ -204,7 +202,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
         {title || 'Untitled'}
       </Link>
       {rec?.number != null && (
-        <span className="shrink-0 tabular-nums text-[0.85em] text-faint">#{rec.number}</span>
+        <span className="shrink-0 tabular-nums text-[0.85em] text-muted">#{rec.number}</span>
       )}
       {assigneeField && (assigneeId || canEdit) && (
         <InlineFieldEdit
@@ -225,6 +223,8 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
               size={16}
             />
           ) : (
+            /* #706 — KEEPS faint: icon only, and its accessible name is the
+               aria-label. Non-text graphic at 3:1, which faint clears. */
             <CircleDashed className="h-3.5 w-3.5 text-faint" aria-label="Unassigned" />
           )}
         </InlineFieldEdit>
@@ -243,7 +243,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
           {workflowOption ? (
             <OptionChip option={workflowOption} />
           ) : (
-            <span className="rounded-[var(--radius-chip)] border border-dashed border-border-default px-1 text-[0.8em] uppercase tracking-[0.03em] text-faint">
+            <span className="rounded-[var(--radius-chip)] border border-dashed border-border-default px-1 text-[0.8em] uppercase tracking-[0.03em] text-muted">
               Status
             </span>
           )}
@@ -410,13 +410,13 @@ function DbFilterControl({ filter }: { filter: PickerFilterState }) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[11px] font-medium text-muted hover:text-ink"
+        className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-meta font-medium text-muted hover:text-ink"
       >
         <span className="max-w-24 truncate">{label}</span>
         <ChevronDown className="h-3 w-3" />
       </button>
       {open && (
-        <div className="absolute right-0 z-10 mt-1 max-h-48 w-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default bg-card p-1 shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+        <div className="absolute right-0 z-10 mt-1 max-h-48 w-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default bg-card p-1 shadow-[var(--shadow-overlay)]">
           <FilterOption
             label="Anything"
             active={filter.value == null}
@@ -460,7 +460,7 @@ function FilterOption({
         onPick();
       }}
       className={cn(
-        'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-[12px] text-ink transition-colors hover:bg-hover',
+        'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-label text-ink transition-colors hover:bg-hover',
         active && 'bg-accent-soft',
       )}
     >
@@ -503,10 +503,10 @@ function makePickerMenu(opts: {
     // control.
     const showFilter = Boolean(filter && (filter.options.length > 1 || filter.value));
     return (
-      <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+      <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-overlay)]">
         {(showFilter || (isEmptyQuery && hasItems)) && (
           <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">
+            <p className="text-meta font-medium uppercase tracking-wider text-muted">
               {isEmptyQuery && hasItems ? opts.emptyHeader : ''}
             </p>
             {showFilter && filter && <DbFilterControl filter={filter} />}
@@ -526,7 +526,7 @@ function makePickerMenu(opts: {
               />
             ))
           ) : (
-            <p className="px-2.5 py-6 text-center text-[12px] text-muted">
+            <p className="px-2.5 py-6 text-center text-label text-muted">
               {loadingState === 'loading-initial'
                 ? 'Searching…'
                 : isEmptyQuery
@@ -535,7 +535,7 @@ function makePickerMenu(opts: {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-meta text-muted">
           <span className="flex items-center gap-1">
             <Hint>↑↓</Hint> navigate
           </span>
@@ -609,6 +609,9 @@ export function MentionSuggestionMenus({
     color ? (
       <DbColorMarker color={color} />
     ) : (
+    // #706 — KEEPS faint: this "#" is the FALLBACK GLYPH standing in for a
+    // missing entity icon, not text. It reads as an icon and is judged as
+    // one at 3:1, which faint clears.
       <EntityIcon icon={icon} color={null} fallback={<span className="text-faint">#</span>} />
     );
 

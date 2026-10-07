@@ -380,3 +380,24 @@ export function flattenFilterTree(list: FilterNode[], path: number[] = [], depth
 export function pathFromId(id: string): number[] {
   return id.split('.').map(Number);
 }
+
+/**
+ * #733 — which leaf conditions render as toolbar chips, and in what order.
+ *
+ * Previously: `leaves.length <= 2 ? leaves : leaves.filter(f => f.node.pinned)`.
+ * At exactly three conditions the presentation flips from "show everything" to
+ * "show only what's pinned" — and nobody has pinned anything, because until
+ * that exact moment they never needed to. Adding a filter is what hid the
+ * filters. Confirmed live: a third condition made the first two vanish.
+ *
+ * Every leaf is now always a chip — pinning stops being the only way a
+ * condition stays visible past a size threshold. It keeps a real job: a
+ * pinned condition sorts first, so in a denser filter it's still the one you
+ * see without opening the panel (#429's original "promote to the toolbar"
+ * intent, now additive rather than exclusive). Both groups keep their
+ * original relative order — pinning promotes, it doesn't shuffle.
+ */
+export function visibleFilterChips<T extends { node: FilterNode }>(leaves: T[]): T[] {
+  const isPinned = (f: T) => Boolean((f.node as { pinned?: boolean }).pinned);
+  return [...leaves.filter(isPinned), ...leaves.filter((f) => !isPinned(f))];
+}

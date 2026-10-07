@@ -10,8 +10,10 @@ import { Avatar } from '@/components/ui/avatar';
 import { useSpaces, useWorkspace } from '@/lib/queries';
 import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
+import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { FreeGuestTip } from '@/components/free-guest-tip';
 
@@ -156,21 +158,25 @@ function MembersPageContent() {
               <Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={32} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink">{member.user.name}</p>
-                <p className="truncate text-[13px] text-muted">{member.user.email}</p>
+                <p className="truncate text-body text-muted">{member.user.email}</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {isAdmin ? (
                 <>
-                  <select
-                    className="h-7 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  {/* #717 — was a bespoke h-7 (not one of ui/select.tsx's own
+                      sizes); migrating to `sm` (h-8) rather than adding a new
+                      variant for one site. +4px tall, called out per #717's
+                      own AC rather than silently folded in. */}
+                  <Select
+                    size="sm"
                     value={member.role}
                     onChange={(e) => updateMember.mutate({ id: member.id, role: e.target.value })}
                   >
                     <option value="admin">Admin</option>
                     <option value="member">Member</option>
                     <option value="guest">Guest</option>
-                  </select>
+                  </Select>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -191,7 +197,7 @@ function MembersPageContent() {
                   <EraseMemberDialog ws={ws} member={member} onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })} />
                 </>
               ) : (
-                <span className="text-[13px] capitalize text-muted">{member.role}</span>
+                <span className="text-body capitalize text-muted">{member.role}</span>
               )}
             </div>
           </div>
@@ -256,11 +262,11 @@ function PendingInviteRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm text-ink">{invite.email}</p>
-          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-meta font-medium text-warning">
             Pending
           </span>
         </div>
-        <p className="text-[13px] capitalize text-muted">{invite.role}</p>
+        <p className="text-body capitalize text-muted">{invite.role}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {link && (
@@ -341,7 +347,7 @@ function EraseMemberDialog({
       </DialogTrigger>
       <DialogContent title="Erase this member (GDPR)">
         <div className="flex flex-col gap-4">
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             This fulfils a data-subject erasure. It permanently wipes{' '}
             <span className="font-medium text-ink">{member.user.name}</span>&rsquo;s
             identity to an anonymous tombstone, destroys their sessions, sign-in
@@ -350,15 +356,19 @@ function EraseMemberDialog({
             attributed to a real person. <span className="font-medium">This cannot be undone.</span>
           </p>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="erase-confirm">
-              Type <span className="font-medium text-ink">{target}</span> to confirm
-            </Label>
+            <TypedConfirmName name={target} />
             <Input
               id="erase-confirm"
+              aria-label={`Type ${target} to confirm`}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="off"
             />
+            {/* #801 — same class of bug as confirm-dialog.tsx: strict,
+                untrimmed match with no feedback on a mismatch. */}
+            {confirm.trim().length > 0 && confirm.trim() !== target.trim() && (
+              <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
@@ -369,7 +379,7 @@ function EraseMemberDialog({
             <Button
               type="button"
               variant="destructive"
-              disabled={confirm !== target || erase.isPending}
+              disabled={confirm.trim() !== target.trim() || erase.isPending}
               onClick={() => erase.mutate()}
             >
               Erase permanently
@@ -458,7 +468,7 @@ function InviteDialog({
       <DialogContent title="Invite to workspace">
         {acceptUrl ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               Invite created. Share this link (also emailed when SMTP is configured):
             </p>
             <div className="flex gap-2">
@@ -542,7 +552,7 @@ function InviteDialog({
                 <Label>Spaces they can access</Label>
                 <div className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
                   {spaces.map((space) => (
-                    <label key={space.id} className="flex items-center gap-2 text-[13px] text-ink">
+                    <label key={space.id} className="flex items-center gap-2 text-body text-ink">
                       <input
                         type="checkbox"
                         checked={spaceIds.includes(space.id)}

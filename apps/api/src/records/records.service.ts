@@ -1,25 +1,55 @@
 import {
   ConflictException,
+  forwardRef,
   Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
-import { activeFilter, applyFieldDefaults, evaluateFormula, formulaRefs, systemFieldDefsFor, validateRecordValues } from '@storyos/schemas';
+import {
+  activeFilter,
+  applyFieldDefaults,
+  evaluateFormula,
+  formulaRefs,
+  SORTABLE_FIELD_TYPES as SHARED_SORTABLE_FIELD_TYPES,
+  systemFieldDefsFor,
+  validateRecordValues,
+} from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { chunk } from '../common/chunk';
+import { looksLikeUuid } from '../common/uuid';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
-import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
+import { assertOwnedAttachments, loadAttachmentChips, type AttachmentChip } from '../attachments/attachment-values';
+import { AttachmentsService } from '../attachments/attachments.service';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
+import {
+  activityEvents,
+  comments,
+  databases,
+  documents,
+  fields,
+  memberships,
+  recordFieldChanges,
+  recordLinks,
+  recordVersions,
+  recordWatchers,
+  records,
+  relations,
+  selectOptions,
+  user,
+  views,
+} from '../db/schema';
+import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
-import { keyBetween, keysAfter } from './rank';
+import { keyBetween, keysAfter, keysBetween } from './rank';
 import { diffSnapshots } from './record-diff';
+import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
 import { isPickOneOp, pickOneRow, pickOneSortKey, rollupFieldValue } from './rollup-pick-one';
@@ -29,6 +59,16 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { AbuseFlagsService } from '../abuse/abuse-flags.service';
+import { AccessService } from '../access/access.service';
+import { WatcherEmailService } from './watcher-email.service';
+import type { EffectiveRole } from '../access/access.service';
+import { notDeleted } from '../db/soft-delete';
+import type { Membership } from '../workspaces/workspace-access.guard';
+import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
+// #434 — type only (erased at compile time): RecordsService does not take a
+// runtime dependency on CommentsService, so this can't create the module
+// cycle a value import would (comments.module.ts already imports records).
+import type { CommentSegment } from '../comments/comments.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -56,6 +96,16 @@ export interface ProjectedRecord {
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
+  /**
+   * #571 — carried through ONLY so attachAiFields can read a field's
+   * persisted value without a second per-record fetch. Unlike rollup/
+   * formula (recomputed fresh on every read, `computed_values` is just their
+   * sort/filter shadow copy), an ai field's DISPLAY value has no "compute
+   * fresh" option — that would mean an LLM call per page view, which the
+   * ticket forbids — so its `computed_values` entry IS the value, not a copy
+   * of one computed elsewhere in this same request.
+   */
+  computed_values?: Record<string, unknown>;
 }
 
 const TRASH_RETENTION_DAYS = 30;
@@ -64,6 +114,19 @@ const TRASH_RETENTION_DAYS = 30;
  * anything else. Guards planLinks() from handing a non-uuid string to a uuid column,
  * which Postgres rejects with a raw syntax error (surfaced as an opaque 500). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * #542 Phase 2 — a delete method's alternative return: a workspace-declared
+ * gate held this delete instead of performing it. Deliberately a return
+ * value, not a thrown exception — `AllExceptionsFilter` reshapes any thrown
+ * `HttpException`'s body into a fixed `{error:{code,message,...}}` envelope,
+ * which would silently discard `approval_id`.
+ */
+export interface PendingApprovalResult {
+  pending_approval: true;
+  approval_id: string;
+  message: string;
+}
 
 /**
  * The RecordsRepository seam (ADR-0002): every record read/write in the
@@ -79,6 +142,22 @@ export class RecordsService {
     private readonly mentions: MentionsService,
     private readonly abuseFlags: AbuseFlagsService,
     private readonly entitlements: EntitlementsService,
+    /** #469 — per-viewer database visibility for relation chips (attachLinks). */
+    private readonly access: AccessService,
+    /** #273 — mails a watcher's record_changed notification; split out rather
+     *  than injecting EmailService/PreferencesService directly into an
+     *  already-large service (see watcher-email.service.ts's own doc). */
+    private readonly watcherEmail: WatcherEmailService,
+    /** #599 — copies a duplicated record's files; forwardRef breaks the cycle
+     *  (AttachmentsModule already imports RecordsModule for its own guards). */
+    @Inject(forwardRef(() => AttachmentsService))
+    private readonly attachmentsService: AttachmentsService,
+    /** #542 Phase 2 — the action-class gate check for deletes. Called from
+     *  INSIDE softDelete/batchDelete themselves (not only at the controller),
+     *  so every current and future caller is covered by construction — most
+     *  notably AgentsService.applyProposedAction's record_delete branch,
+     *  which calls these methods directly and bypasses RecordsController. */
+    private readonly actionGates: ActionGatesService,
   ) {}
 
   /**
@@ -119,11 +198,42 @@ export class RecordsService {
       list.push(option.id);
       optionsByField.set(option.fieldId, list);
     }
+    /**
+     * #657 — a relation field's own stored config carries `relation_id`/`side`
+     * but not whether IT is the single- or many-valued end; that lives on the
+     * shared `relations` row's `cardinality`. Denormalized onto a synthetic
+     * `config['multi']` here (never persisted — same pattern `option_ids`
+     * above already uses) so every caller checking "can this be sorted" reads
+     * ONE flag, the same shape `user`'s own `config['multi']` already is,
+     * rather than re-deriving cardinality+side itself. Side 'a' of a
+     * one_to_many relation is the "many" side's PARENT reference — each
+     * record on it has at most one link (relations.service.ts's own "side A
+     * is the many side: each record has at most one parent") — every other
+     * combination (one_to_many's side b, or many_to_many either side) can
+     * hold more than one.
+     */
+    const relationFields = fieldRows.filter((f) => f.type === 'relation');
+    const relationIds = [...new Set(relationFields.map((f) => (f.config as Record<string, unknown>)['relation_id'] as string))];
+    const relationRows = relationIds.length
+      ? await this.db.query.relations.findMany({ where: inArray(relations.id, relationIds) })
+      : [];
+    const cardinalityById = new Map(relationRows.map((r) => [r.id, r.cardinality]));
+    const multiByFieldId = new Map<string, boolean>();
+    for (const f of relationFields) {
+      const config = f.config as Record<string, unknown>;
+      const cardinality = cardinalityById.get(config['relation_id'] as string);
+      const side = config['side'] as 'a' | 'b' | undefined;
+      const isSingleValued = cardinality === 'one_to_many' && side === 'a';
+      multiByFieldId.set(f.id, !isSingleValued);
+    }
     return fieldRows.map((f) => ({
       id: f.id,
       api_name: f.apiName,
       type: f.type,
-      config: (f.config ?? {}) as Record<string, unknown>,
+      config:
+        f.type === 'relation'
+          ? { ...(f.config ?? {}), multi: multiByFieldId.get(f.id) }
+          : ((f.config ?? {}) as Record<string, unknown>),
       option_ids: optionsByField.get(f.id),
     }));
   }
@@ -134,7 +244,8 @@ export class RecordsService {
     const stored = row.values as Record<string, unknown>;
     for (const def of defs) {
       if (def.type === 'title' || def.type === 'relation') continue;
-      if (def.type === 'created_at' || def.type === 'updated_at' || def.type === 'created_by') continue;
+      if (def.type === 'created_at' || def.type === 'updated_at' || def.type === 'created_by')
+        continue;
       if (def.type === 'id') continue; // surfaced top-level as `number`, not in values
       const raw = stored[def.id];
       if (raw === undefined || raw === null) continue;
@@ -156,24 +267,81 @@ export class RecordsService {
       created_by: row.createdBy,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
+      computed_values: row.computedValues as Record<string, unknown>,
     };
   }
 
-  /** Fills relation-field values with {id, title} chips for a page of records (MN-018). */
-  async attachLinks(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  /**
+   * Fills relation-field values with {id, title} chips for a page of records
+   * (MN-018).
+   *
+   * `membership` is the CALLER, optional and omitted by every internal/system
+   * use (title recompute, automations, migrations, agent packs) that must see
+   * every chip regardless of who eventually reads the result. Pass it from an
+   * actual HTTP request so a chip pointing at a database the caller cannot see
+   * is never attached (#469) — a guest granted "Wholesale Orders" but denied
+   * "Roasts" read the denied database's record titles through the relation
+   * chip on every order, on the query response, the CSV export (which reads
+   * these same chips, `export/csv.ts`), and the links endpoint. Lookup and
+   * rollup fields (`attachLookups`/`attachRollups` below) derive their linked
+   * ids from the SAME chips this attaches, so withholding a chip here also
+   * withholds the lookup value and zeroes the rollup for that relation — one
+   * fix point, not three.
+   */
+  async attachLinks(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+    membership?: Membership,
+  ): Promise<ProjectedRecord[]> {
     const relationDefs = defs.filter((d) => d.type === 'relation');
     if (relationDefs.length === 0 || projected.length === 0) {
       // #391 — attachments do NOT need relations, so they must be resolved on
       // this path too. Missing it meant a database with no relation field
       // returned raw attachment ids and every card rendered a uuid, which is
       // exactly how the six tests below failed the first time.
-      return this.attachFormulas(await this.attachFiles(projected, defs), defs); // lookups need relations; formulas don't
+      const withAi = this.attachAiFields(await this.attachFiles(projected, defs), defs);
+      const withFormulas = await this.attachFormulas(withAi, defs); // lookups need relations; formulas/ai fields don't
+      this.narrowComputedValues(withFormulas, defs);
+      return withFormulas;
     }
     const ids = projected.map((p) => p.id);
 
     for (const def of relationDefs) {
       const relationId = def.config['relation_id'] as string;
       const side = def.config['side'] as 'a' | 'b';
+
+      // #474 phase 3 — non-null only for a guest with no broader (space/db)
+      // grant on the target database; narrows the chip candidates below to
+      // exactly the records a record-scoped grant names. null means either
+      // an unrestricted caller (admin/member) or a guest with a broader
+      // grant on the target — same "see everything here" as before #474.
+      let recordScope: { ids: Set<string>; bestRole: unknown } | null = null;
+      if (membership) {
+        const relation = await this.db.query.relations.findFirst({
+          where: eq(relations.id, relationId),
+        });
+        if (!relation) continue; // dangling — no chips
+        const targetDatabaseId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+        const targetDb = await this.db.query.databases.findFirst({
+          where: eq(databases.id, targetDatabaseId),
+          columns: { id: true, spaceId: true },
+        });
+        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+          // #474 phase 3 — effectiveForDatabase alone doesn't know about
+          // record-scoped grants (#472); before #474 this unconditionally
+          // meant "no chips", which also silently denied a guest whose
+          // access to the target is one or more record-scoped grants. Fall
+          // through to visibleRecordIds — the SAME fallback DatabasesService.
+          // assertAccess already uses so a record-scoped-only guest can
+          // reach the target database's records at all.
+          recordScope = await this.access.visibleRecordIds(membership, targetDb);
+          // No record grant at all on this database either — genuinely no
+          // access, never a partial/redacted chip, an ABSENT one, exactly
+          // like the direct route already 404s rather than reveal a shape.
+          if (!recordScope || recordScope.ids.size === 0) continue;
+        }
+      }
+
       const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
       const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
@@ -186,10 +354,17 @@ export class RecordsService {
             eq(recordLinks.relationId, relationId),
             inArray(myCol, ids),
             isNull(records.deletedAt),
+            // #474 phase 3 — a guest whose only access to the target
+            // database is one or more record-scoped grants sees a chip
+            // only for a linked record one of those grants actually names.
+            recordScope ? inArray(records.id, [...recordScope.ids]) : undefined,
           ),
         );
 
-      const byRecord = new Map<string, Array<{ id: string; title: string; number: number | null }>>();
+      const byRecord = new Map<
+        string,
+        Array<{ id: string; title: string; number: number | null }>
+      >();
       for (const row of rows) {
         const list = byRecord.get(row.mine) ?? [];
         list.push({ id: row.id, title: row.title, number: row.number });
@@ -203,7 +378,44 @@ export class RecordsService {
     const withAttachments = await this.attachFiles(projected, defs);
     const withLookups = await this.attachLookups(withAttachments, defs);
     const withRollups = await this.attachRollups(withLookups, defs);
-    return this.attachFormulas(withRollups, defs);
+    const withAi = this.attachAiFields(withRollups, defs);
+    const withFormulas = await this.attachFormulas(withAi, defs);
+    this.narrowComputedValues(withFormulas, defs);
+    return withFormulas;
+  }
+
+  /**
+   * #778 — `project()` copies `row.computedValues` VERBATIM into
+   * `computed_values`, before any of the caller-aware narrowing above runs.
+   * For rollup/formula fields that narrowing already produces a correct,
+   * per-caller `values[api_name]` (attachRollups/attachFormulas both derive
+   * their result from the ALREADY-narrowed relation chips) — but nothing
+   * synced that back onto `computed_values`, so the pre-narrowing raw
+   * persisted value (the internal sort/filter shadow copy) rode along in the
+   * SAME response body a caller-aware `values` sat next to. Response
+   * serialization is the only thing this touches — the persisted column read
+   * by recomputeRollupsForRelationField/materializeFormulas is untouched.
+   *
+   * ai fields need no narrowing here: FieldsService.AI_DEPENDABLE_FIELD_TYPES
+   * excludes relation/rollup/lookup/formula from an ai field's own
+   * dependency_field_ids (enforced on both create and update), and
+   * changeType()'s CONVERTIBLE map never allows converting a field INTO one
+   * of those types either — so an ai field's prompt can only ever read the
+   * SAME record's own scalar fields. It has nothing cross-record to leak,
+   * and its `computed_values` entry already equals its `values` entry
+   * (attachAiFields sets one from the other), so this loop's sync is a no-op
+   * for it in practice — included for symmetry, not because a gap was found.
+   */
+  private narrowComputedValues(projected: ProjectedRecord[], defs: FieldDef[]): void {
+    const narrowedTypes = new Set(['rollup', 'formula', 'ai']);
+    for (const record of projected) {
+      record.computed_values ??= {};
+      for (const def of defs) {
+        if (narrowedTypes.has(def.type)) {
+          record.computed_values[def.id] = record.values[def.api_name] ?? null;
+        }
+      }
+    }
   }
 
   /**
@@ -222,7 +434,10 @@ export class RecordsService {
    * relation targets follow, and it means a half-finished delete degrades to a
    * shorter list rather than to a broken image.
    */
-  private async attachFiles(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachFiles(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const attachmentDefs = defs.filter((d) => d.type === 'attachment');
     if (attachmentDefs.length === 0 || projected.length === 0) return projected;
     const chips = await loadAttachmentChips(
@@ -253,7 +468,10 @@ export class RecordsService {
    * below, so a filtered rollup fetches only the target rows that pass its
    * condition (rather than filtering an already-`SELECT *`ed batch in JS).
    */
-  private async attachRollups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachRollups(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const rollupDefs = defs.filter((d) => d.type === 'rollup');
     if (rollupDefs.length === 0 || projected.length === 0) return projected;
 
@@ -264,6 +482,13 @@ export class RecordsService {
       // nothing with the numeric path below beyond the relation + filter.
       if (isPickOneOp(rawOp)) {
         await this.attachPickOneRollup(def, defs, projected, rawOp);
+        continue;
+      }
+      // #234 — collect gathers an attachment field across EVERY matching
+      // related record (not the one winner pick-one resolves to), so it
+      // shares nothing with either path above beyond the relation + filter.
+      if (rawOp === 'collect') {
+        await this.attachCollectRollup(def, defs, projected);
         continue;
       }
       const op = rawOp as 'count' | 'sum' | 'avg' | 'min' | 'max';
@@ -282,7 +507,8 @@ export class RecordsService {
         if (!relation) continue;
         const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
         const targetDefs = await this.fieldDefs(targetDbId);
-        if (targetApiName) targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+        if (targetApiName)
+          targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
         if (filterNode) {
           const ctx: CompilerContext = {
             defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -315,7 +541,8 @@ export class RecordsService {
       }
 
       for (const record of projected) {
-        const allChips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+        const allChips =
+          (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
         const chips = filterSql ? allChips.filter((chip) => passesFilter.has(chip.id)) : allChips;
         if (!targetApiName) {
           record.values[def.api_name] = op === 'count' ? chips.length : null;
@@ -380,7 +607,9 @@ export class RecordsService {
     const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
     const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
     if (!orderByDef) return; // ordering field was deleted — no defensible winner
-    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    const targetDef = targetApiName
+      ? targetDefs.find((d) => d.api_name === targetApiName)
+      : undefined;
     if (targetApiName && !targetDef) return;
 
     // Select ids are opaque uuids; both the ordering and the returned value want
@@ -391,7 +620,10 @@ export class RecordsService {
     const optionLabels = new Map<string, string>();
     if (labelledDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          labelledDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) optionLabels.set(option.id, option.label);
     }
@@ -418,22 +650,104 @@ export class RecordsService {
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
 
     for (const record of projected) {
-      const chips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+      const chips =
+        (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
       // The filter is applied by the query above, so a chip with no row here was
       // either filtered out or deleted — both mean "not a candidate".
       const candidates = chips.flatMap((chip) => {
         const row = rowById.get(chip.id);
         return row ? [row] : [];
       });
-      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      const winner = pickOneRow(candidates, op, (row) =>
+        rollupFieldValue(row, orderByDef, optionLabels),
+      );
       if (!winner) continue;
       record.values[def.api_name] = targetDef
         ? (rollupFieldValue(winner, targetDef, optionLabels) ?? null)
-        // Same shape as a relation chip PLUS `database_id`: a relation cell gets
-        // the target db from its own field metadata, but a rollup's field has no
-        // relation block, so the chip has to carry what the link needs or "Last
-        // Ticket" renders as unclickable text — the opposite of the ask.
-        : { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+        : // Same shape as a relation chip PLUS `database_id`: a relation cell gets
+          // the target db from its own field metadata, but a rollup's field has no
+          // relation block, so the chip has to carry what the link needs or "Last
+          // Ticket" renders as unclickable text — the opposite of the ask.
+          { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+    }
+  }
+
+  /**
+   * #234 — every attachment on the target field across EVERY related record
+   * that matches the (optional) filter, flattened onto the parent as one
+   * list. Unlike `attachPickOneRollup` there is no ordering field and no
+   * single winner: "collect" is the fan-out counterpart to `first`/`last`'s
+   * argmax/argmin, same as `count` is to `sum`/`avg`/`min`/`max`.
+   *
+   * Hydrated with the SAME `loadAttachmentChips` helper `attachFiles` uses
+   * for a native attachment field — one batched query for the whole page's
+   * matching child records, never per parent — so a collected file is a real
+   * clickable/downloadable chip, not a bare stored id.
+   */
+  private async attachCollectRollup(
+    def: FieldDef,
+    defs: FieldDef[],
+    projected: ProjectedRecord[],
+  ): Promise<void> {
+    for (const record of projected) record.values[def.api_name] = [];
+
+    const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+    if (!relationDef || relationDef.type !== 'relation') return; // dangling — resolves to empty
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    if (!targetApiName) return; // config invariant (enforced at field-create time): collect always names a field
+    const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
+
+    const side = relationDef.config['side'] as 'a' | 'b';
+    const relation = await this.db.query.relations.findFirst({
+      where: eq(relations.id, relationDef.config['relation_id'] as string),
+    });
+    if (!relation) return;
+    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const targetDefs = await this.fieldDefs(targetDbId);
+    const targetDef = targetDefs.find((d) => d.api_name === targetApiName);
+    // Target field deleted or retyped since the rollup was configured —
+    // degrade to empty, same rule a dangling relation follows above, rather
+    // than throwing for every read of an otherwise-fine page.
+    if (!targetDef || targetDef.type !== 'attachment') return;
+
+    const linkedIds = new Set<string>();
+    for (const record of projected) {
+      const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+      chips?.forEach((chip) => linkedIds.add(chip.id));
+    }
+    if (linkedIds.size === 0) return;
+
+    const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+    if (filterNode) {
+      const ctx: CompilerContext = {
+        defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+        currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+      };
+      conditions.push(compileFilter(filterNode, ctx));
+    }
+    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const rowById = new Map(targetRows.map((row) => [row.id, row]));
+    const attachmentChips = await loadAttachmentChips(
+      this.db,
+      targetRows.map((row) => row.id),
+      [targetDef.id],
+    );
+
+    for (const record of projected) {
+      const relChips =
+        (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+      const collected: AttachmentChip[] = [];
+      for (const relChip of relChips) {
+        const row = rowById.get(relChip.id);
+        if (!row) continue; // filtered out or deleted — not a candidate
+        const ids = (row.values as Record<string, unknown> | null)?.[targetDef.id];
+        if (!Array.isArray(ids)) continue;
+        for (const id of ids) {
+          const chip = attachmentChips.get(String(id));
+          if (chip) collected.push(chip);
+        }
+      }
+      record.values[def.api_name] = collected;
     }
   }
 
@@ -497,7 +811,9 @@ export class RecordsService {
         values[apiName] = chips;
       }
     }
-    return [...byId.entries()].map(([id, values]) => ({ id, values }) as unknown as ProjectedRecord);
+    return [...byId.entries()].map(
+      ([id, values]) => ({ id, values }) as unknown as ProjectedRecord,
+    );
   }
 
   /**
@@ -560,7 +876,10 @@ export class RecordsService {
       const labelByOption = new Map<string, string>();
       if (selectDefs.length > 0) {
         const options = await this.db.query.selectOptions.findMany({
-          where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+          where: inArray(
+            selectOptions.fieldId,
+            selectDefs.map((d) => d.id),
+          ),
         });
         for (const option of options) labelByOption.set(option.id, option.label);
       }
@@ -593,7 +912,9 @@ export class RecordsService {
         if (!chips?.length) continue;
         // Soft-deleted targets simply drop out — the same way a dangling
         // reference resolves to nothing everywhere else.
-        const bags = chips.map((chip) => bagById.get(chip.id)).filter((b): b is Record<string, unknown> => Boolean(b));
+        const bags = chips
+          .map((chip) => bagById.get(chip.id))
+          .filter((b): b is Record<string, unknown> => Boolean(b));
         const existing = out.get(record.id) ?? {};
         existing[apiName] = bags;
         out.set(record.id, existing);
@@ -602,7 +923,33 @@ export class RecordsService {
     return out;
   }
 
-  private async attachFormulas(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  /**
+   * #571 — surfaces an ai field's PERSISTED value for display, read straight
+   * from `computed_values` (never computed here). Unlike attachRollups/
+   * attachFormulas, which recompute fresh on every read and treat
+   * `computed_values` as a secondary sort/filter shadow copy, an ai field has
+   * no "compute fresh" option at read time — that would be an LLM call per
+   * page view, which the ticket forbids. Runs BEFORE attachFormulas so a
+   * formula referencing an ai field sees its value the same way it already
+   * sees a rollup's (record.values[api_name], populated by an earlier pass).
+   */
+  private attachAiFields(projected: ProjectedRecord[], defs: FieldDef[]): ProjectedRecord[] {
+    const aiDefs = defs.filter((d) => d.type === 'ai');
+    if (aiDefs.length === 0 || projected.length === 0) return projected;
+    for (const record of projected) {
+      const computed = record.computed_values ?? {};
+      for (const def of aiDefs) {
+        const value = computed[def.id];
+        if (value !== undefined) record.values[def.api_name] = value;
+      }
+    }
+    return projected;
+  }
+
+  private async attachFormulas(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const formulaDefs = defs.filter((d) => d.type === 'formula' && (d.config['ast'] as unknown));
     if (formulaDefs.length === 0 || projected.length === 0) return projected;
 
@@ -611,7 +958,10 @@ export class RecordsService {
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          selectDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) labelByOption.set(option.id, option.label);
     }
@@ -626,7 +976,9 @@ export class RecordsService {
      * the thing the AC forbids.
      */
     const relationApiNames = new Set<string>();
-    const relationDefApiNames = new Set(defs.filter((d) => d.type === 'relation').map((d) => d.api_name));
+    const relationDefApiNames = new Set(
+      defs.filter((d) => d.type === 'relation').map((d) => d.api_name),
+    );
     for (const def of ordered) {
       for (const ref of formulaRefs(def.config['ast'] as FormulaNode)) {
         if (relationDefApiNames.has(ref)) relationApiNames.add(ref);
@@ -694,7 +1046,10 @@ export class RecordsService {
   private async materializeFormulas(defs: FieldDef[], rows: RecordRow[]): Promise<void> {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     const formulaDefs = defs.filter(
-      (d) => d.type === 'formula' && (d.config['ast'] as unknown) && formulaDependsOnlyOnOwnRecord(d, byApiName),
+      (d) =>
+        d.type === 'formula' &&
+        (d.config['ast'] as unknown) &&
+        formulaDependsOnlyOnOwnRecord(d, byApiName),
     );
     if (formulaDefs.length === 0 || rows.length === 0) return;
 
@@ -702,7 +1057,10 @@ export class RecordsService {
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          selectDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) labelByOption.set(option.id, option.label);
     }
@@ -724,7 +1082,11 @@ export class RecordsService {
     const relationApiNames = this.relationRefsOf(formulaDefs, byApiName);
     let relatedByRecord = new Map<string, Record<string, Array<Record<string, unknown>>>>();
     if (relationApiNames.size > 0) {
-      const chips = await this.relationChipsFromLinks(defs, relationApiNames, rows.map((r) => r.id));
+      const chips = await this.relationChipsFromLinks(
+        defs,
+        relationApiNames,
+        rows.map((r) => r.id),
+      );
       relatedByRecord = await this.loadRelatedBags(chips, defs, relationApiNames);
     }
 
@@ -771,7 +1133,9 @@ export class RecordsService {
         // materialize for the same record without racing to clobber each other's keys).
         await tx
           .update(records)
-          .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+          .set({
+            computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb`,
+          })
           .where(eq(records.id, row.id));
       }
     });
@@ -826,7 +1190,10 @@ export class RecordsService {
     const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
     if (selectDefs.length === 0) return map;
     const options = await this.db.query.selectOptions.findMany({
-      where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+      where: inArray(
+        selectOptions.fieldId,
+        selectDefs.map((d) => d.id),
+      ),
     });
     for (const option of options) map.set(option.id, option.label);
     return map;
@@ -974,14 +1341,18 @@ export class RecordsService {
       if (rows.length === 0) continue;
       // attachLinks resolves relation chips → lookups → rollups (read-time, fresh),
       // giving each record its current cross-record values keyed by api_name.
-      const projected = await this.attachLinks(rows.map((r) => this.project(r, defs)), defs);
+      const projected = await this.attachLinks(
+        rows.map((r) => this.project(r, defs)),
+        defs,
+      );
       const projectedById = new Map(projected.map((p) => [p.id, p]));
       await this.db.transaction(async (tx) => {
         for (const row of rows) {
           const p = projectedById.get(row.id);
           if (!p) continue;
           const crossRecord = new Map<string, unknown>();
-          for (const def of crossRecordDefs) crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
+          for (const def of crossRecordDefs)
+            crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
           const title = this.computeTitle(
             titleDef,
             defs,
@@ -1064,7 +1435,11 @@ export class RecordsService {
         const values = await this.computeRollupValuesForChunk(def, defs, chunk);
         for (const recordId of chunk) {
           const patch = patchByRecord.get(recordId) ?? {};
-          patch[def.id] = values.has(recordId) ? values.get(recordId) : def.config['op'] === 'count' ? 0 : null;
+          patch[def.id] = values.has(recordId)
+            ? values.get(recordId)
+            : def.config['op'] === 'count' || def.config['op'] === 'collect'
+              ? 0
+              : null;
           patchByRecord.set(recordId, patch);
         }
       }
@@ -1082,12 +1457,16 @@ export class RecordsService {
         for (const [recordId, patch] of patchByRecord) {
           await tx
             .update(records)
-            .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+            .set({
+              computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb`,
+            })
             .where(eq(records.id, recordId));
         }
       });
       if (defs.some((d) => d.type === 'formula')) {
-        const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, chunk) });
+        const freshRows = await this.db.query.records.findMany({
+          where: inArray(records.id, chunk),
+        });
         await this.materializeFormulas(defs, freshRows).catch(() => undefined);
       }
     }
@@ -1109,7 +1488,7 @@ export class RecordsService {
     defs: FieldDef[],
     recordIds: string[],
   ): Promise<Map<string, number | null>> {
-    const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
+    const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max' | 'collect';
     const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
     const result = new Map<string, number | null>();
     if (!relationDef || relationDef.type !== 'relation') return result; // dangling — resolves to nothing, same as attachRollups
@@ -1125,7 +1504,9 @@ export class RecordsService {
     let filterSql: SQL | undefined;
     let targetDefs: FieldDef[] | undefined;
     if (targetApiName || filterNode) {
-      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, relationId),
+      });
       if (!relation) return result;
       const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
       targetDefs = await this.fieldDefs(targetDbId);
@@ -1143,6 +1524,51 @@ export class RecordsService {
         .select({ mine: myCol, n: sql<number>`count(*)` })
         .from(recordLinks)
         .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt), filterSql))
+        .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
+        .groupBy(myCol);
+      for (const r of rows) result.set(r.mine, Number(r.n));
+      return result;
+    }
+
+    if (op === 'collect') {
+      // #234 — the materialized value is the TOTAL attachment count across
+      // every matching related record, not the rich list `attachCollectRollup`
+      // resolves at read time (mirrors first/last: a scalar SORT KEY here, the
+      // rich value only at read time). Unlike pick-one's sort key this is a
+      // real, meaningful number — "which project has the most files" is a
+      // sensible sort — so it needs no separate value_type discriminator: it
+      // flows through the SAME generic numeric cast every other rollup already
+      // gets in query-compiler.fieldExpr, and 0 (not null) for no matches is
+      // what makes is_empty/not_empty read correctly.
+      //
+      // KNOWN GAP, shared with pick-one's sort key against an attachment
+      // target: recompute here only runs off a LINK/field-change domain event
+      // (RollupInvalidationSubscriber). Uploading/removing a file on an
+      // ALREADY-linked related record writes straight to the DB
+      // (attachments.service.ts) with no domain event at all, so this count
+      // goes stale until something else re-links or re-materializes it. The
+      // READ-time rich list (attachCollectRollup) is unaffected — it always
+      // re-queries live. Fixing attachment writes to emit the domain event is
+      // a broader, separate concern (it would also fix the identical gap for
+      // pick-one), not scoped into this ticket.
+      if (!targetApiName || !targetDefs) return result;
+      const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
+      if (!targetFieldId) return result;
+      const rows = await this.db
+        .select({
+          mine: myCol,
+          n: sql<number>`coalesce(sum(jsonb_array_length(${records.values}->${targetFieldId})), 0)`,
+        })
+        .from(recordLinks)
+        .innerJoin(
+          records,
+          and(
+            eq(records.id, otherCol),
+            isNull(records.deletedAt),
+            sql`jsonb_typeof(${records.values}->${targetFieldId}) = 'array'`,
+            filterSql,
+          ),
+        )
         .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
         .groupBy(myCol);
       for (const r of rows) result.set(r.mine, Number(r.n));
@@ -1221,7 +1647,9 @@ export class RecordsService {
     const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
     const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
     if (!orderByDef) return result; // ordering field deleted — no defensible winner
-    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    const targetDef = targetApiName
+      ? targetDefs.find((d) => d.api_name === targetApiName)
+      : undefined;
     if (targetApiName && !targetDef) return result;
 
     const labelledDefs = [orderByDef, targetDef].filter(
@@ -1230,7 +1658,10 @@ export class RecordsService {
     const optionLabels = new Map<string, string>();
     if (labelledDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          labelledDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) optionLabels.set(option.id, option.label);
     }
@@ -1243,7 +1674,10 @@ export class RecordsService {
       .where(and(eq(recordLinks.relationId, relation.id), inArray(myCol, recordIds)));
     if (links.length === 0) return result;
 
-    const conditions = [inArray(records.id, [...new Set(links.map((l) => l.other))]), isNull(records.deletedAt)];
+    const conditions = [
+      inArray(records.id, [...new Set(links.map((l) => l.other))]),
+      isNull(records.deletedAt),
+    ];
     if (filterNode) {
       const ctx: CompilerContext = {
         defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -1266,7 +1700,9 @@ export class RecordsService {
     }
 
     for (const [parentId, candidates] of candidatesByParent) {
-      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      const winner = pickOneRow(candidates, op, (row) =>
+        rollupFieldValue(row, orderByDef, optionLabels),
+      );
       if (!winner) continue;
       const value = targetDef
         ? rollupFieldValue(winner, targetDef, optionLabels)
@@ -1345,7 +1781,12 @@ export class RecordsService {
     /** #132: this record's title changed — a lookup/rollup targeting the title
      * (target_field_api_name = the title field's api_name) must invalidate too. */
     titleChanged?: boolean;
-    linkedRelations?: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>;
+    linkedRelations?: Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }>;
   }): Promise<void> {
     if (event.changedFieldIds?.length || event.titleChanged) {
       // target_field_api_name (rollup config) is an api_name; changedFieldIds are
@@ -1355,7 +1796,9 @@ export class RecordsService {
       const myDefs = await this.fieldDefs(event.databaseId);
       const idToApiName = new Map(myDefs.map((d) => [d.id, d.api_name]));
       const changedApiNames = new Set(
-        (event.changedFieldIds ?? []).map((id) => idToApiName.get(id)).filter((n): n is string => !!n),
+        (event.changedFieldIds ?? [])
+          .map((id) => idToApiName.get(id))
+          .filter((n): n is string => !!n),
       );
       // #132: a title change surfaces as the title field's api_name (e.g. `name`)
       // so a cross-record name that looks up this record's TITLE recomputes. This
@@ -1366,7 +1809,10 @@ export class RecordsService {
         if (titleApiName) changedApiNames.add(titleApiName);
       }
       const rels = await this.db.query.relations.findMany({
-        where: or(eq(relations.databaseAId, event.databaseId), eq(relations.databaseBId, event.databaseId)),
+        where: or(
+          eq(relations.databaseAId, event.databaseId),
+          eq(relations.databaseBId, event.databaseId),
+        ),
       });
       for (const rel of rels) {
         const mySide: 'a' | 'b' = rel.databaseAId === event.databaseId ? 'a' : 'b';
@@ -1390,7 +1836,13 @@ export class RecordsService {
         const otherTitleDef = this.computedTitleDef(otherDefs);
         const titleAffected =
           !!otherTitleDef &&
-          this.titleAffectedByRelatedChange(otherTitleDef, otherDefs, reverseFieldId, changedApiNames, relevantRollups);
+          this.titleAffectedByRelatedChange(
+            otherTitleDef,
+            otherDefs,
+            reverseFieldId,
+            changedApiNames,
+            relevantRollups,
+          );
         /*
          * #300: a formula relation aggregate on the OTHER side reads this
          * record through the reverse field, so a change here can move it just
@@ -1424,12 +1876,15 @@ export class RecordsService {
           .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
         const otherIds = links.map((l) => l.other);
         if (otherIds.length === 0) continue;
-        if (relevantRollups.length > 0) await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+        if (relevantRollups.length > 0)
+          await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
         if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
         // #300: recomputeRollupsForRelationField re-materializes formulas as its
         // last step, so this only needs to run when it did NOT run at all.
         if (formulaAggregateAffected && relevantRollups.length === 0) {
-          const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, otherIds) });
+          const freshRows = await this.db.query.records.findMany({
+            where: inArray(records.id, otherIds),
+          });
           await this.materializeFormulas(otherDefs, freshRows).catch(() => undefined);
         }
       }
@@ -1442,10 +1897,17 @@ export class RecordsService {
       // recompute it alongside its own rollup.
       await this.recomputeTitlesForRecords(event.databaseId, [event.recordId]);
       if (link.otherRecordIds.length === 0) continue;
-      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, link.relationId) });
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, link.relationId),
+      });
       if (!relation) continue;
-      const reverseFieldId = relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
-      await this.recomputeRollupsForRelationField(link.otherDatabaseId, reverseFieldId, link.otherRecordIds);
+      const reverseFieldId =
+        relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
+      await this.recomputeRollupsForRelationField(
+        link.otherDatabaseId,
+        reverseFieldId,
+        link.otherRecordIds,
+      );
       // #132: and the other side's names, if THEY look back through the reverse field.
       await this.recomputeTitlesForRecords(link.otherDatabaseId, link.otherRecordIds);
     }
@@ -1481,7 +1943,10 @@ export class RecordsService {
     return false;
   }
 
-  private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachLookups(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const lookupDefs = defs.filter((d) => d.type === 'lookup');
     if (lookupDefs.length === 0 || projected.length === 0) return projected;
 
@@ -1533,7 +1998,9 @@ export class RecordsService {
       for (const record of projected) {
         const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
         if (!chips?.length) continue;
-        const resolved = chips.map((chip) => byId.get(chip.id)).filter((v) => v !== undefined && v !== null);
+        const resolved = chips
+          .map((chip) => byId.get(chip.id))
+          .filter((v) => v !== undefined && v !== null);
         record.values[def.api_name] = single ? (resolved[0] ?? null) : resolved;
       }
     }
@@ -1639,6 +2106,83 @@ export class RecordsService {
   }
 
   /**
+   * #229 AC2/AC3 — every write path (UI edit, CSV import, REST, MCP) funnels
+   * through create/createBatch/update, so one check here covers all of them.
+   * This is the friendly, common-case guard: it runs before the transaction
+   * opens and names the conflicting record in the same `details[]` shape
+   * validateOrThrow uses. It is NOT the race-proof guarantee — two concurrent
+   * writes can both pass this and both try to commit; FieldsService's partial
+   * unique index is what actually stops that (AC5), and finishInsertOrThrow
+   * below re-runs this same lookup after a 23505 to still name the record.
+   */
+  private async assertUniqueValuesOrThrow(
+    databaseId: string,
+    defs: FieldDef[],
+    entries: Array<{ values: Record<string, unknown>; excludeRecordId?: string }>,
+  ): Promise<void> {
+    const uniqueFields = defs.filter((d) =>
+      Boolean((d.config as Record<string, unknown>)['unique']),
+    );
+    if (uniqueFields.length === 0) return;
+    for (const def of uniqueFields) {
+      const normalize = (def.config as Record<string, unknown>)['unique_normalize'] !== false;
+      for (const entry of entries) {
+        const key = this.normalizedUniqueKey(entry.values[def.id], normalize);
+        if (key === undefined) continue;
+        const conflict = await this.findUniqueConflict(
+          databaseId,
+          def.id,
+          key,
+          normalize,
+          entry.excludeRecordId,
+        );
+        if (conflict) throw this.uniqueConflictError(def, conflict);
+      }
+    }
+  }
+
+  /** Multiple empty/absent values are always permitted (#229 AC4) — only a real value can conflict. */
+  private normalizedUniqueKey(raw: unknown, normalize: boolean): string | undefined {
+    if (raw === null || raw === undefined || raw === '') return undefined;
+    const key = normalize ? String(raw).trim().toLowerCase() : String(raw);
+    return key === '' ? undefined : key;
+  }
+
+  private async findUniqueConflict(
+    databaseId: string,
+    fieldId: string,
+    normalizedValue: string,
+    normalize: boolean,
+    excludeRecordId?: string,
+  ): Promise<{ id: string; number: number | null; title: string } | undefined> {
+    const expr = normalize
+      ? sql`lower(trim(${records.values}->>${fieldId}))`
+      : sql`${records.values}->>${fieldId}`;
+    const row = await this.db.query.records.findFirst({
+      where: and(
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+        excludeRecordId ? sql`${records.id} != ${excludeRecordId}` : undefined,
+        sql`${expr} = ${normalizedValue}`,
+      ),
+      columns: { id: true, number: true, title: true },
+    });
+    return row ?? undefined;
+  }
+
+  private uniqueConflictError(def: FieldDef, conflict: { number: number | null; title: string }) {
+    return new ConflictException({
+      message: 'Record values validation failed',
+      details: [
+        {
+          path: `values.${def.api_name}`,
+          message: `duplicate value — already used by record #${conflict.number} ("${conflict.title}")`,
+        },
+      ],
+    });
+  }
+
+  /**
    * MN-080: turn `{ project: [3] | ['<uuid>'] }` into everything needed to write
    * record_links. Resolved and fully validated BEFORE the transaction opens, so a
    * bad target id fails the whole write instead of leaving an unlinked record.
@@ -1672,9 +2216,14 @@ export class RecordsService {
       // column and failing as a raw Postgres syntax error the caller sees as an
       // opaque 500 (#278).
       const isNumericString = (v: string) => /^\d+$/.test(v.trim());
-      const toNumber = (v: string | number) => (typeof v === 'number' ? v : Number.parseInt(v.trim(), 10));
+      const toNumber = (v: string | number) =>
+        typeof v === 'number' ? v : Number.parseInt(v.trim(), 10);
       const invalid = raw.find(
-        (v) => !(typeof v === 'number' || (typeof v === 'string' && (isNumericString(v) || UUID_RE.test(v.trim())))),
+        (v) =>
+          !(
+            typeof v === 'number' ||
+            (typeof v === 'string' && (isNumericString(v) || UUID_RE.test(v.trim())))
+          ),
       );
       if (invalid !== undefined) {
         throw new UnprocessableEntityException({
@@ -1729,7 +2278,14 @@ export class RecordsService {
           `"${apiName}" can link to only one target (one-to-many); got ${targets.length}`,
         );
       }
-      plans.push({ relationId: relation.id, side, apiName, fieldId: def.id, targetDatabaseId, targets });
+      plans.push({
+        relationId: relation.id,
+        side,
+        apiName,
+        fieldId: def.id,
+        targetDatabaseId,
+        targets,
+      });
     }
     return plans;
   }
@@ -1751,8 +2307,21 @@ export class RecordsService {
     record: { id: string; title: string },
     plans: LinkPlan[],
     replace: boolean,
-  ): Promise<Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>> {
-    const affected: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }> = [];
+    source: ChangeSource = 'human',
+  ): Promise<
+    Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }>
+  > {
+    const affected: Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }> = [];
     for (const plan of plans) {
       const myCol = plan.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
       const otherCol = plan.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
@@ -1786,13 +2355,18 @@ export class RecordsService {
               actorId,
               type: 'relation.linked',
               payload: { relation_id: plan.relationId, other: target },
+              source,
             },
             {
               workspaceId,
               recordId: target.id,
               actorId,
               type: 'relation.linked',
-              payload: { relation_id: plan.relationId, other: { id: record.id, title: record.title } },
+              payload: {
+                relation_id: plan.relationId,
+                other: { id: record.id, title: record.title },
+              },
+              source,
             },
           ]),
         );
@@ -1826,9 +2400,78 @@ export class RecordsService {
     input: Record<string, unknown>,
     actorId: string | null,
     depth = 0,
+    /** #481 — same contract as update()'s `source`: defaults to 'human' so a
+     *  caller that hasn't been updated yet still succeeds, but every write
+     *  site that KNOWS its real source should pass it explicitly. */
+    source: ChangeSource = 'human',
+    /** #541 — see createBatch's `options.agentId`/`agentName` doc. */
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
-    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth);
+    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth, {
+      source,
+      agentId,
+      agentName,
+    });
     return created!;
+  }
+
+  /**
+   * #230 — match-or-create on a designated unique key. `keyField` must be
+   * marked `unique` (#229); `input[keyField]` is the value looked up via the
+   * SAME `findUniqueConflict` helper the ordinary create/update path already
+   * uses to name a conflict, so "found" here means exactly what a 409 there
+   * would have meant. A concurrent creation of the same key between the
+   * lookup and the write below still 409s from create()/update()'s own
+   * unique-index check (#229 AC5) rather than silently duplicating — this
+   * method makes the common case a single call, it does not add a second
+   * locking mechanism.
+   */
+  async upsert(
+    workspaceId: string,
+    databaseId: string,
+    keyField: string,
+    input: Record<string, unknown>,
+    actorId: string,
+    source: ChangeSource = 'human',
+    agentId?: string,
+    agentName?: string,
+    /**
+     * #230 — the automation create_record step's own "updates-or-skips per
+     * config" AC needs a match to leave the existing record untouched rather
+     * than always updating it. The REST/MCP upsert endpoint has no such
+     * config surface and always wants 'update' (its whole point is
+     * match-or-create-with-fresh-values), so this stays an optional trailing
+     * param rather than a required one every caller must decide on.
+     */
+    onMatch: 'update' | 'skip' = 'update',
+  ): Promise<{ record: ProjectedRecord; created: boolean }> {
+    const defs = await this.fieldDefs(databaseId);
+    const def = defs.find((d) => d.api_name === keyField);
+    if (!def) {
+      throw new UnprocessableEntityException(`unknown field "${keyField}"`);
+    }
+    if (!(def.config as Record<string, unknown>)['unique']) {
+      throw new UnprocessableEntityException(
+        `field "${keyField}" is not marked unique — only a unique field (#229) can be used as an upsert key`,
+      );
+    }
+    const normalize = (def.config as Record<string, unknown>)['unique_normalize'] !== false;
+    const key = this.normalizedUniqueKey(input[keyField], normalize);
+    if (key === undefined) {
+      throw new UnprocessableEntityException(`upsert requires a non-empty value for "${keyField}"`);
+    }
+    const existing = await this.findUniqueConflict(databaseId, def.id, key, normalize);
+    if (existing) {
+      if (onMatch === 'skip') {
+        const record = await this.get(databaseId, existing.id);
+        return { record, created: false };
+      }
+      const record = await this.update(workspaceId, databaseId, existing.id, input, actorId, 0, source, agentId, agentName);
+      return { record, created: false };
+    }
+    const record = await this.create(workspaceId, databaseId, input, actorId, 0, source, agentId, agentName);
+    return { record, created: true };
   }
 
   /**
@@ -1842,19 +2485,31 @@ export class RecordsService {
     databaseId: string,
     recordId: string,
     actorId: string,
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const src = await this.get(databaseId, recordId);
     const defs = await this.fieldDefs(databaseId);
     const SKIP = new Set([
-      'id', 'relation', 'lookup', 'rollup', 'formula', 'button', 'title', 'created_at', 'updated_at', 'created_by',
+      'id',
+      'relation',
+      'lookup',
+      'rollup',
+      'formula',
+      'button',
+      'title',
+      'created_at',
+      'updated_at',
+      'created_by',
     ]);
-    const input: Record<string, unknown> = { name: `${(src.title ?? '').trim() || 'Untitled'} (copy)` };
+    const input: Record<string, unknown> = {
+      name: `${(src.title ?? '').trim() || 'Untitled'} (copy)`,
+    };
     for (const def of defs) {
       if (SKIP.has(def.type)) continue;
       const v = src.values[def.api_name];
       if (v !== undefined && v !== null) input[def.api_name] = v;
     }
-    const created = await this.create(workspaceId, databaseId, input, actorId, 0);
+    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source);
 
     // Copy links: single references (one_to_many side a) and many-to-many; skip owned collections.
     for (const def of defs.filter((d) => d.type === 'relation')) {
@@ -1868,11 +2523,19 @@ export class RecordsService {
         const rows = await this.db
           .select({ to: recordLinks.toRecordId })
           .from(recordLinks)
-          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.fromRecordId, recordId)));
+          .where(
+            and(eq(recordLinks.relationId, relation.id), eq(recordLinks.fromRecordId, recordId)),
+          );
         if (rows.length) {
           await this.db
             .insert(recordLinks)
-            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: created.id, toRecordId: r.to })))
+            .values(
+              rows.map((r) => ({
+                relationId: relation.id,
+                fromRecordId: created.id,
+                toRecordId: r.to,
+              })),
+            )
             .onConflictDoNothing();
           // MN-287: duplicate() copies links via raw inserts (bypassing writeLinks()
           // entirely — the whole point is copying without re-running link resolution),
@@ -1902,11 +2565,19 @@ export class RecordsService {
         const rows = await this.db
           .select({ from: recordLinks.fromRecordId })
           .from(recordLinks)
-          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.toRecordId, recordId)));
+          .where(
+            and(eq(recordLinks.relationId, relation.id), eq(recordLinks.toRecordId, recordId)),
+          );
         if (rows.length) {
           await this.db
             .insert(recordLinks)
-            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: r.from, toRecordId: created.id })))
+            .values(
+              rows.map((r) => ({
+                relationId: relation.id,
+                fromRecordId: r.from,
+                toRecordId: created.id,
+              })),
+            )
             .onConflictDoNothing();
           this.domainEvents.emit({
             type: 'record_linked',
@@ -1930,12 +2601,87 @@ export class RecordsService {
     }
 
     // Copy the description document, if any.
-    const doc = await this.db.query.documents.findFirst({ where: eq(documents.recordId, recordId) });
+    const doc = await this.db.query.documents.findFirst({
+      where: eq(documents.recordId, recordId),
+    });
     if (doc?.content) {
       await this.db
         .insert(documents)
-        .values({ recordId: created.id, content: doc.content, contentText: doc.contentText, version: 1 });
+        .values({
+          recordId: created.id,
+          content: doc.content,
+          contentText: doc.contentText,
+          version: 1,
+        });
     }
+
+    // #599 — the source record's comment thread history, copied onto the new
+    // record. A RAW insert, deliberately bypassing CommentsService.create():
+    // that method re-runs mention validation/notification, and nobody
+    // mentioned in the ORIGINAL thread should be pinged again just because
+    // the record got duplicated — the mention already fired once, and this
+    // is not new activity by the people it names. `authorId` is preserved
+    // from the source comment (thread history, not attributed to whoever
+    // duplicated the record); soft-deleted comments are not copied.
+    const sourceComments = await this.db.query.comments.findMany({
+      where: and(eq(comments.recordId, recordId), isNull(comments.deletedAt)),
+      orderBy: [asc(comments.createdAt)],
+    });
+    if (sourceComments.length) {
+      await this.db.insert(comments).values(
+        sourceComments.map((c) => ({
+          recordId: created.id,
+          authorId: c.authorId,
+          body: c.body,
+          mentions: c.mentions,
+          // #734 — this copies an EXISTING comment's history, so its
+          // provenance is copied too, same as authorId above; it must not
+          // read as posted by whoever triggered the duplicate.
+          source: c.source,
+          agentId: c.agentId,
+          agentName: c.agentName,
+          // #434 — without this, every copied comment silently defaults to
+          // createdAt=now() (the column's own default), which is exactly
+          // the "restamped to now" AC4 explicitly forbids: the original
+          // chronological order between comments is lost the moment two or
+          // more share (near enough) the same insert timestamp, since
+          // list()'s own ordering has no secondary tiebreak. `editedAt` is
+          // copied too — silently dropping "this was edited" would
+          // misrepresent the carried comment's real history.
+          createdAt: c.createdAt,
+          editedAt: c.editedAt,
+        })),
+      );
+    }
+    // #434 AC6 — a system note stating how many comments were carried and
+    // from which record, so a reader of the copy's thread is never left
+    // thinking the conversation happened here. Inserted AFTER the carried
+    // comments (and left to its own default createdAt = now), so it sorts
+    // to the top under comments.service.ts's own newest-first ordering
+    // without needing to know what "top" means on every rendering surface.
+    // A second raw insert, same reasoning as the block above: this is not a
+    // notification-worthy event on its own (nobody is @mentioned), and using
+    // CommentsService.create() here would add a dependency RecordsService
+    // does not otherwise have, for no behavior this ticket's AC asks for.
+    if (sourceComments.length) {
+      await this.db.insert(comments).values({
+        recordId: created.id,
+        authorId: actorId,
+        body: [
+          {
+            type: 'text',
+            text: `${sourceComments.length} comment${sourceComments.length === 1 ? '' : 's'} copied from #${src.number}`,
+          },
+        ] as CommentSegment[],
+        mentions: [],
+        source,
+      });
+    }
+
+    // #599 — the source record's attachments (files), physically copied.
+    // See AttachmentsService.duplicateAll's own doc comment for why this is
+    // a real byte-for-byte storage copy rather than sharing storage keys.
+    await this.attachmentsService.duplicateAll(workspaceId, recordId, created.id, actorId);
 
     return this.get(databaseId, created.id);
   }
@@ -1947,8 +2693,22 @@ export class RecordsService {
     inputs: Array<Record<string, unknown>>,
     actorId: string | null,
     depth = 0,
-    options: { suppressAutomations?: boolean } = {},
+    options: {
+      suppressAutomations?: boolean;
+      source?: ChangeSource;
+      /**
+       * #541 — set when `source: 'agent'` and the acting token was minted
+       * for a specific Agent record (auth.guard.ts resolves and verifies
+       * this fresh, per request — never trust a value from anywhere else).
+       * `agentName` is the snapshot to store, not a live name to re-resolve.
+       */
+      agentId?: string;
+      agentName?: string;
+    } = {},
   ): Promise<ProjectedRecord[]> {
+    const source: ChangeSource = options.source ?? 'human';
+    const agentId = options.agentId;
+    const agentName = options.agentName;
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -1967,6 +2727,12 @@ export class RecordsService {
       withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
+    // #229 — before any record is inserted, same "resolve everything up front" shape as linkPlans below.
+    await this.assertUniqueValuesOrThrow(
+      databaseId,
+      defs,
+      validated.map((v) => ({ values: v.values })),
+    );
     // Resolved up front: an unknown target must fail before any record is inserted.
     const linkPlans = await Promise.all(
       validated.map((v) => (v.links ? this.planLinks(defs, v.links) : Promise.resolve([]))),
@@ -1985,58 +2751,91 @@ export class RecordsService {
     // to the record_created emit after commit, same pattern update() uses.
     const linkedRelationsByIndex = new Map<
       number,
-      Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>
+      Array<{
+        relationId: string;
+        fieldId: string;
+        otherDatabaseId: string;
+        otherRecordIds: string[];
+      }>
     >();
 
-    const rows = await this.db.transaction(async (tx) => {
-      // Allocate a contiguous block of public numbers atomically (MN-087): bump the
-      // per-database counter by N and take the returned high-water mark. Gap-tolerant.
-      const [db] = await tx
-        .update(databases)
-        .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
-        .where(eq(databases.id, databaseId))
-        .returning({ counter: databases.recordCounter });
-      const firstNumber = (db!.counter as number) - inputs.length + 1;
-      const inserted = await tx
-        .insert(records)
-        .values(
-          validated.map((v, i) => {
-            const values = stripNulls(v.values);
-            // #id-post-allocation: firstNumber+i is this record's public number,
-            // already allocated above, so a `{Number}`/#id template resolves.
-            const title = titleDef
-              ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
-              : v.title ?? '';
-            return {
-              databaseId,
-              number: firstNumber + i,
-              title,
-              values,
-              position: positions[i]!,
-              createdBy: actorId,
-              updatedBy: actorId,
-            };
-          }),
-        )
-        .returning();
-      await tx.insert(activityEvents).values(
-        inserted.map((row) => ({
-          workspaceId,
-          recordId: row.id,
-          actorId,
-          type: 'record.created',
-          payload: { title: row.title },
-        })),
-      );
-      for (const [i, row] of inserted.entries()) {
-        const plans = linkPlans[i]!;
-        if (plans.length) {
-          const linked = await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false);
-          if (linked.length) linkedRelationsByIndex.set(i, linked);
+    let rows: RecordRow[];
+    try {
+      rows = await this.db.transaction(async (tx) => {
+        // Allocate a contiguous block of public numbers atomically (MN-087): bump the
+        // per-database counter by N and take the returned high-water mark. Gap-tolerant.
+        const [db] = await tx
+          .update(databases)
+          .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
+          .where(eq(databases.id, databaseId))
+          .returning({ counter: databases.recordCounter });
+        const firstNumber = (db!.counter as number) - inputs.length + 1;
+        const inserted = await tx
+          .insert(records)
+          .values(
+            validated.map((v, i) => {
+              const values = stripNulls(v.values);
+              // #id-post-allocation: firstNumber+i is this record's public number,
+              // already allocated above, so a `{Number}`/#id template resolves.
+              const title = titleDef
+                ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
+                : (v.title ?? '');
+              return {
+                databaseId,
+                number: firstNumber + i,
+                title,
+                values,
+                position: positions[i]!,
+                createdBy: actorId,
+                updatedBy: actorId,
+              };
+            }),
+          )
+          .returning();
+        await tx.insert(activityEvents).values(
+          inserted.map((row) => ({
+            workspaceId,
+            recordId: row.id,
+            actorId,
+            type: 'record.created',
+            payload: { title: row.title },
+            source,
+            agentId,
+            agentName,
+          })),
+        );
+        for (const [i, row] of inserted.entries()) {
+          const plans = linkPlans[i]!;
+          if (plans.length) {
+            const linked = await this.writeLinks(
+              tx as unknown as Db,
+              workspaceId,
+              actorId,
+              row,
+              plans,
+              false,
+              source,
+            );
+            if (linked.length) linkedRelationsByIndex.set(i, linked);
+          }
         }
-      }
-      return inserted;
-    });
+        return inserted;
+      });
+    } catch (err) {
+      // #229 AC5 — the pre-check above raced and lost; re-resolve the SAME
+      // conflict now that the winner has committed, so the caller still gets a
+      // named record instead of a raw 23505.
+      const fieldId = uniqueFieldIdFromViolation(err);
+      if (fieldId === undefined) throw err;
+      const def = defs.find((d) => d.id === fieldId);
+      if (!def) throw err;
+      await this.assertUniqueValuesOrThrow(
+        databaseId,
+        [def],
+        validated.map((v) => ({ values: v.values })),
+      );
+      throw err;
+    }
     // MN-195: fire-and-forget, after the write already succeeded — never lets
     // an abuse-detection failure turn into a failed write. Counts every
     // create path (including bulk import), never blocks or slows any of them.
@@ -2065,29 +2864,121 @@ export class RecordsService {
 
   async getRow(databaseId: string, recordId: string): Promise<RecordRow> {
     const row = await this.db.query.records.findFirst({
-      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      where: and(
+        eq(records.id, recordId),
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+      ),
     });
     if (!row) throw new NotFoundException('Record not found');
     return row;
   }
 
-  async get(databaseId: string, recordId: string): Promise<ProjectedRecord> {
+  /**
+   * #472 — record-scoped access grants. `RecordsController`'s ordinary guard
+   * (`DatabasesService.assertAccess`) only ever checks the space/database
+   * grant; a guest holding NOTHING there but a direct grant on this ONE
+   * record would 404 before this ticket. This is the record-aware check for
+   * the three routes the ticket actually asks for — read and write of the
+   * named record — via `AccessService.effectiveForRecord`, which itself
+   * folds in the space/database result too ("highest grant wins" unchanged,
+   * just extended to a third scope rather than replaced).
+   */
+  async assertRecordAccess(
+    membership: Membership,
+    databaseId: string,
+    recordId: string,
+    min: EffectiveRole,
+  ): Promise<void> {
+    // #613 — :rec only ever accepts a uuid (by-number/:number is the
+    // separate public-number path). Without this, a non-uuid string reached
+    // `eq(records.id, recordId)` below and the driver's own
+    // "invalid input syntax for type uuid" escaped as a bare 500, the same
+    // shape #458 already fixed for the links/buttons routes' :field param —
+    // reusing that fix's helper (common/uuid.ts) rather than a third inline
+    // regex here.
+    if (!looksLikeUuid(recordId)) throw new NotFoundException('Record not found');
+    const database = await this.db.query.databases.findFirst({
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    const record = await this.db.query.records.findFirst({
+      where: and(
+        eq(records.id, recordId),
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+      ),
+      columns: { id: true },
+    });
+    if (!record) throw new NotFoundException('Record not found');
+    const effective = await this.access.effectiveForRecord(membership, {
+      id: recordId,
+      databaseId: database.id,
+      spaceId: database.spaceId,
+    });
+    this.access.assertRank(effective, min, 'Record');
+  }
+
+  async get(
+    databaseId: string,
+    recordId: string,
+    membership?: Membership,
+  ): Promise<ProjectedRecord> {
     const [row, defs] = await Promise.all([
       this.getRow(databaseId, recordId),
       this.fieldDefs(databaseId),
     ]);
-    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs, membership);
     return projected!;
   }
 
-  /** Resolve a record by its public per-database number (MN-087, pretty URLs). */
-  async getByNumber(databaseId: string, number: number): Promise<ProjectedRecord> {
+  /**
+   * Resolve a record by its public per-database number (MN-087, pretty URLs).
+   *
+   * #474 — the controller's own gate (`assertDb`) only checks database-level
+   * access, unlike `GET /:rec`'s `assertRecordAccess`. That used to be fine
+   * because a database grant meant the whole database anyway; now that
+   * `assertDb` also lets a record-scoped-only guest through (this ticket's
+   * phase 1), a bare database-level pass here would let that guest enumerate
+   * every number 1, 2, 3, ... and read any record in the database, not just
+   * the one they were granted. Checked here, after resolving the row,
+   * because `effectiveForRecord` needs the row's id — the number is not
+   * useful for an access check on its own.
+   */
+  async getByNumber(
+    databaseId: string,
+    number: number,
+    membership?: Membership,
+  ): Promise<ProjectedRecord> {
     const row = await this.db.query.records.findFirst({
-      where: and(eq(records.databaseId, databaseId), eq(records.number, number), isNull(records.deletedAt)),
+      where: and(
+        eq(records.databaseId, databaseId),
+        eq(records.number, number),
+        isNull(records.deletedAt),
+      ),
     });
     if (!row) throw new NotFoundException('Record not found');
+    if (membership) {
+      const database = await this.db.query.databases.findFirst({
+        where: eq(databases.id, databaseId),
+        columns: { spaceId: true },
+      });
+      const effective = database
+        ? await this.access.effectiveForRecord(membership, {
+            id: row.id,
+            databaseId,
+            spaceId: database.spaceId,
+          })
+        : null;
+      if (!effective) throw new NotFoundException('Record not found');
+    }
     const defs = await this.fieldDefs(databaseId);
-    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs, membership);
     return projected!;
   }
 
@@ -2096,7 +2987,14 @@ export class RecordsService {
     databaseId: string,
     recordId: string,
     input: Record<string, unknown>,
-    actorId: string,
+    /** #538 — nullable like create()'s actorId: a portal-recipient's form edit
+     *  is an anonymous write (the recipient is tracked separately, on the
+     *  portal access log — see FormsService.submit), not a member's. Every
+     *  column this flows into (updatedBy, activityEvents.actorId,
+     *  recordVersions.actorId, recordFieldChanges.actorUserId) is already
+     *  nullable, and writeLinks already accepts `string | null` for create's
+     *  identical anonymous case. */
+    actorId: string | null,
     depth = 0,
     /**
      * #390 — WHAT made this change: typed by a person, generated by an agent,
@@ -2118,6 +3016,9 @@ export class RecordsService {
      * of "distinguish agent writes" and destroy the accountability trail.
      */
     source: ChangeSource = 'human',
+    /** #541 — see createBatch's `options.agentId`/`agentName` doc; same rule. */
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
@@ -2147,12 +3048,23 @@ export class RecordsService {
 
     const before = row.values as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...before };
-    const diff: Record<string, { from: unknown; to: unknown }> = {};
+    const diff: Record<string, { from: unknown; to: unknown; blocks?: BlockChange[] }> = {};
+    // #796 — this method's own diff was written before #595's block-level
+    // detail existed and never learned about it: restoreVersion (below) picked
+    // it up via diffSnapshots, but this everyday edit path — the one that
+    // actually fires for a normal rich_text field edit — never called
+    // diffBlocks at all, so activity.service.ts's `changes[].blocks` was
+    // always undefined for a live edit, only ever populated by a restore.
+    // ActivityPanel's own fmt() fallback then rendered the raw BlockNote
+    // block array as "[object Object]" — a frontend rendering gap layered
+    // on top of a backend data gap the ticket's own investigation missed.
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
 
     for (const [fieldId, value] of Object.entries(validated.values)) {
       const previous = before[fieldId] ?? null;
       if (JSON.stringify(previous) === JSON.stringify(value)) continue;
       diff[fieldId] = { from: previous, to: value };
+      if (richTextFieldIds.has(fieldId)) diff[fieldId]!.blocks = diffBlocks(previous, value);
       if (value === null) delete merged[fieldId];
       else merged[fieldId] = value;
     }
@@ -2178,6 +3090,15 @@ export class RecordsService {
     // A relation-only update has no value diff, but is still a real change.
     if (Object.keys(diff).length === 0 && linkPlans.length === 0) return this.project(row, defs);
 
+    // #229 — before the transaction opens, same "resolve everything up front"
+    // shape as linkPlans/attachment ownership above. `merged` (not just the
+    // diff) so an unchanged-but-now-colliding value would still be caught, but
+    // excludeRecordId means this record's own unchanged value never conflicts
+    // with itself.
+    await this.assertUniqueValuesOrThrow(databaseId, defs, [
+      { values: merged, excludeRecordId: recordId },
+    ]);
+
     // MN-267: populated inside the transaction below (writeLinks' before∪after
     // report), read after commit to feed the record_updated event.
     let linkedRelations: Array<{
@@ -2187,88 +3108,112 @@ export class RecordsService {
       otherRecordIds: string[];
     }> = [];
 
-    const updated = await this.db.transaction(async (tx) => {
-      const [next] = await tx
-        .update(records)
-        .set({ values: merged, title: nextTitle, updatedBy: actorId })
-        .where(eq(records.id, recordId))
-        .returning();
-      if (Object.keys(diff).length > 0) {
-        await tx.insert(activityEvents).values({
-          workspaceId,
-          recordId,
-          actorId,
-          type: 'record.updated',
-          payload: { diff },
-        });
-        // MN-231: snapshot the FULL pre-write state (not just the diff) so a
-        // later restore can write it straight back without replaying a chain
-        // of diffs. Same transaction as the write it's capturing — never
-        // captured without the change it precedes actually landing.
-        await tx.insert(recordVersions).values({
-          workspaceId,
-          recordId,
-          actorId,
-          title: row.title,
-          values: before,
-        });
-        /*
-         * #31 (C2) — fan the SAME diff out to one row per changed field.
-         *
-         * record_versions above answers "what did this record look like then".
-         * This answers "who changed the status, and from what" — the question
-         * the history UI is actually built around. Same transaction, so a
-         * captured change always corresponds to a write that landed.
-         *
-         * `historyDays === 0` is Free: capture NOTHING rather than
-         * capture-then-prune. The window is zero, so those rows could never be
-         * read by anyone — pure write amplification plus pruning load
-         * (docs/architecture/version-history.md, "Retention").
-         */
-        if (historyDays > 0) {
-          const rows = Object.entries(diff).map(([key, change]) => ({
+    let updated: RecordRow;
+    try {
+      updated = await this.db.transaction(async (tx) => {
+        const [next] = await tx
+          .update(records)
+          .set({ values: merged, title: nextTitle, updatedBy: actorId })
+          .where(eq(records.id, recordId))
+          .returning();
+        if (Object.keys(diff).length > 0) {
+          await tx.insert(activityEvents).values({
             workspaceId,
-            databaseId,
             recordId,
-            // record-diff.ts denotes the promoted title column with the literal
-            // "title"; the table stores that as a null field_id.
-            fieldId: key === 'title' ? null : key,
-            actorUserId: actorId,
-            /*
-             * Explicitly JSON-encoded so a bare scalar can't be re-parsed as
-             * JSON source text on its way into jsonb. What is stored here is
-             * exactly what the WRITE stored — note the record READ path coerces
-             * some values (a text field holding 3 reads back as "3"), so the
-             * timeline and the record can render the same change differently.
-             * That is a presentation gap for the history UI to close (#335),
-             * not a reason to make capture lie about what was written.
-             */
-            oldValue: sql`${JSON.stringify((change as { from: unknown }).from ?? null)}::jsonb`,
-            newValue: sql`${JSON.stringify((change as { to: unknown }).to ?? null)}::jsonb`,
-            /*
-             * #390 — the column and the enum have existed since #31; nothing
-             * ever wrote a non-default value, so every row in the product said
-             * 'human' including rows written by automations and by MCP. The
-             * badge was decorative: it rendered whatever the default said.
-             */
+            actorId,
+            type: 'record.updated',
+            payload: { diff },
             source,
-          }));
-          if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
+            agentId,
+            agentName,
+          });
+          // MN-231: snapshot the FULL pre-write state (not just the diff) so a
+          // later restore can write it straight back without replaying a chain
+          // of diffs. Same transaction as the write it's capturing — never
+          // captured without the change it precedes actually landing.
+          await tx.insert(recordVersions).values({
+            workspaceId,
+            recordId,
+            actorId,
+            source,
+            agentId,
+            agentName,
+            title: row.title,
+            values: before,
+          });
+          /*
+           * #31 (C2) — fan the SAME diff out to one row per changed field.
+           *
+           * record_versions above answers "what did this record look like then".
+           * This answers "who changed the status, and from what" — the question
+           * the history UI is actually built around. Same transaction, so a
+           * captured change always corresponds to a write that landed.
+           *
+           * `historyDays === 0` is Free: capture NOTHING rather than
+           * capture-then-prune. The window is zero, so those rows could never be
+           * read by anyone — pure write amplification plus pruning load
+           * (docs/architecture/version-history.md, "Retention").
+           */
+          if (historyDays > 0) {
+            const rows = Object.entries(diff).map(([key, change]) => ({
+              workspaceId,
+              databaseId,
+              recordId,
+              // record-diff.ts denotes the promoted title column with the literal
+              // "title"; the table stores that as a null field_id.
+              fieldId: key === 'title' ? null : key,
+              actorUserId: actorId,
+              /*
+               * Explicitly JSON-encoded so a bare scalar can't be re-parsed as
+               * JSON source text on its way into jsonb. What is stored here is
+               * exactly what the WRITE stored — note the record READ path coerces
+               * some values (a text field holding 3 reads back as "3"), so the
+               * timeline and the record can render the same change differently.
+               * That is a presentation gap for the history UI to close (#335),
+               * not a reason to make capture lie about what was written.
+               */
+              oldValue: sql`${JSON.stringify((change as { from: unknown }).from ?? null)}::jsonb`,
+              newValue: sql`${JSON.stringify((change as { to: unknown }).to ?? null)}::jsonb`,
+              /*
+               * #390 — the column and the enum have existed since #31; nothing
+               * ever wrote a non-default value, so every row in the product said
+               * 'human' including rows written by automations and by MCP. The
+               * badge was decorative: it rendered whatever the default said.
+               */
+              source,
+              agentId,
+              agentName,
+            }));
+            if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
+          }
         }
-      }
-      // Naming a relation in an update sets it to exactly these targets.
-      if (linkPlans.length) {
-        linkedRelations = await this.writeLinks(
-          tx as unknown as Db,
-          workspaceId,
-          actorId,
-          { id: next!.id, title: next!.title },
-          linkPlans,
-          true,
-        );
-      }
-      return next!;
-    });
+        // Naming a relation in an update sets it to exactly these targets.
+        if (linkPlans.length) {
+          linkedRelations = await this.writeLinks(
+            tx as unknown as Db,
+            workspaceId,
+            actorId,
+            { id: next!.id, title: next!.title },
+            linkPlans,
+            true,
+            source,
+          );
+        }
+        return next!;
+      });
+    } catch (err) {
+      // #229 AC5 — see createBatch's identical catch for why this re-resolves
+      // instead of just rethrowing.
+      const fieldId = uniqueFieldIdFromViolation(err);
+      const def = fieldId !== undefined ? defs.find((d) => d.id === fieldId) : undefined;
+      if (!def) throw err;
+      await this.assertUniqueValuesOrThrow(
+        databaseId,
+        [def],
+        [{ values: merged, excludeRecordId: recordId }],
+      );
+      throw err;
+    }
 
     // MN-260: recompute this record's own formula sort values off the just-
     // written row. Awaited (not fire-and-forget) so a query issued right after
@@ -2340,9 +3285,11 @@ export class RecordsService {
 
     // #140: a rich_text field can carry @/# mentions — re-sync backlinks +
     // notifications when one changed. Fire-and-forget: never fails the write.
-    if (defs.some((d) => d.type === 'rich_text' && d.id in diff)) {
+    // #538 — skipped for a null actorId (a portal recipient's anonymous
+    // edit): there is no human to attribute a mention notification to.
+    if (actorId && defs.some((d) => d.type === 'rich_text' && d.id in diff)) {
       void this.mentions
-        .syncRecordMentions(workspaceId, databaseId, recordId, actorId)
+        .syncRecordMentions(workspaceId, databaseId, recordId, actorId, {}, source)
         .catch(() => undefined);
     }
 
@@ -2356,7 +3303,9 @@ export class RecordsService {
         if (!prev.has(id)) addedUsers.add(id);
       });
     }
-    if (addedUsers.size > 0) {
+    // #538 — `actorId` guard: a portal recipient's anonymous edit has no
+    // human actor these notifications could be "from".
+    if (actorId && addedUsers.size > 0) {
       await this.notificationsService.notify({
         workspaceId,
         databaseId,
@@ -2370,7 +3319,9 @@ export class RecordsService {
     // MN-073: a status/priority (any select) change pings the record's assignees —
     // the people carried on its user fields — so triage state is pushed, not polled.
     // #172: a workflow (status) change pings assignees just like any select change.
-    const changedSelects = defs.filter((d) => (d.type === 'select' || d.type === 'workflow') && d.id in diff);
+    const changedSelects = defs.filter(
+      (d) => (d.type === 'select' || d.type === 'workflow') && d.id in diff,
+    );
     if (changedSelects.length > 0) {
       const assignees = new Set<string>();
       for (const def of defs) {
@@ -2379,7 +3330,7 @@ export class RecordsService {
           if (id) assignees.add(id);
         });
       }
-      if (assignees.size > 0) {
+      if (actorId && assignees.size > 0) {
         await this.notificationsService.notify({
           workspaceId,
           databaseId,
@@ -2395,9 +3346,17 @@ export class RecordsService {
     // #236 — anyone WATCHING this record hears about ANY change (not only
     // assignees on a select change), carrying a "what changed" summary. Never
     // fails the write.
-    await this.notifyWatchers(workspaceId, databaseId, recordId, actorId, defs, before, merged, diff).catch(() =>
-      undefined,
-    );
+    await this.notifyWatchers(
+      workspaceId,
+      databaseId,
+      recordId,
+      actorId,
+      updated.title,
+      defs,
+      before,
+      merged,
+      diff,
+    ).catch(() => undefined);
     return this.project(updated, defs);
   }
 
@@ -2421,7 +3380,10 @@ export class RecordsService {
   }
 
   /** The record's watchers + whether the caller is one (for the watch toggle UI). */
-  async listWatchers(recordId: string, callerId: string): Promise<{ watching: boolean; watchers: string[] }> {
+  async listWatchers(
+    recordId: string,
+    callerId: string,
+  ): Promise<{ watching: boolean; watchers: string[] }> {
     const rows = await this.db.query.recordWatchers.findMany({
       where: eq(recordWatchers.recordId, recordId),
       columns: { userId: true },
@@ -2436,7 +3398,11 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     recordId: string,
-    actorId: string,
+    /** #538 — nullable: a portal recipient's edit has no actor to exclude
+     *  from the watcher fan-out, and `eq(user.id, null)` below simply finds
+     *  no actor row, same as any other deleted/missing user id. */
+    actorId: string | null,
+    recordTitle: string,
     defs: FieldDef[],
     before: Record<string, unknown>,
     after: Record<string, unknown>,
@@ -2459,15 +3425,35 @@ export class RecordsService {
       defs,
     );
 
-    await this.notificationsService.notify({
-      workspaceId,
-      databaseId,
-      recordId,
-      actorId,
-      type: 'record_changed',
-      recipients,
-      snippet: summary || undefined,
-    });
+    // #273 — mailed alongside the in-app notify below; a separate lookup
+    // (mirrors `comments.service.ts`'s `notifyMentions`) rather than
+    // threading the actor's name through every `update()` call site.
+    // #538 — no lookup at all for a null actorId (a portal recipient's
+    // anonymous edit); watchers still hear about the change, unattributed.
+    const actor = actorId
+      ? await this.db.query.user.findFirst({
+          where: eq(user.id, actorId),
+          columns: { name: true },
+        })
+      : undefined;
+    await this.watcherEmail
+      .notify(workspaceId, recordId, recordTitle, actor?.name ?? null, summary, recipients)
+      .catch(() => undefined);
+
+    // #538 — in-app notifications key off a real actorUserId (NotifyInput
+    // requires one); an anonymous portal edit skips this one but keeps the
+    // email fan-out above, which needs no actor.
+    if (actorId) {
+      await this.notificationsService.notify({
+        workspaceId,
+        databaseId,
+        recordId,
+        actorId,
+        type: 'record_changed',
+        recipients,
+        snippet: summary || undefined,
+      });
+    }
   }
 
   /**
@@ -2489,7 +3475,13 @@ export class RecordsService {
     if (changedDefs.length === 0) return '';
 
     const nameRows = await this.db.query.fields.findMany({
-      where: and(eq(fields.databaseId, databaseId), inArray(fields.id, changedDefs.map((d) => d.id))),
+      where: and(
+        eq(fields.databaseId, databaseId),
+        inArray(
+          fields.id,
+          changedDefs.map((d) => d.id),
+        ),
+      ),
       columns: { id: true, displayName: true },
     });
     const nameById = new Map(nameRows.map((r) => [r.id, r.displayName]));
@@ -2498,7 +3490,9 @@ export class RecordsService {
       .map((d) => d.id);
     const optionLabels = new Map<string, string>();
     if (optionFieldIds.length) {
-      const opts = await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, optionFieldIds) });
+      const opts = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, optionFieldIds),
+      });
       for (const o of opts) optionLabels.set(o.id, o.label);
     }
     const changed: ChangeSummaryField[] = changedDefs.map((d) => ({
@@ -2530,6 +3524,12 @@ export class RecordsService {
         id: v.id,
         title: v.title,
         actor_id: v.actorId,
+        // #677 — visible-at-a-glance human/agent attribution, same shape
+        // record_field_changes already exposes (source) plus the display
+        // name a UI badge needs without a second lookup (agent_name).
+        source: v.source,
+        agent_id: v.agentId,
+        agent_name: v.agentName,
         created_at: v.createdAt,
       })),
       next_cursor:
@@ -2537,6 +3537,54 @@ export class RecordsService {
           ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
           : null,
       has_more: hasMore,
+    };
+  }
+
+  /**
+   * #39 — a single version's diff PREVIEW against the record's CURRENT
+   * values, for the web UI's "confirm before restoring" dialog. Reuses the
+   * exact diff/render machinery `restoreVersion` and `listFieldChanges`
+   * already use, so a version naming a field that has since been deleted or
+   * renamed renders safely (the same '(deleted field)' fallback) rather than
+   * the client needing its own diffing logic. Read-only — computing a
+   * preview never writes a row.
+   */
+  async getVersion(databaseId: string, recordId: string, versionId: string) {
+    const version = await this.db.query.recordVersions.findFirst({
+      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
+    });
+    if (!version) throw new NotFoundException('Version not found');
+
+    const defs = await this.fieldDefs(databaseId);
+    const row = await this.getRow(databaseId, recordId);
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
+    const diff = diffSnapshots(
+      { values: version.values as Record<string, unknown>, title: version.title },
+      { values: row.values as Record<string, unknown>, title: row.title },
+      richTextFieldIds,
+    );
+
+    const ctx = await buildRenderContext(this.db, databaseId);
+    const preview = Object.entries(diff).map(([fieldId, { from, to }]) => {
+      const isTitle = fieldId === 'title';
+      const fieldType = isTitle ? 'title' : (ctx.fieldType.get(fieldId) ?? null);
+      return {
+        field_id: isTitle ? null : fieldId,
+        field_name: isTitle ? 'Name' : (ctx.fieldName.get(fieldId) ?? '(deleted field)'),
+        field_type: fieldType,
+        // #39 — named from the CURRENT record's perspective, matching the
+        // restore action's own framing ("this field will go from X to Y"),
+        // the reverse of diffSnapshots' (before=version, after=current) args.
+        current_display: renderTypedValue(to, fieldType, ctx),
+        restored_display: renderTypedValue(from, fieldType, ctx),
+      };
+    });
+
+    return {
+      id: version.id,
+      created_at: version.createdAt,
+      actor_id: version.actorId,
+      preview,
     };
   }
 
@@ -2556,7 +3604,8 @@ export class RecordsService {
     const conditions = [eq(recordFieldChanges.recordId, recordId)];
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(recordFieldChanges.createdAt, created));
+      if (!Number.isNaN(created.getTime()))
+        conditions.push(lt(recordFieldChanges.createdAt, created));
     }
     const rows = await this.db.query.recordFieldChanges.findMany({
       where: and(...conditions),
@@ -2589,14 +3638,22 @@ export class RecordsService {
         id: c.id,
         field_id: c.fieldId,
         // null field_id is the promoted title column (record-diff.ts's "title").
-        field_name: c.fieldId ? ctx.fieldName.get(c.fieldId) ?? '(deleted field)' : 'Name',
-        field_type: c.fieldId ? ctx.fieldType.get(c.fieldId) ?? null : 'title',
+        field_name: c.fieldId ? (ctx.fieldName.get(c.fieldId) ?? '(deleted field)') : 'Name',
+        field_type: c.fieldId ? (ctx.fieldType.get(c.fieldId) ?? null) : 'title',
         actor_id: c.actorUserId,
         source: c.source,
         old_value: c.oldValue,
         new_value: c.newValue,
-        old_display: renderTypedValue(c.oldValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
-        new_display: renderTypedValue(c.newValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
+        old_display: renderTypedValue(
+          c.oldValue,
+          c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
+          ctx,
+        ),
+        new_display: renderTypedValue(
+          c.newValue,
+          c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
+          ctx,
+        ),
         created_at: c.createdAt,
       })),
       next_cursor:
@@ -2630,6 +3687,11 @@ export class RecordsService {
     recordId: string,
     versionId: string,
     actorId: string,
+    source: ChangeSource = 'human',
+    // #677 — same optional trailing pair update()/create() already accept;
+    // a restore driven by an agent should be attributed like any other write.
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
@@ -2647,7 +3709,14 @@ export class RecordsService {
       const labelByOption = await this.loadSelectLabels(defs);
       target.title = this.computeTitle(titleDef, defs, target.values, row.number, labelByOption);
     }
-    const diff = diffSnapshots({ values: row.values as Record<string, unknown>, title: row.title }, target);
+    // #595 — block-level diff for rich_text fields; every other field type's
+    // diff is untouched (diffSnapshots only enriches ids in this set).
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
+    const diff = diffSnapshots(
+      { values: row.values as Record<string, unknown>, title: row.title },
+      target,
+      richTextFieldIds,
+    );
 
     if (Object.keys(diff).length === 0) return this.project(row, defs);
 
@@ -2656,6 +3725,9 @@ export class RecordsService {
         workspaceId,
         recordId,
         actorId,
+        source,
+        agentId,
+        agentName,
         title: row.title,
         values: row.values,
       });
@@ -2670,6 +3742,9 @@ export class RecordsService {
         actorId,
         type: 'record.updated',
         payload: { diff, restored_from_version_id: versionId },
+        source,
+        agentId,
+        agentName,
       });
       return next!;
     });
@@ -2709,10 +3784,45 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     recordId: string,
-    input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown> },
+    input: {
+      before_record_id?: string;
+      after_record_id?: string;
+      values?: Record<string, unknown>;
+      view_id?: string;
+    },
     actorId: string,
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     await this.getRow(databaseId, recordId);
+
+    // #499 — a board grouped by a read-only-for-grouping field (text/lookup)
+    // renders cards in columns but a drag can never change which one: the
+    // client marks those columns non-draggable, and this is the same rule
+    // enforced server-side so a hand-crafted call can't do what the UI
+    // deliberately refuses to offer. Only checked when the caller names the
+    // view the drop came from — a plain reorder or an edit from elsewhere
+    // never sends `view_id` and is unaffected.
+    if (input.view_id && input.values) {
+      const view = await this.db.query.views.findFirst({ where: eq(views.id, input.view_id) });
+      const groupFieldId = (view?.config as { group_by_field_id?: string } | null)
+        ?.group_by_field_id;
+      if (view?.type === 'board' && groupFieldId) {
+        const groupField = await this.db.query.fields.findFirst({
+          where: eq(fields.id, groupFieldId),
+        });
+        // Values are keyed by api_name (as everywhere else in the write path),
+        // not the field's id — resolve before checking.
+        if (
+          groupField &&
+          groupField.apiName in input.values &&
+          boardGroupIsReadOnly(groupField.type)
+        ) {
+          throw new UnprocessableEntityException(
+            `this board is grouped by a "${groupField.type}" field — dragging a card can reorder it but can never change its group`,
+          );
+        }
+      }
+    }
 
     let newPosition: string | undefined;
     if (input.before_record_id || input.after_record_id) {
@@ -2759,9 +3869,68 @@ export class RecordsService {
     }
 
     if (input.values && Object.keys(input.values).length > 0) {
-      return this.update(workspaceId, databaseId, recordId, input.values, actorId);
+      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source);
     }
     return this.get(databaseId, recordId);
+  }
+
+  /**
+   * #487 — repair records whose `position` collided with another record's,
+   * written before the collation fix (migration 0082) stopped new collisions
+   * from happening. `lastPosition()` anchored a new batch's keys off the row
+   * the DATABASE thought was greatest, under the wrong collation — so a
+   * multi-chunk bulk create could hand out keys a later chunk had already
+   * used, leaving two records sharing one position with no gap between them.
+   *
+   * Walks the database's records ordered by (position, number, id), and
+   * re-keys every row PAST THE FIRST in a tied group into the gap between the
+   * shared key and whatever the next DISTINCT key is (or open-ended, for the
+   * last group in the table). The first member of a tie keeps its key
+   * untouched. Tiebreak is `number` rather than `createdAt`: every record in
+   * one bulk-create shares the same insert timestamp (createdAt cannot
+   * distinguish them), but `number` is allocated atomically in array order
+   * (createBatch's `firstNumber + i`) and so is the one column that actually
+   * encodes which row of a tied group came first. A tied group never had a
+   * real order to preserve — sharing a key is precisely the absence of one —
+   * so lowest-number-first is the closest honest proxy for original intent
+   * available, not an arbitrary pick.
+   *
+   * Bounds for every group are read from the ORIGINAL (pre-repair) position
+   * values before any write happens, so groups never see each other's new
+   * keys and cannot be regenerated into overlapping ranges.
+   *
+   * Idempotent: a second run against already-distinct positions finds no
+   * groups and changes nothing. Returns the number of rows re-keyed.
+   */
+  async repairDuplicatePositions(databaseId: string): Promise<number> {
+    const rows = await this.db.query.records.findMany({
+      where: eq(records.databaseId, databaseId),
+      orderBy: [asc(records.position), asc(records.number), asc(records.id)],
+      columns: { id: true, position: true },
+    });
+    const updates: Array<{ id: string; position: string }> = [];
+    let i = 0;
+    while (i < rows.length) {
+      let j = i + 1;
+      while (j < rows.length && rows[j]!.position === rows[i]!.position) j++;
+      const groupSize = j - i;
+      if (groupSize > 1) {
+        const lowerBound = rows[i]!.position;
+        const upperBound = j < rows.length ? rows[j]!.position : null;
+        const newKeys = await keysBetween(lowerBound, upperBound, groupSize - 1);
+        for (let k = 1; k < groupSize; k++) {
+          updates.push({ id: rows[i + k]!.id, position: newKeys[k - 1]! });
+        }
+      }
+      i = j;
+    }
+    if (updates.length === 0) return 0;
+    await this.db.transaction(async (tx) => {
+      for (const u of updates) {
+        await tx.update(records).set({ position: u.position }).where(eq(records.id, u.id));
+      }
+    });
+    return updates.length;
   }
 
   /** Rewrites all positions with fresh evenly-spaced keys (key-length exhaustion). */
@@ -2779,14 +3948,56 @@ export class RecordsService {
     });
   }
 
+  /**
+   * #542 Phase 2 — checked from INSIDE softDelete/batchDelete (not only at
+   * the controller) so every caller is covered by construction, including
+   * AgentsService.applyProposedAction's direct in-process call. Returns a
+   * `PendingApprovalResult` (never throws — this codebase's global exception
+   * filter reshapes any thrown HttpException's body into a fixed
+   * `{error:{code,message,...}}` envelope, which would silently discard the
+   * approval id) when a declared gate holds this delete; the caller must
+   * check the return value and skip the actual write in that case.
+   * `source === 'human'` short-circuits inside ActionGatesService itself —
+   * a person at the keyboard is never held.
+   */
+  private async checkDeleteGate(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource,
+  ): Promise<PendingApprovalResult | null> {
+    const result = await this.actionGates.check({
+      workspaceId,
+      databaseId,
+      actionClass: DELETE_RECORDS_ACTION_CLASS,
+      source,
+      requesterActorId: actorId,
+      recordIds,
+      previewText:
+        recordIds.length === 1
+          ? `Delete record ${recordIds[0]} in database ${databaseId}`
+          : `Delete ${recordIds.length} records in database ${databaseId}`,
+    });
+    if (!result.held) return null;
+    return {
+      pending_approval: true,
+      approval_id: result.approvalId,
+      message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.',
+    };
+  }
+
   async softDelete(
     workspaceId: string,
     databaseId: string,
     recordId: string,
     actorId: string,
     depth = 0,
-  ) {
+    source: ChangeSource = 'human',
+  ): Promise<{ deleted: true } | PendingApprovalResult> {
     await this.getRow(databaseId, recordId);
+    const held = await this.checkDeleteGate(workspaceId, databaseId, [recordId], actorId, source);
+    if (held) return held;
     await this.db.transaction(async (tx) => {
       await tx.update(records).set({ deletedAt: new Date() }).where(eq(records.id, recordId));
       await tx.insert(activityEvents).values({
@@ -2795,6 +4006,7 @@ export class RecordsService {
         actorId,
         type: 'record.deleted',
         payload: {},
+        source,
       });
     });
     this.domainEvents.emit({
@@ -2808,42 +4020,174 @@ export class RecordsService {
     return { deleted: true };
   }
 
-  /** MN-050: one values patch applied to many records; per-record validation, partial failures reported. */
+  /**
+   * #653 — bound a single pass at this many records rather than one unbounded
+   * loop/transaction over the caller's whole (now up to 5000-record)
+   * selection. Chosen to match the PRIOR per-request cap (200), which #686's
+   * own reproduction already proved comfortably fast — raising the ceiling
+   * without changing the unit of work that was already known-safe.
+   */
+  private static readonly BULK_OP_CHUNK_SIZE = 200;
+
+  /**
+   * MN-050: one values patch applied to many records; per-record validation,
+   * partial failures reported.
+   *
+   * #653 — processed in chunks of BULK_OP_CHUNK_SIZE. Each record write is
+   * already its own independent `update()` call (no enclosing transaction,
+   * unchanged from before), so chunking here doesn't change per-record
+   * atomicity — what it buys is a safe RETRY story: applying the same patch
+   * to a record twice is a no-op difference, so a caller whose request was
+   * interrupted mid-selection can simply resend the same record_ids and
+   * pick up where it left off, re-touching already-applied records
+   * harmlessly rather than needing the server to remember where it stopped.
+   * A durable, pollable job with live per-chunk progress is real, separate
+   * work — split to a follow-up ticket (#680's sibling gap, tracked
+   * separately), since it needs new job-tracking tables and this codebase
+   * allows only one drizzle migration in flight across all open PRs.
+   *
+   * Undo does NOT need a new table, though: `update()` already snapshots the
+   * FULL pre-write state into `record_versions` on every real value change
+   * (MN-231), in the same transaction as the write. `restorable` reports the
+   * version id captured for each record that actually changed, so a caller
+   * can undo the whole batch via `undoBatchUpdate` without this codebase
+   * inventing a second snapshot mechanism.
+   */
   async batchUpdate(
     workspaceId: string,
     databaseId: string,
     recordIds: string[],
     input: Record<string, unknown>,
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
+    const restorable: Array<{ record_id: string; version_id: string }> = [];
     let updated = 0;
-    for (const recordId of recordIds) {
-      try {
-        await this.update(workspaceId, databaseId, recordId, input, actorId);
-        updated++;
-      } catch (error) {
-        failed.push({
-          record_id: recordId,
-          message: error instanceof Error ? (error as { message: string }).message : 'failed',
-        });
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      for (const recordId of batch) {
+        try {
+          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
+          updated++;
+          // The version row (if any) was just committed inside update()'s own
+          // transaction — a no-op patch (value already equal) creates none,
+          // which is correctly nothing to undo.
+          const [version] = await this.db
+            .select({ id: recordVersions.id })
+            .from(recordVersions)
+            .where(eq(recordVersions.recordId, recordId))
+            .orderBy(desc(recordVersions.createdAt))
+            .limit(1);
+          if (version) restorable.push({ record_id: recordId, version_id: version.id });
+        } catch (error) {
+          failed.push({
+            record_id: recordId,
+            message: error instanceof Error ? (error as { message: string }).message : 'failed',
+          });
+        }
       }
     }
-    return { updated, failed };
+    return { updated, failed, restorable };
   }
 
-  async batchDelete(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
-    const rows = await this.db.query.records.findMany({
-      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNull(records.deletedAt)),
-      columns: { id: true },
-    });
-    const ids = rows.map((r) => r.id);
-    if (ids.length > 0) {
+  /**
+   * #653 — undo a `batchUpdate` call by restoring each affected record to the
+   * pre-edit snapshot `batchUpdate` reported in its `restorable` list.
+   * Deliberately takes the caller's own `{record_id, version_id}` pairs
+   * rather than re-deriving "the version right before now": re-deriving
+   * would restore the WRONG snapshot if the record was edited again after
+   * the batch ran, and `restoreVersion` already refuses a version id that
+   * doesn't belong to the named record (a stale or forged pair 404s that one
+   * entry rather than silently restoring an unrelated point in history).
+   */
+  async undoBatchUpdate(
+    workspaceId: string,
+    databaseId: string,
+    restorable: Array<{ record_id: string; version_id: string }>,
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
+    const failed: Array<{ record_id: string; message: string }> = [];
+    let restored = 0;
+    for (const batch of chunk(restorable, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      for (const { record_id: recordId, version_id: versionId } of batch) {
+        try {
+          await this.restoreVersion(workspaceId, databaseId, recordId, versionId, actorId, source);
+          restored++;
+        } catch (error) {
+          failed.push({
+            record_id: recordId,
+            message: error instanceof Error ? (error as { message: string }).message : 'failed',
+          });
+        }
+      }
+    }
+    return { restored, failed };
+  }
+
+  /**
+   * #653 — deleted in chunks of BULK_OP_CHUNK_SIZE, each its own transaction,
+   * rather than one transaction spanning the caller's whole (now up to
+   * 5000-record) selection. Soft-delete is idempotent per record (the
+   * `isNull(deletedAt)` filter below excludes anything already gone), so a
+   * caller whose request was interrupted mid-selection can safely resend the
+   * same record_ids — already-deleted rows are silently skipped rather than
+   * erroring or double-processing.
+   */
+  async batchDelete(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource = 'human',
+    /**
+     * #542 Phase 2 — internal only, set exclusively by
+     * ApprovalsService's own apply-on-approve job executor: an already-
+     * approved gate calling back into this same method must not re-trigger
+     * the check it just cleared (the policy is still enabled, so a second
+     * check would stage a second approval forever rather than ever
+     * deleting anything). No REST/MCP/agent caller passes this — they all
+     * go through the public 5-arg signature, so this can only be reached
+     * from code inside this codebase that explicitly opts in.
+     */
+    skipGate = false,
+  ): Promise<{ deleted: number; record_ids: string[] } | PendingApprovalResult> {
+    // Gated on the WHOLE requested selection, once, before any chunk runs —
+    // per #542's own adversarial framing this is exactly the vector that
+    // makes a single-record gate decorative if a bulk endpoint skips it.
+    // batchDelete's chunking (see its own doc above) is a transaction-size/
+    // idempotency concern only; the record set doesn't need a second,
+    // per-chunk check for correctness.
+    if (!skipGate) {
+      const held = await this.checkDeleteGate(workspaceId, databaseId, recordIds, actorId, source);
+      if (held) return held;
+    }
+    const allIds: string[] = [];
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      const rows = await this.db.query.records.findMany({
+        where: and(
+          eq(records.databaseId, databaseId),
+          inArray(records.id, batch),
+          isNull(records.deletedAt),
+        ),
+        columns: { id: true },
+      });
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) continue;
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: new Date() }).where(inArray(records.id, ids));
-        await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {} })),
-        );
+        await tx
+          .insert(activityEvents)
+          .values(
+            ids.map((id) => ({
+              workspaceId,
+              recordId: id,
+              actorId,
+              type: 'record.deleted',
+              payload: {},
+              source,
+            })),
+          );
       });
       ids.forEach((recordId) =>
         this.domainEvents.emit({
@@ -2855,28 +4199,64 @@ export class RecordsService {
           depth: 0,
         }),
       );
+      allIds.push(...ids);
     }
-    return { deleted: ids.length, record_ids: ids };
+    return { deleted: allIds.length, record_ids: allIds };
   }
 
-  async batchRestore(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
-    const rows = await this.db.query.records.findMany({
-      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNotNull(records.deletedAt)),
-      columns: { id: true },
-    });
-    const ids = rows.map((r) => r.id);
-    if (ids.length > 0) {
+  /**
+   * #653 — chunked to match batchDelete's own treatment: each chunk is its
+   * own transaction rather than one transaction spanning the whole (now up
+   * to 5000-record) selection. Restore is idempotent per record (the
+   * `isNotNull(deletedAt)` filter excludes anything already restored), so a
+   * retry with the same record_ids is safe, same as batchDelete.
+   */
+  async batchRestore(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
+    const allIds: string[] = [];
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      const rows = await this.db.query.records.findMany({
+        where: and(
+          eq(records.databaseId, databaseId),
+          inArray(records.id, batch),
+          isNotNull(records.deletedAt),
+        ),
+        columns: { id: true },
+      });
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) continue;
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: null }).where(inArray(records.id, ids));
-        await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.restored', payload: {} })),
-        );
+        await tx
+          .insert(activityEvents)
+          .values(
+            ids.map((id) => ({
+              workspaceId,
+              recordId: id,
+              actorId,
+              type: 'record.restored',
+              payload: {},
+              source,
+            })),
+          );
       });
+      allIds.push(...ids);
     }
-    return { restored: ids.length };
+    return { restored: allIds.length };
   }
 
-  async restore(workspaceId: string, databaseId: string, recordId: string, actorId: string) {
+  async restore(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
     const row = await this.db.query.records.findFirst({
       where: and(
         eq(records.id, recordId),
@@ -2893,6 +4273,7 @@ export class RecordsService {
         actorId,
         type: 'record.restored',
         payload: {},
+        source,
       });
     });
     const defs = await this.fieldDefs(databaseId);
@@ -2919,7 +4300,12 @@ export class RecordsService {
      * only existed in a response nobody had a reason to keep. The restore
      * endpoints take uuids; this is what lets a caller find the uuid.
      */
-    return rows.map((r) => ({ id: r.id, number: r.number, title: r.title, deleted_at: r.deletedAt }));
+    return rows.map((r) => ({
+      id: r.id,
+      number: r.number,
+      title: r.title,
+      deleted_at: r.deletedAt,
+    }));
   }
 
   /**
@@ -2957,8 +4343,14 @@ export class RecordsService {
    */
   async aggregate(
     databaseId: string,
-    input: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: string; filter?: unknown; q?: string },
+    input: {
+      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      filter?: unknown;
+      q?: string;
+    },
     currentUserId: string,
+    membership?: Membership,
   ): Promise<{
     op: string;
     field: string | null;
@@ -2988,55 +4380,372 @@ export class RecordsService {
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+      conditions.push(
+        compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }),
+      );
     }
+    // #474 — the same narrowing list/query apply. Without this, a count/sum
+    // over a database a guest only holds record-scoped grants in would
+    // aggregate every record, not just theirs — a count leak on top of a
+    // row-visibility leak, and #474's own routing explicitly named the
+    // aggregate paths as required, not optional.
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
     const where = and(...(conditions as SQL[]));
 
     if (input.op === 'count') {
-      const [row] = await this.db.select({ value: sql<number>`count(*)::int` }).from(records).where(where);
-      return { op: 'count', field: null, value: row?.value ?? 0, filtered: Boolean(input.filter || input.q), exact: true };
+      const [row] = await this.db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(records)
+        .where(where);
+      return {
+        op: 'count',
+        field: null,
+        value: row?.value ?? 0,
+        filtered: Boolean(input.filter || input.q),
+        exact: true,
+      };
     }
 
-    if (!input.field) {
-      throw new UnprocessableEntityException(`"${input.op}" needs a field to aggregate; only "count" works without one`);
-    }
-    const def = byApiName.get(input.field);
-    if (!def) throw new UnprocessableEntityException(`unknown field "${input.field}"`);
-
-    /*
-     * Read the value the same way the rest of the read path does: stored values
-     * are keyed by field UUID (ADR-0002), and formulas/rollups live in
-     * `computed_values`. Casting through `numeric` rather than `int` so a
-     * currency or a decimal is not silently truncated.
-     */
-    const source =
-      def.type === 'formula' || def.type === 'rollup'
-        ? sql`${records.computedValues}->>${def.id}`
-        : sql`${records.values}->>${def.id}`;
-    // A non-numeric value is SKIPPED, not zero. Zero would drag an average down
-    // and report a total that is quietly wrong.
-    const numeric = sql`NULLIF(${source}, '')::numeric`;
-    const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
-    const expr =
-      input.op === 'sum' ? sql`sum(${numeric})`
-      : input.op === 'avg' ? sql`avg(${numeric})`
-      : input.op === 'min' ? sql`min(${numeric})`
-      : sql`max(${numeric})`;
+    // #750 — shared with groupedAggregate() via buildAggExpr(): same field
+    // lookup, same computed_values-vs-values source, same numeric guard.
+    // Read the value the same way the rest of the read path does: stored
+    // values are keyed by field UUID (ADR-0002), and formulas/rollups live
+    // in computed_values. A non-numeric value is SKIPPED, not zero — zero
+    // would drag an average down and report a total that is quietly wrong.
+    const expr = await this.buildAggExpr(input.op, input.field, byApiName);
 
     const [row] = await this.db
       .select({ value: sql<string | null>`${expr}` })
       .from(records)
-      .where(and(where, guard));
+      .where(and(where, expr.guard));
     return {
       op: input.op,
-      field: input.field,
+      field: input.field ?? null,
       value: row?.value == null ? null : Number(row.value),
       filtered: Boolean(input.filter || input.q),
       exact: true,
     };
   }
 
-  async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
+  /**
+   * #750 — ONE value per group, in one query, rather than the caller running
+   * `aggregate` once per column (which is what a board without this had to
+   * do client-side against a single paginated page — undercounting every
+   * column that didn't fit on it, per the ticket's own measurement).
+   *
+   * The per-op aggregate EXPRESSION (count/sum/avg/min/max — field lookup,
+   * computed_values-vs-values source, the non-numeric guard) is shared with
+   * `aggregate()` via `buildAggExpr()`, extracted from this ticket's own
+   * work rather than left duplicated a second time. The filter/visibility
+   * CONDITIONS are still built here, not shared — this method additionally
+   * validates and compiles a group-by field, which `aggregate()` has no
+   * concept of, so folding the two into one shared builder would hide that
+   * difference behind a parameter neither call site's reader would expect.
+   *
+   * Grouping is supported for the field types a board can group by
+   * (`boardGroupError` in views.service.ts) — select, workflow, single user,
+   * date (with a required `group_by_granularity`), a binned number, the
+   * single ("a") side of a one-to-many relation, text, and lookup — because
+   * those are the types where "one column per value" has a single meaning.
+   * A multi-person field and a many-sided relation are still refused with the
+   * same reasoning `boardGroupError` states.
+   *
+   * #795 adds two the DASHBOARD widgets already offered and could therefore
+   * only compute by paging the whole database into the browser:
+   *  - `checkbox`: keys `'true'` / `'false'`; a record that never had the box
+   *    set has no stored value and lands in the `null` group, exactly as the
+   *    client's `groupKeysForRecord` has always bucketed it.
+   *  - `multi_select`: ONE GROUP PER OPTION, and a record counts in EVERY one of
+   *    its options' groups — so per-group counts can add up to MORE than the
+   *    number of records. A record with no options goes in the `null` group.
+   *    That is deliberate and is not what a board column means, which is why a
+   *    board still refuses it.
+   *
+   * Group keys are the RAW stored value (an option id, a user id, a linked
+   * record id, a bin index as a string, or a bucket's start date as
+   * `YYYY-MM-DD` for a date field) — never a resolved display label, mirroring
+   * every other place this API returns an id for the caller to resolve
+   * against field metadata it already has. The one exception is a number
+   * field's bins, which come with a human `label` in the field's own config
+   * at no extra query cost, so that's returned alongside the key.
+   */
+  async groupedAggregate(
+    databaseId: string,
+    input: {
+      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      group_by: string;
+      group_by_granularity?: 'week' | 'month' | 'quarter' | 'year';
+      filter?: unknown;
+      q?: string;
+    },
+    currentUserId: string,
+    membership?: Membership,
+  ): Promise<{
+    op: string;
+    field: string | null;
+    group_by: string;
+    groups: Array<{ key: string | null; label?: string; value: number | null }>;
+    filtered: boolean;
+    exact: true;
+  }> {
+    const defs = await this.fieldDefs(databaseId);
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+
+    const groupDef = byApiName.get(input.group_by);
+    if (!groupDef) throw new UnprocessableEntityException(`unknown field "${input.group_by}"`);
+
+    const numberBins = (groupDef.config?.['bins'] as Array<{ label: string; min: number | null; max: number | null }> | undefined) ?? [];
+    if (
+      groupDef.type === 'select' ||
+      groupDef.type === 'workflow' ||
+      groupDef.type === 'text' ||
+      groupDef.type === 'lookup' ||
+      groupDef.type === 'checkbox' ||
+      groupDef.type === 'multi_select'
+    ) {
+      // groupable — one column per raw value (a multi_select: per option, see below).
+    } else if (groupDef.type === 'date') {
+      if (!input.group_by_granularity) {
+        throw new UnprocessableEntityException(`grouping by a date field ("${input.group_by}") needs group_by_granularity`);
+      }
+    } else if (groupDef.type === 'user') {
+      if (groupDef.config?.['multi'] === true) {
+        throw new UnprocessableEntityException(
+          `cannot group by "${input.group_by}" — a multi-person field would put one record in several groups`,
+        );
+      }
+    } else if (groupDef.type === 'relation') {
+      if (groupDef.config?.['multi'] !== false) {
+        throw new UnprocessableEntityException(
+          `cannot group by "${input.group_by}" — only the single side of a one-to-many relation can group (a many-to-many or the many side would put a record in several groups)`,
+        );
+      }
+    } else if (groupDef.type === 'number') {
+      if (numberBins.length === 0) {
+        throw new UnprocessableEntityException(`configure bins on "${input.group_by}" before grouping by it`);
+      }
+    } else {
+      throw new UnprocessableEntityException(
+        `cannot group by a "${groupDef.type}" field — use a select, a multi-select, a checkbox, a single user, a date, a binned number, or a one-to-many relation`,
+      );
+    }
+
+    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.filter) {
+      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+    }
+    // #474 — same narrowing the single-value aggregate() applies; a grouped
+    // count is still a count, and must not leak rows (or whole GROUPS) a
+    // guest with record-scoped access wouldn't otherwise see.
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
+    const where = and(...(conditions as SQL[]));
+
+    // The group key expression, used for both the SELECT list and (via its
+    // "key" alias, see below) the GROUP BY clause.
+    let keyExpr: SQL;
+    if (groupDef.type === 'relation') {
+      const relationId = groupDef.config['relation_id'] as string;
+      const side = (groupDef.config['side'] as 'a' | 'b' | undefined) ?? 'a';
+      const myCol = side === 'a' ? 'from_record_id' : 'to_record_id';
+      const otherCol = side === 'a' ? 'to_record_id' : 'from_record_id';
+      // Scalar subquery, not a JOIN — a JOIN here would fan out one row per
+      // link before the GROUP BY ever runs, over-counting every group. Same
+      // "plain SQL aliasing, not drizzle's alias()" reasoning #657 already
+      // documents on the sibling sort expression in query-compiler.ts.
+      // `${records.id}` (rather than `sql.raw('"records"."id"')`) rendered
+      // as a BARE `"id"` here — correct in the outer query's own SELECT
+      // list, where "records" is the sole FROM table and needs no
+      // qualifier, but WRONG inside this correlated subquery, where
+      // unqualified `"id"` resolves to `record_links`'s own `id` column
+      // instead of the outer row. That silently turned the correlation into
+      // `rl.from_record_id = rl.id` — never true, so every group read NULL.
+      // Explicit qualification, not a column reference, sidesteps drizzle's
+      // context-dependent rendering entirely.
+      keyExpr = sql`(SELECT rl.${sql.raw(otherCol)} FROM ${recordLinks} rl WHERE rl.relation_id = ${relationId} AND rl.${sql.raw(myCol)} = "records"."id" LIMIT 1)`;
+    } else if (groupDef.type === 'date') {
+      // Truncated to the first 10 chars before casting: a date field stores
+      // either `YYYY-MM-DD` or a full ISO timestamp (`include_time`), and
+      // bucketing only ever needs the date part. Casting the DATE-only
+      // substring to `::date` (never `::timestamptz`) sidesteps timezone
+      // entirely — a bare date has none, matching the client's own UTC-only
+      // bucketing (date-buckets.ts) without needing to force a session
+      // timezone here. The key returned is the bucket's START date, not the
+      // client's compact key format ("2026-Q3") — unambiguous and directly
+      // usable without a second parse.
+      const raw = sql`(${records.values}->>${groupDef.id})`;
+      const asDate = sql`NULLIF(substring(${raw} from 1 for 10), '')::date`;
+      keyExpr = sql`(date_trunc(${input.group_by_granularity}, ${asDate}))::date`;
+    } else if (groupDef.type === 'number') {
+      const source = sql`(${records.values}->>${groupDef.id})`;
+      const numeric = sql`NULLIF(${source}, '')::numeric`;
+      const cases = numberBins.map((bin, i) => {
+        const lower = bin.min === null ? sql`TRUE` : sql`${numeric} >= ${bin.min}`;
+        const upper = bin.max === null ? sql`TRUE` : sql`${numeric} < ${bin.max}`;
+        return sql`WHEN ${numeric} IS NOT NULL AND ${lower} AND ${upper} THEN ${String(i)}`;
+      });
+      keyExpr = sql`(CASE ${sql.join(cases, sql` `)} ELSE NULL END)`;
+      // The label is resolved AFTER the query returns, from `numberBins` in
+      // JS, keyed by the same bin index — not a second SQL CASE. A SQL
+      // label expression would need to either repeat this whole range-CASE
+      // a second time (each repetition binds its embedded values to FRESH
+      // `$n` parameters, so Postgres no longer sees it as the same
+      // expression as the GROUP BY key — see the .as('key') comment below)
+      // or reference the "key" output column from a sibling SELECT-list
+      // expression, which plain SQL does not allow. `numberBins` is already
+      // loaded from the field's own config with no extra query, so a JS
+      // lookup is both simpler and correct.
+    } else if (groupDef.type === 'lookup') {
+      keyExpr = sql`(${records.computedValues}->>${groupDef.id})`;
+    } else {
+      // select, workflow, user (single), text — plain stored scalar.
+      keyExpr = sql`(${records.values}->>${groupDef.id})`;
+    }
+
+    const aggExpr = await this.buildAggExpr(input.op, input.field, byApiName);
+
+    // `.as(alias)` is what actually gives the SELECT list a real output
+    // column name — passing a bare `sql` fragment as an object value gives
+    // drizzle nothing to alias it with, so the column comes back unnamed and
+    // `GROUP BY "key"` below has no column to find.
+    let rows: Array<{ key: string | null; value: string | number | null }>;
+    if (groupDef.type === 'multi_select') {
+      // One row per (record, option): the option array is expanded in a LATERAL
+      // subquery, so a record with three options is aggregated three times — once
+      // into each option's group. DISTINCT keeps a (corrupt) duplicate option in
+      // one record from counting that record twice. An empty, absent or non-array
+      // value expands to a single NULL, i.e. the "no value" group, matching the
+      // client's groupKeysForRecord.
+      //
+      // Explicit "records"."values" rather than `${records.values}`: drizzle drops
+      // the table qualifier for a column inside its own SELECT list and renders it
+      // inside a correlated subquery as something else (see the relation branch
+      // above, which was bitten by exactly this), so the qualification is spelled out.
+      const optionsJson = sql`("records"."values" -> ${groupDef.id})`;
+      const grouped = await this.db.execute(sql`
+        SELECT k.key AS key, ${aggExpr} AS value
+        FROM "records"
+        CROSS JOIN LATERAL (
+          SELECT DISTINCT e AS key FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(${optionsJson}) = 'array' AND jsonb_array_length(${optionsJson}) > 0
+                 THEN ${optionsJson} ELSE '[null]'::jsonb END
+          ) AS e
+        ) AS k
+        WHERE ${input.op === 'count' ? where : and(where, aggExpr.guard)}
+        GROUP BY k.key`);
+      rows = grouped.rows as Array<{ key: string | null; value: string | number | null }>;
+    } else {
+      rows = (await this.db
+        .select({ key: keyExpr.as('key'), value: aggExpr.as('value') })
+        .from(records)
+        .where(input.op === 'count' ? where : and(where, aggExpr.guard))
+        // GROUP BY the output ALIAS ("key"), not keyExpr itself: passing the
+        // same SQL object to both .select() and .groupBy() serializes it
+        // TWICE, each time binding its embedded values (the field id) to a
+        // fresh, separate `$n` parameter — so Postgres sees two syntactically
+        // different expressions and refuses with "must appear in the GROUP BY
+        // clause", even though they're identical at execution time. Grouping
+        // by the SELECT list's own alias is one expression, unambiguous, and
+        // exactly what a hand-written query would do here.
+        .groupBy(sql`"key"`)) as Array<{ key: string | null; value: string | number | null }>;
+    }
+
+    return {
+      op: input.op,
+      field: input.op === 'count' ? null : (input.field ?? null),
+      group_by: input.group_by,
+      groups: rows.map((r) => {
+        // Number bins: the key IS the bin index ("0", "1", ...) — resolved
+        // to its human label here, from the field's own config, rather than
+        // a second SQL expression (see the comment where keyExpr is built).
+        const label = groupDef.type === 'number' && r.key != null ? numberBins[Number(r.key)]?.label : undefined;
+        return {
+          key: r.key,
+          ...(label != null ? { label } : {}),
+          value: r.value == null ? null : Number(r.value),
+        };
+      }),
+      filtered: Boolean(input.filter || input.q),
+      exact: true,
+    };
+  }
+
+  /**
+   * The aggregate SELECT expression for `aggregate()`/`groupedAggregate()`
+   * — count(*) needs no field and no numeric guard; sum/avg/min/max need
+   * both, extracted here so the two callers can't drift on how a field's
+   * raw stored value becomes a number (formula/rollup live in
+   * computed_values, everything else in values; a non-numeric value is
+   * SKIPPED via `guard`, never coerced to zero, which would drag an average
+   * down and report a total that is quietly wrong).
+   */
+  private async buildAggExpr(
+    op: 'count' | 'sum' | 'avg' | 'min' | 'max',
+    field: string | undefined,
+    byApiName: Map<string, FieldDef>,
+  ): Promise<SQL & { guard: SQL }> {
+    if (op === 'count') {
+      const expr = sql`count(*)::int` as SQL & { guard: SQL };
+      expr.guard = sql`TRUE`;
+      return expr;
+    }
+    if (!field) {
+      throw new UnprocessableEntityException(`"${op}" needs a field to aggregate; only "count" works without one`);
+    }
+    const def = byApiName.get(field);
+    if (!def) throw new UnprocessableEntityException(`unknown field "${field}"`);
+    const source =
+      def.type === 'formula' || def.type === 'rollup' ? sql`${records.computedValues}->>${def.id}` : sql`${records.values}->>${def.id}`;
+    const numeric = sql`NULLIF(${source}, '')::numeric`;
+    const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
+    const expr = (
+      op === 'sum' ? sql`sum(${numeric})` : op === 'avg' ? sql`avg(${numeric})` : op === 'min' ? sql`min(${numeric})` : sql`max(${numeric})`
+    ) as SQL & { guard: SQL };
+    expr.guard = guard;
+    return expr;
+  }
+
+  /**
+   * #474 — the record-level narrowing `list`/`query` need alongside
+   * `attachLinks`' existing chip-withholding. `DatabasesService.assertAccess`
+   * already let a record-scoped-only guest THROUGH the gate (see its own
+   * #474 comment); this is what stops the actual ROWS from including
+   * anything beyond what they were granted, once they're past it.
+   *
+   * Returns `null` for the common case (admin/member, or a guest with a
+   * space/database grant here) — no extra query, no extra condition, and
+   * `list`/`query` behave exactly as before this existed (AC #5/#6). Only
+   * pays the extra `visibleRecordIds` lookup for a guest with no broader
+   * grant on this database.
+   */
+  private async recordVisibilityCondition(
+    membership: Membership | undefined,
+    databaseId: string,
+  ): Promise<SQL | null> {
+    if (!membership || membership.role !== 'guest') return null;
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) return null;
+    const scoped = await this.access.visibleRecordIds(membership, database);
+    if (!scoped) return null; // broader grant here — unrestricted, as today
+    // Empty ids: a grant reaches this database (assertAccess already
+    // required one), but resolved to nothing live (e.g. every granted
+    // record was since soft-deleted) — match nothing rather than everything.
+    return inArray(records.id, [...scoped.ids]);
+  }
+
+  async query(
+    databaseId: string,
+    input: QueryRecordsInput,
+    currentUserId: string,
+    membership?: Membership,
+  ) {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     // #351: overlay the canonical system-field registry so built-in columns
@@ -3045,45 +4754,15 @@ export class RecordsService {
     // database with its own `number` field) always wins and is never shadowed.
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const nullsFirst = input.nulls === 'first';
-
-    const SORTABLE = new Set([
-      'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow',
-      // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
-      // invalidated via RollupInvalidationSubscriber on the related record's
-      // change or the relation's own link-set change) — reuses computed_values/
-      // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
-      // #351: updated_by joins created_at/updated_at/created_by as a sortable
-      // system column (records.updated_by), via the registry-driven overlay above.
-      'checkbox', 'created_at', 'updated_at', 'created_by', 'updated_by', 'user', 'formula', 'rollup',
-    ]);
-    const sorts: SortSpec[] = input.sorts.map((s) => {
-      const def = byApiName.get(s.field);
-      if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
-      if (!SORTABLE.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
-        throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
-      }
-      // MN-260/MN-267: a formula is only sortable if its materialized value can
-      // be trusted — i.e. it never (transitively) reaches a `lookup` field.
-      // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
-      // doc comment) — it has real invalidation plumbing now, same as a formula
-      // referencing another formula.
-      // #300: first/last rollups are materialized and invalidated now, so the
-      // #286 refusal here is gone. The refusal was correct while the premise
-      // held — sorting by a value that was never stored orders the page by null
-      // and reads as a sort that was ignored.
-      if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
-        throw new UnprocessableEntityException(
-          `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
-        );
-      }
-      return { def, direction: s.direction };
-    });
+    const sorts: SortSpec[] = validateSorts(input.sorts, byApiName);
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
       conditions.push(compileFilter(input.filter, { defs: byApiName, currentUserId }));
     }
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
 
     if (input.cursor) {
       const decoded = decodeQueryCursor(input.cursor, sorts.length);
@@ -3138,17 +4817,27 @@ export class RecordsService {
     }
 
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
+      data: await this.attachLinks(
+        page.map((r) => this.project(r, defs)),
+        defs,
+        membership,
+      ),
       next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
 
   /** Simple list: manual (position) order, optional q title search, keyset cursor. */
-  async list(databaseId: string, opts: { limit: number; cursor?: string; q?: string }) {
+  async list(
+    databaseId: string,
+    opts: { limit: number; cursor?: string; q?: string },
+    membership?: Membership,
+  ) {
     const defs = await this.fieldDefs(databaseId);
     const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (opts.q) conditions.push(sql`${records.title} ILIKE ${'%' + opts.q + '%'}`);
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
 
     if (opts.cursor) {
       const decoded = decodeCursor(opts.cursor);
@@ -3169,7 +4858,11 @@ export class RecordsService {
     const hasMore = rows.length > opts.limit;
     const lastRow = page[page.length - 1];
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
+      data: await this.attachLinks(
+        page.map((r) => this.project(r, defs)),
+        defs,
+        membership,
+      ),
       next_cursor: hasMore && lastRow ? encodeCursor(lastRow.position, lastRow.id) : null,
       has_more: hasMore,
     };
@@ -3178,6 +4871,33 @@ export class RecordsService {
 
 function stripNulls(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null));
+}
+
+/**
+ * #229 AC5 — true iff `err` is a Postgres unique-violation (SQLSTATE 23505)
+ * raised by one of FieldsService's dynamic `field_unique_<id>` indexes; this is
+ * the race assertUniqueValuesOrThrow's pre-check can't close (two concurrent
+ * writes both pass the pre-check, then race to insert). Mirrors
+ * DatabasesService's isSlugUniqueViolation: match on `code` AND a `constraint`
+ * of the expected shape so an unrelated 23505 is never swallowed, walking
+ * `.cause` since drizzle wraps the original pg DatabaseError.
+ */
+function uniqueFieldIdFromViolation(err: unknown): string | undefined {
+  for (let cur: unknown = err; cur != null; cur = (cur as { cause?: unknown }).cause) {
+    if (typeof cur !== 'object') break;
+    const e = cur as { code?: unknown; constraint?: unknown };
+    if (
+      e.code === '23505' &&
+      typeof e.constraint === 'string' &&
+      e.constraint.startsWith('field_unique_')
+    ) {
+      const hex = e.constraint.slice('field_unique_'.length);
+      if (/^[0-9a-f]{32}$/.test(hex)) {
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -3191,7 +4911,14 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
   for (let pass = 0; pass < 6 && remaining.size > 0; pass++) {
     for (const def of [...remaining]) {
       const refs = new Set<string>();
-      const walk = (n: { kind: string; api_name?: string; operand?: unknown; left?: unknown; right?: unknown; args?: unknown[] }) => {
+      const walk = (n: {
+        kind: string;
+        api_name?: string;
+        operand?: unknown;
+        left?: unknown;
+        right?: unknown;
+        args?: unknown[];
+      }) => {
         if (n.kind === 'ref' && n.api_name) refs.add(n.api_name);
         if (n.operand) walk(n.operand as never);
         if (n.left) walk(n.left as never);
@@ -3229,6 +4956,58 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
  * formulas, and now through rollups too) and excludes it from
  * materialization/SORTABLE only if it ever reaches a lookup.
  */
+/**
+ * #392 — every field type query()'s sort accepts. Extracted to module scope
+ * (was a local inside query()) so validateSorts() below is the ONE place a
+ * sort spec is validated — a scheduled automation's top-N selection (#392)
+ * reuses this exact function rather than a second, drifting copy of the same
+ * rules (#375/#380/#383/#399/#408/#422's pattern).
+ *
+ * #657 — the SET itself now comes from @storyos/schemas (SORTABLE_FIELD_TYPES),
+ * the one list apps/web's own `SORTABLE` (view-toolbar.tsx) should import too
+ * instead of hand-copying — that hand-copy is exactly how `user` (and, before
+ * this ticket, `relation`) drifted out of sync between the two.
+ */
+const SORTABLE_FIELD_TYPES = new Set<string>(SHARED_SORTABLE_FIELD_TYPES);
+
+/**
+ * Validate a caller's sort spec against a database's real fields, exactly as
+ * query() has always done, and resolve each to its FieldDef (#392). Throws
+ * UnprocessableEntityException naming the offending field — never a silent
+ * reorder or a silent drop, whether the caller is a saved view's query() or a
+ * scheduled automation's top-N selection.
+ */
+export function validateSorts(
+  sorts: Array<{ field: string; direction: 'asc' | 'desc' }>,
+  byApiName: Map<string, FieldDef>,
+): SortSpec[] {
+  return sorts.map((s) => {
+    const def = byApiName.get(s.field);
+    if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
+    if (
+      !SORTABLE_FIELD_TYPES.has(def.type) ||
+      ((def.type === 'user' || def.type === 'relation') && def.config['multi'] === true)
+    ) {
+      throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
+    }
+    // MN-260/MN-267: a formula is only sortable if its materialized value can
+    // be trusted — i.e. it never (transitively) reaches a `lookup` field.
+    // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
+    // doc comment) — it has real invalidation plumbing now, same as a formula
+    // referencing another formula.
+    // #300: first/last rollups are materialized and invalidated now, so the
+    // #286 refusal here is gone. The refusal was correct while the premise
+    // held — sorting by a value that was never stored orders the page by null
+    // and reads as a sort that was ignored.
+    if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
+      throw new UnprocessableEntityException(
+        `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
+      );
+    }
+    return { def, direction: s.direction };
+  });
+}
+
 function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
   const visited = new Set<string>();
   const walk = (ast: FormulaNode): boolean => {
@@ -3293,7 +5072,10 @@ function encodeQueryCursor(cursor: QueryCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-function decodeQueryCursor(cursor: string, expectedSortCount: number): Required<Pick<QueryCursor, 'id'>> & QueryCursor {
+function decodeQueryCursor(
+  cursor: string,
+  expectedSortCount: number,
+): Required<Pick<QueryCursor, 'id'>> & QueryCursor {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as QueryCursor;
     if (typeof parsed.id !== 'string') throw new Error();

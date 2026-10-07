@@ -14,6 +14,17 @@ export type EmailInput =
       excerpt: string;
       url: string;
     }
+  | {
+      /** #273 — a watcher's `record_changed` notification, mailed. */
+      kind: 'record-changed';
+      to: string;
+      actorName: string;
+      recordTitle: string;
+      /** `RecordsService.renderChangeSummary`'s output — "Field: a → b · …",
+       *  possibly empty (a change with nothing summarizable still watches). */
+      summary: string;
+      url: string;
+    }
   | { kind: 'verify-email'; to: string; url: string }
   | { kind: 'reset-password'; to: string; url: string }
   | {
@@ -30,6 +41,48 @@ export type EmailInput =
       kind: 'auto-reload-failed';
       to: string;
       workspaceName: string;
+      billingUrl: string;
+    }
+  | {
+      /** #650 AC3 — sent to the inviter when their invite is accepted. */
+      kind: 'invite-accepted';
+      to: string;
+      workspaceName: string;
+      memberEmail: string;
+      role: string;
+      membersUrl: string;
+    }
+  | {
+      /** #650 AC1 — a workspace hasn't reached one of three real activation
+       * milestones (see OnboardingNudgeService); one kind, one `milestone`
+       * discriminant, since the three only differ in copy/CTA, not shape. */
+      kind: 'onboarding-nudge';
+      to: string;
+      milestone: 'guest_invited' | 'second_database' | 'form_published';
+      ctaUrl: string;
+    }
+  | {
+      /** #650 AC3 — a metered usage counter crossed a warn-before-the-cap
+       * threshold (see EntitlementsService.recordNonAiRun). Sent once per
+       * metric per billing period, at the exact call whose atomic increment
+       * lands on the threshold count. */
+      kind: 'usage-threshold';
+      to: string;
+      workspaceName: string;
+      metricLabel: string;
+      percentUsed: number;
+      billingUrl: string;
+    }
+  | {
+      /** #650 AC2 — a workspace's usage pattern looks like a Business/
+       * Enterprise-track account (see SalesSignalService). Soft and
+       * informational, never a hard paywall; sent once per workspace
+       * lifetime, to its admin(s). `reason` picks the copy — the three
+       * triggers differ in what happened, not in tone or CTA. */
+      kind: 'sales-signal';
+      to: string;
+      workspaceName: string;
+      reason: 'free_seats_blocked' | 'pro_five_seats' | 'fifth_database';
       billingUrl: string;
     };
 

@@ -91,3 +91,44 @@ describe('user preferences — activation checklist dismissal (#155)', () => {
     expect(get.json().regional.dateFormat).toBe('DMY');
   });
 });
+
+describe('user preferences — sidebar views-only mode (#775)', () => {
+  it('defaults to no workspaces in views-only mode', async () => {
+    const res = await req('GET', '/users/me/preferences');
+    expect(res.statusCode).toBe(200);
+    expect(res.json().sidebar).toEqual({ viewsOnlyWorkspaces: [] });
+  });
+
+  it('persists a per-workspace choice server-side', async () => {
+    const patch = await req('PATCH', '/users/me/preferences', { sidebar: { viewsOnlyWorkspaces: ['ws-1'] } });
+    expect(patch.statusCode, patch.body).toBe(200);
+    const get = await req('GET', '/users/me/preferences');
+    expect(get.json().sidebar.viewsOnlyWorkspaces).toEqual(['ws-1']);
+  });
+
+  it('replaces the list — turning it off for one workspace keeps the others', async () => {
+    await req('PATCH', '/users/me/preferences', { sidebar: { viewsOnlyWorkspaces: ['ws-1', 'ws-2'] } });
+    await req('PATCH', '/users/me/preferences', { sidebar: { viewsOnlyWorkspaces: ['ws-2'] } });
+    const get = await req('GET', '/users/me/preferences');
+    expect(get.json().sidebar.viewsOnlyWorkspaces).toEqual(['ws-2']);
+  });
+
+  it('an unrelated patch does NOT switch it back off (the reconstruct gotcha)', async () => {
+    await req('PATCH', '/users/me/preferences', { regional: { dateFormat: 'YMD' } });
+    const get = await req('GET', '/users/me/preferences');
+    expect(get.json().sidebar.viewsOnlyWorkspaces).toEqual(['ws-2']);
+  });
+
+  it('rejects a malformed list rather than storing it', async () => {
+    const res = await req('PATCH', '/users/me/preferences', { sidebar: { viewsOnlyWorkspaces: 'ws-1' } });
+    expect(res.statusCode).toBe(422);
+  });
+
+  // AC5: the toggle is its owner's alone. A second member must read the default,
+  // never the first member's choice (#736's defect, were it workspace-shared).
+  it('is invisible to every other user', async () => {
+    const other = (await signUpUser(app, 'Prefs Other')).token;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: authed(other) });
+    expect(res.json().sidebar.viewsOnlyWorkspaces).toEqual([]);
+  });
+});

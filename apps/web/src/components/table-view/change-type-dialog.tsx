@@ -96,7 +96,7 @@ export function ChangeTypeDialog({
           </select>
         </div>
         {dryRun ? (
-          <p className="text-[13px] text-ink-secondary">
+          <p className="text-body text-ink-secondary">
             {dryRun.records_affected} record(s) will convert.{' '}
             {dryRun.lossy_conversions > 0 ? (
               <span className="text-warning">
@@ -107,7 +107,7 @@ export function ChangeTypeDialog({
             )}
           </p>
         ) : (
-          <p className="text-[13px] text-muted">Run the check to see what this conversion affects.</p>
+          <p className="text-body text-muted">Run the check to see what this conversion affects.</p>
         )}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>

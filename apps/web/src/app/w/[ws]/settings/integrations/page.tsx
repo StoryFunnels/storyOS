@@ -166,7 +166,7 @@ export default function IntegrationsPage() {
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Integrations</h1>
-      <p className="mb-6 text-[13px] text-muted">
+      <p className="mb-6 text-body text-muted">
         Connect StoryOS to the tools you already use. Credentials are stored on your server and
         never leave it — that's the point of self-hosting.
       </p>
@@ -180,11 +180,11 @@ export default function IntegrationsPage() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm font-semibold text-ink">Connect your AI with MCP</h2>
-                <span className="rounded-full bg-card px-2 py-0.5 text-[11px] font-medium text-ink">
+                <span className="rounded-full bg-card px-2 py-0.5 text-meta font-medium text-ink">
                   Start here
                 </span>
               </div>
-              <p className="mt-1 text-[13px] text-muted">
+              <p className="mt-1 text-body text-muted">
                 This is the foundation: connect Claude or ChatGPT once with OAuth, then let it work
                 across StoryOS and the provider integrations below.
               </p>
@@ -196,11 +196,11 @@ export default function IntegrationsPage() {
         </div>
         <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
-            <p className="text-[12px] font-medium text-ink">Hosted OAuth endpoint</p>
-            <code className="mt-1 block overflow-x-auto whitespace-nowrap text-[12px] text-muted">
+            <p className="text-label font-medium text-ink">Hosted OAuth endpoint</p>
+            <code className="mt-1 block overflow-x-auto whitespace-nowrap text-label text-muted">
               {MCP_ENDPOINT}
             </code>
-            <p className="mt-2 text-[11px] text-faint">
+            <p className="mt-2 text-meta text-muted">
               No API token to copy for app.storyos.dev. Self-managed deployments and advanced
               clients can still use PAT authentication from the setup page.
             </p>
@@ -225,10 +225,10 @@ export default function IntegrationsPage() {
 
       {connectedEntries.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+          <h2 className="mb-1 text-body font-semibold uppercase tracking-wide text-muted">
             Connected
           </h2>
-          <p className="mb-3 text-[12px] text-faint">
+          <p className="mb-3 text-label text-muted">
             Already set up — open one to preview/import, adjust its config, or disconnect.
           </p>
           <div className="flex flex-col gap-2">
@@ -246,12 +246,12 @@ export default function IntegrationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-ink">{entry.label}</span>
-                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-ink">
+                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-ink">
                         Connected
                       </span>
                     </div>
-                    <p className="truncate text-[12px] text-faint">{entry.description}</p>
-                    <p className="mt-1 text-[11px] text-ink-secondary">
+                    <p className="truncate text-label text-muted">{entry.description}</p>
+                    <p className="mt-1 text-meta text-ink-secondary">
                       <strong>Next:</strong> {nextAction(entry)}
                     </p>
                   </div>
@@ -288,10 +288,10 @@ export default function IntegrationsPage() {
       )}
 
       <section>
-        <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+        <h2 className="mb-1 text-body font-semibold uppercase tracking-wide text-muted">
           Add an integration
         </h2>
-        <p className="mb-3 text-[12px] text-faint">Platforms you haven't connected yet.</p>
+        <p className="mb-3 text-label text-muted">Platforms you haven't connected yet.</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {catalogEntries.map((entry) => {
             const Icon = ICONS[entry.id] ?? Bot;
@@ -310,21 +310,21 @@ export default function IntegrationsPage() {
                     <span className="block truncate text-sm font-semibold text-ink">
                       {entry.label}
                     </span>
-                    <span className="block truncate text-[11px] text-faint">
+                    <span className="block truncate text-meta text-muted">
                       Built by {entry.built_by}
                     </span>
                   </span>
                   <span className="ml-auto shrink-0">
                     {entry.status === 'soon' ? (
-                      <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-faint">
+                      <span className="rounded-full bg-hover px-2 py-0.5 text-meta text-muted">
                         Coming soon
                       </span>
                     ) : entry.auth_kind === 'delegate' ? (
-                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">
+                      <span className="rounded-full border border-border-default px-2 py-0.5 text-meta text-muted">
                         Enable →
                       </span>
                     ) : (
-                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">
+                      <span className="rounded-full border border-border-default px-2 py-0.5 text-meta text-muted">
                         Set up →
                       </span>
                     )}

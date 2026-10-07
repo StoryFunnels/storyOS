@@ -20,7 +20,8 @@ import { useWorkspace } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { PackVisual, registryVertical } from '@/components/pack-visual';
+import { Select } from '@/components/ui/select';
+import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -51,6 +52,9 @@ interface RegistryCard {
     automations: number;
     agents: number;
   };
+  /** #824 — the hero; read from the pack's own manifest. */
+  workflow?: { database: string; field: string; stages: string[][] } | null;
+  marks?: { agent: boolean; notifies: boolean };
 }
 interface RegistryEntry extends RegistryCard {
   manifest: unknown;
@@ -175,11 +179,42 @@ function useInstalledPacks(ws: string) {
   });
 }
 
-/** Every `collision` across a preview, keyed by its label — what the resolver UI iterates. */
-function collisionLabels(preview: PreviewResult): string[] {
-  return [...preview.databases, ...preview.views, ...preview.automations, ...preview.agents]
-    .filter((i) => i.action === 'collision')
-    .map((i) => i.name);
+/**
+ * Every `collision` across a preview, keyed by its label — what the resolver
+ * UI iterates. #569 — `reuseOnly` marks a label whose collision includes a
+ * database: the API's own `applyResolutions` (packs.service.ts) accepts just
+ * `reuse` for a database collision — renaming would desynchronize the
+ * manifest's symbolic `$db` refs, a correctness risk, not a UI gap — so
+ * that's the only choice offered for it. Views, automations and agents
+ * accept the full reuse/rename/skip set (verified against that same
+ * server-side comment).
+ */
+interface CollisionEntry {
+  name: string;
+  reuseOnly: boolean;
+}
+function collisionEntries(preview: PreviewResult): CollisionEntry[] {
+  const kindsByName = new Map<string, Set<'databases' | 'other'>>();
+  const record = (items: PreviewItem[], kind: 'databases' | 'other') => {
+    for (const item of items) {
+      if (item.action !== 'collision') continue;
+      const kinds = kindsByName.get(item.name) ?? new Set<'databases' | 'other'>();
+      kinds.add(kind);
+      kindsByName.set(item.name, kinds);
+    }
+  };
+  record(preview.databases, 'databases');
+  record(preview.views, 'other');
+  record(preview.automations, 'other');
+  record(preview.agents, 'other');
+  return [...kindsByName.entries()].map(([name, kinds]) => ({
+    name,
+    // A name colliding as BOTH a database and something else shares one flat
+    // `resolutions[name]` answer server-side — restrict the whole row
+    // whenever a database collision is ANY part of it, rather than let it
+    // look reusable/renameable when the database half isn't.
+    reuseOnly: kinds.has('databases'),
+  }));
 }
 
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
@@ -191,7 +226,7 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
         : 'bg-hover text-muted';
   const label = action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{label}</span>
+    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${style}`}>{label}</span>
   );
 }
 
@@ -199,10 +234,10 @@ function PreviewSection({ title, items }: { title: string; items: PreviewItem[] 
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">{title}</p>
+      <p className="mb-1.5 text-meta font-medium uppercase tracking-wider text-muted">{title}</p>
       <div className="flex flex-col gap-1">
         {items.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-2 text-[13px]">
+          <div key={item.name} className="flex items-center justify-between gap-2 text-body">
             <span className="text-ink-secondary">{item.name}</span>
             <ActionBadge action={item.action} />
           </div>
@@ -213,47 +248,60 @@ function PreviewSection({ title, items }: { title: string; items: PreviewItem[] 
 }
 
 function CollisionResolver({
-  labels,
+  entries,
   resolutions,
   onChange,
 }: {
-  labels: string[];
+  entries: CollisionEntry[];
   resolutions: Record<string, Resolution>;
   onChange: (label: string, resolution: Resolution) => void;
 }) {
-  if (labels.length === 0) return null;
+  if (entries.length === 0) return null;
   return (
     <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-      <p className="mb-2 text-[12px] font-semibold text-ink">
-        {labels.length} name{labels.length > 1 ? 's' : ''} already exist in this workspace
+      <p className="mb-2 text-label font-semibold text-ink">
+        {entries.length} name{entries.length > 1 ? 's' : ''} already exist in this workspace
       </p>
       <div className="flex flex-col gap-2">
-        {labels.map((label) => {
+        {entries.map(({ name: label, reuseOnly }) => {
           const resolution = resolutions[label] ?? { action: 'reuse' };
           return (
             <div key={label} className="flex flex-col gap-1.5 rounded-[var(--radius-control)] bg-card p-2">
-              <p className="text-[13px] text-ink">{label}</p>
-              <div className="flex items-center gap-2">
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[12px] text-ink"
-                  value={resolution.action}
-                  onChange={(e) =>
-                    onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
-                  }
-                >
-                  <option value="reuse">Reuse the existing one</option>
-                  <option value="rename">Install under a new name</option>
-                  <option value="skip">Skip it</option>
-                </select>
-                {resolution.action === 'rename' && (
-                  <Input
-                    className="h-8"
-                    placeholder="New name"
-                    value={resolution.rename_to ?? ''}
-                    onChange={(e) => onChange(label, { ...resolution, rename_to: e.target.value })}
-                  />
-                )}
-              </div>
+              <p className="text-body text-ink">{label}</p>
+              {/* #569 — a database collision only ever accepts "reuse" server-side
+                  (renaming would desync the manifest's symbolic $db refs); no
+                  select is offered rather than one that 422s at submit. */}
+              {reuseOnly ? (
+                <p className="text-label text-muted">
+                  Will reuse the existing database — rename/skip aren't supported for a database
+                  name collision yet.
+                </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {/* #717 bonus — was 12px (a near-miss on the ticket's own
+                      grep, not the standard 13px shape); now `sm`'s text-body
+                      like every other migrated h-8 select. */}
+                  <Select
+                    size="sm"
+                    value={resolution.action}
+                    onChange={(e) =>
+                      onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
+                    }
+                  >
+                    <option value="reuse">Reuse the existing one</option>
+                    <option value="rename">Install under a new name</option>
+                    <option value="skip">Skip it</option>
+                  </Select>
+                  {resolution.action === 'rename' && (
+                    <Input
+                      className="h-8"
+                      placeholder="New name"
+                      value={resolution.rename_to ?? ''}
+                      onChange={(e) => onChange(label, { ...resolution, rename_to: e.target.value })}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -303,8 +351,10 @@ function InstallDialog({
 
   const install = useMutation({
     mutationFn: async () => {
-      const labels = collisionLabels(preview.data!);
-      const payload = Object.fromEntries(labels.map((l) => [l, resolutions[l] ?? { action: 'reuse' }]));
+      const entries = collisionEntries(preview.data!);
+      const payload = Object.fromEntries(
+        entries.map(({ name }) => [name, resolutions[name] ?? { action: 'reuse' }]),
+      );
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/packs/install' as never, {
         params: { path: { ws } },
         body: { manifest: entry.data!.manifest, resolutions: payload } as never,
@@ -322,7 +372,16 @@ function InstallDialog({
     onError: () => toast.error('Install failed — see the collisions below and try again'),
   });
 
-  const unresolved = preview.data ? collisionLabels(preview.data).filter((l) => !resolutions[l]) : [];
+  // #569 — a reuse-only row (any database collision) is never rendered a
+  // control, so it never gets an explicit `resolutions[name]`; it's already
+  // resolved by default (reuse) and must not block Install waiting for input
+  // that's never coming.
+  const unresolved = preview.data
+    ? collisionEntries(preview.data)
+        .filter((e) => !e.reuseOnly)
+        .map((e) => e.name)
+        .filter((name) => !resolutions[name])
+    : [];
   const firstDbId = result?.databases.find((d) => d.action !== 'skipped')?.id;
   const created = (r: InstallResult) =>
     [...r.databases, ...r.views, ...r.automations, ...r.agents, ...r.skills].filter(
@@ -334,15 +393,15 @@ function InstallDialog({
       <DialogContent title={entry.data?.name ?? 'Install pack'} className="max-w-xl">
         {result ? (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               {result.name} v{result.version} is installed. Here’s what you got:
             </p>
             <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
               {created(result).length === 0 ? (
-                <p className="text-[13px] text-muted">Everything already existed — nothing new was created.</p>
+                <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
               ) : (
                 created(result).map((item) => (
-                  <div key={`${item.name}-${item.id}`} className="flex items-center gap-2 text-[13px]">
+                  <div key={`${item.name}-${item.id}`} className="flex items-center gap-2 text-body">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
                     <span className="text-ink-secondary">{item.name}</span>
                   </div>
@@ -351,10 +410,10 @@ function InstallDialog({
             </div>
             {result.unmet.length > 0 && (
               <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-                <p className="mb-1.5 text-[12px] font-semibold text-ink">Still to connect</p>
+                <p className="mb-1.5 text-label font-semibold text-ink">Still to connect</p>
                 <div className="flex flex-col gap-1">
                   {result.unmet.map((u) => (
-                    <p key={u.name} className="text-[12px] text-muted">
+                    <p key={u.name} className="text-label text-muted">
                       {u.detail}{' '}
                       {u.kind === 'connection' && (
                         <Link href={`/w/${ws}/settings/connections`} className="underline underline-offset-2">
@@ -380,12 +439,12 @@ function InstallDialog({
         ) : (
           <div className="flex flex-col gap-4">
             {entry.isLoading || preview.isLoading ? (
-              <div className="flex items-center gap-2 py-8 text-[13px] text-muted">
+              <div className="flex items-center gap-2 py-8 text-body text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> Looking at what this would create…
               </div>
             ) : preview.data ? (
               <>
-                <p className="text-[13px] text-ink-secondary">{entry.data?.summary}</p>
+                <p className="text-body text-ink-secondary">{entry.data?.summary}</p>
                 {entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] && (
                   <img
                     src={entry.data.screenshots[0]}
@@ -394,7 +453,7 @@ function InstallDialog({
                   />
                 )}
                 {entry.data && 'highlights' in entry.data && entry.data.highlights.length > 0 && (
-                  <ul className="grid gap-1 rounded-[var(--radius-control)] bg-hover p-3 text-[12px] text-muted sm:grid-cols-2">
+                  <ul className="grid gap-1 rounded-[var(--radius-control)] bg-hover p-3 text-label text-muted sm:grid-cols-2">
                     {entry.data.highlights.map((highlight) => (
                       <li key={highlight}>• {highlight}</li>
                     ))}
@@ -408,16 +467,16 @@ function InstallDialog({
                 </div>
                 {preview.data.unmet.length > 0 && (
                   <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-                    <p className="mb-1 text-[12px] font-semibold text-ink">You’ll need to connect</p>
+                    <p className="mb-1 text-label font-semibold text-ink">You’ll need to connect</p>
                     {preview.data.unmet.map((u) => (
-                      <p key={u.name} className="text-[12px] text-muted">
+                      <p key={u.name} className="text-label text-muted">
                         {u.detail}
                       </p>
                     ))}
                   </div>
                 )}
                 <CollisionResolver
-                  labels={collisionLabels(preview.data)}
+                  entries={collisionEntries(preview.data)}
                   resolutions={resolutions}
                   onChange={(label, resolution) =>
                     setResolutions((prev) => ({ ...prev, [label]: resolution }))
@@ -443,7 +502,7 @@ function InstallDialog({
                 </div>
               </>
             ) : (
-              <p className="py-8 text-center text-[13px] text-muted">Could not load this pack.</p>
+              <p className="py-8 text-center text-body text-muted">Could not load this pack.</p>
             )}
           </div>
         )}
@@ -488,8 +547,8 @@ function InstalledRow({
   return (
     <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-card p-3">
       <div>
-        <p className="text-[13px] font-medium text-ink">{pack.name}</p>
-        <p className="text-[12px] text-muted">
+        <p className="text-body font-medium text-ink">{pack.name}</p>
+        <p className="text-label text-muted">
           v{pack.version} · installed {new Date(pack.installed_at).toLocaleDateString()}
         </p>
       </div>
@@ -555,7 +614,7 @@ export default function PacksPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-10">
-      <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-[12px] text-muted hover:text-ink">
+      <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-label text-muted hover:text-ink">
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
       <div className="mb-1 flex items-center justify-between">
@@ -565,7 +624,7 @@ export default function PacksPage() {
         {canInstall && (
           <Link
             href={`/w/${ws}/packs/submit`}
-            className="flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
+            className="flex items-center gap-1.5 text-label text-muted hover:text-ink"
           >
             <Upload className="h-3.5 w-3.5" /> Submit a pack
           </Link>
@@ -577,7 +636,7 @@ export default function PacksPage() {
 
       {(installed.data?.length ?? 0) > 0 && (
         <div className="mb-8">
-          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Installed</p>
+          <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">Installed</p>
           <div className="flex flex-col gap-2">
             {installed.data!.map((pack) => (
               <InstalledRow
@@ -594,6 +653,9 @@ export default function PacksPage() {
 
       <div className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card p-3">
         <div className="relative">
+          {/* #706 — KEEPS faint: the magnifier is a non-text graphic inside the
+              search field, judged at 3:1, which faint clears. The field's own
+              placeholder carries the instruction and is not faint. */}
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-faint" />
           <Input
             aria-label="Search Business Packs"
@@ -608,7 +670,7 @@ export default function PacksPage() {
             <button
               key={filter.value}
               type="button"
-              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${
+              className={`shrink-0 rounded-full px-2.5 py-1 text-meta ${
                 vertical === filter.value
                   ? 'bg-primary text-[var(--text-on-dark)]'
                   : 'bg-hover text-muted hover:text-ink'
@@ -621,7 +683,7 @@ export default function PacksPage() {
         </div>
       </div>
 
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Gallery</p>
+      <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">Gallery</p>
       <div className="mb-8 grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3">
         {visibleRegistry.map((pack) => {
           const installState = installedBySlug.get(pack.slug);
@@ -632,14 +694,17 @@ export default function PacksPage() {
             >
               <PackVisual pack={pack} />
               <div className="flex items-start justify-between gap-2">
-                <p className="text-[14px] font-medium text-ink">{pack.name}</p>
+                <p className="text-prose font-medium text-ink">{pack.name}</p>
                 {installState && (
-                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-ink">
+                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
                     {installState.update_available ? 'Update available' : 'Installed'}
                   </span>
                 )}
               </div>
-              <p className="line-clamp-3 text-[13px] text-muted">{pack.summary}</p>
+              <p className="line-clamp-3 text-body text-muted">{pack.summary}</p>
+              {/* #824 — the counts, demoted from the hero to one quiet line. Gallery-only
+                  chrome: the new-workspace card has no room for it (see PackVisual). */}
+              <p className="font-mono text-micro text-muted">{packCountsLine(pack.preview)}</p>
               <Button
                 type="button"
                 className="mt-auto self-start"
@@ -659,17 +724,17 @@ export default function PacksPage() {
           );
         })}
         {registry.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-[13px] text-muted">No packs in the gallery yet.</p>
+          <p className="text-body text-muted">No packs in the gallery yet.</p>
         )}
       </div>
 
       <p
         id="community-marketplace"
-        className="mb-1 scroll-mt-6 text-[12px] font-semibold uppercase tracking-wider text-faint"
+        className="mb-1 scroll-mt-6 text-label font-semibold uppercase tracking-wider text-muted"
       >
         Community Marketplace
       </p>
-      <p className="mb-2 text-[12px] text-muted">
+      <p className="mb-2 text-label text-muted">
         Curated packs published by other builders — reviewed before they&rsquo;re listed here.
       </p>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3">
@@ -692,20 +757,20 @@ export default function PacksPage() {
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <p className="text-[14px] font-medium text-ink">{pack.name}</p>
+                <p className="text-prose font-medium text-ink">{pack.name}</p>
                 <div className="flex items-center gap-1">
                   {installState && (
-                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-ink">
+                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
                       {installState.update_available ? 'Update' : 'Installed'}
                     </span>
                   )}
-                  <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-ink-secondary">
+                  <span className="rounded-full bg-hover px-2 py-0.5 text-meta text-ink-secondary">
                     {pack.vertical}
                   </span>
                 </div>
               </div>
-              <p className="line-clamp-3 text-[13px] text-muted">{pack.summary}</p>
-              <p className="text-[11px] text-faint">
+              <p className="line-clamp-3 text-body text-muted">{pack.summary}</p>
+              <p className="text-meta text-muted">
                 v{pack.latest_version} · {pack.license}
                 {pack.attribution ? ` · by ${pack.attribution}` : ''}
               </p>
@@ -727,16 +792,16 @@ export default function PacksPage() {
           );
         })}
         {marketplace.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-[13px] text-muted">No community packs published yet.</p>
+          <p className="text-body text-muted">No community packs published yet.</p>
         )}
       </div>
 
       {noMatches && (
         <div className="mt-4 rounded-[var(--radius-card)] border border-dashed border-border-default p-8 text-center">
-          <p className="text-[13px] font-medium text-ink">No packs match this search</p>
+          <p className="text-body font-medium text-ink">No packs match this search</p>
           <button
             type="button"
-            className="mt-1 text-[12px] text-muted underline underline-offset-2"
+            className="mt-1 text-label text-muted underline underline-offset-2"
             onClick={() => {
               setQuery('');
               setVertical('all');

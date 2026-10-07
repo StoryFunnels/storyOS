@@ -28,6 +28,36 @@ export interface SourceSyncContext {
 }
 
 /**
+ * #279 — one record's worth of work handed to a provider's `push()`. Mirrors
+ * `SourceSyncContext`'s shape deliberately (auth/config/fetcher), swapping
+ * the paginated read loop for a single write target.
+ */
+export interface SourcePushContext {
+  auth: unknown;
+  config: Record<string, unknown>;
+  fetcher: ConnectionFetcher;
+  /** The value stored at the source's `external_key_field_id` — identifies
+   * WHICH remote entity this record's change goes to. */
+  externalKey: string;
+  /**
+   * The fields being pushed, keyed by the PROVIDER'S OWN external key — the
+   * same vocabulary `sync()`'s emitted items and `field_mapping`'s keys use,
+   * never a StoryOS field id or api_name. Only `out`/`both`-mapped fields
+   * whose value actually changed this write are included (#280/#281); the
+   * caller (`WriteBackSubscriber`) does the field_mapping translation in both
+   * directions, so a provider's `push()` never needs to know a StoryOS field
+   * exists, mirroring how `sync()` never needs to know one either.
+   */
+  values: Record<string, unknown>;
+}
+
+export interface PushResult {
+  /** Provider-owned metadata about the push, stored verbatim on the run row —
+   * same contract as `sync()`'s `stats`. Omit for nothing to show. */
+  stats?: Record<string, unknown>;
+}
+
+/**
  * A provider's `sync()` throws this instead of a plain `Error` when a run
  * must be recorded as `'error'` AND the cursor still needs to change — e.g.
  * MN-262's Apify provider clearing a stuck `pending_run_id` once its overall
@@ -86,6 +116,17 @@ export interface SourceProviderDescriptor {
   /** External keys a fresh config would emit, for the mapping UI's first
    * "here's what you'll get" preview before any sync has run. */
   discover?(auth: unknown, config: Record<string, unknown>, fetcher: ConnectionFetcher): Promise<{ keys: string[] }>;
+  /**
+   * #280 — true iff every item this provider emits carries a comparable
+   * external timestamp, the one thing `newest_wins` needs to mean anything.
+   * Absent means false (the safe default: comparing incomparable clocks
+   * would be worse than refusing the policy), unlike most optional
+   * capabilities here which default to "on" when unset — this one inverts
+   * that because claiming a capability a provider never declared would be
+   * the widening direction, not the narrowing one every other default here
+   * chooses.
+   */
+  supportsNewestWins?(): boolean;
   sync(ctx: SourceSyncContext): Promise<{
     cursor: Record<string, unknown>;
     /** Provider-owned run metadata that isn't a fetched/created/updated count
@@ -93,6 +134,14 @@ export interface SourceProviderDescriptor {
      * verbatim on the run row (`source_runs.stats`). Omit for nothing to show. */
     stats?: Record<string, unknown>;
   }>;
+  /**
+   * #279 (write-back, slice A) — push a local record's change back to the
+   * external system. Optional: absent means pull-only, true of every
+   * provider today. Even when a provider defines this, THIS slice never
+   * calls it outside a provider's own tests — `WriteBackSubscriber` only
+   * logs what would be pushed (see its own doc comment for why).
+   */
+  push?(ctx: SourcePushContext): Promise<PushResult>;
 }
 
 /**

@@ -1,16 +1,18 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
-import { SYSTEM_FIELDS } from '@storyos/schemas';
+import { SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, relations, spaceFolders, views } from '../db/schema';
+import { databases, fields, records, relations, selectOptions, spaceFolders, views } from '../db/schema';
 
 type FieldRow = typeof fields.$inferSelect;
 
@@ -55,6 +57,56 @@ export function assertFilterFieldsLive(node: unknown, liveApiNames: Set<string>)
   }
 }
 
+/** Field types whose config can read data a public visitor is never shown —
+ *  a rollup/lookup aggregates the RELATED database, a formula can reference
+ *  one. Never exposed by the "non-hidden fields" default; only when an
+ *  explicit allowlist names them (#264's "subtle hole"). Shared with
+ *  `PublicViewsService`, which is the other (and original) caller of
+ *  `computePublicFieldAllowlist` below — one rule, not two copies. */
+export const COMPUTED_TYPES = new Set(['rollup', 'lookup', 'formula']);
+
+/**
+ * #555 — the public allowlist computation, extracted so `share()`'s
+ * board/dashboard field-reference validation (below) and
+ * `PublicViewsService.getPublicView`'s redaction use the IDENTICAL rule.
+ * Two independent copies of "which fields does a public visitor see" is
+ * exactly the drift this codebase's field-surfaces rule (CLAUDE.md) warns
+ * about — a board grouped by a field the read-time redaction would have
+ * hidden is a leak, and the only way to guarantee that can't happen is one
+ * function both sides call.
+ */
+export function computePublicFieldAllowlist(
+  defs: Array<{ id: string; api_name: string; type: string }>,
+  opts: {
+    hiddenFieldIds?: string[];
+    explicitAllowlist?: string[];
+    includeRelationApiNames?: string[];
+    recipientScopeActive: boolean;
+  },
+): { exposedApiNames: Set<string>; relationApiNames: Set<string> } {
+  const hiddenIds = new Set(opts.hiddenFieldIds ?? []);
+  const defaultVisible = defs.filter((f) => !hiddenIds.has(f.id)).map((f) => f.api_name);
+  const requestedNames = new Set(opts.explicitAllowlist ?? defaultVisible);
+  // #535 — while a recipient-scope rule is active, NO relation/lookup/rollup/
+  // formula field is exposed at all, regardless of what's allowlisted.
+  const relationApiNames = opts.recipientScopeActive
+    ? new Set<string>()
+    : new Set(opts.includeRelationApiNames ?? []);
+  const exposedApiNames = new Set(
+    defs
+      .filter((f) => {
+        if (!requestedNames.has(f.api_name)) return false;
+        if (f.type === 'relation') return false; // handled separately, via relationApiNames
+        if (opts.recipientScopeActive && COMPUTED_TYPES.has(f.type)) return false;
+        // A computed field is exposed ONLY when an explicit allowlist named it.
+        if (COMPUTED_TYPES.has(f.type)) return Boolean(opts.explicitAllowlist) && requestedNames.has(f.api_name);
+        return true;
+      })
+      .map((f) => f.api_name),
+  );
+  return { exposedApiNames, relationApiNames };
+}
+
 /** Drops references to fields that no longer exist (defensive read, C-series ACs). */
 export function cleanViewConfig(
   config: ViewConfig,
@@ -66,7 +118,13 @@ export function cleanViewConfig(
     sorts: (config.sorts ?? []).filter((s) => liveApiNames.has(s.field)),
     // MN-252: whole-sort empty-values placement rides alongside `sorts`.
     sorts_nulls: config.sorts_nulls,
-    hidden_field_ids: (config.hidden_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
+    // #659 — the synthetic `__sys_number` id (#289) never has a stored field
+    // row, so it can never be in `liveFieldIds`; without this exception every
+    // read stripped it back out the instant it was written, silently undoing
+    // the toggle it was meant to persist.
+    hidden_field_ids: (config.hidden_field_ids ?? []).filter(
+      (id) => liveFieldIds.has(id) || id === systemFieldId('number'),
+    ),
     group_by_field_id:
       config.group_by_field_id && liveFieldIds.has(config.group_by_field_id)
         ? config.group_by_field_id
@@ -111,6 +169,18 @@ export function cleanViewConfig(
       config.date_field_id && liveFieldIds.has(config.date_field_id)
         ? config.date_field_id
         : undefined,
+    // #470 — same allowlist trap this function's own history already
+    // documents (#227/#391 below): a plain preference naming no field id
+    // (calendar_mode) passes through unconditionally, same as column_sort
+    // above; the end-field REFERENCE is cleaned the same way date_field_id is.
+    calendar_mode: config.calendar_mode,
+    calendar_end_date_field_id:
+      config.calendar_end_date_field_id && liveFieldIds.has(config.calendar_end_date_field_id)
+        ? config.calendar_end_date_field_id
+        : undefined,
+    // #471 — plain preferences naming no field id, same as calendar_mode above.
+    calendar_increment_minutes: config.calendar_increment_minutes,
+    calendar_collapsed_hours: config.calendar_collapsed_hours,
     start_date_field_id:
       config.start_date_field_id && liveFieldIds.has(config.start_date_field_id)
         ? config.start_date_field_id
@@ -133,6 +203,27 @@ export function cleanViewConfig(
         ? config.baseline_end_date_field_id
         : undefined,
     form: config.form,
+    /**
+     * #559 — `share` (#264/#536) was added to ViewConfig after this function's
+     * explicit key list was written, and fell into the exact trap the comments
+     * throughout this function already name: a key not listed here is silently
+     * stripped on every read, so a published view read back "Not published"
+     * forever, even though the stored row and the public /v/:token page (which
+     * reads the row directly, bypassing this function) were both correct.
+     *
+     * Passed through UNCONDITIONALLY, same as `form` immediately above — both
+     * are minted/cleared ONLY through their own dedicated write path
+     * (POST/DELETE .../share, never the ordinary view PATCH), which already
+     * validates `visible_field_api_names`/`include_relation_api_names` against
+     * live fields at write time (ViewsService.share). Re-validating those
+     * allowlists again here, against fields that may have changed since
+     * publish, is a real future edge case (a field named in an already-published
+     * allowlist gets deleted) but is a DIFFERENT question from this ticket's
+     * "the read path drops a key the write path stored correctly" bug — and
+     * `form` sets the precedent of not doing that revalidation on every read
+     * either.
+     */
+    share: config.share,
     // Dashboard tiles (MN-225 / #168): drop a tile that POINTS AT a field which
     // no longer exists — never one that simply hasn't been pointed anywhere yet.
     // #305: this used to require `field_api_name` for any non-count op, so
@@ -184,9 +275,28 @@ export function cleanViewConfig(
           ? { ...w, filter: cleanFilterNode(w.filter, liveApiNames) as typeof w.filter }
           : w,
       ),
+    // #228 — an ordinary view's own summary strip. Same "drop only a DANGLING
+    // reference, never an unconfigured one" rule as tiles/widgets above — no
+    // database_id/filter exemption needed, since a summary widget (unlike a
+    // dashboard tile/widget) is always the view's own database by design.
+    summary_widgets: (config.summary_widgets ?? []).filter(
+      (w) =>
+        (w.field_api_name == null || liveApiNames.has(w.field_api_name)) &&
+        (w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)),
+    ),
+    // #233 — table hierarchy: dropped only when the named field is gone
+    // (#305's rule), same as group_by_field_id/color_by_field_id above.
+    hierarchy_field_id:
+      config.hierarchy_field_id && liveFieldIds.has(config.hierarchy_field_id)
+        ? config.hierarchy_field_id
+        : undefined,
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
+    // #739 — same allowlist trap this function's own history already documents
+    // above (#227/#391/#559): a plain preference naming no field id passes
+    // through unconditionally, same as column_sort/calendar_mode.
+    row_height: config.row_height,
   };
 }
 
@@ -223,7 +333,35 @@ export function boardGroupError(
       ? null
       : 'board views can only group by the single side of a one-to-many relation — a many-to-many or the many side would put a card in several columns';
   }
+  // #498 — bins turn an otherwise-continuous number into single-valued buckets,
+  // same as a date's period does; unconfigured (no bins yet) stays refused
+  // rather than silently offering an unbounded, column-per-value board.
+  if (field.type === 'number') {
+    const bins = config['bins'];
+    return Array.isArray(bins) && bins.length > 0
+      ? null
+      : 'configure bins on this field before grouping a board by it';
+  }
+  // #499 — text and lookup are single-valued (one column per record), so the
+  // "would land in several columns" rule this function otherwise enforces does
+  // not rule them out. They ARE read-only for grouping though — see
+  // `boardGroupIsReadOnly` — so a card lands in a column but a drag can never
+  // change which one; that half is enforced by records.service.ts's `move()`.
+  if (field.type === 'text' || field.type === 'lookup') return null;
   return `board views cannot group by a "${field.type}" field — use a select, a single user, or a one-to-many relation`;
+}
+
+/**
+ * #499 — the single classification of "this board is grouped by something a
+ * drag can never write back to," shared by the client's non-draggable marking
+ * (`groupable-fields.ts`) and the server's write-guard on `move()`
+ * (`records.service.ts`) so the two can never drift the way #267/#272 did.
+ * Lookup is already refused by record-values.ts's general write validator
+ * (computed, never writable anywhere) — listed here too for defense in depth
+ * and so callers don't need to know that's a separate mechanism.
+ */
+export function boardGroupIsReadOnly(fieldType: string): boolean {
+  return fieldType === 'text' || fieldType === 'lookup';
 }
 
 /**
@@ -263,11 +401,15 @@ export class ViewsService {
     const apiNames = new Set([...live.map((f) => f.apiName), ...SYSTEM_FIELDS.map((f) => f.api_name)]);
 
     const referencedIds = [
-      ...(config.hidden_field_ids ?? []),
+      // #659 — `__sys_number` (#289) is a valid hidden_field_ids entry with no
+      // stored row; excluded here rather than added to `byId`, since it must
+      // stay invalid everywhere else this map is used (group_by/date fields).
+      ...(config.hidden_field_ids ?? []).filter((id) => id !== systemFieldId('number')),
       ...(config.card_field_ids ?? []),
       ...Object.keys(config.column_widths ?? {}),
       ...(config.group_by_field_id ? [config.group_by_field_id] : []),
       ...(config.date_field_id ? [config.date_field_id] : []),
+      ...(config.calendar_end_date_field_id ? [config.calendar_end_date_field_id] : []),
     ];
     for (const id of referencedIds) {
       if (!byId.has(id)) throw new UnprocessableEntityException(`unknown field id "${id}" in view config`);
@@ -296,6 +438,93 @@ export class ViewsService {
       }
       const error = boardGroupError(groupField, relation);
       if (error) throw new UnprocessableEntityException(error);
+    }
+
+    if (config.form?.fields?.length) await this.validateHiddenFormFieldValues(byId, config.form.fields);
+  }
+
+  /**
+   * #716 AC4 — a fixed value's TYPE-APPROPRIATE validity is checked HERE, at
+   * config-save time, not deferred to the next submission: "a stale or
+   * cross-database target must fail at config time, not silently write a
+   * dangling link." Scope matches the ticket's own field-type list exactly
+   * (relation, text, select, workflow) — any other type carrying `hidden` +
+   * `value` is rejected outright, per AC4's "state explicitly ... if any
+   * other type is excluded and why."
+   *
+   * A field_id that doesn't resolve to a live field, or a field with no
+   * `value` set, is skipped rather than rejected — matching this codebase's
+   * existing lenient treatment of dangling/unconfigured form-field
+   * references elsewhere (forms.service.ts silently drops rather than 500s).
+   */
+  private async validateHiddenFormFieldValues(
+    byId: Map<string, FieldRow>,
+    formFields: NonNullable<NonNullable<ViewConfig['form']>['fields']>,
+  ): Promise<void> {
+    const HIDDEN_VALUE_TYPES = new Set(['relation', 'text', 'select', 'workflow']);
+    for (const f of formFields) {
+      if (!f.hidden || f.value === undefined) continue;
+      const field = byId.get(f.field_id);
+      if (!field) continue;
+      const label = field.displayName || field.apiName;
+
+      if (!HIDDEN_VALUE_TYPES.has(field.type)) {
+        throw new UnprocessableEntityException(
+          `"${label}" is a ${field.type} field — a hidden field's fixed value is only supported for relation, text, select and workflow fields`,
+        );
+      }
+
+      if (field.type === 'text') {
+        if (typeof f.value !== 'string') {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value must be a string`);
+        }
+        continue;
+      }
+
+      if (field.type === 'select' || field.type === 'workflow') {
+        // A raw label ("Open") is a common mistake (#719's own finding for
+        // the automation-action path) — checked as a shape first so it 422s
+        // cleanly rather than reaching a uuid-typed column comparison and
+        // raising a raw Postgres cast error (a 500).
+        if (typeof f.value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f.value)) {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value must be a real option id, not a label`);
+        }
+        const option = await this.db.query.selectOptions.findFirst({
+          where: and(eq(selectOptions.fieldId, field.id), eq(selectOptions.id, f.value)),
+        });
+        if (!option) {
+          throw new UnprocessableEntityException(`"${label}"'s fixed value is not a real option id for this field`);
+        }
+        continue;
+      }
+
+      // relation
+      const config = field.config as { relation_id?: string; side?: 'a' | 'b' };
+      const relation = config.relation_id
+        ? await this.db.query.relations.findFirst({ where: eq(relations.id, config.relation_id) })
+        : undefined;
+      if (!relation || !config.side) {
+        throw new UnprocessableEntityException(`"${label}" — relation no longer exists`);
+      }
+      const targetDatabaseId = config.side === 'a' ? relation.databaseBId : relation.databaseAId;
+      const isNumericString = typeof f.value === 'string' && /^\d+$/.test(f.value.trim());
+      const isValidRef =
+        typeof f.value === 'number' || (typeof f.value === 'string' && (isNumericString || /^[0-9a-f-]{36}$/i.test(f.value)));
+      if (!isValidRef) {
+        throw new UnprocessableEntityException(`"${label}"'s fixed value must be a record id or number`);
+      }
+      const match = await this.db.query.records.findFirst({
+        where: and(
+          eq(records.databaseId, targetDatabaseId),
+          isNull(records.deletedAt),
+          typeof f.value === 'number' || isNumericString
+            ? eq(records.number, typeof f.value === 'number' ? f.value : Number.parseInt(f.value as string, 10))
+            : eq(records.id, f.value as string),
+        ),
+      });
+      if (!match) {
+        throw new UnprocessableEntityException(`"${label}"'s fixed value does not name a record in the target database`);
+      }
     }
   }
 
@@ -330,30 +559,58 @@ export class ViewsService {
     databaseId: string,
     input: { name: string; type: ViewType; config: ViewConfig; folder_id?: string | null },
     createdBy: string,
+    /**
+     * #520 — set only by createPersonal(). A personal view is a private
+     * WINDOW onto this database's shared data (schema.ts's own note on
+     * `ownerUserId`, mirroring personal-space.md §"Deleting through a
+     * personal view") — it still needs a databaseId like any other view,
+     * just flagged private, never folder-placed (no shared folder tree of
+     * its own to belong to).
+     */
+    ownerUserId?: string,
   ) {
-    await this.assertFolderInSameSpace(databaseId, input.folder_id);
+    if (ownerUserId) {
+      if (input.folder_id) throw new UnprocessableEntityException('A personal view cannot be placed in a folder.');
+    } else {
+      await this.assertFolderInSameSpace(databaseId, input.folder_id);
+    }
     // #181: default a Board's group-by to the database's workflow field when one
     // exists and the caller didn't pick one (validation then runs on the result).
     const live = await this.liveFields(databaseId);
     const config = defaultBoardGroupBy(input.type, input.config, live);
     await this.validateConfig(databaseId, input.type, config);
     const siblings = await this.db.query.views.findMany({
-      where: eq(views.databaseId, databaseId),
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
       columns: { position: true },
     });
     const [view] = await this.db
       .insert(views)
       .values({
         databaseId,
-        folderId: input.folder_id ?? null,
+        folderId: ownerUserId ? null : (input.folder_id ?? null),
         name: input.name,
         type: input.type,
         config,
         position: Math.max(-1, ...siblings.map((v) => v.position)) + 1,
         createdBy,
+        ownerUserId,
       })
       .returning();
     return view!;
+  }
+
+  /**
+   * #520 — create a view owned by the caller rather than shared. `createdBy`
+   * and `ownerUserId` are the same person: authorship and privacy happen to
+   * coincide for a personal view, but they're separate columns (createdBy is
+   * never a privacy signal — see the column's own doc comment in schema.ts).
+   */
+  async createPersonal(
+    databaseId: string,
+    input: { name: string; type: ViewType; config: ViewConfig },
+    ownerUserId: string,
+  ) {
+    return this.create(databaseId, input, ownerUserId, ownerUserId);
   }
 
   async update(
@@ -362,17 +619,53 @@ export class ViewsService {
     patch: { name?: string; config?: ViewConfig; position?: number; folder_id?: string | null },
   ) {
     const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
     if (patch.config) await this.validateConfig(databaseId, view.type, patch.config);
     await this.assertFolderInSameSpace(databaseId, patch.folder_id);
 
+    // #264 — `share` is service-owned (minted/cleared only by ViewsService's
+    // own `share`/`unshare`, never accepted from a client body — see the
+    // schema's own comment). `config` here REPLACES the row wholesale, so an
+    // ordinary filter/sort edit through today's UI — which knows nothing
+    // about `share` — would otherwise silently unpublish a shared view the
+    // moment anything else about it changed. Carried forward regardless of
+    // what `patch.config` contains.
+    //
+    // #713 — `form.public_token`/`form.access` need the SAME protection, but
+    // not the SAME mechanism: unlike `share` (minted server-side, immutable
+    // outside its own dedicated endpoint), a form's token is client-set on an
+    // ordinary PATCH (public-views.service.ts's own comment says so) — the
+    // form builder genuinely needs to keep writing `access`, and #711 needs
+    // `form.theme` writable too. So this is surgical, not wholesale:
+    //  - `patch.config.form` absent entirely (an unrelated edit — sorts,
+    //    columns, anything outside the form builder — that carries no `form`
+    //    key at all): the OLD `form` subtree is restored wholesale, same as
+    //    `share`. This is the actual reported bug — an ordinary table-view
+    //    edit wiped a form it never touched or knew existed.
+    //  - `patch.config.form` present (the form builder IS saving): trusted
+    //    as sent, EXCEPT `public_token`/`access` fall back to the old value
+    //    only when the incoming form object doesn't itself supply one — so
+    //    a deliberate revoke/regenerate (the caller DOES set access/token)
+    //    still works, matching this ticket's own AC #3.
+    const oldForm = (view.config as ViewConfig | null)?.form;
+    const form = patch.config?.form
+      ? {
+          ...patch.config.form,
+          public_token: patch.config.form.public_token ?? oldForm?.public_token,
+          access: patch.config.form.access ?? oldForm?.access,
+        }
+      : oldForm;
+    const config = patch.config
+      ? { ...patch.config, share: (view.config as ViewConfig | null)?.share, form }
+      : patch.config;
+
     const [updated] = await this.db
       .update(views)
       .set({
         name: patch.name,
-        config: patch.config,
+        config,
         position: patch.position,
         // #347: `undefined` leaves placement alone (drizzle skips it); an explicit
         // `null` moves the view back under its database. The two must stay
@@ -387,13 +680,13 @@ export class ViewsService {
   /** Clone a view with its full config, named "<name> copy", next to the original (MN-241). */
   async duplicate(databaseId: string, viewId: string) {
     const source = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!source) throw new NotFoundException('View not found');
 
     // Place right after the source; shift later siblings down to make room.
     const siblings = await this.db.query.views.findMany({
-      where: eq(views.databaseId, databaseId),
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
       columns: { id: true, position: true },
     });
     const target = source.position + 1;
@@ -423,7 +716,7 @@ export class ViewsService {
   /** Make a view the database's default; exactly one default per database (MN-241). */
   async setDefault(databaseId: string, viewId: string) {
     const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
 
@@ -441,20 +734,293 @@ export class ViewsService {
     });
   }
 
-  /** Every database keeps ≥1 view (C7). */
+  /**
+   * #293 — publish a personal view: it becomes an ordinary shared view,
+   * visible to everyone with database access, by clearing `ownerUserId`. Per
+   * personal-space.md this is a ONE-WAY move — coming back is
+   * `copyToPersonal` below, a fork with no sync, never un-publish. Only the
+   * view's own owner may publish it; publishing someone else's view isn't a
+   * capability anyone has, owner or not.
+   */
+  async publish(databaseId: string, viewId: string, callerId: string) {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+    if (!view.ownerUserId) throw new UnprocessableEntityException('This view is already shared.');
+    if (view.ownerUserId !== callerId) throw new ForbiddenException('Only the owner can publish this view.');
+    const [updated] = await this.db.update(views).set({ ownerUserId: null }).where(eq(views.id, viewId)).returning();
+    return updated!;
+  }
+
+  /**
+   * #293 — fork a shared view into the caller's own private copy ("Copy to My
+   * Space" — personal-space.md's answer to "publishing is one-way"). Delegates
+   * to `create` with `ownerUserId` set rather than re-deriving position/
+   * defaults a second time — the exact same clone shape `createPersonal`
+   * already gets for a from-scratch personal view.
+   */
+  async copyToPersonal(databaseId: string, viewId: string, ownerUserId: string) {
+    const source = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!source) throw new NotFoundException('View not found');
+    if (source.ownerUserId) throw new UnprocessableEntityException('This view is already personal.');
+    return this.create(
+      databaseId,
+      { name: `${source.name} copy`, type: source.type as ViewType, config: source.config as ViewConfig },
+      ownerUserId,
+      ownerUserId,
+    );
+  }
+
+  /**
+   * #567 — the access level DELETE .../views/:view must require. A personal
+   * view (`ownerUserId` set) deleted by its OWNER needs only viewer access on
+   * the database, matching what `createPersonal` already requires to make
+   * one — a viewer-only member who made their own private lens must be able
+   * to remove it without needing an editor to do it for them, which would
+   * defeat the point of it being private. Every other case (a shared view,
+   * or a personal view someone other than its owner is somehow trying to
+   * delete) is unchanged: editor.
+   */
+  async deleteAccessLevel(databaseId: string, viewId: string, callerId: string): Promise<'viewer' | 'editor'> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+      columns: { ownerUserId: true },
+    });
+    if (!view) throw new NotFoundException('View not found');
+    return view.ownerUserId === callerId ? 'viewer' : 'editor';
+  }
+
+  /**
+   * Every database keeps ≥1 SHARED view (C7). #453: soft-deletes rather than
+   * removing the row.
+   *
+   * #567 — "at least one view" is a promise about the database staying
+   * browsable for everyone, i.e. at least one SHARED view; a personal view
+   * is invisible to everyone but its owner (ADR-0017/#291) and was never
+   * part of that promise, so deleting one is never blocked by this count,
+   * and it is never a candidate for default-promotion below either.
+   */
   async remove(databaseId: string, viewId: string) {
-    const all = await this.db.query.views.findMany({ where: eq(views.databaseId, databaseId) });
+    const all = await this.db.query.views.findMany({
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
     const removed = all.find((v) => v.id === viewId);
     if (!removed) throw new NotFoundException('View not found');
-    if (all.length <= 1) throw new ConflictException('A database must keep at least one view');
-    await this.db.delete(views).where(eq(views.id, viewId));
-    // Keep exactly one default: if we removed the default, promote the first remaining view.
+    if (!removed.ownerUserId) {
+      const sharedCount = all.filter((v) => !v.ownerUserId).length;
+      if (sharedCount <= 1) throw new ConflictException('A database must keep at least one view');
+    }
+    await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
+    // Keep exactly one default: if we removed the default, promote the first remaining SHARED view.
     if (removed.isDefault) {
       const next = all
-        .filter((v) => v.id !== viewId)
-        .sort((a, b) => a.position - b.position)[0]!;
-      await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
+        .filter((v) => v.id !== viewId && !v.ownerUserId)
+        .sort((a, b) => a.position - b.position)[0];
+      if (next) await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
     }
     return { deleted: true };
+  }
+
+  /** #37 — deleted views on this database, for the trash view. Cascade-deleted
+   *  views (their database or space was deleted, not the view itself) belong
+   *  to the DATABASE's/SPACE's own restore, not here — this database's own
+   *  `assertDb` access check already 404s before reaching this method if the
+   *  database itself is currently deleted, so that case never surfaces here. */
+  async listTrash(databaseId: string) {
+    const rows = await this.db.query.views.findMany({
+      where: and(eq(views.databaseId, databaseId), isNotNull(views.deletedAt)),
+      orderBy: [desc(views.deletedAt)],
+    });
+    return rows.map((v) => ({ id: v.id, name: v.name, type: v.type, deleted_at: v.deletedAt }));
+  }
+
+  /** #37 — undo `remove()` above. A single view's own deletion is never
+   *  cascaded onto anything else, so restoring it is just clearing its own
+   *  `deletedAt` — no timestamp-matching needed (contrast
+   *  `restoreDatabaseCascade`, which restores several tables at once). */
+  async restore(databaseId: string, viewId: string) {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNotNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found in trash');
+    await this.db.update(views).set({ deletedAt: null }).where(eq(views.id, viewId));
+    return { restored: true, id: viewId };
+  }
+
+  /**
+   * #264 — publish (or re-configure) a view's public read-only link. Idempotent
+   * on the token: re-sharing an already-published view keeps the SAME token
+   * (a share dialog editing the allowlist must not invalidate a link someone
+   * already has) and just updates the allowlist/indexing.
+   *
+   * Only a database-owned view can be published — a dashboard (#306, no
+   * `databaseId`) has no single set of records or fields to allowlist, and
+   * "records via the view's own filter+sorts" (this ticket's whole mechanism)
+   * presupposes exactly one.
+   */
+  async share(
+    databaseId: string,
+    viewId: string,
+    input: {
+      visible_field_api_names?: string[];
+      include_relation_api_names?: string[];
+      indexable?: boolean;
+      recipient_scope_field_api_name?: string;
+    },
+  ): Promise<{ token: string }> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+    // #554 — a personal view (ownerUserId set) can NEVER be published, by
+    // anyone, including its own owner: personal space's whole premise
+    // (ADR-0017/#291) is invisibility to everyone else, and a public
+    // anonymous URL is a categorically stronger exposure than "visible only
+    // to me" — undermining the feature's promise even when the owner does it
+    // themselves. 404, not 403: a personal view is already invisible to
+    // everyone but its owner everywhere else in this codebase (it never
+    // appears in another member's view list), so this endpoint treats it the
+    // same way rather than confirming a personal view exists at this id.
+    if (view.ownerUserId) throw new NotFoundException('View not found');
+
+    const live = await this.liveFields(databaseId);
+    const liveApiNames = new Set(live.map((f) => f.apiName));
+    for (const name of input.visible_field_api_names ?? []) {
+      if (!liveApiNames.has(name)) {
+        throw new UnprocessableEntityException(`unknown field "${name}" in visible_field_api_names`);
+      }
+    }
+    const relationApiNames = new Set(live.filter((f) => f.type === 'relation').map((f) => f.apiName));
+    for (const name of input.include_relation_api_names ?? []) {
+      if (!relationApiNames.has(name)) {
+        throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
+      }
+    }
+    // #535 — the recipient-scope rule only makes sense against a relation (to
+    // e.g. a Clients database) or a text-ish field a recipient's email can
+    // match; anything else (a checkbox, a number, a computed field) has no
+    // sensible "does this recipient's identity equal this field" comparison.
+    if (input.recipient_scope_field_api_name) {
+      const scopeField = live.find((f) => f.apiName === input.recipient_scope_field_api_name);
+      if (!scopeField) {
+        throw new UnprocessableEntityException(`unknown field "${input.recipient_scope_field_api_name}" in recipient_scope_field_api_name`);
+      }
+      if (!['relation', 'text', 'email', 'title'].includes(scopeField.type)) {
+        throw new UnprocessableEntityException(
+          `"${input.recipient_scope_field_api_name}" (${scopeField.type}) cannot be a recipient-scope field — must be relation, text, email, or title`,
+        );
+      }
+    }
+
+    const currentConfig = (view.config ?? {}) as ViewConfig;
+
+    /*
+     * #555 — a board's grouping and a dashboard's tiles/widgets can reference
+     * fields the plain "visible columns" allowlist never named. Validate
+     * against the SAME allowlist `PublicViewsService.getPublicView` will
+     * actually enforce at read time (computed here from the resolutions THIS
+     * call is setting, not whatever was previously stored, so narrowing
+     * `visible_field_api_names` while leaving a now-stale board/dashboard
+     * reference is still caught) — enumerated explicitly rather than passing
+     * the whole config object through, per this ticket's own AC1.
+     *
+     * Rejecting the whole share() call (422) rather than silently dropping
+     * the reference: an owner who published a board grouped by a field they
+     * forgot to allowlist almost certainly wants that fixed, not a
+     * differently-shaped board they never asked for rendered in their place.
+     */
+    const byId = new Map(live.map((f) => [f.id, f]));
+    const { exposedApiNames } = computePublicFieldAllowlist(
+      live.map((f) => ({ id: f.id, api_name: f.apiName, type: f.type })),
+      {
+        hiddenFieldIds: currentConfig.hidden_field_ids,
+        explicitAllowlist: input.visible_field_api_names,
+        includeRelationApiNames: input.include_relation_api_names,
+        recipientScopeActive: Boolean(input.recipient_scope_field_api_name),
+      },
+    );
+
+    if (currentConfig.group_by_field_id) {
+      const groupField = byId.get(currentConfig.group_by_field_id);
+      if (!groupField || !exposedApiNames.has(groupField.apiName)) {
+        throw new UnprocessableEntityException(
+          `Board is grouped by "${groupField?.displayName ?? currentConfig.group_by_field_id}", which is not in the exposed fields — allowlist it or change the grouping before sharing`,
+        );
+      }
+    }
+
+    interface TileOrWidget {
+      database_id?: string;
+      field_api_name?: string;
+      group_by_field_api_name?: string;
+      measure?: { field_api_name?: string };
+      filter?: unknown;
+    }
+    const validateTileOrWidget = (kind: string, index: number, item: TileOrWidget) => {
+      // Cross-database tiles/widgets have no allowlist to check against at
+      // all — `getPublicView` presupposes exactly one database (the same
+      // reason it 404s a databaseless/space-owned view, above). Refused
+      // outright rather than silently dropped, so the owner discovers the
+      // gap at publish time instead of a recipient seeing an incomplete
+      // dashboard with no explanation.
+      if (item.database_id && item.database_id !== databaseId) {
+        throw new UnprocessableEntityException(
+          `${kind} ${index + 1} measures a different database and cannot be published — remove it or point it at this view's own database before sharing`,
+        );
+      }
+      const referenced = [item.field_api_name, item.group_by_field_api_name, item.measure?.field_api_name].filter(
+        (name): name is string => Boolean(name),
+      );
+      for (const name of referenced) {
+        if (!exposedApiNames.has(name)) {
+          throw new UnprocessableEntityException(
+            `${kind} ${index + 1} references "${name}", which is not in the exposed fields — allowlist it before sharing`,
+          );
+        }
+      }
+      // A tile/widget filter is scope, not display — but a filter on a hidden
+      // field is still an oracle over it (results change based on values a
+      // visitor is never shown), the same side-channel #469 was.
+      if (item.filter) assertFilterFieldsLive(item.filter, exposedApiNames);
+    };
+    (currentConfig.dashboard_tiles ?? []).forEach((tile, i) => validateTileOrWidget('Dashboard tile', i, tile));
+    (currentConfig.dashboard_widgets ?? []).forEach((widget, i) => validateTileOrWidget('Dashboard widget', i, widget));
+    // #228 — a summary widget's aggregate is the same kind of oracle over a
+    // hidden field #469 already worried about for tile/widget filters: even
+    // with no `filter` of its own, a widget summing a field that isn't
+    // exposed would leak that field's values to a public visitor through the
+    // number itself. Same validator, same reason.
+    (currentConfig.summary_widgets ?? []).forEach((widget, i) => validateTileOrWidget('Summary widget', i, widget));
+
+    const token = currentConfig.share?.public_token ?? randomBytes(24).toString('base64url');
+    const share = {
+      public_token: token,
+      visible_field_api_names: input.visible_field_api_names,
+      include_relation_api_names: input.include_relation_api_names ?? [],
+      indexable: input.indexable ?? false,
+      recipient_scope_field_api_name: input.recipient_scope_field_api_name,
+    };
+    await this.db.update(views).set({ config: { ...currentConfig, share } }).where(eq(views.id, viewId));
+    return { token };
+  }
+
+  /** #264 — revoke: the token stops resolving immediately (no cache, no grace window). */
+  async unshare(databaseId: string, viewId: string): Promise<{ unshared: true }> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+    // #554 — deliberately NOT gated on ownerUserId, unlike share() above:
+    // revoking is the safe direction (it only REMOVES exposure), and a
+    // personal view published before this fix shipped (or by some future
+    // bug) must stay revocable through the normal API rather than becoming
+    // permanently stuck — the ticket's own rollout step needs exactly this.
+    const config = { ...(view.config as ViewConfig) };
+    delete config.share;
+    await this.db.update(views).set({ config }).where(eq(views.id, viewId));
+    return { unshared: true };
   }
 }

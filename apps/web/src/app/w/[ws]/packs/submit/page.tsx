@@ -11,6 +11,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
  * The author flow's second step (MN-220): export an existing pack (#160's
@@ -143,7 +144,7 @@ export default function SubmitPackPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-10">
       <Link
         href={`/w/${ws}/packs`}
-        className="mb-4 flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+        className="mb-4 flex items-center gap-1 text-label text-muted hover:text-ink"
       >
         <ArrowLeft className="h-3 w-3" /> Business Packs
       </Link>
@@ -157,7 +158,7 @@ export default function SubmitPackPage() {
 
       {!manifest ? (
         <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-          <p className="text-[13px] font-semibold text-ink">1. Export</p>
+          <p className="text-body font-semibold text-ink">1. Export</p>
           <Field label="Space to export" hint="The exact name of the space in this workspace">
             <Input value={form.space} onChange={(e) => setForm({ ...form, space: e.target.value })} placeholder="Sales" />
           </Field>
@@ -175,8 +176,9 @@ export default function SubmitPackPage() {
             <Input value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} />
           </Field>
           <Field label="Summary">
-            <textarea
-              className="min-h-16 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-sm text-ink"
+            <Textarea
+              size="default"
+              className="min-h-16 w-full px-3 py-2 text-sm"
               value={form.summary}
               onChange={(e) => setForm({ ...form, summary: e.target.value })}
               placeholder="Leads and tasks with a pipeline board"
@@ -209,8 +211,8 @@ export default function SubmitPackPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-          <p className="text-[13px] font-semibold text-ink">2. Listing details</p>
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-canvas p-3 text-[12px] text-ink-secondary">
+          <p className="text-body font-semibold text-ink">2. Listing details</p>
+          <div className="rounded-[var(--radius-control)] border border-border-default bg-canvas p-3 text-label text-ink-secondary">
             <p className="font-medium text-ink">
               {manifest.name} v{manifest.version}
             </p>
@@ -237,8 +239,9 @@ export default function SubmitPackPage() {
             </select>
           </Field>
           <Field label="Screenshots" hint="One URL per line">
-            <textarea
-              className="min-h-20 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-sm text-ink"
+            <Textarea
+              size="default"
+              className="w-full px-3 py-2 text-sm"
               value={screenshots}
               onChange={(e) => setScreenshots(e.target.value)}
               placeholder={'https://example.com/screenshot-1.png'}
@@ -263,7 +266,7 @@ export default function SubmitPackPage() {
 
       {(submissions.data?.length ?? 0) > 0 && (
         <div className="mt-8">
-          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Your submissions</p>
+          <p className="mb-2 text-label font-semibold uppercase tracking-wider text-faint">Your submissions</p>
           <div className="flex flex-col gap-2">
             {submissions.data!.map((s) => (
               <div
@@ -271,17 +274,17 @@ export default function SubmitPackPage() {
                 className="flex flex-col gap-1 rounded-[var(--radius-card)] border border-border-default bg-card p-3"
               >
                 <div className="flex items-center justify-between">
-                  <p className="text-[13px] font-medium text-ink">
+                  <p className="text-body font-medium text-ink">
                     {s.name} v{s.version}
                   </p>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[s.status]}`}>
+                  <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${STATUS_STYLE[s.status]}`}>
                     {s.status}
                   </span>
                 </div>
-                <p className="text-[12px] text-muted">
+                <p className="text-label text-muted">
                   {s.vertical} · submitted {new Date(s.submitted_at).toLocaleDateString()}
                 </p>
-                {s.review_notes && <p className="text-[12px] text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>}
+                {s.review_notes && <p className="text-label text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>}
               </div>
             ))}
           </div>
@@ -296,7 +299,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <div className="flex flex-col gap-1">
       <Label>{label}</Label>
       {children}
-      {hint && <p className="text-[11px] text-faint">{hint}</p>}
+      {hint && <p className="text-meta text-faint">{hint}</p>}
     </div>
   );
 }

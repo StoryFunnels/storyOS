@@ -129,7 +129,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Scoping', color: 'gray' },
                 { label: 'Planning', color: 'blue' },
@@ -151,7 +151,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'State',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Triage', color: 'gray' },
                 { label: 'Backlog', color: 'gray' },
@@ -257,6 +257,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Tasks', values: { name: 'Write homepage copy (sample)', state: optionRef('Tasks', 'State', 'Triage') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -293,7 +294,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'State',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Triage', color: 'gray' },
                 { label: 'Backlog', color: 'gray' },
@@ -320,7 +321,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Draft', color: 'gray' },
                 { label: 'In Review', color: 'gold' },
@@ -353,7 +354,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'New', color: 'blue' },
                 { label: 'Accepted', color: 'green' },
@@ -448,6 +449,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Requests', values: { name: 'Add a pricing page (sample)', status: optionRef('Requests', 'Status', 'New'), requested_by: 'Client via email' } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -523,7 +525,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Planned', color: 'gray' },
                 { label: 'Active', color: 'green' },
@@ -542,7 +544,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Planned', color: 'gray' },
                 { label: 'In Progress', color: 'gold' },
@@ -565,7 +567,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
             },
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Draft', color: 'gray' },
                 { label: 'Agreed', color: 'green' },
@@ -658,6 +660,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Product Docs', values: { name: 'Sharing model spec (sample)', type: optionRef('Product Docs', 'Type', 'Spec'), status: optionRef('Product Docs', 'Status', 'Agreed') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -740,7 +743,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Planned', color: 'blue' },
                 { label: 'Running', color: 'gold' },
@@ -831,6 +834,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Topics', values: { name: 'Onboarding funnels (sample)', priority: optionRef('Topics', 'Priority', 'Now') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -866,7 +870,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Idea', color: 'gray' },
                 { label: 'Proposal', color: 'blue' },
@@ -905,7 +909,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
             { name: 'Source', type: 'url' },
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'To read', color: 'blue' },
                 { label: 'Processed', color: 'green' },
@@ -920,7 +924,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'State',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Triage', color: 'gray' },
                 { label: 'Backlog', color: 'gray' },
@@ -946,7 +950,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Wishlist', color: 'gray' },
                 { label: 'Pitched', color: 'blue' },
@@ -1046,6 +1050,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Appearances', values: { name: 'The Creative Pen podcast (sample)', status: optionRef('Appearances', 'Status', 'Pitched'), type: optionRef('Appearances', 'Type', 'Podcast') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -1082,7 +1087,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Discovery', color: 'gray' },
                 { label: 'Proposal', color: 'blue' },
@@ -1133,7 +1138,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'State',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Triage', color: 'gray' },
                 { label: 'Backlog', color: 'gray' },
@@ -1230,6 +1235,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Action Items', values: { name: 'Write the delegation list (sample)', state: optionRef('Action Items', 'State', 'To Do'), who: optionRef('Action Items', 'Who', 'Client') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 
@@ -1265,7 +1271,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Prospect', color: 'gray' },
                 { label: 'Active', color: 'green' },
@@ -1303,7 +1309,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'Status',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Kickoff', color: 'blue' },
                 { label: 'Active', color: 'green' },
@@ -1326,7 +1332,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           fields: [
             {
               name: 'State',
-              type: 'select',
+              type: 'workflow',
               options: [
                 { label: 'Triage', color: 'gray' },
                 { label: 'Backlog', color: 'gray' },
@@ -1420,6 +1426,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
         { database: 'Deliverables & Tasks', values: { name: 'Stakeholder interviews (sample)', state: optionRef('Deliverables & Tasks', 'State', 'In Progress') } },
       ],
       skills: [],
+      suggested_sources: [],
     },
   },
 ];

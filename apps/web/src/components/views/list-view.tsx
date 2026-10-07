@@ -7,11 +7,14 @@ import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS, optionColor } from '../table-view/cells';
+import { isNumberColumnHidden } from '../table-view/number-column';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
-import { CardFieldChip } from './board-view';
+import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
+import { arrangeBoardColumns } from './board-columns';
 import { canGroupListBy } from './groupable-fields';
+import { groupCountLabel } from './paginated-count';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { ViewQueryError } from './query-error';
@@ -47,6 +50,16 @@ export function ListView({
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.name])),
     [memberQuery.data],
   );
+  // #701 — the SAME decision table-view.tsx already makes via number-column.ts:
+  // the permanent record number defaults to hidden (#659) and is opt-in via
+  // Fields → Row gutter. This view was rendering `row.number` unconditionally
+  // (no hidden-check at all), so the toggle had no effect here — the same
+  // "one field, opposite defaults depending on which view type" defect #699's
+  // AC1 fixed for `id`.
+  const numberHidden = useMemo(() => {
+    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
+    return isNumberColumnHidden(config.hidden_field_ids, real?.id);
+  }, [config.hidden_field_ids, database.data]);
   const memberImages = useMemo(
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.image])),
     [memberQuery.data],
@@ -77,7 +90,7 @@ export function ListView({
       const v = (row.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
       (buckets.get(v) ?? buckets.get(NO_VALUE)!).push(row);
     }
-    return [
+    const columns = [
       ...(groupField.options ?? []).map((o) => ({
         id: o.id,
         label: o.label,
@@ -85,8 +98,23 @@ export function ListView({
         rows: buckets.get(o.id)!,
       })),
       { id: NO_VALUE, label: 'No value', color: OPTION_COLORS.gray!, rows: buckets.get(NO_VALUE)! },
-    ].filter((g) => g.rows.length > 0 || g.id !== NO_VALUE);
-  }, [groupField, rows]);
+    ];
+    /* #825 — the Groups controls in the toolbar (hide empty groups, hide the
+       no-value group, column order) were offered for every GROUPED view,
+       including this one, but this renderer never read them: a picker offering
+       what its renderer ignores. They now run through the SAME function the
+       board uses, so the two views cannot drift (field-surfaces.md). The list's
+       own older rule — an EMPTY no-value group is never drawn — is kept. */
+    return arrangeBoardColumns(
+      columns,
+      {
+        column_sort: config.column_sort,
+        hide_empty_groups: config.hide_empty_groups,
+        hide_empty_no_value_group: config.hide_empty_no_value_group,
+      },
+      { groupType: groupField.type, hasMore: Boolean(records.hasNextPage) },
+    ).filter((g) => g.rows.length > 0 || g.id !== NO_VALUE);
+  }, [groupField, rows, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, records.hasNextPage]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
@@ -128,8 +156,14 @@ export function ListView({
                     <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
                   </button>
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
-                  <span className="text-[12px] font-medium text-ink">{group.label}</span>
-                  <span className="text-[11px] text-faint">{group.rows.length}</span>
+                  <span className="text-label font-medium text-ink">{group.label}</span>
+                  {/* #755 — while more pages remain unloaded (records.hasNextPage),
+                      this group's row count is only a lower bound: Will Not Do read
+                      4 and held 63 on storyos/issues (740 records, page size 100).
+                      Same shared rule list-view.tsx and board-view.tsx both read. */}
+                  <span className="text-meta text-faint">
+                    {groupCountLabel(group.rows.length, Boolean(records.hasNextPage))}
+                  </span>
                 </div>
               )}
               {!isCollapsed && (
@@ -149,24 +183,39 @@ export function ListView({
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-                      {row.number !== null && <span className="w-8 shrink-0 text-[11px] tabular-nums text-faint">{row.number}</span>}
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title || 'Untitled'}</span>
-                      <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                        {cardFields.map((field) => {
-                          const value = row.values[field.apiName];
-                          if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) return null;
-                          return (
-                            <CardFieldChip key={field.id} field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
-                          );
-                        })}
-                      </span>
+                      {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="w-8 shrink-0 text-meta" />}
+                      {/* #787 (List artifact L3) — a floor the fields cannot push through.
+                          The title is the reason a list exists; before this, an unbounded
+                          shrink-0 chip row could squeeze it to near-nothing. */}
+                      <span className="min-w-[120px] flex-1 truncate text-body text-ink">{row.title || 'Untitled'}</span>
+                      {/* #787 (List artifact L2) — FIXED slots, not a wrapping row: each
+                          configured field gets the same width in the same order on every
+                          row, and an empty value leaves its slot empty rather than
+                          collapsing it. That's what makes the column scannable; before
+                          this, empty values were skipped entirely, so which field landed
+                          in which visual position drifted row to row. */}
+                      {cardFields.length > 0 && (
+                        <span className="flex shrink-0 flex-nowrap items-center gap-1">
+                          {cardFields.map((field) => {
+                            const value = row.values[field.apiName];
+                            const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
+                            return (
+                              <span key={field.id} className="flex w-[104px] shrink-0 justify-end overflow-hidden">
+                                {!empty && (
+                                  <CardFieldChip field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+                                )}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
                     </div>
                     );
                   })}
                   {!readOnly && (
                     <button
                       onClick={() => addIn(group.id)}
-                      className="flex w-full items-center gap-1.5 px-3 py-2 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-label text-muted hover:bg-hover hover:text-ink"
                     >
                       <Plus className="h-3.5 w-3.5" /> New
                     </button>
@@ -178,7 +227,7 @@ export function ListView({
         })}
         {records.hasNextPage && (
           <button
-            className="rounded px-2 py-1 text-[13px] text-info hover:bg-hover"
+            className="rounded px-2 py-1 text-body text-info hover:bg-hover"
             onClick={() => void records.fetchNextPage()}
             disabled={records.isFetchingNextPage}
           >

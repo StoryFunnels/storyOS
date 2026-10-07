@@ -47,6 +47,23 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `PLATFORM_ADMIN_EMAIL` | unset | on API boot, grants `/admin` access to this email if a matching user already signed up — otherwise logs a warning and retries next boot. Set it, sign up with that exact address first if you haven't, then restart the `api` container once. Manage further admins from `/admin` itself afterward rather than rotating this var. |
 | `MCP_OAUTH` | `false` | Turns the API into an OAuth authorization server for hosted-MCP connectors (MN-154), so a claude.ai/ChatGPT connector can sign in instead of pasting a PAT. **Read the ⚠️ warning in [Hosted MCP & OAuth](#hosted-mcp--oauth) before enabling** — it changes how the MCP endpoint challenges clients and can make existing PAT connections need reconnection. Requires the oidc tables migrated. |
 
+## Client portals (#708)
+
+Client portals (inviting an external, non-member recipient to a scoped view of your
+data) are gated by plan tier on StoryOS Cloud, same as every other paid-tier
+capability — but the never-paywalled-capability principle applies here exactly as
+it does everywhere else: **leave `STRIPE_SECRET_KEY` unset (the default) and every
+workspace is Free with billing off, and portal creation has no gate at all** — the
+same code path that checks plan tier on Cloud short-circuits to "allowed" the
+instant billing is disabled, before it ever asks what plan a workspace is on. A
+recipient never counts as a billable seat either way, on Cloud or self-hosted.
+
+If you set `STRIPE_SECRET_KEY` to run your own paid service on top of self-hosted
+StoryOS, portal creation is then gated by whichever plan tier your own Stripe price
+ids map a workspace to — the identical mechanism Cloud uses, not a separate rule,
+because you are at that point choosing to meter your own customers rather than
+running the free/self-host path.
+
 ## Hosted MCP & OAuth
 
 The hosted MCP endpoint (`packages/mcp`, served at e.g. `https://mcp.storyos.dev/mcp`)
@@ -171,7 +188,10 @@ to `latest`; pin `IMAGE_TAG=<git-sha>` in `.env` to deploy or roll back to a
 specific build. If the packages are private, run `docker login ghcr.io` once
 with a token that has `read:packages`. Analytics (`NEXT_PUBLIC_POSTHOG_*`) are
 baked into the published `web` image from the CI Actions *variables*, not from
-your host `.env`.
+your host `.env`. The `api` container has its own, separate analytics settings
+(`POSTHOG_PROJECT_TOKEN` and `POSTHOG_HOST`), read at runtime and **unset by
+default**: with either left blank the API sends no analytics at all, so a
+self-hosted instance reports nothing unless you choose to configure it.
 
 ## Backup & restore
 
@@ -224,3 +244,13 @@ model and restore order.
 ## The API
 
 Your instance serves its own docs at `{API_URL}/api/docs` and the raw spec at `{API_URL}/api/v1/openapi.json`. Create personal access tokens in the app under **API tokens** — see [api/guides/authentication.md](api/guides/authentication.md).
+
+### What commit is this deployment serving? (#553)
+
+`GET {API_URL}/api/v1/build-info` returns `commit_sha` and `build_time` for the running API process. **Deliberately unauthenticated**: a commit sha of this (public, AGPL) repository is not a secret, and the moments this is most needed are exactly when something is misconfigured and you aren't sure what you're talking to — requiring auth would defeat most of the value.
+
+There is also a bare `GET {API_URL}/` health check carrying the same two fields — but on a single-origin Caddy deployment (the bundled `docker-compose.yml`), that path is **not publicly reachable**: `docker/Caddyfile` only reverse-proxies `/api/*` to the API container, and bare `/` falls through to the web app's own catch-all instead. `/build-info` has no such exclusion, so it resolves under the same `/api/v1` prefix as every other API route and reaches the API container correctly through the proxy. The bare `/` health check still answers a *direct* hit to the API container's own port (e.g. from inside the compose network, or a split-origin deployment) — it just isn't the one to use through the public origin.
+
+Both values are baked into the Docker image at *build* time (`docker/api.Dockerfile`'s `GIT_SHA`/`BUILD_TIME` build args, set from the CI checkout in `build-images.yml`), never read from a deploy-time `.env`. That distinction is the point: if a deploy fails to actually replace the running container, the old container keeps reporting its own (correct, old) sha rather than whatever the deploy script most recently wrote to disk. A self-built image (not pulled from GHCR) that doesn't pass these build args will report `null` for both — never a fabricated value.
+
+The web app answers the same question for itself, independently, since it's a separate deployable and may be at a different commit: `GET {WEB_URL}/build-info` returns the identical `{commit_sha, build_time}` shape, baked into `docker/web.Dockerfile` the same way and for the same reason. It lives outside `/api/*` on purpose — that prefix is reverse-proxied to the API container, so a route under it would never reach the web process.

@@ -195,7 +195,7 @@ export class LinksController {
     @Param('field') field: string,
   ) {
     await this.assertDb(req, db);
-    return this.relationsService.listLinks(db, rec, field);
+    return this.relationsService.listLinks(db, rec, field, req.membership);
   }
 
   @Post()
@@ -220,6 +220,8 @@ export class LinksController {
       field,
       body.record_ids,
       req.user.id,
+      req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 
@@ -245,6 +247,8 @@ export class LinksController {
       field,
       body.record_ids,
       req.user.id,
+      req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 
@@ -270,6 +274,8 @@ export class LinksController {
       field,
       body.record_ids,
       req.user.id,
+      req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 }

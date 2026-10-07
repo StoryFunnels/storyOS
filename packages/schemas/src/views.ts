@@ -1,6 +1,49 @@
 import { z } from 'zod';
 import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
+import { systemFieldId } from './system-fields';
+
+/**
+ * #711 — a settable embed colour: `#rgb` or `#rrggbb`, nothing else.
+ *
+ * These values end up inside a `style` attribute on a PUBLIC, UNAUTHENTICATED
+ * page, so the shape is an allowlist rather than a sanity check. A hex literal
+ * cannot express `url(...)` (the exfiltration vector), cannot close the
+ * declaration and open another, and cannot reference another custom property.
+ * Anchored, so nothing can trail the value.
+ *
+ * Alpha is excluded deliberately, not forgotten — see the `theme` comment.
+ */
+export const hexColourSchema = z
+  .string()
+  .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Expected a hex colour such as #1c1917 or #abc');
+
+/**
+ * #720 — the embed's font control. An ENUM of self-hosted family keys, not a
+ * string: a free string would let an embedder name a family we do not carry,
+ * which fails silently to a fallback stack — the same class of bug the
+ * hex-only allowlist above was written to avoid. Each key is declared via
+ * `next/font/google` in apps/web/src/app/layout.tsx (build-time self-hosted,
+ * per the corrected docs/design/form-embed-theming-spec.md §4 — no runtime
+ * request to Google, so the LG München privacy concern that section raises
+ * does not apply to any of these).
+ *
+ * The set is the one recorded in that spec's §4 proposed table: eight
+ * registers, "closest match" rather than arbitrary. `figtree` reuses the
+ * app's OWN already-loaded font — zero extra bundle weight for the one
+ * option most embedders who like our defaults will pick.
+ */
+export const EMBED_FONT_FAMILIES = [
+  'inter',
+  'figtree',
+  'source-sans-3',
+  'dm-sans',
+  'source-serif-4',
+  'playfair-display',
+  'jetbrains-mono',
+] as const;
+export const embedFontFamilySchema = z.enum(EMBED_FONT_FAMILIES);
+export type EmbedFontFamily = z.infer<typeof embedFontFamilySchema>;
 
 export const viewTypeSchema = z.enum([
   'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
@@ -176,6 +219,46 @@ export const dashboardWidgetSchema = z.object({
 export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
 
 /**
+ * #228 — an inline summary widget strip above an ORDINARY view's records
+ * (table/board/gallery/list), not the separate `dashboard` view type. Reuses
+ * the exact same op vocabulary as dashboardTileSchema/dashboardWidgetSchema/
+ * rollupConfigSchema (count/sum/avg/min/max) — Otto's ruling on #228/#234 is
+ * that "sum" must not mean two different things in two different parts of
+ * the product, so this is the same enum, never a lookalike.
+ *
+ * Deliberately NARROWER than a dashboard tile/widget: no `filter` and no
+ * `database_id`. #228's AC1 is explicit that a summary widget's number must
+ * always match what's visible in the view beneath it — the view's own
+ * (and personal) filter, nothing else. A dashboard tile/widget's independent
+ * filter/database is exactly the degree of freedom this ticket's own AC
+ * rules out for this surface; adding it back would let a widget quietly
+ * stop matching the grid underneath it, which is the one thing #228 promises
+ * it won't do.
+ *
+ * No `layout` either — the AC asks for widgets to be "added, arranged, and
+ * removed", not placed on a free grid (that's #386's dashboard-only concern).
+ * Array position IS the display order.
+ */
+export const summaryWidgetSchema = z.object({
+  id: z.uuid(),
+  type: z.enum(['stat', 'bar', 'line', 'pie']),
+  title: z.string().trim().max(100).default(''),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+  /** Required for sum/avg/min/max; ignored for count. */
+  field_api_name: z.string().trim().min(1).max(100).optional(),
+  /**
+   * Required for bar/line/pie, ignored for stat. Restricted to select/
+   * workflow fields in the UI (see summary-widget-strip.tsx) — a v1 scope
+   * narrowing, not a schema one: grouping by an arbitrary date/text field is
+   * a real feature and a bigger one (bucketing rules, an unbounded value
+   * set), and nobody has asked for it. The schema itself places no such
+   * restriction, so widening this later is additive.
+   */
+  group_by_field_api_name: z.string().trim().min(1).max(100).optional(),
+});
+export type SummaryWidget = z.infer<typeof summaryWidgetSchema>;
+
+/**
  * A view is a SAVED PRESET: the client reads the config and sends the full
  * query to /records/query itself — the server stays dumb (MN-020 decision).
  * Filters/sorts reference fields by api_name (same AST as the query API);
@@ -192,7 +275,16 @@ export const viewConfigSchema = z.object({
    * i.e. the pre-MN-252 default, so old saved views compile unchanged.
    */
   sorts_nulls: nullsPlacementSchema.optional(),
-  hidden_field_ids: z.array(z.uuid()).default([]),
+  /**
+   * #659 — mostly real field-row uuids, but also the ONE synthetic system-field
+   * id (`__sys_number`, #289) the table's row gutter reads to decide whether to
+   * show the permanent record number. That id never backs a stored field row,
+   * so a plain `z.uuid()` here rejected it outright — the PATCH 422'd and
+   * `cleanViewConfig` would have stripped it back out on the very next read
+   * even if it hadn't. Both are fixed together; this schema fix is the one a
+   * new synthetic hideable id would need to repeat.
+   */
+  hidden_field_ids: z.array(z.union([z.uuid(), z.literal(systemFieldId('number'))])).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
   /**
@@ -236,6 +328,24 @@ export const viewConfigSchema = z.object({
   cover_field_id: z.uuid().optional(),
   /** Calendar only — the date field that places records on the grid (MN-051). */
   date_field_id: z.uuid().optional(),
+  /** #470 — day/week/month mode. Undefined = month, the only mode that
+   *  existed before this ticket. */
+  calendar_mode: z.enum(['month', 'week', 'day']).optional(),
+  /** #470 — optional END date field for a day/week event's height, mirroring
+   *  timeline's start/end pair below. Unset = a fixed client-computed default
+   *  duration, never stored. */
+  calendar_end_date_field_id: z.uuid().optional(),
+  /** #471 AC3 — the day/week grid's drag-snap and click-to-create granularity.
+   *  Undefined = 15, the increment #470 already hardcoded, so an existing
+   *  view's behaviour doesn't change just because this field now exists. */
+  calendar_increment_minutes: z.union([z.literal(10), z.literal(15), z.literal(30), z.literal(60)]).optional(),
+  /** #471 AC4/AC7 — collapse the day/week grid's rendered hour axis to this
+   *  window; the all-day row (AC5's territory) is NEVER affected by this —
+   *  a collapsed window hides hours, not records. Undefined = all 24 hours,
+   *  #470's only behaviour. `start < end`, both in [0, 24]. */
+  calendar_collapsed_hours: z
+    .object({ start: z.number().int().min(0).max(23), end: z.number().int().min(1).max(24) })
+    .optional(),
   /** Timeline (MN-092) — start (required) + optional end date field. */
   start_date_field_id: z.uuid().optional(),
   end_date_field_id: z.uuid().optional(),
@@ -262,6 +372,24 @@ export const viewConfigSchema = z.object({
    * way they scope tiles.
    */
   dashboard_widgets: z.array(dashboardWidgetSchema).default([]),
+  /**
+   * #228 — an ordinary view's OWN inline summary strip (distinct from the
+   * `dashboard` view type's tiles/widgets above): a small row of stat/chart
+   * cards above the records, scoped by this SAME view's filters/personal
+   * filter, nothing else. See summaryWidgetSchema's own comment for why this
+   * is a narrower shape than a dashboard tile/widget rather than reusing one.
+   */
+  summary_widgets: z.array(summaryWidgetSchema).default([]),
+  /**
+   * #233 — table view's inline hierarchy mode: nest rows under their parent
+   * via a self-referential relation on THIS database. Structural, not a name
+   * match on "Parent" — any one-to-many self-relation's single ("Parent")
+   * side qualifies, the same "single side of a one-to-many relation" test
+   * `boardGroupError` already uses for board grouping (#344 allows more than
+   * one self-relation per database, so this can't assume a single default).
+   * Unset = flat, today's behaviour, no migration for existing views.
+   */
+  hierarchy_field_id: z.uuid().optional(),
   /** Form (MN-094) — ordered inputs + presentation + optional public token. */
   form: z
     .object({
@@ -270,14 +398,57 @@ export const viewConfigSchema = z.object({
       submit_text: z.string().max(50).optional(),
       fields: z
         .array(
-          z.object({
-            field_id: z.uuid(),
-            required: z.boolean().optional(),
-            label: z.string().max(100).optional(),
-            help: z.string().max(500).optional(),
-            /** #263 — show this field only when an EARLIER answer matches. */
-            visible_when: formVisibilityRuleSchema.optional(),
-          }),
+          z
+            .object({
+              field_id: z.uuid(),
+              required: z.boolean().optional(),
+              label: z.string().max(100).optional(),
+              help: z.string().max(500).optional(),
+              /** #263 — show this field only when an EARLIER answer matches. */
+              visible_when: formVisibilityRuleSchema.optional(),
+              /** #500 — `required` above only bites when this also holds (or is
+               *  unset). Same rule shape and evaluator as `visible_when` — see
+               *  form-visibility.ts's header comment for why that's one shape, not two. */
+              required_when: formVisibilityRuleSchema.optional(),
+              /**
+               * #501 — a relation field's picker offered every record in its
+               * target database with no way to narrow it. Only meaningful for
+               * `type: 'relation'` fields (server ignores it otherwise); the
+               * SAME filter AST every view's `filters` already uses, compiled
+               * against the relation's TARGET database (not this form's own
+               * database) at query time — see forms.service.ts.
+               */
+              relation_filter: filterSchema.optional(),
+              /**
+               * #716 — never rendered to the visitor; `value` is stamped onto
+               * every record this form creates, server-side, from stored
+               * config only (never accepted from the submission body — see
+               * forms.service.ts's `submit()`). Kept in this SAME fields
+               * array rather than a separate "stamps" map deliberately: a
+               * second map would split "what does this form write" into two
+               * places that have to agree, exactly the class of drift #713
+               * (config.share vs config.form) and #718 (MCP rebuilding
+               * config.form from create-time defaults) both were.
+               *
+               * Field-type-aware validation (relation target exists in the
+               * right database; select/workflow value is a real option id;
+               * text is a string) happens server-side at SAVE time — see
+               * views.service.ts's `validateConfig` — not here, since this
+               * schema has no live field-type context to validate against.
+               */
+              hidden: z.boolean().optional(),
+              /** The fixed value — shape depends on the live field's type,
+               *  validated at save time. Absent/undefined on a hidden field
+               *  is legal (mid-configuration; stamps nothing). */
+              value: z.unknown().optional(),
+            })
+            /** #716 AC2 — `hidden` (never shown to anyone) and `visible_when`
+             * (conditionally shown) are different concepts; a field carrying
+             * both is a configuration error, rejected here rather than left
+             * to an undefined precedence at render/submit time. */
+            .refine((f) => !(f.hidden && f.visible_when), {
+              message: 'a field cannot be both hidden and conditionally visible (visible_when) — pick one',
+            }),
         )
         .default([]),
       public_token: z.string().max(64).optional(),
@@ -287,6 +458,87 @@ export const viewConfigSchema = z.object({
       /** Shown after a successful submit; optional redirect instead. */
       success_message: z.string().max(500).optional(),
       redirect_url: z.string().url().max(500).optional(),
+      /**
+       * #711 phase 1 — how an EMBEDDED form should look on the host's page.
+       *
+       * Stored HERE rather than passed on the iframe URL (AC1, amended): with
+       * URL parameters, changing one colour means the customer goes back into
+       * their CMS and re-pastes the iframe. Stored on the form, they change it
+       * once and every existing embed updates. They restyle many times and
+       * paste the iframe once.
+       *
+       * FOUR CONTROLS, NOT EIGHTEEN TOKENS. The form uses 18 distinct tokens;
+       * exposing 18 is a stylesheet, not a design. Everything else derives —
+       * see docs/design/form-embed-theming-spec.md §1 and the web-side
+       * `embedThemeStyle`. Two tokens are deliberately NOT settable here:
+       * `--text-on-dark` (the submit button's LABEL — a pale accent plus white
+       * text makes the form's primary action unreadable, so it is derived with
+       * a 4.5:1 floor) and `--error` (semantic, not brand: a host whose brand
+       * is red would otherwise make validation indistinguishable from submit).
+       *
+       * HEX ONLY, and 6- or 3-digit only. No alpha: a translucent `text` or
+       * `surface` composites against whatever the host put behind the iframe,
+       * which we cannot see or reason about, so the contrast floors below it
+       * would be computed against a colour that is not what the visitor sees.
+       * These values come from colour pickers in the builder (AC4 — an
+       * embedder never hand-writes this), and a picker emits hex.
+       *
+       * Absent = emit nothing at all, NOT defaults. See §2 of the spec: an
+       * unthemed embed must stay byte-identical, not merely look the same.
+       */
+      theme: z
+        .object({
+          /** Submit button, focus ring. Derives `--primary`, `--accent`, `--text-on-dark`. */
+          accent: hexColourSchema.optional(),
+          /** The INPUT surface (the card is gone in embed mode, #711 phase 0).
+           *  Derives `--bg-card`, `--bg-hover`, `--border-default`, `--border-strong`. */
+          surface: hexColourSchema.optional(),
+          /** Derives the whole `--text-*` hierarchy by mixing toward `surface`. */
+          text: hexColourSchema.optional(),
+          /** Control radius in px. The other radii derive multiplicatively. */
+          radius: z.number().int().min(0).max(16).optional(),
+          /** #720 — closed set, self-hosted. Absent = today's own Figtree,
+           *  same "emit nothing" rule as the colours above. */
+          font: embedFontFamilySchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  /**
+   * Public read-only sharing (#264) — mirrors `form` above: presence of
+   * `public_token` is what makes a view reachable at `GET /public/views/:token`,
+   * minted/cleared only through `POST`/`DELETE .../views/:view/share` (never
+   * hand-set through the ordinary view PATCH, unlike a form's token — publishing
+   * a view is a deliberate act with an explicit field/relation allowlist, not a
+   * value a client could accidentally carry over from a duplicate).
+   *
+   * `visible_field_api_names` undefined = the view's own non-hidden fields
+   * (`hidden_field_ids`, inverted) — EXCEPT a computed field (rollup/formula/
+   * lookup), which is never exposed by that default: a rollup/formula can read
+   * data the public visitor cannot see, so it is opt-in only, requires an
+   * EXPLICIT allowlist that names it. `include_relation_api_names` defaults to
+   * empty on purpose — the whole point of this ticket is that related records do
+   * NOT travel unless the publisher says so.
+   */
+  share: z
+    .object({
+      public_token: z.string().max(64).optional(),
+      visible_field_api_names: z.array(z.string()).optional(),
+      include_relation_api_names: z.array(z.string()).default([]),
+      indexable: z.boolean().default(false),
+      /**
+       * #535 — the field a resolving portal recipient's rows must match. A
+       * relation field compares against the recipient's `linked_record_id`; a
+       * text/email field compares against the recipient's `email`. Presence of
+       * this key is what turns a public view into a recipient-scoped portal —
+       * every request then REQUIRES a valid `?recipient=` token (fail closed:
+       * see public-views.service.ts), and every relation/lookup/rollup/formula
+       * field is suppressed outright regardless of `include_relation_api_names`
+       * or `visible_field_api_names` (the #469-regression rule: a rollup or a
+       * relation traversal must never become an oracle over out-of-scope rows,
+       * so none of them is exposed at all rather than trying to scope each one).
+       */
+      recipient_scope_field_api_name: z.string().optional(),
     })
     .optional(),
   /**
@@ -301,6 +553,9 @@ export const viewConfigSchema = z.object({
       z.number().finite().transform((v) => Math.min(1200, Math.max(40, Math.round(v)))),
     )
     .default({}),
+  /** #739 T8 — table row density, three steps on the 4px grid. Undefined = 32,
+   *  the pre-#739 hardcoded height. */
+  row_height: z.union([z.literal(28), z.literal(32), z.literal(40)]).optional(),
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;
 
@@ -319,7 +574,7 @@ const folderIdSchema = z.string().uuid().nullable().optional();
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(100),
   type: viewTypeSchema,
-  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], column_widths: {} }),
+  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], summary_widgets: [], column_widths: {} }),
   folder_id: folderIdSchema,
 });
 

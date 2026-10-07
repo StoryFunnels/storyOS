@@ -154,6 +154,24 @@ describe('activity (MN-027)', () => {
     expect(update.actor.name).toBe('Olena');
   });
 
+  /**
+   * #481 criterion 1 — the assumption the whole feature rests on, checked
+   * against the real API rather than assumed: a write made through an
+   * ordinary session (a person at a keyboard, admin.token throughout this
+   * file) really does record source 'human' — on BOTH record.created and
+   * record.updated, the two events #481 added the column for.
+   */
+  it('#481: a session-authenticated write records source "human" on create AND update', async () => {
+    const res = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}/activity`, admin.token);
+    const events = res.json().data as Array<{ type: string; source?: string | null }>;
+    const created = events.find((e) => e.type === 'record.created');
+    const updated = events.find((e) => e.type === 'record.updated');
+    expect(created?.source, 'record.created must carry a source at all — #481 added it where there was none').toBe(
+      'human',
+    );
+    expect(updated?.source).toBe('human');
+  });
+
   it('is not writable via the API', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${recId}/activity`, admin.token, {});
     expect([404, 405]).toContain(res.statusCode);
@@ -216,11 +234,14 @@ describe('personal access tokens (MN-028)', () => {
     );
     expect(res.statusCode, res.body).toBe(200);
 
-    const created = (res.json().data as Array<{ type: string; actor?: { id: string; name: string } | null }>).find(
-      (e) => e.type === 'record.created',
-    );
+    const created = (
+      res.json().data as Array<{ type: string; actor?: { id: string; name: string } | null; source?: string | null }>
+    ).find((e) => e.type === 'record.created');
     expect(created, 'the PAT write must leave a record.created event').toBeTruthy();
     expect(created!.actor?.id, 'a PAT acts AS its owner — not as nobody, not as the token').toBe(memberId);
+    // #481 — an ordinary PAT with no origin set reads as 'mcp' (auth.guard.ts),
+    // the pre-#357 behaviour: "a program wrote this, not a person typing".
+    expect(created!.source).toBe('mcp');
 
     // …and the owner is the member, not the admin who reads the trail.
     const me = await app.inject({

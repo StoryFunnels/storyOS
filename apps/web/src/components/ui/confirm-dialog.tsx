@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import type { ReactNode } from 'react';
 import { Dialog, DialogContent } from './dialog';
 import { Button } from './button';
+import { Input } from './input';
+import { TypedConfirmName } from './typed-confirm-name';
 
 interface ConfirmOptions {
   title: string;
@@ -62,18 +64,28 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Dialog open={opts !== null} onOpenChange={(open) => !open && settle(false)}>
         {opts && (
           <DialogContent title={opts.title}>
-            {opts.message && <p className="mb-5 text-[13px] leading-relaxed text-muted">{opts.message}</p>}
+            {opts.message && <p className="mb-5 text-body leading-relaxed text-muted">{opts.message}</p>}
             {opts.requireTyped && (
-              <label className="mb-5 block text-[13px] text-ink-secondary">
-                Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
-                <input
+              <div className="mb-5">
+                <div className="mb-2">
+                  <TypedConfirmName name={opts.requireTyped} />
+                </div>
+                <Input
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   aria-label={`Type ${opts.requireTyped} to confirm`}
-                  className="mt-1.5 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  size="sm"
+                  className="w-full"
+                  autoComplete="off"
                 />
-              </label>
+                {/* #801 — a non-matching non-empty attempt must say so; the button
+                    silently staying disabled gave no signal a case/space mismatch
+                    was the reason. */}
+                {typed.trim().length > 0 && typed.trim() !== opts.requireTyped.trim() && (
+                  <p className="mt-1.5 text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+                )}
+              </div>
             )}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => settle(false)}>
@@ -86,7 +98,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                    destructive button and letting Enter fire it would undo the
                    whole point of asking. */
                 autoFocus={!opts.requireTyped}
-                disabled={Boolean(opts.requireTyped) && typed !== opts.requireTyped}
+                disabled={Boolean(opts.requireTyped) && typed.trim() !== (opts.requireTyped ?? '').trim()}
                 onClick={() => settle(true)}
               >
                 {opts.confirmLabel ?? 'Confirm'}

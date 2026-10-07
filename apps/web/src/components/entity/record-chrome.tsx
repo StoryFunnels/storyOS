@@ -4,11 +4,13 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Copy, CopyPlus, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { Bot, Copy, CopyPlus, Eye, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,23 +23,43 @@ import { AddFieldDialog } from '@/components/table-view/add-field-dialog';
 import { FieldsMenu } from '@/components/views/fields-menu';
 import type { Field } from '@/components/table-view/use-table-data';
 import { useFavorites } from '@/components/sidebar';
+import { CopyToDialog } from './copy-to-dialog';
+import { RecordHistoryDialog } from './record-history';
+import { useWatchers } from './panels';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
+import { Tooltip } from '@/components/ui/tooltip';
 
 /**
  * One uniform header icon-button (#197) — every control in the record header's
  * right-side cluster (Star, Fields, Actions, Copy link, and the split-panel
  * Collapse/Maximize/Close) shares this so they line up as equal-weight squares
- * with a consistent hover background. Pair it with a `title=` tooltip.
+ * with a consistent hover background. Wrap it in `<Tooltip>` (#807) — never a native `title=`.
  */
 export const HEADER_ICON_BTN =
   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-hover hover:text-ink';
 
-/** Copy the current record's URL — the single source of truth reused by the
- * always-visible header chain button and the "Copy link" menu item (#197). */
-async function copyRecordLink() {
+/** A record identity as `recordHref` needs it — the fields `CopyLinkButton`/
+ *  `RecordActions` already have in scope, never a second fetch. */
+type RecordIdentity = { id: string; title?: string | null; number?: number | null };
+
+/**
+ * Copy the current record's URL — the single source of truth reused by the
+ * always-visible header chain button and the "Copy link" menu item (#197).
+ *
+ * #772 — this used to be `navigator.clipboard.writeText(window.location.href)`,
+ * which copies the ADDRESS BAR rather than a link built from the record. That
+ * is only correct when the address bar already names the record, and it does
+ * not always: split-screen-host.tsx renders a record in a pane beside a LIST
+ * (a database view, My Work, search results) without ever pushing a record
+ * URL, so copying from a record opened that way copied the LIST's link
+ * instead. Building the URL from `recordHref` — the same pretty-URL helper
+ * every other record link in the app already uses (MN-087) — is correct
+ * regardless of which URL happens to be in the address bar.
+ */
+async function copyRecordLink(ws: string, db: string, rec: RecordIdentity) {
   try {
-    await navigator.clipboard.writeText(window.location.href);
+    await navigator.clipboard.writeText(`${window.location.origin}${recordHref(ws, db, rec)}`);
     toast.success('Link copied');
   } catch {
     toast.error('Could not copy link');
@@ -46,17 +68,18 @@ async function copyRecordLink() {
 
 /** Always-visible copy-link (chain) button sitting by the record title (#197) —
  * one click puts the shareable record URL on the clipboard. */
-export function CopyLinkButton() {
+export function CopyLinkButton({ ws, db, rec }: { ws: string; db: string; rec: RecordIdentity }) {
   return (
-    <button
-      type="button"
-      title="Copy link"
-      aria-label="Copy link to this record"
-      onClick={() => void copyRecordLink()}
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
-    >
-      <Link2 className="h-4 w-4" />
-    </button>
+    <Tooltip label="Copy link">
+      <button
+        type="button"
+        aria-label="Copy link to this item"
+        onClick={() => void copyRecordLink(ws, db, rec)}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
+      >
+        <Link2 className="h-4 w-4" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -70,11 +93,11 @@ export function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; fiel
     field.config?.['entity_hidden'] === true || AUDIT_TYPES.has(field.type) ? '' : ' (empty)';
   return (
     <div className="flex min-h-7 items-center justify-between py-0.5">
-      <span className="truncate text-[12px] text-faint">
+      <span className="truncate text-label text-faint">
         {field.displayName}
         {reason}
       </span>
-      <button className="text-[12px] text-info underline-offset-2 hover:underline" onClick={reveal}>
+      <button className="text-label text-info underline-offset-2 hover:underline" onClick={reveal}>
         Show
       </button>
     </div>
@@ -87,7 +110,7 @@ export function AddFieldRow({ ws, db }: { ws: string; db: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-1.5 py-1 text-[12px] text-faint hover:text-ink">
+        <button className="flex items-center gap-1.5 py-1 text-label text-faint hover:text-ink">
           <Plus className="h-3.5 w-3.5" /> New field
         </button>
       </DialogTrigger>
@@ -119,14 +142,35 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['favorites', ws] }),
   });
   return (
-    <button
-      onClick={() => toggle.mutate()}
-      title={starred ? 'Unstar' : 'Star'}
-      aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
-      className={HEADER_ICON_BTN}
-    >
-      <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
-    </button>
+    <Tooltip label={starred ? 'Unstar' : 'Star'}>
+      <button
+        onClick={() => toggle.mutate()}
+        aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
+        className={HEADER_ICON_BTN}
+      >
+        <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
+      </button>
+    </Tooltip>
+  );
+}
+
+/** #780 — a header-level Watch toggle, matching the design artifact's header
+ * icon cluster. Reuses `useWatchers` (panels.tsx), previously only called
+ * from the About tab — same fetch/mutation, not a second implementation. */
+export function WatchButton({ ws, db, rec }: { ws: string; db: string; rec: string }) {
+  const { query, toggle } = useWatchers(ws, db, rec);
+  const watching = query.data?.watching ?? false;
+  return (
+    <Tooltip label={watching ? 'Unwatch' : 'Watch'}>
+      <button
+        onClick={() => toggle.mutate(!watching)}
+        disabled={toggle.isPending}
+        aria-label={watching ? 'Stop watching this item' : 'Watch this item for changes'}
+        className={HEADER_ICON_BTN}
+      >
+        <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -134,14 +178,24 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
 export function RecordActions({
   ws,
   db,
+  dbName,
   rec,
+  recTitle,
+  recNumber,
+  fields,
   readOnly,
   canCreate,
   isAdmin,
 }: {
   ws: string;
   db: string;
+  dbName: string;
   rec: string;
+  /** #772 — for the pretty record URL (recordHref); undefined only while the
+   *  record is still loading, in which case the id alone still resolves. */
+  recTitle?: string | null;
+  recNumber?: number | null;
+  fields: Field[];
   readOnly: boolean;
   canCreate: boolean;
   /** #44: delegate-to-agent rides AgentsController's existing admin-only gate. */
@@ -185,19 +239,26 @@ export function RecordActions({
   });
 
   const [delegateOpen, setDelegateOpen] = useState(false);
+  const [copyToOpen, setCopyToOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className={HEADER_ICON_BTN} title="Actions" aria-label="Record actions">
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
+        {/* Tooltip OUTSIDE the trigger: a Radix `asChild` trigger must wrap the
+            real button directly, or it clones a non-DOM component and the menu
+            never opens. */}
+        <Tooltip label="Actions">
+          <DropdownMenuTrigger asChild>
+            <button className={HEADER_ICON_BTN} aria-label="Item actions">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tooltip>
         <DropdownMenuContent align="end">
           {/* This record — everyday, non-destructive actions (#197). */}
-          <DropdownMenuLabel>This record</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => void copyRecordLink()}>
+          <DropdownMenuLabel>This item</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => void copyRecordLink(ws, db, { id: rec, title: recTitle, number: recNumber })}>
             <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
           </DropdownMenuItem>
           {canCreate && (
@@ -205,6 +266,12 @@ export function RecordActions({
               <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem onSelect={() => setCopyToOpen(true)}>
+            <FolderInput className="mr-2 h-3.5 w-3.5" /> Copy to…
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+            <History className="mr-2 h-3.5 w-3.5" /> History
+          </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem onSelect={() => setDelegateOpen(true)}>
               <Bot className="mr-2 h-3.5 w-3.5" /> Delegate to agent
@@ -225,6 +292,19 @@ export function RecordActions({
         </DropdownMenuContent>
       </DropdownMenu>
       {isAdmin && <DelegateToAgentDialog ws={ws} db={db} rec={rec} open={delegateOpen} onOpenChange={setDelegateOpen} />}
+      <CopyToDialog ws={ws} db={db} dbName={dbName} recordIds={[rec]} open={copyToOpen} onOpenChange={setCopyToOpen} />
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        {historyOpen && (
+          <RecordHistoryDialog
+            ws={ws}
+            db={db}
+            rec={rec}
+            fields={fields}
+            readOnly={readOnly}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
+      </Dialog>
     </>
   );
 }
@@ -305,12 +385,12 @@ function DelegateToAgentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Delegate to agent">
         <div className="flex flex-col gap-4">
-          <p className="text-[13px] text-muted">
+          <p className="text-body text-muted">
             The agent runs with this record as its context, through the same tool catalog a manual run uses, and
             posts its outcome back here as a comment.
           </p>
           {!pack.data?.exists ? (
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               Agents aren&apos;t enabled yet — enable them from{' '}
               <a href={`/w/${ws}/settings/integrations/delegate-agent`} className="text-accent hover:underline">
                 Integrations → Delegate to agent
@@ -318,12 +398,15 @@ function DelegateToAgentDialog({
               , then create at least one enabled agent record.
             </p>
           ) : (agents.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-ink-secondary">
+            <p className="text-body text-ink-secondary">
               No enabled agents yet — create one in the Agents database, or enable an existing one.
             </p>
           ) : (
-            <select
-              className="h-8 rounded border border-border-default bg-card px-2 text-[13px] text-ink"
+            // #717 — was bare `rounded` (4px), the same token bypass #688
+            // called "almost certainly an oversight"; now the shared
+            // `--radius-control` token like every other migrated control.
+            <Select
+              size="sm"
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
               autoFocus
@@ -336,7 +419,7 @@ function DelegateToAgentDialog({
                   {a.title}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           <div className="flex justify-end gap-2">
             <DialogClose asChild>

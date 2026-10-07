@@ -27,7 +27,7 @@ export function IntegrationSetupGuide({
       )}
       aria-label={title}
     >
-      <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted">{title}</h2>
+      <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{title}</h2>
       <ol className="mt-3 grid gap-2 sm:grid-flow-col sm:auto-cols-fr">
         {steps.map((step, index) => {
           const state = states[index];
@@ -45,7 +45,7 @@ export function IntegrationSetupGuide({
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-meta font-semibold',
                     state === 'current' && 'bg-primary text-[var(--text-on-dark)]',
                     state === 'complete' && 'bg-accent-soft text-ink',
                     state === 'upcoming' && 'bg-hover text-muted',
@@ -53,9 +53,9 @@ export function IntegrationSetupGuide({
                 >
                   {state === 'complete' ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
                 </span>
-                <p className="text-[12px] font-semibold text-ink">{step.label}</p>
+                <p className="text-label font-semibold text-ink">{step.label}</p>
                 {state === 'current' && (
-                  <span className="ml-auto rounded-full bg-card px-2 py-0.5 text-[10px] font-medium text-ink">
+                  <span className="ml-auto rounded-full bg-card px-2 py-0.5 text-micro font-medium text-ink">
                     Next
                   </span>
                 )}

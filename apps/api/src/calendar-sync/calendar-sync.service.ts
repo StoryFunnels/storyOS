@@ -435,6 +435,8 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
           input,
           binding.createdBy ?? 'calendar-sync',
           INBOUND_SYNC_DEPTH,
+          // #481 — an inbound Google Calendar sync, never a person typing.
+          'automation',
         );
       } else {
         const created = await this.recordsService.create(
@@ -443,6 +445,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
           input,
           binding.createdBy,
           INBOUND_SYNC_DEPTH,
+          'automation',
         );
         record = await this.db.query.records.findFirst({ where: eq(records.id, created.id) });
       }

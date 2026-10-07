@@ -98,3 +98,40 @@ export function withWorkspaceDismissed(dismissedWorkspaces: string[] | undefined
   const current = dismissedWorkspaces ?? [];
   return current.includes(ws) ? current : [...current, ws];
 }
+
+/**
+ * #723 — the floor for "this workspace is established", i.e. showing its home
+ * page live work instead of a wall of templates.
+ *
+ * SIX is the first database count a single template install cannot reach: the
+ * largest template (agency) creates five, so six means somebody built something
+ * beyond one click. Decided here rather than left as a TODO — a threshold
+ * marked "tune later" never gets tuned.
+ */
+export const ESTABLISHED_DATABASE_FLOOR = 6;
+
+/**
+ * Deliberately conservative. A false negative costs a returning user one extra
+ * look at a template link; a false positive shows three empty boxes to someone
+ * who signed up a minute ago, which is worse than the empty space #723 exists
+ * to fix. So all three must hold, and each is evidence of real use:
+ *
+ * - every activation step done — note `isActivationComplete`, NOT
+ *   `!shouldShowChecklist`, which is also false when the user merely DISMISSED
+ *   the checklist. Dismissing the getting-started list is not evidence of an
+ *   established workspace. It is false while `/onboarding` is still in flight
+ *   too (no steps yet), so the blocks cannot flash in during load.
+ * - zero sample records left — sample data is the signature of a fresh install.
+ * - more databases than one template install creates.
+ */
+export function isEstablishedWorkspace(
+  steps: ActivationStep[],
+  sampleCount: number,
+  databaseCount: number,
+): boolean {
+  return (
+    isActivationComplete(steps) &&
+    sampleCount === 0 &&
+    databaseCount >= ESTABLISHED_DATABASE_FLOOR
+  );
+}

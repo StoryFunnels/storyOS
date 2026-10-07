@@ -1,5 +1,11 @@
 /**
- * Warm-tuned chip colours (docs/design/design-system.md).
+ * The select-option colour table — the SOURCE OF TRUTH for chip colour.
+ *
+ * It used to say "warm-tuned chip colours (docs/design/design-system.md)". That
+ * was false in both halves: these are stock Tailwind 600/500, and the doc listed
+ * ten different hex values, not one of which matched what shipped (ticket #639).
+ * Nothing reads the doc at build time, so the drift was silent for months. The
+ * doc now points HERE and derives its list from this table; keep it that way.
  *
  * A LEAF module, deliberately: it imports nothing, so importing it can never
  * start a cycle. This table used to live in `cells.tsx`, which imports

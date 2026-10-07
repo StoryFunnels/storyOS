@@ -77,7 +77,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div
         role="alert"
-        className="m-2 rounded-[var(--radius-control)] border border-border-default bg-card p-3 text-[13px] text-muted"
+        className="m-2 rounded-[var(--radius-control)] border border-border-default bg-card p-3 text-body text-muted"
       >
         <div className="flex items-center gap-2 font-medium text-ink">
           <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
@@ -89,7 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <button
           type="button"
           onClick={this.retry}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink hover:bg-hover"
+          className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink hover:bg-hover"
         >
           <RotateCw className="h-3.5 w-3.5" /> Try again
         </button>

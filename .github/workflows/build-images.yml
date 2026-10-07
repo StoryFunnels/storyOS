@@ -21,18 +21,95 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # #793 — which of the three services a push actually touches, so an
+  # unchanged one is RE-TAGGED onto the new sha (a registry-side manifest
+  # copy, seconds) instead of rebuilt from scratch. Every commit still gets
+  # all three sha tags — docker-compose.prod.yml pins IMAGE_TAG for all three,
+  # so a missing one breaks both deploy and the "re-run an older workflow run"
+  # rollback story this file's own header describes. See the script's own doc
+  # for why an unresolvable diff (workflow_dispatch, a missing `before`)
+  # rebuilds everything rather than guessing.
+  changes:
+    name: which services changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      web: ${{ steps.changes.outputs.web }}
+      mcp: ${{ steps.changes.outputs.mcp }}
+      services: ${{ steps.changes.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        env:
+          DOCKER_DIFF_BASE: ${{ github.event.before }}
+        run: node scripts/docker-inputs-changed.mjs
+
   build:
     name: ${{ matrix.service }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    needs: changes
+    # An EMPTY services array is a valid outcome — a push that touches only
+    # workflows, docs or tests changes no image input. But `fromJSON('[]')` in
+    # strategy.matrix is not: Actions cannot generate a combination, refuses to
+    # create the job, and marks the whole RUN failed. `merge` then skips on
+    # `needs: build`, so the re-tag never runs and the commit gets no image at
+    # all — the same end state as the include bug this file was just fixed for.
+    # Observed on f795406, the merge of that very fix: services=[], zero build
+    # jobs, merge and deploy skipped, run red.
+    #
+    # A job-level `if` is evaluated BEFORE the matrix is expanded, so this skips
+    # the job cleanly instead. A skip is not a failure, so `merge`'s
+    # `always() && !failure()` still runs and re-tags all three services onto
+    # the new sha — which is exactly what an image-input-free commit needs.
+    if: needs.changes.outputs.services != '[]'
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write # push to ghcr.io via the built-in GITHUB_TOKEN
     strategy:
       fail-fast: false
+      # NOTE: `env` is NOT available here — strategy.matrix is expanded when the
+      # workflow is PARSED, before any job or step runs, so only github/needs/
+      # vars/inputs resolve in this block (#614). A dynamic value (like
+      # BUILD_TIME below, set by a step) belongs on the build step's
+      # `build-args`, concatenated with this matrix's static `build_args` — not
+      # in the matrix itself. Referencing `env` here makes the whole workflow
+      # invalid: GitHub refuses to start it at all (failure at 0s, no logs).
+      #
+      # #793 — `service` is the DYNAMIC axis: needs.changes.outputs.services is
+      # a JSON array of only the services this push actually touches, so an
+      # unchanged service gets ZERO `service x arch` combinations generated for
+      # it — no runner even starts — rather than starting a job and skipping
+      # its steps. A job's own `if:` cannot see `matrix.*` (only github/inputs/
+      # needs/vars are available at that scope — confirmed by actionlint when
+      # an earlier version of this tried exactly that), so filtering has to
+      # happen at the matrix level, not with a per-job condition.
       matrix:
-        service: [api, mcp, web]
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
         arch: [amd64, arm64]
+        # ONLY arch-keyed entries may live here. #793's first attempt also put
+        # per-SERVICE entries (`- service: api`, `- service: mcp`, `- service:
+        # web`) in this block, and that is what broke the publish on every
+        # merge after #938 landed.
+        #
+        # Why: `include` entries whose keys do NOT match an existing generated
+        # combination are ADDED as combinations of their own. While `service`
+        # was a static [api, mcp, web] axis every entry always matched. Once
+        # `service` became dynamic, a push touching only web produced a base
+        # matrix of {web} x {amd64, arm64} — and the `- service: api` and
+        # `- service: mcp` entries matched nothing, so Actions appended them as
+        # two extra combinations carrying NO `arch`, and therefore no `runner`.
+        # `runs-on: ${{ matrix.runner }}` resolved empty, the whole `build` job
+        # failed to be created, and `merge` (needs: build) skipped with it — so
+        # the re-tag never ran either and NO image was published at that sha.
+        # Observed on a9b7378 and 75c67e9: `services=["web"]` decided correctly,
+        # zero build jobs created, merge + deploy skipped, run red.
+        #
+        # Per-service values are resolved in a STEP below instead, where
+        # matrix.service is readable and cannot corrupt combination generation.
         include:
           - arch: amd64
             runner: ubuntu-latest
@@ -40,18 +117,6 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
             cache_suffix: '-arm64'
-          - service: api
-            dockerfile: docker/api.Dockerfile
-            build_args: ''
-          - service: mcp
-            dockerfile: docker/mcp.Dockerfile
-            build_args: ''
-          - service: web
-            dockerfile: docker/web.Dockerfile
-            build_args: |
-              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-              NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${{ vars.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN }}
-              NEXT_PUBLIC_POSTHOG_HOST=${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +126,12 @@ jobs:
       - name: Compute lowercase owner
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
+      # #553 — one build time for the whole job (not "whenever this step of
+      # this arch's build happens to run"), consumed by the build step's own
+      # `build-args` below (#614 — must be a step's `env`, never the matrix).
+      - name: Compute build time
+        run: echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -68,13 +139,46 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Per-service build inputs, resolved here rather than in the matrix's
+      # `include` — see the comment on that block for why putting them there
+      # broke combination generation once `service` became dynamic.
+      - name: Resolve build inputs for ${{ matrix.service }}
+        run: |
+          case "${{ matrix.service }}" in
+            api) echo "DOCKERFILE=docker/api.Dockerfile" >> "$GITHUB_ENV" ;;
+            mcp) echo "DOCKERFILE=docker/mcp.Dockerfile" >> "$GITHUB_ENV" ;;
+            web)
+              echo "DOCKERFILE=docker/web.Dockerfile" >> "$GITHUB_ENV"
+              {
+                echo 'SERVICE_BUILD_ARGS<<EOF'
+                echo "NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}"
+                echo "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${{ vars.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN }}"
+                echo "NEXT_PUBLIC_POSTHOG_HOST=${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}"
+                # #593 — an EXPLICIT empty value would override the Dockerfile's
+                # own ARG default with "" rather than falling through to it, and
+                # the next build would crash on `new URL('')`. Falls back to
+                # staging's real origin.
+                echo "WEB_URL=${{ vars.WEB_URL || 'https://staging.storyos.dev' }}"
+                echo 'EOF'
+              } >> "$GITHUB_ENV"
+              ;;
+            *) echo "::error::unknown service '${{ matrix.service }}'"; exit 1 ;;
+          esac
+
       - name: Build & push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: ${{ env.DOCKERFILE }}
           push: true
-          build-args: ${{ matrix.build_args }}
+          # #553's GIT_SHA/BUILD_TIME are appended here, not in the matrix (see
+          # the matrix's own comment on why #614 moved them) — env resolves
+          # normally on a step, and BUILD_TIME's producing step above has
+          # already run by the time this one does.
+          build-args: |
+            ${{ env.SERVICE_BUILD_ARGS }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/storyos-${{ matrix.service }}:${{ github.sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.service }}${{ matrix.cache_suffix }}
@@ -83,7 +187,15 @@ jobs:
   merge:
     name: merge manifests
     runs-on: ubuntu-latest
-    needs: build
+    needs: [changes, build]
+    # `build` is a matrix; a service the changes job marked unchanged never
+    # runs its two arch jobs at all, and a job with no matrix entries left
+    # reports "skipped", not "success" — the default `if: success()` would
+    # treat that skip as a failed dependency and skip THIS job too, which is
+    # exactly backwards (an unchanged service is the NORMAL case, not a
+    # problem). `!failure() && !cancelled()` still stops the manifest step
+    # below from running against a build that genuinely broke.
+    if: always() && !failure() && !cancelled()
     timeout-minutes: 10
     permissions:
       contents: read
@@ -99,16 +211,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # One multi-arch manifest per service: :latest and :<sha> now point at
-      # BOTH arch images; docker pull picks the right one per machine.
-      - name: Create multi-arch manifests
+      # A changed service's two fresh arch images become its multi-arch
+      # :latest + :<sha> manifest, same as before #793. An UNCHANGED service
+      # was never rebuilt, so there is nothing at :<sha>-amd64/-arm64 to
+      # merge — instead its existing :latest (already a multi-arch manifest)
+      # is RE-TAGGED onto the new sha, a registry-side copy with no rebuild.
+      # :latest itself is left alone for an unchanged service; it already
+      # points at the right thing. Either way every service ends this step
+      # with a real :<sha> tag, which is the one invariant deploy/rollback
+      # actually depends on (#793's own caution).
+      - name: Create/re-tag manifests so every service has a :sha tag
+        env:
+          API_CHANGED: ${{ needs.changes.outputs.api }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          MCP_CHANGED: ${{ needs.changes.outputs.mcp }}
         run: |
           for svc in api mcp web; do
-            docker buildx imagetools create \
-              -t "ghcr.io/$OWNER_LC/storyos-$svc:latest" \
-              -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
-              "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-amd64" \
-              "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-arm64"
+            changed_var="${svc^^}_CHANGED"
+            if [ "${!changed_var}" = "true" ]; then
+              echo "$svc changed — building a fresh multi-arch manifest"
+              docker buildx imagetools create \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:latest" \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-amd64" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-arm64"
+            else
+              echo "$svc unchanged — re-tagging :latest onto ${{ github.sha }}"
+              docker buildx imagetools create \
+                -t "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}" \
+                "ghcr.io/$OWNER_LC/storyos-$svc:latest"
+            fi
           done
 
   # Continuous delivery to the staging VPS: pin IMAGE_TAG to this exact commit,
@@ -119,6 +251,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: merge
     timeout-minutes: 10
+    # Staging is NOT a gate on publishing images. In September this job failed
+    # 269 times out of 502 runs — 11 of the last 12 failures were this job's
+    # "Deploy over SSH" step, against a host whose disk is full (#522). Every
+    # one of those runs had already built and pushed all six images and merged
+    # their manifests (see `needs: merge`), so the publish succeeded and the
+    # run was marked failed anyway. That noise is what makes a REAL build
+    # failure invisible, which is the actual cost — not the minutes.
+    # Staging is also not used for verification: agents verify on isolated
+    # local instances, and production deploys from main by hand.
+    continue-on-error: true
     permissions:
       contents: read
     # One deploy at a time; a second push queues instead of racing the first.
@@ -134,6 +276,28 @@ jobs:
           ssh -i deploy_key -o StrictHostKeyChecking=accept-new deploy@${{ secrets.STAGING_HOST }} bash -s <<'EOF'
           set -euo pipefail
           cd ~/storyOS
+
+          # Reclaim BEFORE the pull, not after. On 2026-09-02 this host filled up and
+          # every deploy failed for 25 hours at `git pull` with "No space left on
+          # device" — while the prune that would have freed it sat at the END of this
+          # script, unreachable. A cleanup step that only runs on the happy path cannot
+          # rescue the unhappy one. The first failures even LOOKED like a credential
+          # problem ("could not read Username for https://github.com"), because a git
+          # that cannot write falls back to prompting.
+          echo "--- disk before"; df -h / | tail -1
+          # Images and build cache only. NEVER --volumes: the postgres data lives in one.
+          docker image prune -af --filter "until=168h" || true
+          docker builder prune -af --filter "until=168h" || true
+          echo "--- disk after"; df -h / | tail -1
+
+          # Fail early and legibly if still critically full, rather than dying mid-pull
+          # with an error that points at the wrong thing.
+          used=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "${used:-0}" -ge 95 ]; then
+            echo "::error::staging disk still ${used}% full after prune — deploy aborted before it could fail confusingly"
+            exit 1
+          fi
+
           git pull --ff-only
           if grep -q '^IMAGE_TAG=' .env; then
             sed -i 's/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.sha }}/' .env

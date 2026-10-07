@@ -1,4 +1,4 @@
-import { SYSTEM_FIELDS, isSystemFieldApiName, systemFieldId } from '@storyos/schemas';
+import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELDS, isSystemFieldApiName, systemFieldId } from '@storyos/schemas';
 import type { FilterOp, SystemFieldType } from '@storyos/schemas';
 import type { Field } from '../table-view/use-table-data';
 
@@ -41,7 +41,14 @@ export interface OpSpec {
  * regardless of how the row was seeded ("Created at" → "Created", etc.).
  */
 export const SYSTEM_FIELD_LABELS: Record<string, string> = {
-  number: 'Number',
+  // #743 — `number` is deprecated, not deleted (schemas' `deprecated` flag,
+  // #875): a saved view/formula referencing it must still resolve and show
+  // "ID", not the raw internal name or the retired "Number" copy. The
+  // duplicate-picker-entry risk this comment used to warn about is handled
+  // by excluding deprecated entries from PICKER output below (`isPickableField`),
+  // not by holding the label back — an existing chip needs the right label
+  // regardless of whether the field is offered for new picks.
+  number: 'ID',
   id: 'ID',
   created_at: 'Created',
   updated_at: 'Last edited',
@@ -155,7 +162,11 @@ export const SYSTEM_USER_TYPES: ReadonlySet<string> = new Set(['created_by', 'up
 export function withSystemFields(fields: Field[]): Field[] {
   const relabeled = fields.map((f) =>
     f.isSystem && isSystemFieldApiName(f.apiName)
-      ? { ...f, displayName: SYSTEM_FIELD_LABELS[f.apiName] ?? f.displayName }
+      ? {
+          ...f,
+          displayName: SYSTEM_FIELD_LABELS[f.apiName] ?? f.displayName,
+          deprecated: SYSTEM_FIELD_BY_API_NAME.get(f.apiName)?.deprecated ?? false,
+        }
       : f,
   );
   const present = new Set(fields.map((f) => f.apiName));
@@ -166,6 +177,21 @@ export function withSystemFields(fields: Field[]): Field[] {
     type: s.type,
     config: {},
     isSystem: true,
+    deprecated: s.deprecated ?? false,
   }));
   return [...relabeled, ...synthetic];
+}
+
+/**
+ * #743 — the ONE predicate every "offer this field for a NEW pick" surface
+ * must filter through (filter builder, sort builder — see view-toolbar.tsx's
+ * `filterable`/`SortButton`). A deprecated system field (currently: `number`)
+ * still resolves correctly via `withSystemFields()` above — an existing
+ * saved filter/sort referencing it renders its chip with the right label —
+ * it just must never be OFFERED as a new choice. Named and shared rather
+ * than inlined at each call site, per this codebase's own rule against two
+ * independent copies of a capability gate drifting apart.
+ */
+export function isPickableField(f: Field): boolean {
+  return !f.deprecated;
 }

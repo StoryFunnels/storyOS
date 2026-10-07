@@ -72,7 +72,7 @@ export function AgentBadge({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        'rounded border border-border-default px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted',
+        'rounded border border-border-default px-1 py-px text-micro font-medium uppercase tracking-wide text-muted',
         className,
       )}
     >

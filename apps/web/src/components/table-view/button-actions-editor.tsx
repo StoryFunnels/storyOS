@@ -1,15 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { useQueries, useQuery } from '@tanstack/react-query';
+import { Check, Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useDatabases, useHttpConnections } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/select';
+import { EntityPickerRow } from '@/components/entity/entity-picker-row';
+import { DbColorMarker, type LinkChip } from './relation-cell';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
-import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
+import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
 
 /**
@@ -74,6 +80,68 @@ const WEBHOOK_SAFE_ACTIONS = new Set([
   'notify_user',
 ]);
 
+/** #285 — the "Then" type-select's option list, extracted so the flow-diagram
+ * canvas's own "add action" control offers exactly the same set, grouped the
+ * same way (#152's Common/Advanced split), rather than a second hand-kept
+ * list that drifts from this one (#375/#380/#383/#399/#408/#422's shape). */
+export const ACTION_TYPE_GROUPS: Array<{ label: string; options: Array<{ value: string; label: string }> }> = [
+  {
+    label: 'Common',
+    options: [
+      { value: 'set_values', label: 'Set fields on this record' },
+      { value: 'create_record', label: 'Create a record' },
+      { value: 'update_linked', label: 'Update linked records' },
+      { value: 'add_comment', label: 'Add a comment' },
+      { value: 'notify_user', label: 'Notify a person' },
+      { value: 'send_slack_message', label: 'Send a Slack message' },
+      { value: 'send_email', label: 'Send an email' },
+    ],
+  },
+  {
+    label: 'Advanced · developer',
+    options: [
+      { value: 'send_webhook', label: 'Send a webhook' },
+      { value: 'http_request', label: 'Call an API (HTTP request)' },
+    ],
+  },
+];
+
+/** #285 — one place building a fresh action's starting shape for a given
+ * type, shared by the "Then" list's type-select (changing an existing
+ * action's type) and the flow-diagram canvas's "add action" control
+ * (appending a new one) — the same reasoning `ACTION_TYPE_GROUPS` above is
+ * extracted for, applied to the OTHER half of the same switch. */
+export function defaultActionFor(
+  type: string,
+  ctx: { db: string; relationFields: Field[]; mailConnectionId?: string; restrictToWebhookSafe?: boolean },
+): ButtonAction {
+  if (type === 'set_values') return { type: 'set_values', values: {} };
+  if (type === 'create_record') {
+    return {
+      type: 'create_record',
+      database_id: ctx.db,
+      values: { name: ctx.restrictToWebhookSafe ? '{payload.name}' : 'New record for {Title}' },
+    };
+  }
+  if (type === 'notify_user') return { type: 'notify_user', user: '@me', message: '' };
+  if (type === 'update_linked') {
+    return { type: 'update_linked', relation_field_id: ctx.relationFields[0]?.id ?? '', values: {} };
+  }
+  if (type === 'send_webhook') return { type: 'send_webhook', url: '' };
+  if (type === 'send_slack_message') return { type: 'send_slack_message', text: '' };
+  if (type === 'send_email') {
+    return {
+      type: 'send_email',
+      connection_id: ctx.mailConnectionId ?? '',
+      to: '',
+      subject: '',
+      body_markdown: '',
+    };
+  }
+  if (type === 'http_request') return { type: 'http_request', method: 'GET', url: '' };
+  return { type: 'add_comment', body_template: '' };
+}
+
 type Member = { id: string; name: string };
 
 /** Compact declarative action builder: set fields / create linked record / comment. */
@@ -104,6 +172,12 @@ export function ButtonActionsEditor({
   const mailConnections = useMailConnections(ws);
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+  // #729 — kept restrictive: the http_request capture-response editor below
+  // writes a raw captured scalar straight onto `target_field_id` with no typed
+  // value control at all (see CaptureRowsEditor), so a relation field (which
+  // needs an array of target ids, not a bare captured string) or a title stay
+  // out of THIS list. `settableForSet` below is the relaxed one for actually
+  // building a typed value through FieldValuesEditor.
   const settable = dbFields.filter(
     (f) =>
       !f.isSystem &&
@@ -119,6 +193,7 @@ export function ButtonActionsEditor({
         'created_by',
       ].includes(f.type),
   );
+  const settableForSet = settableFieldsForSetValues(dbFields);
   const userFields = dbFields.filter((f) => f.type === 'user');
   const relationFields = dbFields.filter((f) => f.type === 'relation');
   const payloadHint = restrictToWebhookSafe ? ' or {payload.path}' : '';
@@ -137,43 +212,21 @@ export function ButtonActionsEditor({
           className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default p-2"
         >
           <div className="flex items-center gap-2">
-            <select
-              className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+            <Select
+              size="sm"
+              className="flex-1"
               value={action.type}
-              onChange={(e) => {
-                const t = e.target.value;
-                if (t === 'set_values') patch(i, { type: 'set_values', values: {} });
-                else if (t === 'create_record') {
-                  patch(i, {
-                    type: 'create_record',
-                    database_id: db,
-                    values: {
-                      name: restrictToWebhookSafe ? '{payload.name}' : 'New record for {Title}',
-                    },
-                  });
-                } else if (t === 'notify_user')
-                  patch(i, { type: 'notify_user', user: '@me', message: '' });
-                else if (t === 'update_linked')
-                  patch(i, {
-                    type: 'update_linked',
-                    relation_field_id: relationFields[0]?.id ?? '',
-                    values: {},
-                  });
-                else if (t === 'send_webhook') patch(i, { type: 'send_webhook', url: '' });
-                else if (t === 'send_slack_message')
-                  patch(i, { type: 'send_slack_message', text: '' });
-                else if (t === 'send_email')
-                  patch(i, {
-                    type: 'send_email',
-                    connection_id: mailConnections.data?.[0]?.id ?? '',
-                    to: '',
-                    subject: '',
-                    body_markdown: '',
-                  });
-                else if (t === 'http_request')
-                  patch(i, { type: 'http_request', method: 'GET', url: '' });
-                else patch(i, { type: 'add_comment', body_template: '' });
-              }}
+              onChange={(e) =>
+                patch(
+                  i,
+                  defaultActionFor(e.target.value, {
+                    db,
+                    relationFields,
+                    mailConnectionId: mailConnections.data?.[0]?.id,
+                    restrictToWebhookSafe,
+                  }),
+                )
+              }
             >
               {/* MN-254: a webhook_received rule has no triggering record, so only
                   WEBHOOK_SAFE_ACTIONS are offered — the backend rejects the rest with
@@ -182,27 +235,24 @@ export function ButtonActionsEditor({
                   API-integration developer tooling (raw webhooks, arbitrary HTTP
                   with headers/json-path) sit in their own group so a
                   non-technical user isn't offered them as peers of "Add a
-                  comment". Same options, honestly labelled. */}
-              <optgroup label="Common">
-                {offersAction('set_values') && (
-                  <option value="set_values">Set fields on this record</option>
-                )}
-                <option value="create_record">Create a record</option>
-                {offersAction('update_linked') && (
-                  <option value="update_linked">Update linked records</option>
-                )}
-                {offersAction('add_comment') && <option value="add_comment">Add a comment</option>}
-                <option value="notify_user">Notify a person</option>
-                <option value="send_slack_message">Send a Slack message</option>
-                {offersAction('send_email') && <option value="send_email">Send an email</option>}
-              </optgroup>
-              <optgroup label="Advanced · developer">
-                <option value="send_webhook">Send a webhook</option>
-                {offersAction('http_request') && (
-                  <option value="http_request">Call an API (HTTP request)</option>
-                )}
-              </optgroup>
-            </select>
+                  comment". Same options, honestly labelled. #285 — the group/option
+                  list itself now lives in ACTION_TYPE_GROUPS, shared with the flow
+                  diagram canvas's own "add action" control. */}
+              {ACTION_TYPE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options
+                    .filter((o) => offersAction(o.value))
+                    .map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </Select>
+            {/* #706 — the four delete buttons in this file KEEP faint: each
+                contains only a Trash2 icon, a non-text graphic judged at 3:1,
+                which faint clears. They also darken to text-error on hover. */}
             <button
               type="button"
               className="p-1 text-faint hover:text-error"
@@ -226,7 +276,8 @@ export function ButtonActionsEditor({
 
           {action.type === 'set_values' && (
             <FieldValuesEditor
-              settable={settable}
+              ws={ws}
+              settable={settableForSet}
               members={members}
               values={action.values}
               addLabel="＋ field to set…"
@@ -237,7 +288,7 @@ export function ButtonActionsEditor({
           {action.type === 'create_record' && (
             <div className="flex flex-col gap-1">
               <select
-                className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={action.database_id}
                 onChange={(e) =>
                   patch(i, {
@@ -290,8 +341,8 @@ export function ButtonActionsEditor({
                 value={action.channel ?? ''}
                 onChange={(e) => patch(i, { ...action, channel: e.target.value || undefined })}
               />
-              <textarea
-                className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+              <Textarea
+                size="sm"
                 placeholder={`Message${payloadHint ? ' — {payload.path} interpolates values' : ' — {Field Name} interpolates values'}`}
                 value={action.text}
                 onChange={(e) => patch(i, { ...action, text: e.target.value })}
@@ -302,7 +353,7 @@ export function ButtonActionsEditor({
           {action.type === 'send_webhook' && (
             <div className="flex flex-col gap-1">
               {!action.url.trim() && (
-                <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+                <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-meta text-muted">
                   <Info className="mt-0.5 h-3 w-3 shrink-0" />
                   <span>
                     This sends data to a URL you choose — paste in the webhook URL your
@@ -325,15 +376,16 @@ export function ButtonActionsEditor({
                 value={action.url}
                 onChange={(e) => patch(i, { ...action, url: e.target.value })}
               />
-              <p className="text-[11px] text-faint">
+              <p className="text-meta text-muted">
                 Sends the whole record, signed with the workspace webhook secret; failures
                 retry automatically.
               </p>
               {/* #152 — a hand-written JSON body is developer tooling: the default
                   (send the whole record) is what most people want. */}
               <AdvancedDetails label="Custom JSON body">
-                <textarea
-                  className="min-h-[56px] w-full rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+                <Textarea
+                  size="sm"
+                  className="w-full font-mono"
                   placeholder={`JSON is sent as-is, {Field Name} interpolates${payloadHint}.\nLeave empty to send the whole record.`}
                   value={action.body_template ?? ''}
                   onChange={(e) =>
@@ -369,7 +421,7 @@ export function ButtonActionsEditor({
           {action.type === 'notify_user' && (
             <div className="flex flex-col gap-1">
               <select
-                className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
                 value={action.user}
                 onChange={(e) => patch(i, { ...action, user: e.target.value })}
               >
@@ -382,6 +434,24 @@ export function ButtonActionsEditor({
                       {f.displayName}
                     </option>
                   ))}
+                {/* #730 AC4 — a specific named workspace member, not the rule owner
+                    and not anyone on the record. The API already accepts and
+                    validates `@member:<id>` (#841). Gated on !restrictToWebhookSafe
+                    same as the person-field options above: actions.service.ts's
+                    webhook_received check is `user !== '@me'`, full stop — it
+                    rejects `@member:<id>` exactly like a person field, so this
+                    picker offering it on a webhook rule would let someone pick
+                    a value the API 422s on save. Found live (Vera, 2026-09-24):
+                    an earlier version of this comment claimed the opposite. */}
+                {!restrictToWebhookSafe && members.length > 0 && (
+                  <optgroup label="Notify a specific member">
+                    {members.map((m) => (
+                      <option key={m.id} value={`@member:${m.id}`}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <Input
                 className="h-7"
@@ -405,8 +475,8 @@ export function ButtonActionsEditor({
       ))}
       <button
         type="button"
-        className="flex items-center gap-1 self-start text-[13px] text-muted hover:text-ink"
-        onClick={() => onChange([...actions, { type: 'add_comment', body_template: '' }])}
+        className="flex items-center gap-1 self-start text-body text-muted hover:text-ink"
+        onClick={() => onChange([...actions, defaultActionFor('add_comment', { db, relationFields })])}
       >
         <Plus className="h-3.5 w-3.5" /> Add action
       </button>
@@ -415,7 +485,7 @@ export function ButtonActionsEditor({
 }
 
 /** Sensible starting value when a field is added to a "set fields" action. */
-function initialSetValue(field: Field): unknown {
+export function initialSetValue(field: Field): unknown {
   switch (field.type) {
     case 'user':
       return '@me';
@@ -424,6 +494,7 @@ function initialSetValue(field: Field): unknown {
     case 'checkbox':
       return true;
     case 'multi_select':
+    case 'relation':
       return [];
     default:
       return '';
@@ -431,17 +502,41 @@ function initialSetValue(field: Field): unknown {
 }
 
 /**
+ * #729 — the field types an automation can SET a value on, shared by both
+ * `set_values` and `update_linked`. The backend (actions.service.ts) validates
+ * only that the key names a known field, nothing about its type, so this list
+ * exists purely to keep out field types with no meaningful "set" (computed
+ * lookup/rollup, system timestamps/actor, a button) or that need a value
+ * control this editor doesn't build (rich_text). `title` and `relation` used
+ * to be excluded too — over-broad: the API already accepts both, and
+ * SetValueEditor now has a real control for each (a plain text input for
+ * title, RelationSetValuePicker for relation).
+ */
+export function settableFieldsForSetValues(fields: Field[]): Field[] {
+  return fields.filter(
+    (f) =>
+      !f.isSystem &&
+      !['lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(
+        f.type,
+      ),
+  );
+}
+
+/**
  * Shared "set these fields to these values" editor, used by both `set_values` and
  * `update_linked`. The field selector comes first; each chosen field then gets a
- * typed value editor below it (MN-230) — never a raw option UUID.
+ * typed value editor below it (MN-230) — never a raw option UUID. `ws` is only
+ * used by the relation case's record picker.
  */
 function FieldValuesEditor({
+  ws,
   settable,
   members,
   values,
   addLabel,
   onChange,
 }: {
+  ws: string;
   settable: Field[];
   members: Member[];
   values: Record<string, unknown>;
@@ -452,7 +547,7 @@ function FieldValuesEditor({
   return (
     <div className="flex flex-col gap-1">
       <select
-        className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
+        className="h-7 self-start rounded border border-border-default bg-card px-1 text-label text-muted"
         value=""
         onChange={(e) => {
           const f = settable.find((x) => x.apiName === e.target.value);
@@ -470,9 +565,10 @@ function FieldValuesEditor({
       {Object.entries(values).map(([key, value]) => {
         const field = settable.find((f) => f.apiName === key);
         return (
-          <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
+          <div key={key} className="flex items-center gap-1.5 text-label text-ink">
             <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
             <SetValueEditor
+              ws={ws}
               field={field}
               members={members}
               value={value}
@@ -503,18 +599,20 @@ function FieldValuesEditor({
  * @now tokens stay reachable on user and date fields.
  */
 function SetValueEditor({
+  ws,
   field,
   members,
   value,
   onChange,
 }: {
+  ws: string;
   field: Field | undefined;
   members: Member[];
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
   const controlCls =
-    'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+    'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-label text-ink';
   if (!field) {
     return (
       <Input
@@ -544,7 +642,7 @@ function SetValueEditor({
       const ids = Array.isArray(value) ? (value as string[]) : [];
       const options = field.options ?? [];
       if (options.length === 0)
-        return <span className="flex-1 text-[11px] text-faint">No options</span>;
+        return <span className="flex-1 text-meta text-muted">No options</span>;
       return (
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {options.map((o) => {
@@ -555,7 +653,7 @@ function SetValueEditor({
                 type="button"
                 onClick={() => onChange(on ? ids.filter((x) => x !== o.id) : [...ids, o.id])}
                 className={cn(
-                  'rounded-full border px-2 py-0.5 text-[11px]',
+                  'rounded-full border px-2 py-0.5 text-meta',
                   on
                     ? 'border-[var(--accent)] bg-active text-ink'
                     : 'border-border-default text-muted',
@@ -568,6 +666,17 @@ function SetValueEditor({
         </div>
       );
     }
+    case 'relation':
+      return field.relation ? (
+        <RelationSetValuePicker
+          ws={ws}
+          field={field}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <span className="flex-1 text-meta text-muted">Relation config missing</span>
+      );
     case 'user':
       return (
         <select
@@ -587,7 +696,7 @@ function SetValueEditor({
       return <DateValueEditor value={value} onChange={onChange} />;
     case 'checkbox':
       return (
-        <label className="flex flex-1 items-center gap-1.5 text-[12px] text-muted">
+        <label className="flex flex-1 items-center gap-1.5 text-label text-muted">
           <input
             type="checkbox"
             checked={value === true}
@@ -629,7 +738,7 @@ function DateValueEditor({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={isToken ? v : 'date'}
         onChange={(e) => {
           const next = e.target.value;
@@ -649,6 +758,185 @@ function DateValueEditor({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * #729 (AC2) — record picker for a relation "set field" value. Deliberately
+ * NOT RelationEditor (relation-cell.tsx): that component PUTs to a specific
+ * record's live links on every click, because it edits an actual cell. Here
+ * there is no record yet — this is automation CONFIG, a value that only gets
+ * applied whenever the automation later runs — so picking just updates local
+ * state via `onChange`, the same contract every other SetValueEditor case
+ * already has. Reuses the parts that aren't tied to a live write: the same
+ * record-picker search endpoint/query key RelationEditor uses, EntityPickerRow
+ * (#169) for result rows, and DbColorMarker for the target database's chip.
+ * Stored value is always `string[]` of record ids — the shape
+ * `RecordsService.planLinks` already accepts for every relation cardinality
+ * (single-valued sides just carry one element).
+ */
+function RelationSetValuePicker({
+  ws,
+  field,
+  value,
+  onChange,
+}: {
+  ws: string;
+  field: Field;
+  value: unknown;
+  onChange: (value: string[]) => void;
+}) {
+  const relation = field.relation!;
+  const single = relation.cardinality === 'one_to_many' && relation.side === 'a';
+  const targetDb = relation.target_database_id;
+  const ids = Array.isArray(value) ? (value as unknown[]).map((v) => String(v)) : [];
+
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const results = useQuery({
+    queryKey: ['record-picker', ws, targetDb, search],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDb }, query: { q: search || undefined, limit: 20 } },
+      });
+      if (error) throw error;
+      return (data as unknown as { data: LinkChip[] }).data;
+    },
+    enabled: open,
+  });
+
+  // Resolves titles for already-picked ids that aren't in the current search
+  // results (e.g. reopening a saved automation) — one GET per id, the same
+  // per-id-resolve shape `useWorkspaceFields` (agent-ref-cell.tsx) uses for a
+  // flat list of refs with no batch-lookup endpoint.
+  const resolved = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['record-picker-resolve', ws, targetDb, id],
+      queryFn: async () => {
+        const { data, error } = await api.GET(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}',
+          { params: { path: { ws, db: targetDb, rec: id } } },
+        );
+        if (error) throw error;
+        return data as unknown as LinkChip;
+      },
+      staleTime: 60_000,
+    })),
+  });
+  const byId = new Map<string, LinkChip>();
+  for (const row of results.data ?? []) byId.set(row.id, row);
+  for (const r of resolved) if (r.data) byId.set(r.data.id, r.data);
+  const chips: LinkChip[] = ids.map((id) => byId.get(id) ?? { id, title: '…' });
+
+  function toggle(row: LinkChip) {
+    if (single) {
+      onChange([row.id]);
+      setOpen(false);
+      setSearch('');
+      return;
+    }
+    onChange(ids.includes(row.id) ? ids.filter((x) => x !== row.id) : [...ids, row.id]);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-7 min-w-0 flex-1 flex-wrap items-center gap-1 truncate rounded border border-border-default bg-card px-1.5 text-left text-label text-ink"
+      >
+        {chips.length === 0 ? (
+          <span className="text-muted">Choose {relation.target_database_name ?? 'record'}…</span>
+        ) : (
+          chips.map((chip) => (
+            <span key={chip.id} className="flex items-center gap-1 truncate">
+              <DbColorMarker color={relation.target_database_color} />
+              <span className="truncate">{chip.title || 'Untitled'}</span>
+            </span>
+          ))
+        )}
+      </button>
+      {/*
+       * #729 — a `Popover` here (this file's other pickers' pattern) silently
+       * never receives clicks: this editor is itself rendered inside the
+       * "Buttons & automations" modal Dialog, and Radix's modal Dialog sets
+       * `body { pointer-events: none }` while open, re-enabling only its own
+       * content branch. A Popover's portal is a plain sibling of that branch,
+       * not part of it, so every click on it passed straight through to
+       * whatever the dialog rendered underneath — confirmed live (the click
+       * landed on the dialog's own Cancel/Save row, not the picker). A nested
+       * `<Dialog>` doesn't have this problem: this codebase already nests one
+       * modal Dialog inside another for the same reason (record-history.tsx's
+       * restore-confirmation dialog over its own History dialog), and Radix
+       * Dialogs coordinate their pointer-events locks with each other
+       * correctly where a Dialog-inside-Popover-inside-Dialog chain does not.
+       */}
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setSearch('');
+        }}
+      >
+        {open && (
+          <DialogContent
+            title={`Choose ${relation.target_database_name ?? 'record'}`}
+            className="max-w-sm"
+          >
+            <input
+              autoFocus
+              placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
+              className="mb-2 w-full rounded border border-border-default bg-card px-2 py-1.5 text-label text-ink outline-none placeholder:text-muted"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="max-h-56 overflow-y-auto">
+              {(results.data ?? []).map((row) => (
+                <EntityPickerRow
+                  key={row.id}
+                  icon={<DbColorMarker color={relation.target_database_color} />}
+                  title={row.title || 'Untitled'}
+                  idChip={row.number ?? null}
+                  onClick={() => toggle(row)}
+                  trailing={
+                    ids.includes(row.id) ? (
+                      <Check className="h-3.5 w-3.5 text-accent" />
+                    ) : undefined
+                  }
+                />
+              ))}
+              {results.data?.length === 0 && (
+                // PR #845 review: text-muted, not text-faint — this empty-state
+                // message is the only content shown at that moment and tells
+                // the user their search found nothing, not decoration.
+                <p className="px-2 py-1.5 text-meta text-muted">No matches</p>
+              )}
+            </div>
+            <div className="mt-2 flex justify-between border-t border-border-default pt-2">
+              {!single && ids.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-label text-muted hover:text-ink"
+                  onClick={() => onChange([])}
+                >
+                  Clear
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                className="text-label text-ink underline"
+                onClick={() => setOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
   );
 }
 
@@ -673,7 +961,7 @@ function LinkBackPicker({
   if (candidates.length === 0) return null;
   return (
     <select
-      className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+      className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
     >
@@ -710,7 +998,7 @@ function SendEmailEditor({
   return (
     <div className="flex flex-col gap-1.5">
       {connections.length === 0 && (
-        <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+        <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-meta text-muted">
           <Info className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
             No Resend/SMTP connection yet.{' '}
@@ -726,7 +1014,7 @@ function SendEmailEditor({
         </div>
       )}
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={action.connection_id}
         onChange={(e) => onChange({ ...action, connection_id: e.target.value })}
       >
@@ -761,17 +1049,20 @@ function SendEmailEditor({
         value={action.subject}
         onChange={(e) => onChange({ ...action, subject: e.target.value })}
       />
-      <textarea
-        className="min-h-[80px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+      {/* #689 — `sm`'s padding/text fit this site; only its height (80px, a
+          markdown body wants more room than sm's 56px default) is bespoke. */}
+      <Textarea
+        size="sm"
+        className="min-h-20"
         placeholder="Body (markdown) — {Field Name} interpolates values"
         value={action.body_markdown}
         onChange={(e) => onChange({ ...action, body_markdown: e.target.value })}
       />
-      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+      <div className="flex items-center gap-1.5 text-meta text-muted">
         <ShieldCheck className="h-3 w-3 shrink-0" />
         <span>Approval:</span>
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={approvalValue}
           onChange={(e) => {
             const v = e.target.value;
@@ -846,7 +1137,7 @@ function HttpRequestEditor({
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-1.5">
         <select
-          className="h-7 w-24 shrink-0 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-7 w-24 shrink-0 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={action.method}
           onChange={(e) => onChange({ ...action, method: e.target.value as HttpRequestAction['method'] })}
         >
@@ -874,12 +1165,12 @@ function HttpRequestEditor({
           return (
             <div key={name} className="flex items-center gap-1">
               <Input
-                className="h-6 w-32 shrink-0 text-[11px]"
+                className="h-6 w-32 shrink-0 text-meta"
                 value={name}
                 onChange={(e) => renameHeader(name, e.target.value)}
               />
               <Input
-                className="h-6 flex-1 text-[11px]"
+                className="h-6 flex-1 text-meta"
                 type={isSecret ? 'password' : 'text'}
                 placeholder={isSecret ? '(unchanged — type to replace)' : ''}
                 value={isSecret ? '' : value}
@@ -893,7 +1184,7 @@ function HttpRequestEditor({
         })}
         <button
           type="button"
-          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          className="flex items-center gap-1 self-start text-meta text-muted hover:text-ink"
           onClick={addHeader}
         >
           <Plus className="h-3 w-3" /> Add header
@@ -902,8 +1193,9 @@ function HttpRequestEditor({
       </AdvancedDetails>
 
       {action.method !== 'GET' && (
-        <textarea
-          className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+        <Textarea
+          size="sm"
+          className="font-mono"
           placeholder={`Body (optional) — JSON is sent as-is, {Field Name} interpolates${payloadHint}`}
           value={action.body_template ?? ''}
           onChange={(e) => onChange({ ...action, body_template: e.target.value || undefined })}
@@ -911,9 +1203,9 @@ function HttpRequestEditor({
       )}
 
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] font-medium text-muted">Auth (optional)</label>
+        <label className="text-meta font-medium text-muted">Auth (optional)</label>
         <select
-          className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
           value={action.connection_id ?? ''}
           onChange={(e) => onChange({ ...action, connection_id: e.target.value || undefined })}
         >
@@ -925,7 +1217,7 @@ function HttpRequestEditor({
           ))}
         </select>
         {(connections.data ?? []).length === 0 && (
-          <p className="text-[11px] text-faint">
+          <p className="text-meta text-muted">
             No HTTP connections yet —{' '}
             <Link href={`/w/${ws}/settings/connections`} target="_blank" className="underline underline-offset-2 hover:no-underline">
               add one
@@ -943,7 +1235,7 @@ function HttpRequestEditor({
           capture={capture}
           onChange={(next) => onChange({ ...action, capture: next })}
         />
-        <p className="text-[11px] text-faint">
+        <p className="text-meta text-muted">
           Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
           fields above. Secrets from the connection are never shown in run results.
         </p>
@@ -966,20 +1258,23 @@ function CaptureRowsEditor({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded border border-border-default p-1.5">
-      <p className="text-[11px] font-medium text-muted">Capture response into fields</p>
+      <p className="text-meta font-medium text-muted">Capture response into fields</p>
       {capture.map((row, i) => (
         <div key={i} className="flex items-center gap-1">
           <Input
-            className="h-6 w-32 shrink-0 font-mono text-[11px]"
+            className="h-6 w-32 shrink-0 font-mono text-meta"
             placeholder="json path, e.g. id"
             value={row.path}
             onChange={(e) =>
               onChange(capture.map((r, j) => (j === i ? { ...r, path: e.target.value } : r)))
             }
           />
-          <span className="text-[11px] text-faint">→</span>
+          {/* #706 — KEEPS faint: a connector glyph between two selects, not
+              text. Non-text graphic at 3:1, which faint clears; the selects
+              either side carry the meaning. */}
+          <span className="text-meta text-faint">→</span>
           <select
-            className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+            className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-meta text-ink"
             value={row.target_field_id}
             onChange={(e) =>
               onChange(capture.map((r, j) => (j === i ? { ...r, target_field_id: e.target.value } : r)))
@@ -1004,7 +1299,7 @@ function CaptureRowsEditor({
       {capture.length < 10 && (
         <button
           type="button"
-          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          className="flex items-center gap-1 self-start text-meta text-muted hover:text-ink"
           onClick={() => onChange([...capture, { path: '', target_field_id: settable[0]?.id ?? '' }])}
         >
           <Plus className="h-3 w-3" /> Add capture
@@ -1060,11 +1355,11 @@ function SendTestRequestButton({
 
   return (
     <div className="flex flex-col gap-1.5 rounded border border-border-default p-1.5">
-      <p className="text-[11px] font-medium text-muted">Send test request</p>
+      <p className="text-meta font-medium text-muted">Send test request</p>
       <div className="flex items-center gap-1.5">
         <Input
           className="h-7 flex-1"
-          placeholder="Record id to test against (from its URL)"
+          placeholder="Item id to test against (from its URL)"
           value={recordRef}
           onChange={(e) => setRecordRef(e.target.value)}
         />
@@ -1072,13 +1367,13 @@ function SendTestRequestButton({
           {busy ? 'Sending…' : 'Send test request'}
         </Button>
       </div>
-      {error && <p className="text-[11px] text-error">{error}</p>}
+      {error && <p className="text-meta text-error">{error}</p>}
       {result && (
         <div className="flex flex-col gap-1">
-          <p className="text-[11px] text-muted">
+          <p className="text-meta text-muted">
             HTTP {result.status} {result.status >= 200 && result.status < 300 ? '✓' : ''}
           </p>
-          <pre className="max-h-32 overflow-auto rounded bg-card p-1.5 text-[11px] text-ink">
+          <pre className="max-h-32 overflow-auto rounded bg-card p-1.5 text-meta text-ink">
             {result.body}
           </pre>
         </div>
@@ -1104,30 +1399,16 @@ function UpdateLinkedEditor({
   const relField = relationFields.find((f) => f.id === action.relation_field_id);
   const targetDbId = relField?.relation?.target_database_id ?? '';
   const target = useDatabase(ws, targetDbId);
-  const settable = (target.data?.fields ?? []).filter(
-    (f) =>
-      !f.isSystem &&
-      ![
-        'title',
-        'relation',
-        'lookup',
-        'rollup',
-        'button',
-        'rich_text',
-        'created_at',
-        'updated_at',
-        'created_by',
-      ].includes(f.type),
-  );
+  const settable = settableFieldsForSetValues(target.data?.fields ?? []);
   if (relationFields.length === 0) {
     return (
-      <p className="text-[12px] text-faint">This database has no relations to update through.</p>
+      <p className="text-label text-muted">This database has no relations to update through.</p>
     );
   }
   return (
     <div className="flex flex-col gap-1">
       <select
-        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        className="h-7 rounded border border-border-default bg-card px-1 text-label text-ink"
         value={action.relation_field_id}
         onChange={(e) => onChange({ ...action, relation_field_id: e.target.value, values: {} })}
       >
@@ -1138,6 +1419,7 @@ function UpdateLinkedEditor({
         ))}
       </select>
       <FieldValuesEditor
+        ws={ws}
         settable={settable}
         members={members}
         values={action.values}
@@ -1169,9 +1451,9 @@ function ActionConditionRow({
   condition?: ActionCondition;
   onChange: (condition: ActionCondition | undefined) => void;
 }) {
-  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  const conditionable = fields.filter((f) => opsForField(f).length > 0);
   const field = fields.find((f) => f.apiName === condition?.field);
-  const ops = field ? (OPS_BY_TYPE[field.type] ?? []) : [];
+  const ops = field ? opsForField(field) : [];
   const op = ops.find((o) => o.op === condition?.op);
   const needsValue = Boolean(condition?.op) && !NO_VALUE_ACTION_OPS.has(condition!.op);
 
@@ -1194,15 +1476,15 @@ function ActionConditionRow({
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-t border-border-default pt-1.5">
-      <span className="text-[11px] text-faint">Only if</span>
+      <span className="text-meta text-muted">Only if</span>
       <select
-        className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+        className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
         value={condition?.field ?? ''}
         onChange={(e) => {
           const apiName = e.target.value;
           if (!apiName) return onChange(undefined); // "always run" clears it
           const next = fields.find((f) => f.apiName === apiName);
-          const firstOp = next ? OPS_BY_TYPE[next.type]?.[0] : undefined;
+          const firstOp = next ? opsForField(next)[0] : undefined;
           if (!firstOp) return onChange(undefined);
           onChange({
             field: apiName,
@@ -1221,7 +1503,7 @@ function ActionConditionRow({
 
       {condition && ops.length > 0 && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={condition.op}
           onChange={(e) => {
             const nextOp = ops.find((o) => o.op === e.target.value);
@@ -1243,7 +1525,7 @@ function ActionConditionRow({
 
       {condition && needsValue && isOptionInput && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={valueAsText}
           onChange={(e) => setValue(e.target.value)}
         >
@@ -1258,7 +1540,7 @@ function ActionConditionRow({
 
       {condition && needsValue && op?.input === 'boolean' && (
         <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          className="h-6 rounded border border-border-default bg-card px-1 text-meta text-ink"
           value={valueAsText || 'true'}
           onChange={(e) => setValue(e.target.value)}
         >
@@ -1269,7 +1551,7 @@ function ActionConditionRow({
 
       {condition && needsValue && !isOptionInput && op?.input !== 'boolean' && (
         <Input
-          className="h-6 w-36 text-[11px]"
+          className="h-6 w-36 text-meta"
           type={op?.input === 'number' ? 'number' : 'text'}
           placeholder="value"
           value={valueAsText}
@@ -1289,7 +1571,7 @@ function ActionConditionRow({
 function AdvancedDetails({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <details className="rounded border border-border-default">
-      <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+      <summary className="cursor-pointer select-none px-2 py-1 text-meta text-muted hover:text-ink">
         {label}
       </summary>
       <div className="flex flex-col gap-1 border-t border-border-default p-2">{children}</div>

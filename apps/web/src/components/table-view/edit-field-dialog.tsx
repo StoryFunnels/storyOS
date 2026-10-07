@@ -70,6 +70,10 @@ export function EditFieldDialog({
 
   const isSelect =
     field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow';
+  // #504 — sourced from the live database query (not the `field` prop directly)
+  // so an option added/renamed/removed via LiveOptionsEditor's own mutations,
+  // just below, is reflected here without needing this dialog to remount.
+  const liveOptions = currentDb.data?.fields.find((f) => f.id === field.id)?.options ?? field.options;
   // Relations ARE deletable (via the relations API, handled in useDeleteField) —
   // deleting drops both paired fields, which needs creator on the OTHER database
   // too; only offer Delete when the user really can (#136).
@@ -94,10 +98,10 @@ export function EditFieldDialog({
           <Label htmlFor="rename">Name</Label>
           <Input id="rename" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           {duplicateName && (
-            <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
+            <p className="text-label text-error">A field named “{name.trim()}” already exists in this database.</p>
           )}
-          <p className="text-[12px] text-faint">{typeMeta?.label ?? field.type} field</p>
-          <details className="text-[12px] text-faint">
+          <p className="text-label text-faint">{typeMeta?.label ?? field.type} field</p>
+          <details className="text-label text-faint">
             <summary className="w-fit cursor-pointer font-medium text-muted hover:text-ink">
               Advanced
             </summary>
@@ -110,7 +114,7 @@ export function EditFieldDialog({
 
         {field.type === 'relation' && field.relation && (
           <>
-            <p className="text-[13px] text-muted">
+            <p className="text-body text-muted">
               Links to <span className="font-medium text-ink">{field.relation.target_database_name ?? 'a database'}</span>{' '}
               ({field.relation.cardinality === 'one_to_many' ? 'one-to-many' : 'many-to-many'}). Manage
               or remove the relation from either database's schema.
@@ -126,6 +130,7 @@ export function EditFieldDialog({
           ws={ws}
           db={db}
           fields={(currentDb.data?.fields ?? []) as Field[]}
+          options={liveOptions}
         />
 
         {isSelect && (

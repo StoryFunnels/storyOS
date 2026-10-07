@@ -21,7 +21,7 @@ import { vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
-import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
+import { AUDIT_TYPES, NOT_INLINE, auditValue, computedBadgeLabel } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu } from './field-controls';
 import { useOpenInSplit } from './split-panel-context';
@@ -73,8 +73,13 @@ function useRemoveRelationLink(ws: string, db: string, recordId: string, field: 
  * wraps the editable value in a subtle bordered/hover cell (Fibery-parity
  * Properties panel, #176) so the value area reads as a clickable control.
  */
-function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
+/** #780 — exported so the record page's status strip (record-detail.tsx) can
+ * render a workflow/assignee/due chip using the SAME generic per-type
+ * rendering every other field surface already goes through, rather than a
+ * second formatter for just these three types. */
+export function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
   const [editing, setEditing] = useState(false);
+  const [showAllChips, setShowAllChips] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
@@ -86,26 +91,43 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
   // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
   // already renders created_at/updated_at as datetimes and created_by as a person.
   if (AUDIT_TYPES.has(field.type)) {
-    return value === undefined || value === null ? (
-      <span className="text-[13px] text-faint">—</span>
-    ) : (
-      <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+    // #780 — this early return bypasses the generic value-wrapper below
+    // (and its badge) entirely, the same way the `button` branch further
+    // down does — both needed their own `<ComputedBadge>` rather than one
+    // shared placement covering every computed field.
+    return (
+      <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+        {value === undefined || value === null ? (
+          <span className="text-body text-faint">—</span>
+        ) : (
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+        )}
+        <ComputedBadge type={field.type} />
+      </div>
     );
   }
 
   if (field.type === 'relation') {
     // Single reference (collections render as their own body section).
     const chips = (value as LinkChip[]) ?? [];
+    // #780 Rule 2 (the Ten Real Records artifact, M1NWWboSsyroxUqunyajSV) —
+    // Backlog in Stages linked 45 records as inline chips and pushed two
+    // OTHER fields off screen entirely. Real evidence, not a guess: cap at
+    // 6 chips + "+N more" (RELCAP in the artifact's own source). Fields
+    // dense enough to exceed 12 leave the grid entirely — see
+    // record-detail.tsx's promotedRelationFields, a separate concern from
+    // this cap (a field can be capped here without ever being promoted).
+    const shown = showAllChips ? chips : chips.slice(0, 6);
     return (
       <div className="relative flex flex-wrap items-center gap-1">
-        {chips.map((chip) => (
+        {shown.map((chip) => (
           // #176: consistent chip control — the title opens the target (split
           // panel / navigation), the × unlinks it (only when editable). The ×
           // is a sibling of the link, never nested, so their clicks can't reach
           // each other.
           <span
             key={chip.id}
-            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink hover:border-border-strong"
           >
             <Link
               href={recordHref(ws, field.relation!.target_database_id, chip)}
@@ -136,9 +158,18 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
             )}
           </span>
         ))}
+        {chips.length > 6 && (
+          <button
+            type="button"
+            className="text-label text-muted underline hover:text-ink"
+            onClick={() => setShowAllChips((s) => !s)}
+          >
+            {showAllChips ? 'Show fewer' : `+${chips.length - 6} more`}
+          </button>
+        )}
         {!readOnly && (
           <button
-            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
             onClick={() => setEditing(true)}
           >
             <Plus className="h-3 w-3" /> {chips.length === 0 && 'Add'}
@@ -166,7 +197,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
           <span
             key={target.id}
             className={cn(
-              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px]',
+              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-label',
               target.missing
                 ? 'border-error/40 bg-error/5 text-error'
                 : 'border-border-default bg-hover text-ink',
@@ -190,11 +221,13 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
             )}
           </span>
         ))}
-        {targets.length === 0 && readOnly && <span className="text-[13px] text-faint">Empty</span>}
+        {/* #669 — "Empty" is the only text telling you a read-only relation has
+            nothing in it; an em dash would be decorative, a WORD is not. */}
+        {targets.length === 0 && readOnly && <span className="text-body text-muted">Empty</span>}
         {!readOnly && (
           <button
             type="button"
-            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
             onClick={() => setEditing(true)}
           >
             <Plus className="h-3 w-3" /> {targets.length === 0 && 'Add'}
@@ -212,6 +245,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
       </div>
     );
   }
+  // #811 — no type badge: see computedBadgeLabel. The control labels itself.
   if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
   if (editing) {
     // relative anchor so absolute-positioned option lists / pickers drop under the field
@@ -239,17 +273,26 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
   const empty = value === undefined || value === null || value === '';
   // Inline-editable when not read-only and not a computed/audit type (NOT_INLINE).
   const editableInline = !readOnly && !NOT_INLINE.has(field.type);
+  // #780 — the artifact badges the VALUE, not just the row, so this stays
+  // regardless of `empty`: an em-dash placeholder still needs the badge to
+  // explain why it isn't a fake "Add value" affordance.
+  const badge = computedBadgeLabel(field.type);
   return (
     <div
       className={cn(
         'min-h-6 min-w-0',
+        badge && 'flex flex-wrap items-center gap-1.5',
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
-        // #206: -mx-1.5 bleeds the cell's inner padding outward so the value's
-        // text left edge stays flush with the label row (and with chip values,
-        // which have no cell) — the box breathes without shifting the value.
-        cell && '-mx-1.5 rounded-[var(--radius-control)] border border-transparent px-1.5 py-1 transition-colors',
+        // #640 — was `-mx-1.5 ... py-1`: the negative margin bled the cell's
+        // own padding outward to keep the value's text flush with the label
+        // ABOVE it (label and value shared one left edge, stacked). Now that
+        // #640 puts them in separate columns, that compensation no longer
+        // applies — and py-1 was stacking with the row's own py-1.5, which is
+        // exactly the "44px of content, 21px dead space" this ticket measured.
+        // py-0.5 keeps a real hit target without re-adding that dead space.
+        cell && 'rounded-[var(--radius-control)] border border-transparent px-1.5 py-0.5 transition-colors',
         cell && editableInline && 'hover:border-border-default hover:bg-hover/60',
         editableInline && 'cursor-pointer',
       )}
@@ -278,6 +321,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
       ) : (
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
+      {badge && <ComputedBadge type={field.type} />}
     </div>
   );
 }
@@ -328,7 +372,10 @@ function DatabasePicker({
           autoFocus
           value={query}
           placeholder="Search databases…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          // #717 — plain `rounded` bypassed the radius token; --radius-control
+          // is the fix, not the `<Input>` primitive (its `sm` size would also
+          // swap py-1 for a fixed h-8, a restyle this ticket's AC forbids).
+          className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none placeholder:text-muted"
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="max-h-60 overflow-y-auto">
@@ -338,7 +385,7 @@ function DatabasePicker({
               <button
                 key={option.id}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
                 onClick={() => toggle(option.id)}
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -350,7 +397,7 @@ function DatabasePicker({
             );
           })}
           {options.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No databases</p>
+            <p className="px-2 py-1.5 text-label text-muted">No databases</p>
           )}
         </div>
       </PopoverContent>
@@ -382,7 +429,7 @@ function ClampedValue({ children }: { children: ReactNode }) {
       {(overflows || expanded) && (
         <button
           type="button"
-          className="mt-0.5 text-[11px] text-muted hover:text-ink"
+          className="mt-0.5 text-meta text-muted hover:text-ink"
           onClick={(e) => {
             e.stopPropagation();
             setExpanded((v) => !v);
@@ -407,7 +454,7 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
   const fill = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[13px] tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
+      <span className="text-body tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
       <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
         <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${fill}%` }} />
       </div>
@@ -421,11 +468,28 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
  * (h-3.5), same gap, same label style. Single source so the three placements
  * can't drift apart. The #176 type icon lives here.
  */
-const FIELD_LABEL_CLS = 'text-[12px] font-medium text-muted';
+const FIELD_LABEL_CLS = 'text-label font-medium text-muted';
 
 function FieldTypeGlyph({ type, className }: { type: string; className?: string }) {
   const Icon = fieldTypeIcon(type);
   return <Icon className={cn('h-3.5 w-3.5 shrink-0 text-faint', className)} aria-hidden />;
+}
+
+/** #780 — the artifact's `.computed` badge. `text-micro`/`--radius-chip` are
+ * the nearest role-scale/radius-token steps to the artifact's raw 9px/3px —
+ * type and radius come from main's established scale, not the artifact's
+ * literal pixels (matching those would revert #900). `font-mono` is the
+ * project's existing monospace utility (no bespoke `--font-mono` token; every
+ * other monospace usage in this codebase already reaches for this same
+ * Tailwind default stack). */
+function ComputedBadge({ type }: { type: string }) {
+  const label = computedBadgeLabel(type);
+  if (!label) return null;
+  return (
+    <span className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1 font-mono text-micro tracking-wide text-muted">
+      {label}
+    </span>
+  );
 }
 
 /** Compact draggable property in the right sidebar (label above value). */
@@ -437,7 +501,9 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group relative rounded-md py-1.5 pr-1.5 hover:bg-hover/50',
+        // #640 — was py-1.5 (12px), sized for the old two-LINE (label over
+        // value) row.
+        'group relative rounded-md py-0.5 pr-1.5 hover:bg-hover/50',
         /*
          * #331 — the grip needs its own lane. It is absolutely positioned (see
          * #209 below) and 20px wide, while the type glyph starts at the content
@@ -472,7 +538,10 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           className={cn(
             // #331: sits in the lane reserved by the row's pl-6 above, so it
             // lands BESIDE the type glyph instead of on top of it.
-            'absolute left-0 top-2 z-10 flex h-5 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
+            // #640: was `top-2`, tuned for the old stacked (label-over-value)
+            // row's taller content; centered instead, since the row is now a
+            // single ~28px line and a fixed offset would sit off-center.
+            'absolute left-0 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
             sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
           )}
           {...sortable.attributes}
@@ -482,21 +551,53 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           <GripVertical className="h-3.5 w-3.5" />
         </button>
       )}
-      {/* #209: two-column layout — the type icon lives in a fixed gutter, and the
-          label text + value stack in the second column so they share ONE left
-          edge. The value cell's -mx-1.5 (below) now bleeds relative to this
-          column, landing the value flush under the label — no more drift. */}
-      <div className="flex gap-1.5">
-        <FieldTypeGlyph type={field.type} className="mt-[3px]" />
+      {/* #640 — label and value on ONE row instead of stacked: was 65px/property
+          (44px of content, 21px dead space below it); a fixed 88px label column
+          (the longest real label, "Monthly Value" at 12px, measures ~85px) plus
+          a flexible value column brings a property to ~28px. The type icon still
+          gets its own gutter, matching #209's original alignment intent. */}
+      <div className="flex items-center gap-1.5">
+        <FieldTypeGlyph type={field.type} />
+        {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
+            all-caps, for Fibery parity. #206: shared label style. */}
+        <span className={cn('w-[88px] shrink-0 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-1">
-            {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
-                all-caps, for Fibery parity. #206: shared label style. */}
-            <span className={cn('flex-1 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
-            {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
-          </div>
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>
+        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #780 — the record page's UNIFIED field row: replaces `SidebarField`'s 88px
+ * label (its own #640 comment: "the longest real label, 'Monthly Value',
+ * measures ~85px") now that every non-body field renders in one place at
+ * full main-column width instead of a narrow aside. 150px is the artifact's
+ * own measured `.frow` label column — fixed width is what makes every
+ * value start at one x regardless of label length, same reasoning #640
+ * already established, just re-measured for the wider column.
+ *
+ * No drag handle: reordering within the top/sidebar zones was part of the
+ * zoning feature being hidden (#780 ticket comment), and reordering a newly
+ * merged list is a separate, un-ruled-on capability — flagged there rather
+ * than assumed. Renders in `zonesOf`/`orderKey` sort order, read-only.
+ */
+export function UnifiedFieldRow({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
+  return (
+    <div className="group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] py-0.5 pr-1.5 hover:bg-hover/50">
+      <span className={cn('flex min-h-[24px] items-center gap-1.5 pt-0.5', FIELD_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} />
+        <span className="truncate">{field.displayName}</span>
+      </span>
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
+        </div>
+        {schemaEditable && (
+          <FieldMenu field={field} onToggleZone={onToggleZone} hideZoneToggle ws={vp.ws} db={vp.db} />
+        )}
       </div>
     </div>
   );

@@ -29,11 +29,24 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # Maintainers/bots don't need a sign-off; external contributors do.
-          ALLOW="ikrasovytskyi dependabot[bot] github-actions[bot]"
+          #
+          # Matched as a full-line regex against the commit's author NAME and
+          # EMAIL. The previous form was a SPACE-SEPARATED list compared with
+          # `case " $ALLOW " in *" $author "*`, checked against `%an` — the git
+          # author NAME — while the list held GitHub LOGINS. "Ievgen
+          # Krasovytskyi" never matched "ikrasovytskyi", and a name containing
+          # a space could not match a space-delimited list at all. So this gate
+          # failed on every internal commit for weeks and nobody saw it,
+          # because DCO is not a required check (branch protection: #777).
+          # That also meant the CLA gate cla.yml describes — "sign-off, checked
+          # by dco.yml, is the active CLA gate" — was not gating anything.
+          ALLOW='ikrasovytskyi|Ievgen Krasovytskyi|ievgen\.krasovytskyi@.*|i\.krasovytskyi@.*|dependabot\[bot\]|github-actions\[bot\]'
           fail=0
           for sha in $(git rev-list "$BASE..$HEAD"); do
             author=$(git show -s --format='%an' "$sha")
-            case " $ALLOW " in *" $author "*) continue ;; esac
+            email=$(git show -s --format='%ae' "$sha")
+            if printf '%s' "$author" | grep -qxE "$ALLOW"; then continue; fi
+            if printf '%s' "$email"  | grep -qxE "$ALLOW"; then continue; fi
             if git show -s --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               continue
             fi

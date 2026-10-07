@@ -34,7 +34,7 @@ function RefChip({ label, missing }: { label: string; missing: boolean }) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center truncate rounded border px-1.5 py-0.5 text-[12px]',
+        'inline-flex max-w-full items-center truncate rounded border px-1.5 py-0.5 text-label',
         missing
           ? 'border-error/40 bg-error/5 text-error'
           : 'border-border-default bg-hover text-ink',
@@ -52,7 +52,7 @@ function RefChip({ label, missing }: { label: string; missing: boolean }) {
 
 /** Muted placeholder while the resolving queries are in flight. */
 function RefLoading() {
-  return <span className="text-[13px] text-faint">…</span>;
+  return <span className="text-body text-faint">…</span>;
 }
 
 /**

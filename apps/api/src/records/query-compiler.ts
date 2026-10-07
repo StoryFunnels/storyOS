@@ -3,7 +3,7 @@ import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
 import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
 import { isPickOneOp } from './rollup-pick-one';
-import { recordLinks, records } from '../db/schema';
+import { recordLinks, records, user } from '../db/schema';
 
 /**
  * The filter-AST → SQL compiler (ADR-0002). Everything is parameterized;
@@ -20,6 +20,26 @@ export interface CompilerContext {
 }
 
 const err = (message: string) => new UnprocessableEntityException(message);
+
+/**
+ * #590 — the counterpart to the system-field op error at line ~162: names
+ * BOTH the field and its full allowed-op set, not just the rejected op and
+ * the type. `allowed` is each branch's actual accepted set (including
+ * is_empty/not_empty, which the generic presence check above the switch in
+ * `compileCondition` already accepts for every type reaching these branches)
+ * so a caller learns what WOULD work without a second `describe_database` call.
+ */
+function opErr(def: FieldDef, op: FilterOp, allowed: readonly FilterOp[]): never {
+  throw err(`op "${op}" not valid for field "${def.api_name}" (allowed: ${allowed.join(', ')})`);
+}
+
+const CHECKBOX_OPS: readonly FilterOp[] = ['eq', 'neq', 'is_empty', 'not_empty'];
+const TEXTISH_OPS: readonly FilterOp[] = ['eq', 'neq', 'contains', 'not_contains', 'is_empty', 'not_empty'];
+const NUMBER_OPS: readonly FilterOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'];
+const DATE_FIELD_OPS: readonly FilterOp[] = ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'];
+const ID_SET_SCALAR_OPS: readonly FilterOp[] = ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'];
+const ID_SET_ARRAY_OPS: readonly FilterOp[] = ['has', 'has_none', 'is_empty', 'not_empty'];
+const RELATION_OPS: readonly FilterOp[] = ['has', 'has_none', 'is_empty', 'not_empty'];
 
 export function compileFilter(node: FilterNode, ctx: CompilerContext): SQL {
   if ('and' in node) {
@@ -93,6 +113,31 @@ function fieldExpr(def: FieldDef): SQL {
     return sql`(${records.computedValues}->>${def.id})`;
   }
   if (def.type === 'rollup') return sql`((${records.computedValues}->>${def.id})::numeric)`;
+  // #571 — an AI field's value (free text or a chosen label) lives in
+  // computed_values too, materialized by the ai_field_recompute job
+  // executor. Always text: neither output shape is ever numeric/boolean.
+  if (def.type === 'ai') return sql`(${records.computedValues}->>${def.id})`;
+  // #657 — sortable ONLY when validateSorts() already refused the multi-
+  // valued case (config['multi'], set by RecordsService.fieldDefs from the
+  // relation's own cardinality+side), so exactly zero or one linked record
+  // can ever match here — no ordering-among-many decision to make, unlike a
+  // pick-one rollup. Same myCol/otherCol convention as compileRelation's own
+  // EXISTS query, just resolving to the linked record's TITLE instead of a
+  // membership check.
+  if (def.type === 'relation') {
+    const relationId = def.config['relation_id'] as string;
+    const side = (def.config['side'] as 'a' | 'b' | undefined) ?? 'a';
+    // Plain SQL aliasing (`records lnk`) rather than drizzle-orm's alias() —
+    // interpolating an alias()'d table object into a raw `sql` template
+    // renders only its bare identifier, with no `AS` linkage back to the
+    // real `records` table, which Postgres then reads as "relation
+    // sort_..._linked_record does not exist". `myCol`/`otherCol` are one of
+    // two hardcoded literals (never user input), so sql.raw() here is the
+    // same safety class as every other literal column name in this file.
+    const myCol = side === 'a' ? 'from_record_id' : 'to_record_id';
+    const otherCol = side === 'a' ? 'to_record_id' : 'from_record_id';
+    return sql`(SELECT lnk.title FROM ${recordLinks} rl JOIN ${records} lnk ON lnk.id = rl.${sql.raw(otherCol)} WHERE rl.relation_id = ${relationId} AND rl.${sql.raw(myCol)} = ${records.id} AND lnk.deleted_at IS NULL LIMIT 1)`;
+  }
   return sql`(${records.values}->>${def.id})`;
 }
 
@@ -101,7 +146,7 @@ function presentExpr(def: FieldDef): SQL {
   // asking `values ? id` for them answered "empty" for every row, which made
   // is_empty match everything and not_empty match nothing. Only reachable now
   // that pick-one rollups are filterable at all.
-  if (def.type === 'rollup' || def.type === 'formula') {
+  if (def.type === 'rollup' || def.type === 'formula' || def.type === 'ai') {
     return sql`(${records.computedValues} ? ${def.id} AND ${records.computedValues}->${def.id} <> 'null'::jsonb)`;
   }
   if (def.type === 'id') return sql`(${records.number} IS NOT NULL)`;
@@ -178,7 +223,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'number':
       return compileNumber(def, op, value);
     case 'checkbox': {
-      if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+      if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
       if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
       const expr = fieldExpr(def);
       // Missing key counts as false.
@@ -241,7 +286,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       if (!def.config['ast']) throw err(`filters on "${def.type}" fields are not supported`);
       if (resultType === 'number') return compileNumber(def, op, value);
       if (resultType === 'checkbox') {
-        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
         if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
         return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
       }
@@ -252,13 +297,17 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       const valueType = isPickOneOp(def.config['op']) ? def.config['value_type'] : 'number';
       if (valueType === 'number') return compileNumber(def, op, value);
       if (valueType === 'checkbox') {
-        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
         if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
         return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
       }
       if (valueType === 'date') return compileDate(def, op, value);
       return compileTextish(def, op, value);
     }
+    // #571 — always text (free text or a chosen label); no result-type branch
+    // needed, unlike formula/rollup.
+    case 'ai':
+      return compileTextish(def, op, value);
     default:
       throw err(`filters on "${def.type}" fields are not supported`);
   }
@@ -274,8 +323,15 @@ function compileTextish(def: FieldDef, op: FilterOp, value: unknown): SQL {
       return sql`(${expr} IS DISTINCT FROM ${value})`;
     case 'contains':
       return sql`(${expr} ILIKE ${'%' + escapeLike(value) + '%'})`;
+    // #429 — the negation people reach for first ("everything that isn't a
+    // Tyron ticket"). COALESCE'd to '' rather than a bare `NOT (expr ILIKE …)`:
+    // ILIKE against a NULL expr evaluates to NULL, and `NOT NULL` is NULL too
+    // (excluded by WHERE), which would silently drop every record with the
+    // field unset — exactly the rows "does not contain X" should include.
+    case 'not_contains':
+      return sql`(COALESCE(${expr}, '') NOT ILIKE ${'%' + escapeLike(value) + '%'})`;
     default:
-      throw err(`op "${op}" not valid for ${def.type}`);
+      opErr(def, op, TEXTISH_OPS);
   }
 }
 
@@ -298,35 +354,45 @@ function compileNumber(def: FieldDef, op: FilterOp, value: unknown): SQL {
     case 'lte':
       return sql`(${expr} <= ${value})`;
     default:
-      throw err(`op "${op}" not valid for number`);
+      opErr(def, op, NUMBER_OPS);
   }
 }
 
 /**
  * #488 — every window here is half-open [from, to) and spans EXACTLY the number
- * of days its name claims. `last_7_days` and `next_7_days` both INCLUDE today,
- * which is what makes them symmetric: seven days ending today, seven days
- * starting today.
+ * of days its name claims.
  *
- * They were off by one: last_7_days was dayRange(-7, 1) and next_7_days
- * dayRange(0, 8) — eight days each — and next_30_days was 31. Nobody counts
- * the days a "next 7 days" view returns, which is the entire reason for using
- * it instead of a manual range, so the error was invisible and inherited by
- * every count, automation condition and screenshot downstream of it.
+ * #523 — `last_7_days` and `next_7_days` (and `next_30_days`) are NOT symmetric
+ * around today: `last_N_days` is inclusive of today (today-(N-1) .. today,
+ * "the week so far"), while `next_N_days` is EXCLUSIVE of today (today+1 ..
+ * today+N, "what's coming"). #488 made both windows exactly N days long but
+ * left them both including today, so a record dated today matched BOTH — two
+ * people looking at "last 7 days" and "next 7 days" side by side would each
+ * reasonably believe the other didn't cover it. `today` already exists as its
+ * own single-day filter, so a `next` window claiming it too was the anomaly;
+ * `last` keeping it is deliberate and unchanged; this decision applies once to
+ * every `next_N_days` variant, not per N.
+ *
+ * They were off by one before #488: last_7_days was dayRange(-7, 1) and
+ * next_7_days dayRange(0, 8) — eight days each — and next_30_days was 31.
+ * Nobody counts the days a "next 7 days" view returns, which is the entire
+ * reason for using it instead of a manual range, so the error was invisible
+ * and inherited by every count, automation condition and screenshot
+ * downstream of it.
  */
 const RELATIVE_RANGES: Record<RelativeDateRange, () => { from: Date; to: Date }> = {
   today: () => dayRange(0, 1),
   yesterday: () => dayRange(-1, 0),
   tomorrow: () => dayRange(1, 2),
   last_7_days: () => dayRange(-6, 1),
-  next_7_days: () => dayRange(0, 7),
+  next_7_days: () => dayRange(1, 8),
   this_month: () => {
     const now = new Date();
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     return { from, to };
   },
-  next_30_days: () => dayRange(0, 30),
+  next_30_days: () => dayRange(1, 31),
 };
 
 function dayRange(fromOffsetDays: number, toOffsetDays: number): { from: Date; to: Date } {
@@ -388,7 +454,7 @@ function compileDate(def: FieldDef, op: FilterOp, value: unknown): SQL {
     case 'after':
       return sql`(${expr} > ${cmp})`;
     default:
-      throw err(`op "${op}" not valid for date`);
+      opErr(def, op, DATE_FIELD_OPS);
   }
 }
 
@@ -409,7 +475,7 @@ function compileIdSet(
     return op === 'eq' ? sql`(${expr} = ${resolved})` : sql`(${expr} IS DISTINCT FROM ${resolved})`;
   }
 
-  if (op !== 'has' && op !== 'has_none') throw err(`op "${op}" not valid for ${def.type}`);
+  if (op !== 'has' && op !== 'has_none') opErr(def, op, shape === 'scalar' ? ID_SET_SCALAR_OPS : ID_SET_ARRAY_OPS);
   if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string')) {
     throw err(`op "${op}" on "${def.api_name}" expects a non-empty array of ids`);
   }
@@ -438,7 +504,7 @@ function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
   if (op === 'is_empty') return sql`(NOT ${anyLink})`;
   if (op === 'not_empty') return sql`(${anyLink})`;
 
-  if (op !== 'has' && op !== 'has_none') throw err(`op "${op}" not valid for relation fields`);
+  if (op !== 'has' && op !== 'has_none') opErr(def, op, RELATION_OPS);
   if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string')) {
     throw err(`op "${op}" on "${def.api_name}" expects a non-empty array of record ids`);
   }
@@ -480,7 +546,24 @@ export interface SortSpec {
   direction: 'asc' | 'desc';
 }
 
+/**
+ * #662 — a `user`/`created_by`/`updated_by` field's own storage is a bare user
+ * id (records.values->>id for `user`; the dedicated created_by/updated_by
+ * columns for the other two), so sorting by `fieldExpr` directly would order
+ * by that id string — alphabetical-looking but meaningless, and NOT the
+ * person's name #662's AC promises. Resolve to the name via a correlated
+ * scalar subquery instead; a record whose assignee id doesn't match any row
+ * (a removed member — ADR-0017 tombstones rather than deletes, so this is
+ * mostly theoretical) naturally sorts as NULL, same bucket as "unset".
+ */
 export function sortExpr(def: FieldDef): SQL {
+  if (def.type === 'created_by' || def.type === 'updated_by') {
+    const idExpr = def.type === 'created_by' ? sql`${records.createdBy}` : sql`${records.updatedBy}`;
+    return sql`(SELECT ${user.name} FROM ${user} WHERE ${user.id} = ${idExpr})`;
+  }
+  if (def.type === 'user') {
+    return sql`(SELECT ${user.name} FROM ${user} WHERE ${user.id} = (${records.values}->>${def.id}))`;
+  }
   return fieldExpr(def);
 }
 

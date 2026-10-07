@@ -8,10 +8,13 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { MeController } from './auth/me.controller';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { ActionGatesModule } from './action-gates/action-gates.module';
 import { DatabasesModule } from './databases/databases.module';
 import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
+import { AiFieldModule } from './records/ai-field.module';
 import { RelationsModule } from './relations/relations.module';
+import { PortalModule } from './portal/portal.module';
 import { ViewsModule } from './views/views.module';
 import { ExportModule } from './export/export.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -24,6 +27,7 @@ import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
+import { CopyRecordModule } from './copy-record/copy-record.module';
 import { AutomationsModule } from './automations/automations.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { RunsModule } from './runs/runs.module';
@@ -40,6 +44,7 @@ import { MentionsModule } from './mentions/mentions.module';
 import { FormsModule } from './forms/forms.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { BillingModule } from './billing/billing.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AdminModule } from './admin/admin.module';
 import { env } from './config/env';
@@ -93,8 +98,11 @@ import { DeploymentModule } from './deployment/deployment.module';
     MembersDbModule,
     DatabasesModule,
     FieldsModule,
+    ActionGatesModule,
     RecordsModule,
+    AiFieldModule,
     RelationsModule,
+    PortalModule,
     ViewsModule,
     ExportModule,
     WebhooksModule,
@@ -107,6 +115,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     SearchModule,
     NotificationsModule,
     ImportModule,
+    CopyRecordModule,
     AutomationsModule,
     ConnectionsModule,
     CalendarSyncModule,
@@ -124,6 +133,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     FormsModule,
     GdprModule,
     BillingModule,
+    AnalyticsModule,
     ReferralsModule,
     AdminModule,
     ThrottlerModule.forRoot({
