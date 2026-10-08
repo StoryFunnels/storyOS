@@ -58,7 +58,11 @@ interacts with these lanes.
    `scripts/collision-check.mjs` runs on every PR and asks GitHub whether
    another open PR already touches a file yours touches. Overlap is allowed but
    must be declared — `Overlaps-With: #NNN — why` in the PR description — and
-   every "cannot tell" fails the build.
+   every "cannot tell" fails the build. The line must start a line and use
+   `#NNN`, not `PR #NNN`. The check reads the description from the API when the
+   job runs (ticket #839), so after fixing a declaration, **re-running the job is
+   enough**; before that fix it read the body frozen at trigger time and the only
+   remedies were a push or a close+reopen.
 
    **Both struck-through versions are kept on purpose**, because this rule has
    now gone stale twice in the same way and the shape of the failure is the
