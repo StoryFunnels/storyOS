@@ -114,3 +114,5 @@ never starts.
   `docker compose logs -f api` when a deploy carries one.
 - The docs lane deploys itself via the Cloudflare Workers build on merge; no
   docker deploy needed.
+
+<!-- scratch PR for the ticket #839 reproduction; closing without merge -->
