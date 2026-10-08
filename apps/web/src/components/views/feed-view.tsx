@@ -19,6 +19,7 @@ import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from 
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import { feedActionFields } from './feed-actions';
 import { EmptyState, databaseNoun } from './empty-state';
 import { ViewQueryError } from './query-error';
@@ -45,7 +46,8 @@ export function FeedView({
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
   const fmt = useDateFormat();
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
+  const search = useViewSearch(db);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
   const { updateRecord, createRecord } = useRecordMutations(ws, db);
 

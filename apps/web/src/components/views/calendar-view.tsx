@@ -30,6 +30,7 @@ const CALENDAR_MODE_OPTIONS = [
 ];
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import { activeFilterNode, andFilterNodes } from './filter-config';
 import { ViewQueryError } from './query-error';
 import { CALENDAR_INCREMENT_OPTIONS, CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
@@ -111,8 +112,10 @@ export function CalendarView({
   // ordered by priority) — this view builds its own filter, so it borrows just the
   // sorts/nulls slice of the shared query-body builder rather than forking a second
   // sort-application path.
+  const search = useViewSearch(db);
   const records = useRecordsInfinite(ws, db, {
     ...(windowFilter ? { filter: windowFilter } : {}),
+    ...(search ? { q: search } : {}),
     ...sortsBodyFromConfig(config),
     limit: 200,
   });
@@ -166,7 +169,7 @@ export function CalendarView({
     const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, { field: dateField.apiName, op: 'is_empty' }] };
   }, [dateField, config.filters, personalFilter]);
-  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(dateField));
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(dateField), search);
   const undatedCount = dateField ? (undatedCountQuery.data ?? 0) : 0;
 
   /*
@@ -180,7 +183,7 @@ export function CalendarView({
   const undatedRowsQuery = useRecordsInfinite(
     ws,
     db,
-    { filter: undatedFilter, limit: 20 },
+    { filter: undatedFilter, ...(search ? { q: search } : {}), limit: 20 },
     writable && undatedCount > 0,
   );
   const undatedRows = useMemo(
