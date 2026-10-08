@@ -300,7 +300,7 @@ export type AggregateOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
 export function useRecordAggregate(
   ws: string,
   db: string,
-  input: { op: AggregateOp; field?: string; filter?: unknown },
+  input: { op: AggregateOp; field?: string; filter?: unknown; /** #835 — find-in-view text */ q?: string },
   enabled = true,
 ) {
   return useQuery({
@@ -312,6 +312,7 @@ export function useRecordAggregate(
           op: input.op,
           ...(input.field ? { field: input.field } : {}),
           ...(input.filter ? { filter: input.filter } : {}),
+          ...(input.q ? { q: input.q } : {}),
         } as never,
       });
       if (error) throw error;
@@ -329,8 +330,8 @@ export function useRecordAggregate(
  * so this coerces the shared hook's `number | null` back to the `number`
  * every existing caller already expects — a narrowing, not a behavior change.
  */
-export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
-  const query = useRecordAggregate(ws, db, { op: 'count', filter }, enabled);
+export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true, q?: string) {
+  const query = useRecordAggregate(ws, db, { op: 'count', filter, q }, enabled);
   return { ...query, data: query.data ?? undefined };
 }
 
@@ -350,7 +351,7 @@ export function useRecordCount(ws: string, db: string, filter?: unknown, enabled
 export function useGroupedRecordCount(
   ws: string,
   db: string,
-  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown },
+  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown; q?: string },
   enabled = true,
 ) {
   return useQuery({
@@ -363,6 +364,7 @@ export function useGroupedRecordCount(
           group_by: input.group_by,
           ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
           ...(input.filter ? { filter: input.filter } : {}),
+          ...(input.q ? { q: input.q } : {}),
         } as never,
       });
       if (error) throw error;

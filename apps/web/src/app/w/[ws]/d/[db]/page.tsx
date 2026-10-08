@@ -34,6 +34,7 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
+import { useViewSearch } from '@/components/views/view-search';
 import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -68,7 +69,8 @@ function DatabasePageInner() {
     [members.data],
   );
 
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
+  const search = useViewSearch(db);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   // #527 — the view being published/managed, or null when the dialog is closed.

@@ -108,6 +108,7 @@ export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'select-row', keys: 'x', label: 'Select row under cursor' },
   { id: 'select-range', keys: '⇧ + click', label: 'Select a range' },
   { id: 'select-all', keys: 'mod+A', label: 'Select all loaded rows' },
+  { id: 'find', keys: 'mod+F', label: 'Find in this view (Enter opens the first match)' },
   { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
   { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
   { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },

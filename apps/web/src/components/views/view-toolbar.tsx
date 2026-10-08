@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AddSummaryWidgetButton } from './summary-widget-strip';
+import { ViewSearchBox } from './view-search-box';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
@@ -701,6 +702,13 @@ export function ViewToolbar({
           copy of the four-way check in page.tsx. */}
       {!readOnly && viewSupportsSummaryWidgets(viewType) && (
         <AddSummaryWidgetButton config={config} onPatch={onPatch} />
+      )}
+
+      {/* #835 — transient find-in-view. Not for a form (it shows no records) or a
+          dashboard (tiles, not rows); both are `viewType` strings, not a new
+          capability list. */}
+      {ws && db && viewType !== 'form' && viewType !== 'dashboard' && (
+        <ViewSearchBox ws={ws} db={db} config={config} personalFilter={personalFilter} />
       )}
 
       {/* MN-075: the way out — this view's rows, exactly as shown. On a FORM

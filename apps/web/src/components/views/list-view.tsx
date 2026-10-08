@@ -17,6 +17,7 @@ import { canGroupListBy } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 
 const NO_VALUE = '__none__';
@@ -42,7 +43,8 @@ export function ListView({
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
   const { createRecord } = useRecordMutations(ws, db);
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
+  const search = useViewSearch(db);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
   const memberQuery = useMembers(ws, !readOnly);
