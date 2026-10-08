@@ -42,7 +42,7 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, markInitials } from '@/components/sidebar-row-style';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
@@ -1678,7 +1678,7 @@ function SpaceSection({
             <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
               <button
                 type="button"
-                className="text-faint hover:text-muted"
+                className={cn('text-faint hover:text-muted', CARET_HIT_AREA)}
                 onClick={toggleCollapsed}
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
@@ -2361,7 +2361,7 @@ function FolderSection({
             onClick={toggle}
             aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
             aria-expanded={!collapsed}
-            className="text-faint hover:text-muted"
+            className={cn('text-faint hover:text-muted', CARET_HIT_AREA)}
           >
             <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
           </button>
@@ -2740,7 +2740,7 @@ function DatabaseRow({
                 e.stopPropagation();
                 onToggle?.();
               }}
-              className="rounded text-faint hover:text-ink"
+              className={cn('rounded text-faint hover:text-ink', CARET_HIT_AREA)}
             >
               <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
             </button>
