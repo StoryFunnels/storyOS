@@ -373,6 +373,51 @@ export function useGroupedRecordCount(
 }
 
 /**
+ * #795 — a chart/grouped-table widget's series in ONE request: the measure
+ * (`count`/`sum`/`avg`/`min`/`max`) per group, computed by the server over the same
+ * grant-scoped filter `/query` uses. Replaces paging the whole matching dataset
+ * into the browser (six `/records/query` calls before a bar rendered, on a
+ * 560-record database).
+ *
+ * Returns the server's RAW groups: `key` is an option id for select/multi_select, the
+ * strings "true"/"false" for a checkbox, and `null` for the empty bucket; labels are
+ * the caller's job (it owns the option lists). A multi_select record counts in EVERY
+ * one of its options, so group counts can add up to MORE than the record total — that
+ * is the correct reading, not a bug to normalise away.
+ */
+export function useGroupedAggregate(
+  ws: string,
+  db: string,
+  input: {
+    op: AggregateOp;
+    field?: string;
+    group_by: string;
+    group_by_granularity?: 'week' | 'month' | 'quarter' | 'year';
+    filter?: unknown;
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...recordCountKey(ws, db), 'grouped-aggregate', input],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+        params: { path: { ws, db } },
+        body: {
+          op: input.op,
+          group_by: input.group_by,
+          ...(input.field ? { field: input.field } : {}),
+          ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+        } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { groups: Array<{ key: string | null; value: number | null }> }).groups;
+    },
+    enabled: Boolean(ws && db) && enabled,
+  });
+}
+
+/**
  * #728 fix — true only for the `{ pages: [...] }` shape every `setAll`
  * updater below assumes. `recordsKey` used to also match `useRecordCount`'s
  * cache entry (a plain number) via prefix, and the updaters threw on the
