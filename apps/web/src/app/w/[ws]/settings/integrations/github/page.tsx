@@ -20,6 +20,11 @@ interface GithubConfig {
   has_token: boolean;
   connected: boolean;
   installation_id: number | null;
+  /** #828: deliveries received for repos that are not selected, and so discarded. */
+  ignored_deliveries?: {
+    repos: Array<{ repo: string; count: number; last_seen_at: string }>;
+    other_count: number;
+  };
 }
 
 interface InstallRepo {
@@ -191,6 +196,11 @@ export default function GitHubIntegrationPage() {
           },
         ]}
       />
+
+      {/* #828: shown for the App path AND the manual-secret path — both can ignore deliveries. */}
+      <div className="mb-6 empty:hidden">
+        <IgnoredDeliveriesNotice ignored={config.data?.ignored_deliveries} />
+      </div>
 
       {/* GitHub App connect (#247) */}
       <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
@@ -534,6 +544,37 @@ function RepoPicker({
           {saving ? 'Saving…' : 'Save watched repositories'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * #828: a repo outside the picker still sends deliveries, and they are answered 200
+ * and dropped — which looks exactly like a healthy, silent connection. Say so.
+ */
+function IgnoredDeliveriesNotice({
+  ignored,
+}: {
+  ignored: GithubConfig['ignored_deliveries'];
+}) {
+  if (!ignored || (ignored.repos.length === 0 && ignored.other_count === 0)) return null;
+  return (
+    <div
+      role="status"
+      data-testid="github-ignored-deliveries"
+      className="rounded-[var(--radius-control)] border border-border-default bg-surface p-3 text-body text-ink-secondary"
+    >
+      <p className="mb-1 font-medium text-ink">Ignoring deliveries from repositories you have not selected</p>
+      <ul className="flex flex-col gap-0.5">
+        {ignored.repos.map((r) => (
+          <li key={r.repo}>
+            <strong>{r.repo}</strong> — {r.count} {r.count === 1 ? 'delivery' : 'deliveries'}, last{' '}
+            {new Date(r.last_seen_at).toLocaleString()}
+          </li>
+        ))}
+        {ignored.other_count > 0 && <li>…and {ignored.other_count} more from other repositories</li>}
+      </ul>
+      <p className="mt-1 text-muted">Select a repository above to start syncing it.</p>
     </div>
   );
 }
