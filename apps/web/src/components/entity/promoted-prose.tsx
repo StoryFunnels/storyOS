@@ -5,10 +5,18 @@ import { CellEditor } from '@/components/table-view/cells';
 import type { Field } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 
-// 8 lines of text-body (13px) at leading-relaxed (1.625). Deliberately NOT tied
-// to the 180-char promotion threshold in record-detail.tsx: that number decides
-// WHERE a field renders, this one decides how much of it shows before "Show
-// all". The button is gated on measured overflow, so the two cannot disagree.
+// Eight lines of `text-reading` — 13px at 1.625 leading = 21.125px a line, so
+// 169px, plus ~3px of slack so the eighth line is never shaved. Deliberately
+// NOT tied to the 180-char promotion threshold in record-detail.tsx: that
+// number decides WHERE a field renders, this one decides how much of it shows
+// before "Show all". The button is gated on measured overflow, so the two
+// cannot disagree.
+//
+// #792 — THIS CONSTANT IS DERIVED FROM THE READING LEADING, so --text-reading's
+// line-height in globals.css is load-bearing beyond styling. Change it and this
+// clamp silently shows the wrong number of lines: nothing fails to compile and
+// no test catches it, because the only symptom is a clamp that lands mid-line.
+// If the reading leading ever moves, re-derive this number in the same commit.
 const CLAMP_PX = 172;
 
 interface Member {
@@ -106,7 +114,7 @@ export function PromotedProse({
             }
             style={!expanded ? { maxHeight: CLAMP_PX } : undefined}
             className={cn(
-              'relative whitespace-pre-wrap border-l-2 border-border-default pl-3.5 text-body leading-relaxed text-ink-secondary',
+              'relative whitespace-pre-wrap border-l-2 border-border-default pl-3.5 text-reading text-ink-secondary',
               !expanded && 'overflow-hidden',
               !readOnly && 'cursor-text rounded-r-[var(--radius-control)] hover:bg-hover/50',
             )}

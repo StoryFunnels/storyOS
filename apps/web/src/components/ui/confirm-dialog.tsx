@@ -64,7 +64,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Dialog open={opts !== null} onOpenChange={(open) => !open && settle(false)}>
         {opts && (
           <DialogContent title={opts.title}>
-            {opts.message && <p className="mb-5 text-body leading-relaxed text-muted">{opts.message}</p>}
+            {opts.message && <p className="mb-5 text-reading text-muted">{opts.message}</p>}
             {opts.requireTyped && (
               <div className="mb-5">
                 <div className="mb-2">

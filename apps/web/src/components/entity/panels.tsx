@@ -241,7 +241,7 @@ function CommentBlockNoteBody({ ws, doc }: { ws: string; doc: unknown[] }) {
     initialContent: doc.length > 0 ? (doc as never) : undefined,
   });
   return (
-    <div className="text-[13px] leading-relaxed text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
+    <div className="text-reading text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
       <MentionScope ws={ws}>
         <BlockNoteView editor={editor} editable={false} theme={theme} />
       </MentionScope>
@@ -350,7 +350,7 @@ export function CommentsPanel({
           {isBlocknoteBody(comment.body) ? (
             <CommentBlockNoteBody ws={ws} doc={comment.body.doc} />
           ) : (
-            <p className="text-[13px] leading-relaxed text-ink-secondary">
+            <p className="text-reading text-ink-secondary">
               {comment.body.map((segment, i) =>
                 segment.type === 'text' ? (
                   <span key={i}>{segment.text}</span>
