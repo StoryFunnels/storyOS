@@ -44,7 +44,28 @@ export function RichTextFieldSection({
     initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
-  useEffect(() => () => (timer.current !== null ? clearTimeout(timer.current) : undefined), []);
+  // #834 — closing the record (the X, or now Esc) used to DISCARD an edit still waiting in
+  // the 800 ms debounce: type, close within the window, and the last words were gone. A
+  // keyboard close makes that window easy to hit, so a pending save is FLUSHED on unmount
+  // instead — closing is never a way to lose input.
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  useEffect(
+    () => () => {
+      if (timer.current === null) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      try {
+        const doc = editorRef.current.document;
+        commitRef.current(doc.length > 0 ? doc : null);
+      } catch {
+        /* the editor was already torn down; there is nothing left to read */
+      }
+    },
+    [],
+  );
 
   // #813 — an EMPTY rich-text field is one quiet line, not a full editor box:
   // Rule 3 (#780) "empty sections do not render", with the discoverability

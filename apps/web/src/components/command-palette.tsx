@@ -311,7 +311,10 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setOpen(false);
+              if (e.key === 'Escape') {
+                e.preventDefault(); // #834 — the palette owns this Esc
+                setOpen(false);
+              }
               else if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setIndex((i) => (rows.length ? (i + 1) % rows.length : 0));

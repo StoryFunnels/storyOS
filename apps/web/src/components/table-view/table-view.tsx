@@ -770,6 +770,9 @@ export function TableView({
     else if (e.key === 'Tab') move(0, 1, false);
     else if (e.key === 'ArrowLeft') move(0, -1, e.shiftKey);
     else if (e.key === 'Escape' && (selected.size > 0 || rangeEnd)) {
+      // #834 — claim it: a selection is a layer above the open record, so the record's
+      // own Esc must not also fire on the same keystroke.
+      e.preventDefault();
       setSelected(new Set());
       setRangeEnd(null);
     } else if (e.key.toLowerCase() === 'x' && cursor && !readOnly) {

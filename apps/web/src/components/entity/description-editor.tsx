@@ -123,7 +123,25 @@ function EditorInner({
     onError: () => setSaving(false),
   });
 
-  useEffect(() => () => timer.current !== null ? clearTimeout(timer.current) : undefined, []);
+  // #834 — flush, don't discard, an edit still in the debounce when the record closes (see
+  // the same note in rich-text-field.tsx): Esc must not be a new way to lose typing.
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(
+    () => () => {
+      if (timer.current === null) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      try {
+        saveRef.current.mutate(editorRef.current.document as never);
+      } catch {
+        /* the editor was already torn down */
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (autoFocus) setTimeout(() => editor.focus(), 0);
   }, [autoFocus, editor]);

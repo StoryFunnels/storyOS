@@ -2650,7 +2650,11 @@ export function SortButton({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !sortDrag.activeId) setOpen(false);
+      if (e.key === 'Escape' && !sortDrag.activeId) {
+        // #834 — claim it, so the record behind this popover does not also close.
+        e.preventDefault();
+        setOpen(false);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

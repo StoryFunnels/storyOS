@@ -111,6 +111,8 @@ export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
   { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
   { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },
+  // #834 — the next layer out. Listed separately so the sheet says both things Esc does.
+  { id: 'close-record', keys: 'Esc', label: 'Close the open record (after any menu or edit)' },
   // #265: registered here so the overlay lists it. #322's lesson — a feature
   // nobody can discover is the same as a missing feature — and the founder
   // reported "no undo" while the product already had one.
