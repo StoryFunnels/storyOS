@@ -32,7 +32,7 @@ function declared(re: RegExp): Map<string, string> {
 }
 
 const sizesInCss = [...declared(SIZE_DECL).keys()].sort();
-const listed = [...FONT_SIZE_STEPS].sort();
+const listed: string[] = [...FONT_SIZE_STEPS].sort();
 
 describe('FONT_SIZE_STEPS matches the size steps in globals.css (#846)', () => {
   it('actually found the scale (an empty extraction must not pass)', () => {
