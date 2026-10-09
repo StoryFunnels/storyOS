@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
@@ -290,6 +291,15 @@ export default function InboxPage() {
                   >
                     {selected.snippet}
                   </p>
+                )}
+                {/* #826 — a post_social approval shows the final text, the account and the image, not a one-line snippet. */}
+                {selected.type === 'action_approval_requested' && selected.ref_id && selected.record && !selected.record.deleted && (
+                  <PostApprovalPreview
+                    ws={ws}
+                    approvalId={selected.ref_id}
+                    db={selected.record.database_id}
+                    rec={selected.record.id}
+                  />
                 )}
                 {selected.record?.deleted && (
                   <p className="mt-2 text-label text-faint">This item has been deleted.</p>
