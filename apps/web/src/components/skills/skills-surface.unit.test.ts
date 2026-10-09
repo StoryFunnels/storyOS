@@ -1,0 +1,62 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * #833 AC6 — there is no in-app "Run" for a skill, and the reason is written in
+ * skills-library.tsx where someone would add one. A comment can be ignored; this
+ * cannot: it reads every source file on the Skills surface and fails if one
+ * calls the run endpoint or offers a Run button.
+ *
+ * Scope is the surface's own files (components/skills and the three route
+ * pages), NOT the whole app: AI fields and automations legitimately run things.
+ */
+const here = fileURLToPath(new URL('.', import.meta.url));
+const pagesDir = fileURLToPath(new URL('../../app/w/[ws]/skills', import.meta.url));
+
+function sources(dir: string): Array<{ file: string; text: string }> {
+  const out: Array<{ file: string; text: string }> = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...sources(full));
+    else if (/\.tsx?$/.test(name) && !/\.test\./.test(name)) out.push({ file: full, text: readFileSync(full, 'utf8') });
+  }
+  return out;
+}
+
+const surface = [...sources(here), ...sources(pagesDir)];
+
+/** Strip comments, so the explanatory note above SkillRow (which names the run
+ * endpoint on purpose) does not trip the guard that protects it. */
+const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+describe('the Skills surface offers no Run (ticket #833 AC6)', () => {
+  it('has files to check', () => {
+    expect(surface.length).toBeGreaterThanOrEqual(6);
+  });
+  it('never calls the run endpoint', () => {
+    for (const { file, text } of surface) {
+      expect(code(text), file).not.toMatch(/skills\/\{id\}\/run|\/skills\/[^'"`]*\/run/);
+    }
+  });
+  it('never renders a Run / Execute / Try-it control', () => {
+    for (const { file, text } of surface) {
+      expect(code(text), file).not.toMatch(/>\s*(Run|Run skill|Execute|Try it)\s*</i);
+    }
+  });
+  it('keeps the reason where someone would add the button', () => {
+    const lib = surface.find((s) => s.file.endsWith('skills-library.tsx'))!;
+    expect(lib.text).toMatch(/AC6/);
+    expect(lib.text).toMatch(/NOT A GAP/);
+  });
+});
+
+describe('allowed_tools is off the surface (ticket #833 amended AC2)', () => {
+  it('is neither authored nor displayed by any file on the surface', () => {
+    for (const { file, text } of surface) {
+      // Mentioned only in comments explaining its absence; never in code.
+      expect(code(text), file).not.toMatch(/allowed_tools|allowedTools|Allowed tools/);
+    }
+  });
+});
