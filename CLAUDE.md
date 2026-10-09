@@ -233,6 +233,30 @@ DATABASE_URL="postgres://$(whoami)@localhost:5432/storyos_test_local" \
 - `test/backup-restore.test.ts` starts its own container regardless, so that one
   file still needs Docker — the single expected failure when Docker is down.
 
+## When a local Docker build fails (#98) — tell which failure it is
+
+Two different failures look the same from outside: a build that sits there,
+then dies or never finishes. They have different fixes, and #98 recorded both
+being mistaken for each other.
+
+| Signature | What it is | Fix |
+|---|---|---|
+| `lookup auth.docker.io: no such host` / `failed to fetch anonymous token` | **Host DNS**: Docker Hub cannot be resolved at all | VPN, resolver or `/etc/hosts`, not Docker |
+| `docker pull` at 0% CPU with no error, while `curl https://registry-1.docker.io/v2/` answers instantly | **Docker Desktop's VM network path** | restart Docker Desktop / check its proxy settings / reset the VM |
+
+Check in this order before blaming either one:
+
+```sh
+nslookup auth.docker.io                                  # host DNS
+docker run --rm alpine nslookup auth.docker.io           # DNS from inside Docker
+docker pull hello-world                                  # bare pull, no buildx/compose
+```
+
+**A failed local image build blocks nothing.** CI builds all three images on
+every PR and boots the mcp one (`ci.yml` → *Docker images*). If the local build
+fails for an environment reason, say so in the PR and let CI be the evidence.
+Never claim an image was verified locally when it was not.
+
 ## Before you push
 
 Run the full local CI — CI failures after push waste a queue slot:
