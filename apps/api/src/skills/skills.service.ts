@@ -1,5 +1,6 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, or } from 'drizzle-orm';
+import { ForbiddenException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { and, desc, eq, exists, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
 import type { ChangeSource } from '../db/schema';
 import type {
   CreateSkillInput,
@@ -15,12 +16,32 @@ import type {
 import { SKILL_TEMPLATES } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { skills } from '../db/schema';
+import { memberships, skillMembers, skills } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { scopeForRole } from '../agents/agent-principal';
 import { renderSkillExport } from './skill-export';
+import { buildSkillImport } from './skill-import';
+import type { ImportReport } from './skill-import';
 
 type SkillRow = typeof skills.$inferSelect;
+
+/**
+ * #841 — what the service hands to IN-PROCESS callers (packs hash and re-install skills,
+ * and a pack's content hash has always included `allowed_tools`, so dropping it there would
+ * flip every installed pack to "changed since install"). It is NOT what an API client
+ * receives: the controller strips it with `publicSkill` at the boundary.
+ */
+export type SkillView = SkillSummary & { allowed_tools: string[] };
+
+/** Strip the retired `allowed_tools` from anything that crosses the API boundary. */
+export function publicSkill<T extends { allowed_tools?: unknown }>(skill: T): Omit<T, 'allowed_tools'> {
+  const { allowed_tools: _retired, ...rest } = skill;
+  void _retired;
+  return rest;
+}
+
+/** `allowed_tools` is rejected at the API (see the schema); packs still carry it internally. */
+export type InternalCreateSkillInput = Omit<CreateSkillInput, 'allowed_tools'> & { allowed_tools?: string[] };
 
 /**
  * #40 — the Skills framework.
@@ -52,7 +73,72 @@ type SkillRow = typeof skills.$inferSelect;
 export class SkillsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  private present(row: SkillRow, callerUserId: string): SkillSummary {
+  /**
+   * THE ONE PLACE "who can see this skill" is decided (#841, Otto's ruling on AC3).
+   *
+   * The `members` tier is backed by `skill_members`, a plain `(skill_id, user_id)` join, and
+   * NOT by a fourth scope on `access_grants`: that table encodes a containment hierarchy
+   * (space > database > record) and carries the roles that are the billing boundary, and a
+   * skill is outside both. The price of "who can see this" having two homes is this rule:
+   * NO grant consumer ever reads `skill_members`, and THIS function never reads
+   * `access_grants`. Both list() and findVisible() go through it, so there is no second copy.
+   *
+   *   admin   — every skill in the workspace, including other people's `personal` ones
+   *   others  — their own, every `shared` and `public` one, and a `members` one they are named on
+   */
+  private visibleTo(membership: Membership, userId: string): SQL | undefined {
+    if (membership.role === 'admin') return undefined;
+    return or(
+      eq(skills.ownerId, userId),
+      inArray(skills.visibility, ['shared', 'public']),
+      and(
+        eq(skills.visibility, 'members'),
+        exists(
+          this.db
+            .select({ one: sql`1` })
+            .from(skillMembers)
+            .where(and(eq(skillMembers.skillId, skills.id), eq(skillMembers.userId, userId))),
+        ),
+      ),
+    );
+  }
+
+  /** Mint the credential for a `public` skill: server-side only, never client-supplied. */
+  private mintPublicToken(): string {
+    return randomBytes(24).toString('base64url');
+  }
+
+  /** The people named on `members` skills, for the OWNER and workspace admins only. */
+  private async memberIdsFor(rows: SkillRow[], membership: Membership, userId: string): Promise<Map<string, string[]>> {
+    const wanted = rows
+      .filter((r) => r.visibility === 'members' && (r.ownerId === userId || membership.role === 'admin'))
+      .map((r) => r.id);
+    const out = new Map<string, string[]>();
+    if (wanted.length === 0) return out;
+    const shares = await this.db.select().from(skillMembers).where(inArray(skillMembers.skillId, wanted));
+    for (const s of shares) out.set(s.skillId, [...(out.get(s.skillId) ?? []), s.userId]);
+    return out;
+  }
+
+  /** Every named user must be an ACTIVE member of THIS workspace: a share is not a way to
+   *  reach someone outside it. Unknown ids are a 422 naming them, never silently dropped. */
+  private async assertWorkspaceMembers(workspaceId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const found = await this.db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active'), inArray(memberships.userId, ids)));
+    const have = new Set(found.map((f) => f.userId));
+    const unknown = ids.filter((id) => !have.has(id));
+    if (unknown.length) {
+      throw new UnprocessableEntityException({
+        message: 'member_ids must be active members of this workspace.',
+        details: unknown.map((id) => ({ path: 'member_ids', message: `${id} is not an active member of this workspace` })),
+      });
+    }
+  }
+
+  private present(row: SkillRow, callerUserId: string, extras: { memberIds?: string[]; canSeeToken?: boolean } = {}): SkillView {
     return {
       id: row.id,
       workspace_id: row.workspaceId,
@@ -64,6 +150,9 @@ export class SkillsService {
       instructions: row.instructions,
       examples: (row.examples ?? []) as SkillSummary['examples'],
       allowed_tools: (row.allowedTools ?? []) as string[],
+      version: row.version,
+      ...(extras.memberIds ? { member_ids: extras.memberIds } : {}),
+      ...(extras.canSeeToken ? { public_token: row.publicToken } : {}),
       source_template: row.sourceTemplate,
       source: row.source,
       last_run_at: row.lastRunAt ? row.lastRunAt.toISOString() : null,
@@ -74,16 +163,30 @@ export class SkillsService {
     };
   }
 
-  /** Every skill visible to this caller: their own, plus every shared one. */
-  async list(membership: Membership, userId: string): Promise<{ data: SkillSummary[] }> {
+  /**
+   * Every skill visible to this caller: their own, plus every shared one — and, for a
+   * workspace ADMIN, every skill in the workspace including other people's `personal`
+   * ones (#841 AC5, Ievgen's rule). A `personal` skill is "Only me" to everyone ELSE;
+   * the API never calls it "private", because personal-space.md uses that word for
+   * private-FROM-admins and the two must not collide.
+   */
+  async list(membership: Membership, userId: string): Promise<{ data: SkillView[] }> {
     const rows = await this.db.query.skills.findMany({
-      where: and(
-        eq(skills.workspaceId, membership.workspaceId),
-        or(eq(skills.ownerId, userId), eq(skills.visibility, 'shared')),
-      ),
+      where: and(eq(skills.workspaceId, membership.workspaceId), this.visibleTo(membership, userId)),
       orderBy: [desc(skills.createdAt)],
     });
-    return { data: rows.map((r) => this.present(r, userId)) };
+    return { data: await this.presentAll(rows, membership, userId) };
+  }
+
+  /** present() for a batch, adding the owner/admin-only fields (member ids, public token). */
+  private async presentAll(rows: SkillRow[], membership: Membership, userId: string): Promise<SkillView[]> {
+    const members = await this.memberIdsFor(rows, membership, userId);
+    return rows.map((r) =>
+      this.present(r, userId, {
+        memberIds: members.get(r.id) ?? (r.visibility === 'members' && (r.ownerId === userId || membership.role === 'admin') ? [] : undefined),
+        canSeeToken: r.visibility === 'public' && (r.ownerId === userId || membership.role === 'admin'),
+      }),
+    );
   }
 
   templates(): { data: SkillTemplate[] } {
@@ -99,17 +202,15 @@ export class SkillsService {
     id: string,
   ): Promise<SkillRow> {
     const row = await this.db.query.skills.findFirst({
-      where: and(eq(skills.id, id), eq(skills.workspaceId, membership.workspaceId)),
+      where: and(eq(skills.id, id), eq(skills.workspaceId, membership.workspaceId), this.visibleTo(membership, userId)),
     });
-    if (!row || (row.visibility === 'personal' && row.ownerId !== userId)) {
-      throw new NotFoundException('Skill not found');
-    }
+    if (!row) throw new NotFoundException('Skill not found');
     return row;
   }
 
-  async get(membership: Membership, userId: string, id: string): Promise<SkillSummary> {
+  async get(membership: Membership, userId: string, id: string): Promise<SkillView> {
     const row = await this.findVisible(membership, userId, id);
-    return this.present(row, userId);
+    return (await this.presentAll([row], membership, userId))[0]!;
   }
 
   /**
@@ -129,11 +230,15 @@ export class SkillsService {
    * otherwise POST `visibility: "shared"` directly.
    */
   private assertMayPublish(source: ChangeSource, visibility: SkillVisibility): void {
-    if (visibility === 'shared' && source !== 'human') {
+    // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
+    // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
+    // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
+    // URL. Written as "anything but personal" so a tier added later is gated by default.
+    if (visibility !== 'personal' && source !== 'human') {
       throw new ForbiddenException(
-        'A skill authored over the API cannot be shared to the workspace directly — it is created as `personal`, ' +
-          'and a person promotes it to `shared` in-app after reading it. A shared skill is instructions everyone ' +
-          "else's agent follows, so publishing one is a human decision (ADR-0010).",
+        `A skill authored over the API cannot be shared (\`${visibility}\`) directly — it is created as \`personal\`. ` +
+          "A shared skill is instructions other people's agents follow, so publishing one is a decision a person " +
+          'makes, not an agent (ADR-0010).',
       );
     }
   }
@@ -141,33 +246,84 @@ export class SkillsService {
   async create(
     membership: Membership,
     userId: string,
-    input: CreateSkillInput,
+    input: InternalCreateSkillInput,
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
-  ): Promise<SkillSummary> {
+  ): Promise<SkillView> {
     // #832: omitted visibility depends on who is writing. A person's skill is shared with
     // the workspace (so "my skill, your AI" works without a settings step); an agent's stays
     // personal — it may not publish (#442 / ADR-0010), and defaulting an agent to `shared`
     // would turn every omitted field into a 403 instead of a safe personal skill.
     const visibility: SkillVisibility = input.visibility ?? (source === 'human' ? 'shared' : 'personal');
     this.assertMayPublish(source, visibility);
-    const [row] = await this.db
+    // Naming people to share with is itself a publication (see assertMayPublish).
+    if (input.member_ids?.length) this.assertMayPublish(source, 'members');
+    if (input.member_ids !== undefined && visibility !== 'members') {
+      throw new UnprocessableEntityException({
+        message: '`member_ids` only applies to a skill whose visibility is `members`.',
+        details: [{ path: 'member_ids', message: `visibility is \`${visibility}\`` }],
+      });
+    }
+    const memberIds = [...new Set((input.member_ids ?? []).filter((id) => id !== userId))];
+    await this.assertWorkspaceMembers(membership.workspaceId, memberIds);
+    const [row] = await this.db.transaction(async (tx) => {
+      const inserted = await tx
       .insert(skills)
       .values({
         workspaceId: membership.workspaceId,
         ownerId: userId,
         visibility,
+        ...(input.version ? { version: input.version } : {}),
+        publicToken: visibility === 'public' ? this.mintPublicToken() : null,
         name: input.name,
         description: input.description,
         whenToUse: input.when_to_use,
         instructions: input.instructions,
         examples: input.examples,
-        allowedTools: input.allowed_tools,
+        allowedTools: input.allowed_tools ?? [],
         sourceTemplate: input.source_template ?? null,
         source,
       })
       .returning();
-    return this.present(row!, userId);
+      if (memberIds.length) {
+        await tx.insert(skillMembers).values(memberIds.map((id) => ({ skillId: inserted[0]!.id, userId: id })));
+      }
+      return inserted;
+    });
+    return (await this.presentAll([row!], membership, userId))[0]!;
+  }
+
+  /**
+   * #841 — import a SKILL.md. The report is computed BEFORE anything is written and is part
+   * of every response; `create` only decides whether the record follows. A file that cannot
+   * become a valid skill (missing or over-long fields) is reported, and refuses to create
+   * with that report attached rather than writing a guess.
+   */
+  async importSkill(
+    membership: Membership,
+    userId: string,
+    req: { content: string; create: boolean; overrides?: Parameters<typeof buildSkillImport>[1] },
+    source: ChangeSource = 'human',
+  ): Promise<{ report: ImportReport; importable: boolean; created: SkillView | null }> {
+    const { input, report } = buildSkillImport(req.content, req.overrides);
+    if (!req.create) return { report, importable: input !== null, created: null };
+    if (!input) {
+      // The error envelope carries `details: [{ path, message }]`, so the reasons ride there;
+      // the full KEPT/DROPPED report is what a create:false call returns.
+      throw new UnprocessableEntityException({
+        message:
+          'This file cannot be imported as it stands. Nothing was created. Call import without `create` for the full KEPT/DROPPED report.',
+        details: [
+          ...report.missing.map((path) => ({
+            path,
+            message: 'The file does not supply this and StoryOS will not invent it — pass it in `overrides`.',
+          })),
+          ...report.problems.map((message) => ({ message })),
+        ],
+      });
+    }
+    const created = await this.create(membership, userId, input, source);
+    return { report, importable: true, created };
   }
 
   /** Owner-only (visible-but-not-mine is a 403 here — see class doc). */
@@ -186,27 +342,70 @@ export class SkillsService {
     input: UpdateSkillInput,
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
-  ): Promise<SkillSummary> {
-    await this.requireOwner(membership, userId, id);
+  ): Promise<SkillView> {
+    const existing = await this.requireOwner(membership, userId, id);
     // Promoting an existing skill to `shared` is the same decision as creating
     // one shared, so it meets the same gate — otherwise the create-side rule is
     // one PATCH away from being decorative.
     if (input.visibility !== undefined) this.assertMayPublish(source, input.visibility);
+    if (input.member_ids !== undefined) this.assertMayPublish(source, 'members');
+    const nextVisibility = input.visibility ?? existing.visibility;
+    if (input.member_ids !== undefined && nextVisibility !== 'members') {
+      throw new UnprocessableEntityException({
+        message: '`member_ids` only applies to a skill whose visibility is `members`.',
+        details: [{ path: 'member_ids', message: `visibility is \`${nextVisibility}\`` }],
+      });
+    }
+    const memberIds = input.member_ids ? [...new Set(input.member_ids.filter((m) => m !== userId))] : undefined;
+    if (memberIds) await this.assertWorkspaceMembers(membership.workspaceId, memberIds);
     const patch: Partial<typeof skills.$inferInsert> = {};
+    if (input.version !== undefined) patch.version = input.version;
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;
     if (input.when_to_use !== undefined) patch.whenToUse = input.when_to_use;
     if (input.instructions !== undefined) patch.instructions = input.instructions;
     if (input.examples !== undefined) patch.examples = input.examples;
-    if (input.allowed_tools !== undefined) patch.allowedTools = input.allowed_tools;
     if (input.visibility !== undefined) patch.visibility = input.visibility;
+    // The public link is a credential: minted when a skill BECOMES public, and cleared the
+    // instant it stops being public, so revoking is effective immediately (a link that
+    // outlived `public` and silently worked again on a re-share would be a standing leak).
+    if (nextVisibility === 'public' && !existing.publicToken) patch.publicToken = this.mintPublicToken();
+    if (nextVisibility !== 'public') patch.publicToken = null;
 
-    const [row] = await this.db
-      .update(skills)
-      .set(patch)
-      .where(eq(skills.id, id))
-      .returning();
-    return this.present(row!, userId);
+    const [row] = await this.db.transaction(async (tx) => {
+      const updated = await tx.update(skills).set(patch).where(eq(skills.id, id)).returning();
+      // Leaving `members` drops the named list, so switching back later cannot silently
+      // revive people someone no longer remembers sharing with.
+      if (nextVisibility !== 'members') await tx.delete(skillMembers).where(eq(skillMembers.skillId, id));
+      else if (memberIds) {
+        await tx.delete(skillMembers).where(eq(skillMembers.skillId, id));
+        if (memberIds.length) await tx.insert(skillMembers).values(memberIds.map((m) => ({ skillId: id, userId: m })));
+      }
+      return updated;
+    });
+    return (await this.presentAll([row!], membership, userId))[0]!;
+  }
+
+  /**
+   * #841 — the unauthenticated read behind a `public` skill's link, mirroring a form's
+   * `public_token`. The token is the only credential. A skill that is not `public` (or has no
+   * token) is a plain 404, the same answer as an unknown token, so the response never says
+   * which. Returns the portable fields only: no owner, workspace or source ids.
+   */
+  async getPublic(token: string) {
+    const row = await this.db.query.skills.findFirst({
+      where: and(eq(skills.publicToken, token), eq(skills.visibility, 'public')),
+    });
+    if (!row) throw new NotFoundException('Skill not found');
+    return {
+      name: row.name,
+      description: row.description,
+      when_to_use: row.whenToUse,
+      instructions: row.instructions,
+      examples: (row.examples ?? []) as SkillSummary['examples'],
+      version: row.version,
+      updated_at: row.updatedAt.toISOString(),
+    };
   }
 
   async remove(membership: Membership, userId: string, id: string): Promise<{ deleted: true }> {
@@ -252,21 +451,11 @@ export class SkillsService {
         detail: row.instructions,
       },
       {
-        tool: 'skill.tools',
-        summary:
-          (row.allowedTools as string[] | null)?.length
-            ? `Allowed tools: ${(row.allowedTools as string[]).join(', ')}`
-            : 'No tools declared — this skill is advisory only',
-        detail:
-          'Tool access over MCP is a separate ticket (#41); today this list is read-only metadata ' +
-          'carried on the skill for that future allowlist.',
-      },
-      {
         tool: 'runtime.note',
         summary: 'No model was invoked — StoryOS has no managed runtime configured yet',
         detail:
           'Same as a manual agent run (ADR-0010 §3): this is a real, inspectable resolution of ' +
-          'principal + instructions + tools, not a model call. Drive these instructions with your ' +
+          'principal + instructions, not a model call. Drive these instructions with your ' +
           'own AI over MCP (BYO-AI, never metered), or apply them by hand.',
       },
     ];

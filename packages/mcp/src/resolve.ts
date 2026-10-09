@@ -70,8 +70,9 @@ export interface SkillRef {
   when_to_use: string;
   instructions: string;
   examples: Array<{ input: string; output: string }>;
-  allowed_tools: string[];
-  visibility: 'personal' | 'shared';
+  /** personal = "Only me" · members = named people · shared = the workspace · public = anyone with the link. */
+  visibility: 'personal' | 'members' | 'shared' | 'public';
+  version?: string;
   editable: boolean;
   source_template: string | null;
   /** #442 — who authored it, derived from the request's auth server-side. */

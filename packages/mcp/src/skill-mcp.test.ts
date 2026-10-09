@@ -27,7 +27,6 @@ const SKILL_DIGEST = {
   when_to_use: 'Every Friday, for a standing team update.',
   instructions: 'List records changed this week. Keep it under 200 words.',
   examples: [{ input: '10 records moved to Done', output: '10 done this week.' }],
-  allowed_tools: ['records.read', 'databases.read'],
   visibility: 'shared',
   editable: true,
   source_template: 'weekly-digest',
@@ -40,7 +39,6 @@ const SKILL_TRIAGE = {
   when_to_use: 'A new lead lands.',
   instructions: 'Draft a friendly reply.',
   examples: [],
-  allowed_tools: [],
   visibility: 'personal',
   editable: true,
   source_template: null,
@@ -124,11 +122,10 @@ describe('registerSkillPrimitives — resources (#41)', () => {
     expect(text).toContain('## Instructions');
     expect(text).toContain(SKILL_DIGEST.instructions);
     expect(text).toContain('## Examples');
-    expect(text).toContain('## Allowed tools');
-    expect(text).toContain('- records.read');
+    expect(text).not.toContain('Allowed tools'); // #841: retired, never rendered
   });
 
-  it('omits Examples/Allowed tools sections when the skill declares none', async () => {
+  it('omits the Examples section when the skill declares none', async () => {
     const { server, resources } = fakeServer();
     const ctx = fakeCtx({ [WORKSPACE_A.id]: [SKILL_TRIAGE] });
     await registerSkillPrimitives(server, ctx, { scope: 'admin', allowRunButton: true });

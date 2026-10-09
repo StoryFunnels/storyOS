@@ -96,9 +96,6 @@ function renderSkillMarkdown(skill: SkillRef): string {
       skill.examples.map((e, i) => `**Example ${i + 1}**\n\nInput: ${e.input}\n\nOutput: ${e.output}`).join('\n\n'),
     );
   }
-  if (skill.allowed_tools.length) {
-    parts.push('', '## Allowed tools', '', ...skill.allowed_tools.map((t) => `- ${t}`));
-  }
   return parts.join('\n') + '\n';
 }
 

@@ -1146,7 +1146,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'Every Friday.',
       instructions: 'List records changed this week.',
       examples: [],
-      allowed_tools: ['records.read'],
       visibility: 'shared',
       editable: false,
       source_template: 'weekly-digest',
@@ -1158,7 +1157,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'A new lead lands.',
       instructions: 'Draft a friendly reply.',
       examples: [],
-      allowed_tools: [],
       visibility: 'personal',
       editable: true,
       source_template: null,
@@ -1205,7 +1203,8 @@ describe('list_skills / run_skill (#41)', () => {
     const res = await callTool(handlers, 'list_skills', { workspace: 'JCM Agency' });
     expect(res).toHaveLength(2);
     expect(res.map((s: { name: string }) => s.name)).toEqual(['Weekly Status Digest', 'Lead Triage Reply']);
-    expect(res[0].allowed_tools).toEqual(['records.read']);
+    // #841: the retired field is not returned to an agent at all.
+    expect(res[0]).not.toHaveProperty('allowed_tools');
   });
 
   it('run_skill resolves a skill by name (not just id), posts the run, and echoes instructions + inputs back', async () => {
@@ -2833,7 +2832,6 @@ describe('#442 — skill authoring tools', () => {
       when_to_use: 'w',
       instructions: 'full steps here',
       examples: [],
-      allowed_tools: ['query_records'],
       visibility: 'personal',
       editable: true,
       source_template: null,
@@ -2843,6 +2841,10 @@ describe('#442 — skill authoring tools', () => {
       sent.push({ method, path, body: o?.body as Record<string, unknown> });
       if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
       if (path === '/api/v1/workspaces/{ws}/skills') return method === 'GET' ? { data: { data: [skill] } } : { data: skill };
+      if (path === '/api/v1/workspaces/{ws}/skills/import') {
+        const create = (o?.body as { create?: boolean } | undefined)?.create;
+        return { data: { report: { kept: [], dropped: [{ item: 'frontmatter `license`', reason: 'no field' }], missing: [], problems: [] }, importable: true, created: create ? skill : null } };
+      }
       if (path === '/api/v1/workspaces/{ws}/skills/templates') return { data: { data: [{ id: 'blank', name: 'Blank' }] } };
       if (path === '/api/v1/workspaces/{ws}/skills/{id}/export') return { data: { filename: 'SKILL.md', content: '# Weekly digest' } };
       if (path === '/api/v1/workspaces/{ws}/skills/{id}') return { data: skill };
@@ -2886,6 +2888,24 @@ describe('#442 — skill authoring tools', () => {
     });
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain('"visibility"');
+  });
+
+  it('import_skill previews by default (create:false), surfaces the dropped list, and never offers visibility', async () => {
+    const { call, sent, handlers } = harness();
+    const preview = await call('import_skill', { workspace: 'Eng', content: '---\nname: x\n---\nbody' });
+    const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills/import')!;
+    expect(post.body).toMatchObject({ create: false });
+    expect(post.body).not.toHaveProperty('overrides.visibility');
+    expect(preview.created).toBeNull();
+    expect(preview.report.dropped[0].item).toContain('license');
+    expect(preview.note).toMatch(/Nothing was created/);
+
+    const made = await call('import_skill', { workspace: 'Eng', content: 'x', create: true });
+    expect(made.created.id).toBe('sk-1');
+    expect(made.note).toMatch(/Teammates cannot see it/);
+
+    const refused = await handlers.get('import_skill')!({ workspace: 'Eng', content: 'x', visibility: 'shared' });
+    expect(refused.isError).toBe(true); // the argument does not exist, same as create_skill
   });
 
   it('every skill read reports who authored it', async () => {

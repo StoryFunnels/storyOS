@@ -9305,6 +9305,31 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/skills/import": {
+      "post": {
+        "operationId": "SkillsController_import",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSkillDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills/{id}/export": {
       "get": {
         "operationId": "SkillsController_export",
@@ -9365,6 +9390,30 @@
         "summary": "Run a skill manually; returns its step log (no model invoked yet)",
         "tags": [
           "skills"
+        ]
+      }
+    },
+    "/api/v1/public/skills/{token}": {
+      "get": {
+        "operationId": "PublicSkillsController_get",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "A public skill, by its link token (portable fields only)",
+        "tags": [
+          "public"
         ]
       }
     },
@@ -17333,21 +17382,29 @@
             }
           },
           "allowed_tools": {
-            "default": [],
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100
-            }
+            "not": {}
           },
           "visibility": {
             "type": "string",
             "enum": [
               "personal",
-              "shared"
+              "members",
+              "shared",
+              "public"
             ]
+          },
+          "member_ids": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
           },
           "source_template": {
             "type": "string",
@@ -17359,6 +17416,54 @@
           "description",
           "when_to_use",
           "instructions"
+        ]
+      },
+      "ImportSkillDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "create": {
+            "default": false,
+            "type": "boolean"
+          },
+          "overrides": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "when_to_use": {
+                "type": "string"
+              },
+              "instructions": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "members",
+                  "shared",
+                  "public"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "content"
         ]
       },
       "UpdateSkillDto": {
@@ -17408,20 +17513,29 @@
             }
           },
           "allowed_tools": {
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100
-            }
+            "not": {}
           },
           "visibility": {
             "type": "string",
             "enum": [
               "personal",
-              "shared"
+              "members",
+              "shared",
+              "public"
             ]
+          },
+          "member_ids": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
           }
         }
       },

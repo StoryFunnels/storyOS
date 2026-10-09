@@ -1025,7 +1025,6 @@ describe('skills (#40)', () => {
       when_to_use: 'When a new lead lands and needs a fast reply drafted.',
       instructions: 'Read the lead, draft a reply, leave it for a human.',
       examples: [],
-      allowed_tools: ['records.read'],
       visibility: 'shared',
       ...overrides,
     });
@@ -1053,7 +1052,9 @@ describe('skills (#40)', () => {
     expect(manifest.skills[0]).toMatchObject({
       name: skill.name,
       description: 'Drafts a first-touch reply for a new lead.',
-      allowed_tools: ['records.read'],
+      // #841: allowed_tools can no longer be authored over the API, so a skill bundled into
+      // a pack carries the column's empty default. The pack format still has the field.
+      allowed_tools: [],
     });
     // Portable by design: no ref, no id, anywhere in it.
     expect(rawUuidsIn(manifest.skills)).toEqual([]);

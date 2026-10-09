@@ -3827,6 +3827,23 @@ export interface paths {
         patch: operations["SkillsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/skills/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill */
+        post: operations["SkillsController_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills/{id}/export": {
         parameters: {
             query?: never;
@@ -3855,6 +3872,23 @@ export interface paths {
         put?: never;
         /** Run a skill manually; returns its step log (no model invoked yet) */
         post: operations["SkillsController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/skills/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public skill, by its link token (portable fields only) */
+        get: operations["PublicSkillsController_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6222,11 +6256,26 @@ export interface components {
                 input: string;
                 output: string;
             }[];
-            /** @default [] */
-            allowed_tools: string[];
+            allowed_tools?: unknown;
             /** @enum {string} */
-            visibility?: "personal" | "shared";
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
             source_template?: string;
+        };
+        ImportSkillDto: {
+            content: string;
+            /** @default false */
+            create: boolean;
+            overrides?: {
+                name?: string;
+                description?: string;
+                when_to_use?: string;
+                instructions?: string;
+                version?: string;
+                /** @enum {string} */
+                visibility?: "personal" | "members" | "shared" | "public";
+            };
         };
         UpdateSkillDto: {
             name?: string;
@@ -6237,9 +6286,11 @@ export interface components {
                 input: string;
                 output: string;
             }[];
-            allowed_tools?: string[];
+            allowed_tools?: unknown;
             /** @enum {string} */
-            visibility?: "personal" | "shared";
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -12254,6 +12305,27 @@ export interface operations {
             };
         };
     };
+    SkillsController_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportSkillDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     SkillsController_export: {
         parameters: {
             query: {
@@ -12289,6 +12361,25 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicSkillsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
