@@ -45,6 +45,33 @@ afterAll(async () => {
   await app.close();
 });
 
+describe('#832 — a skill a PERSON creates is visible to the workspace by default', () => {
+  const base = { ...baseSkill, name: 'Default-visibility skill' };
+
+  it('create with NO visibility, as a person: shared, and a teammate sees it and can resolve it', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/skills`, base);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().visibility).toBe('shared');
+    const id = res.json().id;
+
+    const seen = await inject('GET', `/workspaces/${wsId}/skills`, undefined, member.token);
+    expect(seen.json().data.map((s: { id: string }) => s.id)).toContain(id);
+    const got = await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, member.token);
+    expect(got.statusCode).toBe(200);
+    expect(got.json().instructions).toBe(baseSkill.instructions);
+    // The teammate can run it (the resolve + bookkeeping half of "my skill, your AI").
+    const ran = await inject('POST', `/workspaces/${wsId}/skills/${id}/run`, undefined, member.token);
+    expect(ran.statusCode, ran.body).toBeLessThan(300);
+  });
+
+  it('an EXPLICIT personal is still honoured, and stays invisible to a teammate', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/skills`, { ...base, name: 'Explicitly mine', visibility: 'personal' });
+    expect(res.json().visibility).toBe('personal');
+    const seen = await inject('GET', `/workspaces/${wsId}/skills`, undefined, member.token);
+    expect(seen.json().data.map((s: { id: string }) => s.id)).not.toContain(res.json().id);
+  });
+});
+
 describe('skills framework (#40)', () => {
   it('lists the starter templates, including a blank scaffold', async () => {
     const res = await inject('GET', `/workspaces/${wsId}/skills/templates`);

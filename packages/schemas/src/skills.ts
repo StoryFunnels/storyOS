@@ -10,7 +10,8 @@ import { z } from 'zod';
  *   NOT FROM SCRATCH — a skill is authored against a fixed schema (name,
  *   description, when-to-use, instructions, examples, allowed tools) and
  *   SKILL_TEMPLATES gives every author a starting scaffold rather than a blank
- *   box. "Save this chat as a skill" (#39) is a second on-ramp into the same
+ *   box. "Save this chat as a skill" (not built; the old #39 reference was Version
+ *   history, not a Skills menu) is a second on-ramp into the same
  *   schema — not built here (no chat composer exists yet), but nothing about
  *   this shape blocks it: it would just be another producer of
  *   `createSkillSchema` input, with `source_template: 'chat'`.
@@ -43,7 +44,7 @@ const instructionsSchema = z.string().min(1).max(20_000);
 const allowedToolSchema = z.string().min(1).max(100);
 
 /** POST body — create a skill. `source_template` is provenance only (which
- * scaffold it started from, or `chat` once #39 lands); it changes nothing
+ * scaffold it started from, or `chat` if a chat on-ramp is ever built); it changes nothing
  * about validation. */
 export const createSkillSchema = z.object({
   name: nameSchema,
@@ -52,7 +53,10 @@ export const createSkillSchema = z.object({
   instructions: instructionsSchema,
   examples: z.array(skillExampleSchema).max(20).default([]),
   allowed_tools: z.array(allowedToolSchema).max(50).default([]),
-  visibility: skillVisibilitySchema.default('personal'),
+  /** #832: deliberately NO schema default. What an omitted visibility means depends on WHO
+   *  is writing, which only the service knows (a person's skill is `shared`, an agent's is
+   *  `personal` — ADR-0010 / #442), so a default here would decide it for everyone. */
+  visibility: skillVisibilitySchema.optional(),
   source_template: z.string().max(100).optional(),
 });
 export type CreateSkillInput = z.infer<typeof createSkillSchema>;

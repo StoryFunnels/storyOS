@@ -60,7 +60,7 @@ export class SkillsController {
 
   @Post()
   @MinRole('member')
-  @ApiOperation({ summary: 'Create a skill — personal by default; pass visibility: "shared" to publish it to the workspace' })
+  @ApiOperation({ summary: 'Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential' })
   create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
     // #442: authorship comes from the AUTH context, never the body — a caller
     // must not be able to describe itself as a human.
@@ -100,9 +100,10 @@ export class SkillsController {
   }
 
   /**
-   * Manual run (AC #3). The chat composer's Skills menu / slash command
-   * (#39) doesn't exist yet — this endpoint IS the current agent-invocation
-   * surface for a skill, mirroring AgentsController's `POST :agent/run`.
+   * Manual run (AC #3). There is no in-app Skills list, Run button or chat
+   * slash command — this endpoint IS the agent-invocation surface for a skill
+   * (the MCP `run_skill` tool calls it), mirroring AgentsController's
+   * `POST :agent/run`.
    */
   @Post(':id/run')
   @ApiParam({ name: 'id', description: 'The skill record id' })

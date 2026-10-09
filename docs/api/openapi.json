@@ -9203,7 +9203,7 @@
             "description": ""
           }
         },
-        "summary": "Create a skill — personal by default; pass visibility: \"shared\" to publish it to the workspace",
+        "summary": "Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential",
         "tags": [
           "skills"
         ]
@@ -17322,7 +17322,6 @@
             }
           },
           "visibility": {
-            "default": "personal",
             "type": "string",
             "enum": [
               "personal",

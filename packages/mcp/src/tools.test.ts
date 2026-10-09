@@ -2873,7 +2873,8 @@ describe('#442 — skill authoring tools', () => {
       instructions: 'i',
     });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
-    expect(post.body!.visibility).toBe('personal');
+    // The tool states no visibility at all: the API decides from the credential (#832).
+    expect(post.body!).not.toHaveProperty('visibility');
 
     const res = await handlers.get('create_skill')!({
       workspace: 'Eng',
