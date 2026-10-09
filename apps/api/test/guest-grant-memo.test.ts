@@ -88,6 +88,30 @@ describe('#861 — the saving', () => {
   });
 });
 
+describe('#861 x #857 — the memo is the OUTER interceptor, so mention narrowing shares it', () => {
+  it('a guest GET whose body carries a record mention still reads access_grants once (not once for the access check and again for the narrowing)', async () => {
+    const hidden = (await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'hidden target' } })).json().id as string;
+    const doc = await as(admin.token, 'PUT', `${recUrl(rec)}/document`, {
+      content: [{ type: 'paragraph', content: [{ type: 'mention', props: { kind: 'record', id: hidden, label: 'hidden target' } }] }],
+      expected_version: 0,
+    });
+    expect(doc.statusCode, doc.body).toBeLessThan(300);
+    const g = await grant({ record_id: rec, role: 'viewer' });
+    await as(guest.token, 'GET', `${recUrl(rec)}/document`); // warm-up
+    let body = '';
+    const reads = await grantReads(async () => {
+      const res = await as(guest.token, 'GET', `${recUrl(rec)}/document`);
+      expect(res.statusCode, res.body).toBe(200);
+      body = res.body;
+    });
+    expect(body, 'the narrowing really ran on this response').toContain('[restricted]');
+    // Registered the other way round, the narrowing resolves OUTSIDE the memo's store and the same
+    // request reads access_grants twice: correctness holds, the saving silently does not.
+    expect(reads, 'access_grants reads for a guest GET that goes through the narrowing').toBeLessThanOrEqual(1);
+    await as(admin.token, 'DELETE', `/workspaces/${wsId}/grants/${g.json().id}`);
+  });
+});
+
 describe('#861 — REVOCATION STAYS IMMEDIATE (the criterion that matters)', () => {
   it('grant -> guest reads -> revoke -> the guest\'s NEXT request is refused', async () => {
     const g = await grant({ record_id: rec, role: 'viewer' });

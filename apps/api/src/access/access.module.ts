@@ -17,8 +17,12 @@ import { GrantsController } from './grants.controller';
 @Global()
 @Module({
   controllers: [GrantsController],
-  // Order matters: the request memo (#861) must be the OUTER interceptor so its store exists when
-  // the mention narrowing (#857) resolves a guest's readable records inside the same request.
+  // Registration order is NOT load-bearing, and measured so (swapping the two lines leaves every
+  // test green): the request memo's store (#861) rides the async context of the handler's own
+  // promise chain, so the mention narrowing (#857) sees it whichever interceptor is outer. What IS
+  // enforced is the property that matters: a guest response that goes through the narrowing still
+  // reads access_grants once (test/guest-grant-memo.test.ts, "x #857"); it goes red if the
+  // narrowing starts doing its own grant read.
   providers: [
     AccessService,
     MentionNarrowingService,
