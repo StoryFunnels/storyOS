@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
-import { Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, Upload } from 'lucide-react';
 import type { SkillSummary, SkillTemplate } from '@storyos/schemas';
 import { cn } from '@/lib/utils';
 import { useMembers } from '@/components/table-view/use-table-data';
+import { Button } from '@/components/ui/button';
+import { SkillImportDialog } from './skill-import-dialog';
 import { SkillSourceMark, VisibilityChip } from './skill-bits';
 import { initials, runLine } from './skill-meta';
 import { useSkillTemplates, useSkills } from './use-skills';
@@ -25,6 +27,7 @@ export function SkillsLibrary({ ws }: { ws: string }) {
   const templates = useSkillTemplates(ws);
   const members = useMembers(ws, true);
   const names = useMemo(() => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])), [members.data]);
+  const [importing, setImporting] = useState(false);
   const now = Date.now();
   const list = skills.data ?? [];
 
@@ -36,6 +39,9 @@ export function SkillsLibrary({ ws }: { ws: string }) {
           <span className="text-label text-muted">{list.length === 0 ? 'no skills yet' : `${list.length} skill${list.length === 1 ? '' : 's'}`}</span>
         )}
         <span className="flex-1" />
+        <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
+          <Upload className="mr-1.5 h-3.5 w-3.5" /> Import
+        </Button>
         <Link
           href={`/w/${ws}/skills/new`}
           className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
@@ -43,6 +49,8 @@ export function SkillsLibrary({ ws }: { ws: string }) {
           <Plus className="h-3.5 w-3.5" /> New skill
         </Link>
       </div>
+
+      <SkillImportDialog ws={ws} open={importing} onOpenChange={setImporting} />
 
       {skills.isPending && <p className="px-4 py-6 text-body text-muted">Loading skills…</p>}
       {skills.isError && (
@@ -109,11 +117,12 @@ function SkillRow({
     <li className="border-b border-border-default last:border-b-0">
       <Link
         href={`/w/${ws}/skills/${skill.id}`}
-        className="grid grid-cols-[1fr_9.5rem_7.5rem] items-start gap-3.5 px-4 py-3 hover:bg-hover"
+        className="grid grid-cols-[1fr_9.5rem_9.5rem] items-start gap-3.5 px-4 py-3 hover:bg-hover"
       >
         <span className="min-w-0">
           <span className="flex flex-wrap items-center gap-1.5 text-prose font-semibold tracking-tight text-ink">
             {skill.name}
+            <span className="font-mono text-label font-normal text-muted">v{skill.version}</span>
             <SkillSourceMark source={skill.source} />
           </span>
           <span className="mt-0.5 line-clamp-2 text-body leading-normal text-muted">{skill.when_to_use}</span>

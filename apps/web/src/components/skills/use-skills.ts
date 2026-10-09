@@ -2,7 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { CreateSkillInput, SkillSummary, SkillTemplate, UpdateSkillInput } from '@storyos/schemas';
+import type {
+  CreateSkillInput,
+  ImportSkillInput,
+  SkillExport,
+  SkillExportFormat,
+  SkillSummary,
+  SkillTemplate,
+  UpdateSkillInput,
+} from '@storyos/schemas';
 import { api, apiErrorMessage } from '@/lib/api';
 
 /**
@@ -78,4 +86,47 @@ export function useSkillMutations(ws: string) {
       onError: (e) => toast.error(apiErrorMessage(e, 'Could not delete the skill')),
     }),
   };
+}
+
+/** The KEPT/DROPPED report an import returns (mirrors the API's `ImportReport`). */
+export interface ImportReportView {
+  kept: Array<{ field: string; from: string }>;
+  dropped: Array<{ item: string; reason: string }>;
+  missing: string[];
+  problems: string[];
+}
+export interface ImportResult {
+  report: ImportReportView;
+  importable: boolean;
+  created: SkillSummary | null;
+}
+
+/**
+ * Import a SKILL.md. `create: false` is the PREVIEW — the report with nothing written — and
+ * is the default on purpose: the report is the requirement, and a person must see what did not
+ * survive BEFORE the skill exists. It does not toast on error: the dialog shows the reasons.
+ */
+export function useSkillImport(ws: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: Pick<ImportSkillInput, 'content' | 'create' | 'overrides'>) => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/skills/import', {
+        params: { path: { ws } },
+        body: body as never,
+      });
+      if (error) throw error;
+      return data as unknown as ImportResult;
+    },
+    onSuccess: (r) => {
+      if (r.created) void qc.invalidateQueries({ queryKey: skillsKey(ws) });
+    },
+  });
+}
+
+export async function fetchSkillExport(ws: string, id: string, format: SkillExportFormat): Promise<SkillExport> {
+  const { data, error } = await api.GET('/api/v1/workspaces/{ws}/skills/{id}/export', {
+    params: { path: { ws, id }, query: { format } },
+  });
+  if (error) throw error;
+  return data as unknown as SkillExport;
 }

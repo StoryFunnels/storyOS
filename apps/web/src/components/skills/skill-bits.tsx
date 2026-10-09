@@ -1,16 +1,24 @@
 'use client';
 
-import { Bot, Building2, Lock } from 'lucide-react';
+import { Bot, Building2, Globe, Lock, Users } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { SkillSummary } from '@storyos/schemas';
 import { cn } from '@/lib/utils';
 import { VISIBILITY_CHIP } from './skill-meta';
 import type { Segment } from './skill-compare';
 
-/** The visibility chip. Two values today (ticket #841 carries the other two). */
+const VISIBILITY_ICON: Record<SkillSummary['visibility'], LucideIcon> = {
+  personal: Lock,
+  members: Users,
+  shared: Building2,
+  public: Globe,
+};
+
+/** The visibility chip — one icon per tier, so the four read apart at a glance. */
 export function VisibilityChip({ visibility }: { visibility: SkillSummary['visibility'] }) {
-  const Icon = visibility === 'personal' ? Lock : Building2;
+  const Icon = VISIBILITY_ICON[visibility];
   return (
-    <span className="inline-flex h-5 items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-1.5 text-label font-medium text-ink-secondary">
+    <span className="inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-[var(--radius-chip)] bg-hover px-1.5 text-label font-medium text-ink-secondary">
       <Icon className="h-3 w-3" />
       {VISIBILITY_CHIP[visibility]}
     </span>
