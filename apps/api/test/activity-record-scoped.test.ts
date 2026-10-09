@@ -294,17 +294,19 @@ describe('#845 — pagination over a run of hidden events', () => {
     expect(guest3.types.length).toBe(admin3.types.length - HIDDEN);
   });
 
-  it("no cursor handed to the guest encodes the time of an event they cannot see", async () => {
+  it("no cursor handed to the guest encodes the time OR the id of an event they cannot see", async () => {
     const adminAll = await as(admin.token, 'GET', `${recordUrl(pagedParent)}/activity?limit=100`);
-    const hiddenTimes = new Set(
-      (adminAll.json().data as Array<{ type: string; created_at: string }>).filter((e) => e.type === 'relation.linked').map((e) => new Date(e.created_at).toISOString()),
-    );
+    const hiddenEvents = (adminAll.json().data as Array<{ id: string; type: string; created_at: string }>).filter((e) => e.type === 'relation.linked');
+    const hiddenTimes = new Set(hiddenEvents.map((e) => new Date(e.created_at).getTime()));
+    const hiddenEventIds = new Set(hiddenEvents.map((e) => e.id));
     expect(hiddenTimes.size).toBeGreaterThan(0);
     const { cursors } = await walk(guest.token, 1); // the guest has only a couple of readable events
     expect(cursors.length).toBeGreaterThan(0);
     for (const c of cursors) {
-      const decoded = new Date(Buffer.from(c, 'base64url').toString()).toISOString();
-      expect(hiddenTimes.has(decoded), `cursor ${decoded} is a hidden event's timestamp`).toBe(false);
+      // The cursor is opaque base64url JSON `{ t, id }` of the last row the guest was handed (#849).
+      const decoded = JSON.parse(Buffer.from(c, 'base64url').toString()) as { t: string; id: string };
+      expect(hiddenTimes.has(new Date(decoded.t).getTime()), `cursor time ${decoded.t} is a hidden event's`).toBe(false);
+      expect(hiddenEventIds.has(decoded.id), `cursor id ${decoded.id} is a hidden event's`).toBe(false);
     }
   });
 
