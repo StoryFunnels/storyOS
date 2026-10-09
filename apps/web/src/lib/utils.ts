@@ -34,7 +34,7 @@ import { extendTailwindMerge } from 'tailwind-merge';
  * parses globals.css and fails, naming the step and this file, when the two
  * disagree in either direction. Edit FONT_SIZE_STEPS when that test tells you to.
  */
-export const FONT_SIZE_STEPS = ['micro', 'meta', 'label', 'body', 'prose', 'title'] as const;
+export const FONT_SIZE_STEPS = ['micro', 'meta', 'label', 'body', 'prose', 'reading', 'title'] as const;
 
 const twMerge = extendTailwindMerge({
   extend: {

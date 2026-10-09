@@ -349,6 +349,27 @@
    * the costume of a refactor, which is exactly what #634 avoided when it landed
    * this scale with zero visual change.
    *
+   * CONTENT BODY HAS A HOME TOO, AND IT IS THE SAME SIZE (#792). The paragraphs
+   * above route content TITLES out of this scale and say where they go. Content
+   * BODY was never given the same courtesy, so six surfaces independently
+   * hand-wrote `leading-relaxed` to get prose that reads — the record page, a
+   * public pack page, the template gallery, a confirm dialog and two field
+   * panels, none of them aware of the others. --text-reading below is that
+   * treatment, declared once: THE SAME 13px AS --text-body, at 1.625 instead of
+   * 1.5. No new size is minted, because the size was never the problem — the
+   * leading was.
+   *
+   * Reach for `text-reading` when text is READ IN SENTENCES: record field
+   * descriptions and long-text values, document body, a dialog's explanatory
+   * paragraph, and standalone full-width pages where no app furniture is
+   * holding the measure in. Everything else — labels, cell text, menu items,
+   * toolbar copy, table rows — stays on the chrome steps at 1.5. The test when
+   * you are unsure: does someone read this in sentences, or scan it for a
+   * value? Scanning is chrome.
+   *
+   * After this, a hand-sprinkled `leading-relaxed` is a mistake you can grep
+   * for rather than the only way to get readable prose.
+   *
    * No display steps were added, and that is a decision rather than an omission:
    * #624 kept this scale small after measuring real call sites, and two title
    * sites do not make a scale. A step nothing uses is worse than no step.
@@ -368,6 +389,12 @@
   --text-prose--line-height: 1.5;
   --text-title: 16px;
   --text-title--line-height: 1.5;
+
+  /* #792 — the reading treatment. NOT a chrome step: same size as --text-body
+   * deliberately, only the leading differs. Rationale and the scanning-vs-
+   * reading test are in the comment above; do not restate them here. */
+  --text-reading: 13px;
+  --text-reading--line-height: 1.625;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;

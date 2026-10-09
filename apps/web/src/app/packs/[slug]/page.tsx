@@ -121,6 +121,14 @@ export default async function PackPublicPreviewPage({
 
         <div className="rounded-[var(--radius-modal)] border border-border-default bg-card p-8">
           <h1 className="text-2xl font-semibold text-ink">{pack.name}</h1>
+          {/* #792 — NOT migrated to `text-reading`, deliberately, under that ticket's
+              own AC6 stop clause. The reading treatment is 13px, and at 13px this
+              summary renders at exactly the size of the highlight bullets below it,
+              so the pack's one selling sentence stops reading as a lede and becomes
+              part of the list. Checked rendered on agency-os and on support-inbox,
+              the longest summary in the registry. Left at 15px pending the
+              public-surface type question AC6 calls for — do NOT quietly fold this
+              into the next sweep. */}
           <p className="mt-2 text-[15px] leading-relaxed text-ink-secondary">{pack.summary}</p>
 
           {pack.highlights.length > 0 && (
