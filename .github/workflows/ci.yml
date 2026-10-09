@@ -132,7 +132,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          # #839: deliberately NO PR_BODY here. `github.event.pull_request.body` is the
+          # payload frozen when the run was triggered, so a rerun after editing the
+          # description re-evaluated the OLD text forever. The script reads the body
+          # from the API when it runs.
         run: pnpm collision:check
 
       - name: Upload SBOM
