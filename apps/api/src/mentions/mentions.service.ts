@@ -9,6 +9,7 @@ import { looksLikeUuid } from '../common/uuid';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
 export interface CollectedMentions {
   userIds: string[];
@@ -272,7 +273,11 @@ export class MentionsService {
       .where(and(...scopeConditions));
     const total = totalRow?.total ?? 0;
 
-    const cursor = opts.cursor ? decodeBacklinksCursor(opts.cursor) : null;
+    // #852 — (created_at, id) with the cursor carrying the EXACT microsecond timestamp text; it was
+    // built from a millisecond Date and so skipped same-millisecond rows. An unparseable cursor is
+    // still a 422 here (unlike the feeds, which ignore it), as before.
+    const after = opts.cursor ? keysetCondition(recordMentions.createdAt, recordMentions.id, opts.cursor) : undefined;
+    if (opts.cursor && !after) throw new UnprocessableEntityException('Invalid cursor');
     const rows = await this.db
       .select({
         id: records.id,
@@ -282,6 +287,7 @@ export class MentionsService {
         database_name: databases.name,
         mention_id: recordMentions.id,
         mention_created_at: recordMentions.createdAt,
+        cursorTs: cursorTimestampSql(recordMentions.createdAt),
       })
       .from(recordMentions)
       .innerJoin(records, eq(records.id, recordMentions.sourceRecordId))
@@ -289,9 +295,7 @@ export class MentionsService {
       .where(
         and(
           ...scopeConditions,
-          ...(cursor
-            ? [sql`(${recordMentions.createdAt}, ${recordMentions.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`]
-            : []),
+          ...(after ? [after] : []),
         ),
       )
       .orderBy(desc(recordMentions.createdAt), desc(recordMentions.id))
@@ -306,26 +310,7 @@ export class MentionsService {
       total,
       has_more: hasMore,
       next_cursor:
-        hasMore && last ? encodeBacklinksCursor({ createdAt: last.mention_created_at.toISOString(), id: last.mention_id }) : null,
+        hasMore && last ? encodeKeysetCursor({ t: last.cursorTs, id: last.mention_id }) : null,
     };
-  }
-}
-
-interface BacklinksCursor {
-  createdAt: string;
-  id: string;
-}
-
-function encodeBacklinksCursor(cursor: BacklinksCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
-}
-
-function decodeBacklinksCursor(raw: string): BacklinksCursor {
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString()) as Partial<BacklinksCursor>;
-    if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') throw new Error();
-    return { createdAt: parsed.createdAt, id: parsed.id };
-  } catch {
-    throw new UnprocessableEntityException('Invalid cursor');
   }
 }

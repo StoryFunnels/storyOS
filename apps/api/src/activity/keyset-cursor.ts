@@ -54,9 +54,15 @@ export function decodeKeysetCursor(raw: string): DecodedCursor {
     return null;
   }
   try {
-    const parsed = JSON.parse(text) as Partial<KeysetCursor>;
+    const parsed = JSON.parse(text) as Partial<KeysetCursor> & { createdAt?: unknown };
     if (typeof parsed.t === 'string' && ISO_US.test(parsed.t) && typeof parsed.id === 'string' && UUID.test(parsed.id)) {
       return { kind: 'keyset', cursor: { t: parsed.t, id: parsed.id } };
+    }
+    // The runs and backlinks cursors of before #852: `{ createdAt, id }` with a MILLISECOND ISO
+    // string. Still honoured (padded to microseconds, so the old resume point, floor and all, is
+    // what that one request gets) so a client paging across a deploy is not broken.
+    if (typeof parsed.createdAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(parsed.createdAt) && typeof parsed.id === 'string' && UUID.test(parsed.id)) {
+      return { kind: 'keyset', cursor: { t: parsed.createdAt.replace('Z', '000Z'), id: parsed.id } };
     }
     return null;
   } catch {
