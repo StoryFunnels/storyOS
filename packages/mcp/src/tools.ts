@@ -5580,7 +5580,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create skill',
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
-        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and it is created PERSONAL to the token owner, so no teammate\'s list_skills returns it. Nothing reachable from an agent credential can publish it to the workspace (that is deliberate: a shared skill is instructions every member\'s agent will follow), and there is currently no screen for a person to do it either, so `visibility` is not an argument here.',
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and who can see it follows the WORKSPACE, not you: by default it is created PERSONAL to the token owner, so no teammate\'s list_skills returns it; if a workspace admin has allowed AI to share skills with the workspace (a setting only a person can change, in Settings > General), it is created SHARED with the whole workspace. `visibility` is not an argument here. No credential can make a skill public or share it with chosen people only: that is deliberate (a shared skill is instructions every member\'s agent will follow), and a person does it in the Skills library in the web app.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
@@ -5628,15 +5628,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             instructions,
             examples: examples ?? [],
             version,
-            // ALWAYS `personal`, stated here and not left to the server's source-aware default.
-            // #995 moved that decision server-side (a person's skill is shared, an agent's is
-            // personal, keyed on `req.auth.source`), and measured afterwards (#848 probe): an
-            // OAuth access token, which is how claude.ai's hosted connector authenticates, is
-            // classified `source: 'human'` by the auth guard, so an AI connected that way would
-            // get `shared` here. Until that classification is decided, this tool must not leave
-            // the answer to a source it cannot trust. It never offers `visibility` as an
-            // argument, so there is nothing for a model to override.
-            visibility: 'personal',
+            // `visibility` is deliberately NOT sent. SkillsService.create is the one place
+            // that decides what an omitted visibility means (a person's skill is shared,
+            // an agent's is personal — #442), so this tool neither restates the rule nor
+            // offers an argument the server would refuse for a non-human author.
             source_template: from_template,
           } as never,
         }),
@@ -5653,7 +5648,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       description:
-        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused, and this cannot publish a skill to the workspace (see create_skill).',
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. This tool cannot change who can see a skill (it takes no `visibility`): moving one to the workspace, making it public or sharing it with chosen people is done by a person in the Skills library.',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
@@ -5758,7 +5753,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'StoryOS has no field for (with the reason — e.g. `allowed-tools`, `license`, `compatibility`, `version`), and `missing` ' +
         'lists required fields the file did not supply. StoryOS never invents a missing field: pass it in `overrides` ' +
         '(a skill needs a `when_to_use`, which most SKILL.md files lack). Show the person the `dropped` list before you pass ' +
-        '`create: true`. The skill is created personal to the token owner and recorded as agent-authored; this tool cannot share it.',
+        '`create: true`. The skill is recorded as agent-authored and created personal to the token owner, or shared with the workspace if a workspace admin has allowed AI to share skills; this tool can never make it public or share it with chosen people.',
       inputSchema: {
         workspace: z.string(),
         content: z.string().describe('The full text of the SKILL.md, including any frontmatter.'),
@@ -5785,8 +5780,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<{ report: unknown; importable: boolean; created: Parameters<typeof serializeSkill>[0] | null }>(
         client.POST('/api/v1/workspaces/{ws}/skills/import', {
           params: { path: { ws: ws.id } } as never,
-          // Same reason as create_skill: an imported skill is created personal, never by default-shared.
-          body: { content, create: create ?? false, overrides: { ...overrides, visibility: 'personal' } } as never,
+          body: { content, create: create ?? false, overrides } as never,
         }),
       );
       return text({
@@ -5794,7 +5788,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         importable: res.importable,
         created: res.created ? serializeSkill(res.created) : null,
         note: res.created
-          ? 'Created personal to you and recorded as agent-authored. Teammates cannot see it.'
+          ? res.created.visibility === 'shared'
+            ? 'Created and shared with the workspace (an admin allows AI to share skills), recorded as agent-authored.'
+            : 'Created personal to you and recorded as agent-authored. Teammates cannot see it.'
           : 'Nothing was created. Review `dropped` and `missing`, then call again with create: true.',
       });
     }),

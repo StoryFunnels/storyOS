@@ -2875,9 +2875,8 @@ describe('#442 — skill authoring tools', () => {
       instructions: 'i',
     });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
-    // Always personal, stated by the tool itself: the server's source-aware default cannot be
-    // trusted for an OAuth-connected AI, which the auth guard calls `human` (#848 probe).
-    expect(post.body!.visibility).toBe('personal');
+    // The tool states no visibility at all: the API decides from the credential (#832).
+    expect(post.body!).not.toHaveProperty('visibility');
 
     const res = await handlers.get('create_skill')!({
       workspace: 'Eng',
@@ -2891,12 +2890,25 @@ describe('#442 — skill authoring tools', () => {
     expect(res.content[0]!.text).toContain('"visibility"');
   });
 
+  it('update_skill states what it cannot do: it takes no visibility, and its description does not claim otherwise', () => {
+    const cfgs = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
+    registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
+      client: {} as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    const cfg = cfgs.get('update_skill')!;
+    expect(Object.keys(cfg.inputSchema ?? {})).not.toContain('visibility');
+    expect(cfg.description).toMatch(/cannot change who can see a skill/);
+    expect(cfg.description).not.toMatch(/can move a skill to the workspace/);
+  });
+
   it('import_skill previews by default (create:false), surfaces the dropped list, and never offers visibility', async () => {
     const { call, sent, handlers } = harness();
     const preview = await call('import_skill', { workspace: 'Eng', content: '---\nname: x\n---\nbody' });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills/import')!;
     expect(post.body).toMatchObject({ create: false });
-    expect((post.body as { overrides?: { visibility?: string } }).overrides?.visibility).toBe('personal');
+    expect(post.body).not.toHaveProperty('overrides.visibility');
     expect(preview.created).toBeNull();
     expect(preview.report.dropped[0].item).toContain('license');
     expect(preview.note).toMatch(/Nothing was created/);
