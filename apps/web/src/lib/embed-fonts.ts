@@ -2,11 +2,10 @@ import type { EmbedFontFamily } from '@storyos/schemas';
 
 /**
  * #720 — the CSS variable each embed font family resolves to, and the label
- * the builder shows. Single source of truth for both `layout.tsx` (which
- * instantiates the `next/font/google` loaders under these same names) and
- * `embed-theme.ts`/`form-theme-panel.tsx` (which only need the variable name
- * as a string, never the loader itself — the loader is a build-time-only
- * concern of the root layout).
+ * the builder shows. Single source of truth for both the `@font-face` rules in
+ * `app/fonts/fonts.css` (which declare the faces under these same variable names; the
+ * files are vendored, #797) and `embed-theme.ts`/`form-theme-panel.tsx` (which only need
+ * the variable name as a string).
  *
  * `figtree` reuses `--font-figtree`, the variable `layout.tsx` already
  * declares for the app's own default — no second load, no extra bundle
