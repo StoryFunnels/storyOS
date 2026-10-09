@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useMembers } from '@/components/table-view/use-table-data';
-import { API_URL, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { MarkedText, SkillSourceMark } from './skill-bits';
@@ -25,7 +25,7 @@ import {
   estimateTokens,
   type Verdict,
 } from './skill-compare';
-import { VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillUrl } from './skill-meta';
+import { VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillPageUrl } from './skill-meta';
 import { fetchSkillExport, useSkillMutations, useSkills } from './use-skills';
 
 /** What the form holds. Strings only: validation is the schema's, on save. */
@@ -299,7 +299,7 @@ export function SkillEditor({
                   />
                 )}
                 {o.value === 'public' && draft.visibility === 'public' && (
-                  <PublicLink url={publicSkillUrl(API_URL, skill?.public_token)} saved={skill?.visibility === 'public'} />
+                  <PublicLink url={publicSkillPageUrl(window.location.origin, skill?.public_token)} saved={skill?.visibility === 'public'} />
                 )}
               </div>
             ))}
