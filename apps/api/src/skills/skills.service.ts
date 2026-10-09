@@ -214,20 +214,16 @@ export class SkillsService {
   }
 
   /**
-   * #442 — a non-human author may write a PERSONAL skill and may not publish
-   * a shared one.
+   * Who may publish a skill at which tier, for a non-human author (a token or a connected AI).
    *
-   * The asymmetry is the point. A personal skill is reachable only by the
-   * identity that owns the token, i.e. the same person who asked for it, so
-   * review would add friction and protect nobody. A SHARED skill is
-   * instructions every other member's agent will follow — publishing one is a
-   * decision about other people, and ADR-0010's reasoning applies unchanged:
-   * an agent may queue work for a human to decide and never decide for one.
+   * #442 first made this "personal only", and #867 (the founder's ruling, ADR-0010 amendment of
+   * 2026-10-09) changed it: an agent may publish at `shared` by DEFAULT in every workspace, unless an
+   * admin switched that off. `members` and `public` are still refused here: a public link or naming
+   * people is a decision a person makes. The risk of the default is accepted and recorded in the ADR;
+   * the mitigation is attribution (`skills.source`, derived from the request's auth), not prevention.
    *
-   * So an agent-authored skill starts personal, and a human promotes it in-app
-   * once they have read it. Enforced HERE rather than in the MCP tool, because
-   * a rule that lives in the client is a suggestion — any PAT holder could
-   * otherwise POST `visibility: "shared"` directly.
+   * Enforced HERE rather than in the MCP tool, because a rule that lives in the client is a
+   * suggestion: any PAT holder could otherwise POST `visibility: "public"` directly.
    */
   private async assertMayPublish(
     workspaceId: string,

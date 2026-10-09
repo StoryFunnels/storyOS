@@ -62,7 +62,7 @@ export class SkillsController {
 
   @Post()
   @MinRole('member')
-  @ApiOperation({ summary: 'Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential' })
+  @ApiOperation({ summary: 'Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent cannot make one public or share it with chosen people, and a workspace admin can switch agent publishing off, after which an agent-authored skill is created personal' })
   async create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
     // #442: authorship comes from the AUTH context, never the body — a caller
     // must not be able to describe itself as a human.

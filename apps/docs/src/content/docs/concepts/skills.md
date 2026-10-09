@@ -9,8 +9,8 @@ A **skill** is a named, reusable set of instructions: what it does, when to use 
 optionally a few worked examples. Write one when you have worked out how to do something in this
 workspace that will be asked for again.
 
-A skill is **instructions an AI will follow**, not data. That is why who can publish one is a
-decision this product keeps with people (see [Skills written by AI](#skills-written-by-ai)).
+A skill is **instructions an AI will follow**, not data. That is why every skill an AI writes is
+marked as written by an AI (see [Skills written by AI](#skills-written-by-ai)).
 
 ## Who can see a skill
 
@@ -23,7 +23,7 @@ Every skill has one of four visibilities:
 | **Shared** ("Workspace") | Everyone in the workspace. |
 | **Public** | Anyone with the link, signed in or not. |
 
-A skill you write yourself is **shared with the workspace** unless you say otherwise. In the web app,
+A skill is **shared with the workspace** unless you say otherwise, whether you or an AI wrote it. In the web app,
 the **Skills** library in the sidebar rail is where people read, create and change skills, including
 their visibility.
 
@@ -39,20 +39,28 @@ power. A teammate's AI running your shared skill never gets your access, only th
 
 ## Skills written by AI
 
-A skill an AI writes (through an API token or a connected AI such as Claude) is recorded as written
-by an agent. That cannot be claimed or faked by the writer.
+A skill an AI writes (through an API token or a connected AI such as Claude) is **always recorded as
+written by an AI**, and that cannot be claimed or faked by the writer. The Skills library marks it,
+so anyone reading a skill can see where it came from.
 
-- **By default it stays personal.** An AI-written skill is private to the person whose
-  credential wrote it, and teammates' AI will not find it. Publishing a skill is a decision about
-  other people's AI, so by default an AI cannot make it.
-- **A workspace admin can allow it.** In **Settings → General → Skills written by AI**, an admin can
-  let AI share skills with the whole workspace. With it on, a skill an AI creates is shared with the
-  workspace unless it asks for personal. Turn it off any time: new AI-written skills go back to
-  personal, and skills already shared stay shared. The setting is per workspace, and **only a person
-  can change it** in the web app; it cannot be changed through an API token or a connected AI, even
-  one acting for an admin.
-- **No setting ever lets an AI publish publicly.** Shared with the workspace is the most an AI can do,
-  even with the setting on. Public links, and sharing with chosen people only, always need a person.
+- **By default it is shared with the whole workspace.** Like a skill you write yourself, an
+  AI-written skill is visible to everyone in the workspace straight away, and their AI can find and
+  run it. Using StoryOS through your own AI is the intended path, so there is nothing to switch on.
+  An AI can also ask for a skill to stay **personal**.
+- **A workspace admin can switch it off.** In **Settings → General → Skills written by AI**, an admin
+  can stop AI from sharing skills with the workspace. With it off, an AI-written skill is private to
+  the person whose AI wrote it, and a request to share it is refused. Skills already shared stay
+  shared. The setting is per workspace, and **only a person can change it** in the web app; it cannot
+  be changed through an API token or a connected AI, even one acting for an admin.
+- **Skills that were already personal stay personal.** Switching anything does not widen an existing
+  skill. Its owner can share it from the Skills library, or ask their AI to.
+- **Public links and sharing with chosen people are a person's decision.** An AI acting alone cannot
+  make a skill public or share it with named people: such a request is refused. A person does it in
+  the Skills library. (Letting a person approve an AI's proposal to make a skill public is planned,
+  not built yet.)
+
+Because an AI can now share a skill without a person reading it first, treat the AI-written mark as
+the signal: a skill with it was not typed by a person.
 
 ## Import and export
 

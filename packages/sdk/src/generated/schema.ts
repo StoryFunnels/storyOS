@@ -3783,7 +3783,7 @@ export interface paths {
         /** List skills visible to the caller: their own, plus every shared one */
         get: operations["SkillsController_list"];
         put?: never;
-        /** Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential */
+        /** Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent cannot make one public or share it with chosen people, and a workspace admin can switch agent publishing off, after which an agent-authored skill is created personal */
         post: operations["SkillsController_create"];
         delete?: never;
         options?: never;

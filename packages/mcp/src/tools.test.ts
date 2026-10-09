@@ -2850,7 +2850,8 @@ describe('#442 — skill authoring tools', () => {
       if (path === '/api/v1/workspaces/{ws}/skills/{id}') return { data: skill };
       return { data: {} };
     };
-    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+    const configs = new Map<string, { inputSchema?: Record<string, { safeParse: (v: unknown) => { success: boolean } }> }>();
+    registerTools({ registerTool: (n: string, c: never, h: never) => (configs.set(n, c), handlers.set(n, h as never)) } as never, {
       client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
       baseUrl: 'http://test',
       token: 'tok',
@@ -2861,46 +2862,36 @@ describe('#442 — skill authoring tools', () => {
       if (r.isError) throw new Error(r.content[0]!.text);
       return JSON.parse(r.content[0]!.text);
     };
-    return { call, sent, handlers };
+    return { call, sent, handlers, configs };
   }
 
-  it('create_skill never sends visibility:"shared" — the argument does not exist', async () => {
-    // Offering an argument the server refuses teaches the model the wrong thing.
-    const { call, sent, handlers } = harness();
-    await call('create_skill', {
-      workspace: 'Eng',
-      name: 'n',
-      description: 'd',
-      when_to_use: 'w',
-      instructions: 'i',
-    });
+  it('create_skill sends NO visibility unless asked (the server decides the default), offers only personal|shared, and never public or members', async () => {
+    const { call, sent, configs } = harness();
+    await call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i' });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
-    // The tool states no visibility at all: the API decides from the credential (#832).
+    // No pin and no restated default: SkillsService.create is the one place that decides it (#867).
     expect(post.body!).not.toHaveProperty('visibility');
 
-    const res = await handlers.get('create_skill')!({
-      workspace: 'Eng',
-      name: 'n',
-      description: 'd',
-      when_to_use: 'w',
-      instructions: 'i',
-      visibility: 'shared',
-    });
-    expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain('"visibility"');
+    // An explicit choice of the two offered tiers is forwarded.
+    sent.length = 0;
+    await call('create_skill', { workspace: 'Eng', name: 'n2', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'personal' });
+    expect(sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!.body!.visibility).toBe('personal');
+
+    // The tiers a person owns are not even expressible by a model: the argument's own schema refuses them.
+    for (const tool of ['create_skill', 'update_skill']) {
+      type Arg = { safeParse: (v: unknown) => { success: boolean } };
+      const schema = configs.get(tool)!.inputSchema as unknown as { shape?: Record<string, Arg> } & Record<string, Arg>;
+      const arg = (schema.shape ?? schema)['visibility']!;
+      expect(arg.safeParse('personal').success, `${tool} personal`).toBe(true);
+      expect(arg.safeParse('shared').success, `${tool} shared`).toBe(true);
+      for (const tier of ['public', 'members']) expect(arg.safeParse(tier).success, `${tool} ${tier}`).toBe(false);
+    }
   });
 
-  it('update_skill states what it cannot do: it takes no visibility, and its description does not claim otherwise', () => {
-    const cfgs = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
-    registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
-      client: {} as never,
-      baseUrl: 'http://test',
-      token: 'tok',
-    });
-    const cfg = cfgs.get('update_skill')!;
-    expect(Object.keys(cfg.inputSchema ?? {})).not.toContain('visibility');
-    expect(cfg.description).toMatch(/cannot change who can see a skill/);
-    expect(cfg.description).not.toMatch(/can move a skill to the workspace/);
+  it('update_skill can promote to shared or demote to personal (an owner promoting through MCP), and cannot ask for public', async () => {
+    const { call, sent } = harness();
+    await call('update_skill', { workspace: 'Eng', skill: 'sk-1', visibility: 'shared' });
+    expect(sent.find((s) => s.method === 'PATCH')!.body).toMatchObject({ visibility: 'shared' });
   });
 
   it('import_skill previews by default (create:false), surfaces the dropped list, and never offers visibility', async () => {
