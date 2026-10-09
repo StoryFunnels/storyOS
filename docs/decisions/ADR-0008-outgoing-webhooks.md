@@ -52,9 +52,32 @@ and the window's floor is the subscription's own creation, so history is never r
 **The limit that remains, stated rather than hidden:** a transaction that stays open *longer than
 the lookback* can still lose its events, because the cursor orders by transaction start, not by
 commit. Delivery is therefore **at-most-once, and complete for transactions shorter than the
-window**, not unconditionally complete. Closing that fully means ordering by commit visibility
-(a transaction-id column compared against the snapshot's xmin), which needs a migration and is a
-separate change. Keep the window above the longest transaction you permit.
+window**, not unconditionally complete.
+
+**Amended by #853 — how reachable that is, and what now makes it loud.** Measured, not assumed:
+no transaction in the application awaits the network, an AI runtime or a timer; the longest is
+one auto-link run, which wrote 20,000 pairs (40,000 events) in a single transaction in 5.9 s
+(about 0.29 s per 1,000 pairs, so roughly a million pairs to reach the default 300 s); bulk jobs
+commit 200 records per tick; no migration writes activity events; and no statement or
+idle-in-transaction timeout is configured anywhere in this repository, so nothing *enforces* a
+bound either. What can hold a transaction past the window is therefore external: a lock wait
+(for example a non-concurrent index build during a deploy while writers queue behind it) or a
+transaction someone opens by hand. Because that is possible but not something the application
+does, the answer shipped is a **detector, not the transaction-id column**, and it is a bound, not
+a fix:
+
+- `webhook.long_transaction` (warn): while a transaction older than half the window is open, the
+  dispatcher says so, before anything is lost. It sees only sessions its own database role can
+  see (`pg_stat_activity` hides other roles' sessions from a non-superuser).
+- `webhook.lost_events` (error): on a schedule, any event behind the window's floor that was never
+  queued is reported by id. It reports and does **not** redeliver. It can false-alarm once after
+  a subscription's event list is *edited* (history of a newly added type looks like a loss; there
+  is no "filter last changed" timestamp to bound it, and the message says so).
+
+Delivery is still at-most-once and still lossy for a transaction open past the window; it is now
+loud when that happens. Closing it fully means ordering by commit visibility (a transaction-id
+column compared against the snapshot's xmin), which needs a migration and remains the right answer
+if the residual ever proves reachable in practice.
 
 **Retries:** 5 attempts, 1/2/4/8-minute backoff, then the delivery is marked failed and
 the subscription shows the reason.

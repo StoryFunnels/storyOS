@@ -40,9 +40,23 @@ import {
  * delivery row is durable the moment the event is seen, so nothing is lost if the
  * process dies mid-send.
  */
+/** #853 — how far behind the lookback floor the loss audit looks, and how often it runs. */
+const AUDIT_HOURS = 24;
+const AUDIT_EVERY_MS = 5 * 60_000;
+
 @Injectable()
 export class WebhooksService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebhooksService.name);
+  /** Events already reported lost, so a restart-free process says each one once. Bounded. */
+  private readonly reportedLost = new Set<string>();
+  /** Long transactions already warned about (pid + start), same reason. */
+  private readonly warnedLongTx = new Set<string>();
+  private lastAudit = 0;
+
+  /** A method, not an inline env() read, so a test can shrink the window around a real long transaction. */
+  protected lookbackSeconds(): number {
+    return env().WEBHOOK_SCAN_LOOKBACK_SECONDS;
+  }
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Swappable so tests never touch the network. */
   fetcher: WebhookFetcher = defaultWebhookFetcher;
@@ -183,6 +197,131 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error(`webhook tick failed: ${String(err)}`);
     }
+    // A detector must never be able to fail delivery, so each gets its own guard.
+    try {
+      await this.watchLongTransactions();
+      if (Date.now() - this.lastAudit >= AUDIT_EVERY_MS) {
+        this.lastAudit = Date.now();
+        await this.auditBehindFloor();
+      }
+    } catch (err) {
+      this.logger.warn(`webhook loss detection failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * #853 — the LEADING indicator for the one case the lookback cannot cover. An event is stamped
+   * with its transaction's START time, so a transaction open longer than the lookback will write
+   * events the scan never queues. This warns while such a transaction is still open, BEFORE
+   * anything is lost, at half the window so there is time to act.
+   *
+   * It sees only sessions its own database role can see (pg_stat_activity hides other roles'
+   * from a non-superuser), so a transaction opened by a different role, for example an operator's
+   * `psql` session under another user, is invisible to it. That is a limit of the signal, stated
+   * rather than hidden; `reportLost` below is the authoritative one.
+   */
+  async watchLongTransactions(): Promise<void> {
+    const threshold = this.lookbackSeconds() / 2;
+    const res = await this.db.execute(sql`
+      SELECT pid, to_char(xact_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS started,
+             EXTRACT(EPOCH FROM (now() - xact_start))::int AS age_seconds, state, left(query, 120) AS query
+      FROM pg_stat_activity
+      WHERE datname = current_database() AND pid <> pg_backend_pid()
+        AND xact_start IS NOT NULL AND xact_start < now() - make_interval(secs => ${threshold})
+      ORDER BY xact_start LIMIT 5`);
+    for (const row of res.rows as Array<{ pid: number; started: string; age_seconds: number; state: string; query: string }>) {
+      const key = `${row.pid}@${row.started}`;
+      if (this.warnedLongTx.has(key)) continue;
+      if (this.warnedLongTx.size > 1000) this.warnedLongTx.clear();
+      this.warnedLongTx.add(key);
+      this.logger.warn(
+        `webhook.long_transaction: a transaction has been open for ${row.age_seconds}s (pid ${row.pid}, started ${row.started}, ` +
+          `${row.state}: ${row.query}). Events it writes are stamped with its START time; if it stays open past the ` +
+          `${this.lookbackSeconds()}s webhook lookback (WEBHOOK_SCAN_LOOKBACK_SECONDS) they will NOT be delivered.`,
+      );
+    }
+  }
+
+  /**
+   * #853 — the AUTHORITATIVE detector: an event BEHIND the lookback floor that was never queued.
+   *
+   * The scan queues oldest-first and looks a window behind its cursor, so an unqueued event older
+   * than `cursor_at - lookback` was invisible when the cursor passed it: committed by a transaction
+   * that outlived the window. It will never be delivered. (Checking only the slice that just slid
+   * out of the window is NOT enough: a late committer appears AFTER its slice was checked, so
+   * it has to be looked for behind the floor on a schedule.)
+   *
+   * Bounded so it stays cheap: it looks at most WEBHOOK_LOSS_AUDIT_HOURS behind the floor and is
+   * throttled to once per AUDIT_EVERY_MS. Reports; it does NOT redeliver (an event that late has
+   * a place in a subscriber's sequence it may no longer be safe to fill), and says so.
+   *
+   * KNOWN FALSE POSITIVE, stated rather than hidden: `PATCH` can change a subscription's event
+   * list or database, and history written before the edit was never meant to be delivered, yet it
+   * is indistinguishable from a loss here (there is no "filter last changed" timestamp to bound
+   * by; `updated_at` moves on every delivery). The message says so. A new column would remove it.
+   */
+  async auditBehindFloor(onlySubscriptionId?: string): Promise<number> {
+    const subs = await this.db.query.webhookSubscriptions.findMany({
+      where: and(
+        eq(webhookSubscriptions.enabled, true),
+        onlySubscriptionId ? eq(webhookSubscriptions.id, onlySubscriptionId) : undefined,
+      ),
+      limit: 100,
+    });
+    let reported = 0;
+    for (const sub of subs) {
+      const types = (sub.events as string[]) ?? [];
+      if (types.length === 0) continue;
+      reported += await this.reportLost(sub, types);
+    }
+    return reported;
+  }
+
+  private async reportLost(
+    sub: { id: string; workspaceId: string; databaseId: string | null },
+    types: string[],
+  ): Promise<number> {
+    const lookback = this.lookbackSeconds();
+    const lost = await this.db
+      .select({ id: activityEvents.id, type: activityEvents.type, createdAt: activityEvents.createdAt })
+      .from(activityEvents)
+      .leftJoin(records, eq(records.id, activityEvents.recordId))
+      .where(
+        and(
+          eq(activityEvents.workspaceId, sub.workspaceId),
+          inArray(activityEvents.type, types),
+          sub.databaseId ? eq(records.databaseId, sub.databaseId) : sql`true`,
+          // Never before the subscription existed, and at most AUDIT_HOURS behind the floor.
+          gt(
+            activityEvents.createdAt,
+            sql`(SELECT GREATEST(created_at, cursor_at - make_interval(secs => ${lookback}) - make_interval(hours => ${AUDIT_HOURS})) FROM webhook_subscriptions WHERE id = ${sub.id})`,
+          ),
+          lte(
+            activityEvents.createdAt,
+            sql`(SELECT cursor_at - make_interval(secs => ${lookback}) FROM webhook_subscriptions WHERE id = ${sub.id})`,
+          ),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(webhookDeliveries)
+              .where(and(eq(webhookDeliveries.subscriptionId, sub.id), eq(webhookDeliveries.eventId, activityEvents.id))),
+          ),
+        ),
+      )
+      .orderBy(asc(activityEvents.createdAt))
+      .limit(50);
+    const fresh = lost.filter((e) => !this.reportedLost.has(`${sub.id}:${e.id}`));
+    if (fresh.length === 0) return 0;
+    if (this.reportedLost.size > 10_000) this.reportedLost.clear();
+    for (const e of fresh) this.reportedLost.add(`${sub.id}:${e.id}`);
+    this.logger.error(
+      `webhook.lost_events: ${fresh.length} event(s) for subscription ${sub.id} fell out of the ${lookback}s lookback window ` +
+        `without ever being queued and will NOT be delivered: ${fresh.map((e) => `${e.id} (${e.type}, ${e.createdAt.toISOString()})`).join('; ')}. ` +
+        `Cause: a transaction held open longer than WEBHOOK_SCAN_LOOKBACK_SECONDS wrote them (events carry their transaction's START time). ` +
+        `They are reported, not redelivered. If this subscription's event list or database was EDITED recently, these may instead be ` +
+        `history written before the edit, which was never meant to be delivered (a known limit of this check). See ticket #853.`,
+    );
+    return fresh.length;
   }
 
   /**
@@ -252,7 +391,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
             // committed after the cursor passed its start time (#850).
             gt(
               activityEvents.createdAt,
-              sql`(SELECT GREATEST(cursor_at - make_interval(secs => ${env().WEBHOOK_SCAN_LOOKBACK_SECONDS}), created_at) FROM webhook_subscriptions WHERE id = ${sub.id})`,
+              sql`(SELECT GREATEST(cursor_at - make_interval(secs => ${this.lookbackSeconds()}), created_at) FROM webhook_subscriptions WHERE id = ${sub.id})`,
             ),
             // Already queued for THIS subscription: skip it, so a tie larger than one batch
             // drains instead of re-reading the same first rows forever.
