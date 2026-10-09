@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { comments, databases, memberships, notifications, records, user, userPreferences } from '../db/schema';
@@ -301,19 +302,25 @@ export class NotificationsService {
     cursor?: string,
     opts?: { type?: NotificationType; archived?: boolean },
   ) {
-    const rows = await this.db.query.notifications.findMany({
-      where: and(
-        eq(notifications.workspaceId, workspaceId),
-        eq(notifications.userId, userId),
-        unreadOnly ? isNull(notifications.readAt) : undefined,
-        // Archived notifications only show in the archived view (MN-073).
-        opts?.archived ? isNotNull(notifications.archivedAt) : isNull(notifications.archivedAt),
-        opts?.type ? eq(notifications.type, opts.type) : undefined,
-        cursor ? lt(notifications.createdAt, new Date(cursor)) : undefined,
-      ),
-      orderBy: [desc(notifications.createdAt)],
-      limit: 30,
-    });
+    const rows = await this.db
+      .select({ ...getTableColumns(notifications), cursorTs: cursorTimestampSql(notifications.createdAt) })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.workspaceId, workspaceId),
+          eq(notifications.userId, userId),
+          unreadOnly ? isNull(notifications.readAt) : undefined,
+          // Archived notifications only show in the archived view (MN-073).
+          opts?.archived ? isNotNull(notifications.archivedAt) : isNull(notifications.archivedAt),
+          opts?.type ? eq(notifications.type, opts.type) : undefined,
+          // #851 — (created_at, id), not created_at alone. This cursor used to be a raw ISO string
+          // (milliseconds), so notifications written in one statement, or within one millisecond,
+          // were skipped at a page boundary. A pre-change raw-ISO cursor is still accepted.
+          keysetCondition(notifications.createdAt, notifications.id, cursor, true),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt), desc(notifications.id))
+      .limit(30);
 
     const recordIds = [...new Set(rows.map((r) => r.recordId).filter((v): v is string => Boolean(v)))];
     const actorIds = [...new Set(rows.map((r) => r.actorId).filter((v): v is string => Boolean(v)))];
@@ -348,7 +355,7 @@ export class NotificationsService {
           actor: actor ? { id: actor.id, name: actor.name, image: actor.image } : null,
         };
       }),
-      next_cursor: rows.length === 30 ? rows[rows.length - 1]!.createdAt.toISOString() : null,
+      next_cursor: rows.length === 30 ? encodeKeysetCursor({ t: rows[rows.length - 1]!.cursorTs, id: rows[rows.length - 1]!.id }) : null,
     };
   }
 

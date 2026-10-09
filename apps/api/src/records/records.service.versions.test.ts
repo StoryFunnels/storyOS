@@ -57,6 +57,19 @@ function makeDb(opts: {
         findMany: vi.fn().mockResolvedValue(opts.versionRows ?? []),
       },
     },
+    // #851 — listVersions now reads through the select builder (it needs the exact microsecond
+    // text of created_at for its cursor), so the fake exposes that chain too. The paging
+    // behaviour itself is exercised against a real database in test/keyset-siblings.test.ts.
+    select: vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: async () =>
+              (opts.versionRows ?? []).map((r) => ({ ...r, cursorTs: r.createdAt.toISOString().replace('Z', '000Z') })),
+          }),
+        }),
+      }),
+    })),
     transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         insert: (_table: { _tag?: string }) => {

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray } from 'drizzle-orm';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { portalAccessLog, portalRecipients, views } from '../db/schema';
@@ -66,16 +67,18 @@ export class PortalActivityService {
     const conditions = [eq(portalAccessLog.workspaceId, workspaceId)];
     if (filter.recipient) conditions.push(eq(portalAccessLog.recipientId, filter.recipient));
     if (filter.view) conditions.push(eq(portalAccessLog.viewId, filter.view));
-    if (filter.cursor) {
-      const created = new Date(Buffer.from(filter.cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(portalAccessLog.createdAt, created));
-    }
+    // #851 — (created_at, id), not created_at alone: entries sharing a timestamp that span a page
+    // boundary were skipped, and a cursor built from a millisecond Date sat before same-millisecond
+    // rows. This is an evidence surface: a gap in it is believed.
+    const after = keysetCondition(portalAccessLog.createdAt, portalAccessLog.id, filter.cursor);
+    if (after) conditions.push(after);
 
-    const rows = await this.db.query.portalAccessLog.findMany({
-      where: and(...conditions),
-      orderBy: [desc(portalAccessLog.createdAt)],
-      limit: limit + 1,
-    });
+    const rows = await this.db
+      .select({ ...getTableColumns(portalAccessLog), cursorTs: cursorTimestampSql(portalAccessLog.createdAt) })
+      .from(portalAccessLog)
+      .where(and(...conditions))
+      .orderBy(desc(portalAccessLog.createdAt), desc(portalAccessLog.id))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
 
@@ -103,7 +106,7 @@ export class PortalActivityService {
 
     return {
       data,
-      next_cursor: hasMore && page.length > 0 ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url') : null,
+      next_cursor: hasMore && page.length > 0 ? encodeKeysetCursor({ t: page[page.length - 1]!.cursorTs, id: page[page.length - 1]!.id }) : null,
       has_more: hasMore,
     };
   }
