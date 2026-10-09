@@ -3783,7 +3783,7 @@ export interface paths {
         /** List skills visible to the caller: their own, plus every shared one */
         get: operations["SkillsController_list"];
         put?: never;
-        /** Create a skill — personal by default; pass visibility: "shared" to publish it to the workspace */
+        /** Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential */
         post: operations["SkillsController_create"];
         delete?: never;
         options?: never;
@@ -6218,11 +6218,8 @@ export interface components {
             }[];
             /** @default [] */
             allowed_tools: string[];
-            /**
-             * @default personal
-             * @enum {string}
-             */
-            visibility: "personal" | "shared";
+            /** @enum {string} */
+            visibility?: "personal" | "shared";
             source_template?: string;
         };
         UpdateSkillDto: {

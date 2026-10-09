@@ -5442,17 +5442,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   // ============ Skills (#41): discover + run a workspace's saved skills ============
-  // Both tools ride the exact GET/POST the in-app Skills UI uses (SkillsController),
-  // so visibility (personal vs shared) and the run/last-run bookkeeping are never
-  // reimplemented here — see resolve.ts's listSkills/resolveSkill.
+  // Both tools call the SkillsController endpoints (there is NO in-app Skills list or
+  // Run button — that was #832), so visibility (personal vs shared) and the
+  // run/last-run bookkeeping are never reimplemented here — see resolve.ts's
+  // listSkills/resolveSkill.
 
   reg(
     'list_skills',
     {
       title: 'List skills',
       description:
-        "List the skills visible to the caller in a workspace: their own personal skills, plus every " +
-        'shared one (the same visibility rule the in-app Skills list enforces — this never widens it). ' +
+        "List the skills visible to the caller in a workspace: the caller's own personal skills, plus " +
+        'every skill shared with the workspace. A teammate\'s personal skill is never listed. ' +
         'Each entry carries when_to_use and allowed_tools so you can pick the right one, then call ' +
         'run_skill with its name or id.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
@@ -5569,7 +5570,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create skill',
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
-        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and it is created PERSONAL to the token owner. Sharing it with the workspace is a human decision made in-app, so `visibility` is not an argument here.',
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and it is created PERSONAL to the token owner, so no teammate\'s list_skills returns it. Nothing reachable from an agent credential can publish it to the workspace (that is deliberate: a shared skill is instructions every member\'s agent will follow), and there is currently no screen for a person to do it either, so `visibility` is not an argument here.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
@@ -5620,17 +5621,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             instructions,
             examples: examples ?? [],
             allowed_tools: allowed_tools ?? [],
-            // Never sent as `shared`: the API refuses it for a non-human author
-            // anyway, and a tool that offers an argument the server rejects is
-            // a tool that teaches the wrong thing.
-            visibility: 'personal',
+            // `visibility` is deliberately NOT sent. SkillsService.create is the one place
+            // that decides what an omitted visibility means (a person's skill is shared,
+            // an agent's is personal — #442), so this tool neither restates the rule nor
+            // offers an argument the server would refuse for a non-human author.
             source_template: from_template,
           } as never,
         }),
       );
       return text({
         skill: serializeSkill(created),
-        note: 'Personal to you and recorded as agent-authored. A person can read it in-app and promote it to shared.',
+        note: 'Personal to you and recorded as agent-authored. Teammates cannot see it, and this tool cannot change that.',
       });
     }),
   );
@@ -5742,8 +5743,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Run a saved skill by name or id (from list_skills). StoryOS has no managed AI runtime yet ' +
         "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use/allowed_tools and " +
-        'records the run (same bookkeeping as pressing "Run" in-app: last_run_at/last_run_status), but ' +
-        'YOU are the model that actually carries out `instructions` against `inputs`. `inputs` is free-form ' +
+        'records the run (last_run_at/last_run_status), but ' +
+        'YOU are the model that actually carries out `instructions` against `inputs`; StoryOS executes nothing. `inputs` is free-form ' +
         'and is only echoed back for you to act on — there is no server-side execution to send it to yet. ' +
         'If the skill declares allowed_tools, prefer those tools while following it.',
       inputSchema: {
@@ -6366,7 +6367,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set my personal filter on an embedded collection',
       description:
-        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — same all-or-nothing reset the "Reset" button in the UI does). ' +
+        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — an all-or-nothing reset, not a per-field undo). ' +
         "It writes for the identity this token belongs to and cannot filter anyone else's screen. Filter syntax is identical to query_records, applied against the collection's TARGET database (the one the relation links to), not this one. " +
         'Only the filter is settable here — sort order, color-by, and inline columns are display preferences with no query semantics, not exposed to agents individually.',
       inputSchema: {
@@ -6923,7 +6924,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List action-class gate policies',
       description:
         '#542: this workspace\'s declared gate policies over an action class (currently only "delete_records") — scope (workspace/space/database), ' +
-        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only in the app, not reachable via MCP — ' +
+        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only and not reachable via MCP — ' +
         'an agent that could change the gate meant to constrain agents would defeat the point.',
       inputSchema: {
         workspace: z.string(),

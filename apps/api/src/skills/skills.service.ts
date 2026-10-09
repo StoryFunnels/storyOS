@@ -145,13 +145,18 @@ export class SkillsService {
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
   ): Promise<SkillSummary> {
-    this.assertMayPublish(source, input.visibility);
+    // #832: omitted visibility depends on who is writing. A person's skill is shared with
+    // the workspace (so "my skill, your AI" works without a settings step); an agent's stays
+    // personal — it may not publish (#442 / ADR-0010), and defaulting an agent to `shared`
+    // would turn every omitted field into a 403 instead of a safe personal skill.
+    const visibility: SkillVisibility = input.visibility ?? (source === 'human' ? 'shared' : 'personal');
+    this.assertMayPublish(source, visibility);
     const [row] = await this.db
       .insert(skills)
       .values({
         workspaceId: membership.workspaceId,
         ownerId: userId,
-        visibility: input.visibility,
+        visibility,
         name: input.name,
         description: input.description,
         whenToUse: input.when_to_use,
@@ -221,8 +226,8 @@ export class SkillsService {
   }
 
   /**
-   * Manual run (AC #3): the composer/slash-command surface doesn't exist yet
-   * (#39/the chat UI), so this is invoked directly — the "current
+   * Manual run (AC #3): there is no composer, slash-command or in-app Run surface,
+   * so this is invoked directly — the "current
    * agent-invocation surface" the ticket asks for in that surface's absence.
    * Visible-to-caller is enough to run (unlike edit): a shared skill is meant
    * to be run by the whole team, not just its author.

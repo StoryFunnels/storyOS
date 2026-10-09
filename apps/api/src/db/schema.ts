@@ -2022,7 +2022,10 @@ export const skills = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     /** The author — always set, regardless of visibility (better-auth id, text). */
     ownerId: text('owner_id').notNull(),
-    visibility: skillVisibility('visibility').notNull().default('personal'),
+    // #832: `shared` by default (everything visible to every member until that proves a
+    // problem). `personal` stays in the enum — per-skill privacy is wanted later, and removing
+    // a value is a migration while changing a default is not. Existing rows keep their value.
+    visibility: skillVisibility('visibility').notNull().default('shared'),
     name: text('name').notNull(),
     description: text('description').notNull(),
     whenToUse: text('when_to_use').notNull(),
