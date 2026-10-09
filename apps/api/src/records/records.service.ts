@@ -49,7 +49,7 @@ import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
 import { diffSnapshots } from './record-diff';
-import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
+import { diffBlocks, jsonEqual, type BlockChange } from '@storyos/schemas/block-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
 import { isPickOneOp, pickOneRow, pickOneSortKey, rollupFieldValue } from './rollup-pick-one';
@@ -3062,7 +3062,10 @@ export class RecordsService {
 
     for (const [fieldId, value] of Object.entries(validated.values)) {
       const previous = before[fieldId] ?? null;
-      if (JSON.stringify(previous) === JSON.stringify(value)) continue;
+      // #840 — key-order-insensitive: `previous` was read back from jsonb (keys
+      // re-sorted) and `value` is in the caller's order, so a plain
+      // JSON.stringify comparison called an unchanged field changed.
+      if (jsonEqual(previous, value)) continue;
       diff[fieldId] = { from: previous, to: value };
       if (richTextFieldIds.has(fieldId)) diff[fieldId]!.blocks = diffBlocks(previous, value);
       if (value === null) delete merged[fieldId];
