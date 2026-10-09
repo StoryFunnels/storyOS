@@ -801,14 +801,41 @@ function RailButton({
   );
 }
 
-/** #742 phase 6 — the rail's own workspace avatar/switcher; shares the same
- * ['workspaces'] query as the panel header's `WorkspaceSwitcher` (react-query
- * dedupes identical keys, so this is one network call, not two). The panel
- * header keeps its own full switcher too — the artifact's decision was to
- * keep BOTH, not have the rail avatar replace it. */
-function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+/** #844 — the ONE workspace menu. It existed twice, verbatim: the rail mark
+ * and the panel header each carried their own copy of this list, so an item
+ * added to one and not the other would have been invisible until somebody
+ * noticed. Both triggers render this.
+ *
+ * The query deliberately stays in the TRIGGERS, not in here. Radix only mounts
+ * menu content once the menu opens, so a useQuery inside this component would
+ * quietly turn an eager fetch into a lazy one and show an empty list on the
+ * first open. Both triggers use the same ['workspaces'] key, so react-query
+ * still dedupes it to one network call however many are mounted. */
+function WorkspaceMenuContent({
+  ws,
+  workspaces,
+}: {
+  ws: string;
+  workspaces: Array<{ id: string; name: string }>;
+}) {
   const router = useRouter();
-  const workspaces = useQuery({
+  return (
+    <DropdownMenuContent align="start" className="w-52">
+      {workspaces.map((w) => (
+        <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
+          {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
+        <Plus className="h-3.5 w-3.5" /> New workspace
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  );
+}
+
+function useWorkspaceList() {
+  return useQuery({
     queryKey: ['workspaces'],
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces');
@@ -816,6 +843,25 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
       return data as unknown as Array<{ id: string; name: string }>;
     },
   });
+}
+
+/** #742 phase 6, amended by #844 — the rail's workspace mark, and THE ONLY
+ * place the workspace mark is drawn.
+ *
+ * #742 kept a second 20x20 mark in the panel header on the reasoning that the
+ * rail and the panel are independent surfaces. THAT REASONING WAS WRONG and is
+ * why #844 exists: `SidebarRail` renders inside `Sidebar`, and the layout hides
+ * the whole Sidebar wrapper with `collapsed && 'md:hidden'` — the rail included.
+ * So the two were never in a state where only one was visible; they were simply
+ * the same mark twice, 34px apart, at two different radii.
+ *
+ * The header keeps its own TRIGGER (the workspace name plus a chevron, which
+ * reads as a control on its own). What it no longer keeps is a second copy of
+ * the mark. If the rail is ever made to survive panel collapse, this trigger
+ * becomes the only switcher while collapsed — so do not delete it on the
+ * assumption it is redundant. */
+function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+  const workspaces = useWorkspaceList();
 
   return (
     <DropdownMenu>
@@ -829,57 +875,28 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
           </button>
         </DropdownMenuTrigger>
       </Tooltip>
-      <DropdownMenuContent align="start" className="w-52">
-        {(workspaces.data ?? []).map((w) => (
-          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
-            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
-          <Plus className="h-3.5 w-3.5" /> New workspace
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <WorkspaceMenuContent ws={ws} workspaces={workspaces.data ?? []} />
     </DropdownMenu>
   );
 }
 
-/** Workspace name is the switcher — lists every workspace plus creation (the old "Switch workspace" link only ever led back to the first one). */
+/** Workspace name is the switcher — lists every workspace plus creation (the old
+ * "Switch workspace" link only ever led back to the first one). Carries NO mark:
+ * the rail draws it 34px to the left, see #844. */
 function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: string }) {
-  const router = useRouter();
-  const workspaces = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces');
-      if (error) throw error;
-      return data as unknown as Array<{ id: string; name: string }>;
-    },
-  });
+  const workspaces = useWorkspaceList();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-meta font-bold text-[var(--text-on-dark)]">
-            {currentName?.[0]?.toUpperCase() ?? 'S'}
-          </div>
           <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
-        {(workspaces.data ?? []).map((w) => (
-          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
-            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
-          <Plus className="h-3.5 w-3.5" /> New workspace
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <WorkspaceMenuContent ws={ws} workspaces={workspaces.data ?? []} />
     </DropdownMenu>
   );
 }
