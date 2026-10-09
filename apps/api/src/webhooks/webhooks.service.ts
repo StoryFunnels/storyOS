@@ -7,7 +7,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, notExists, or, sql } from 'drizzle-orm';
 import type { WebhookEvent } from '@storyos/schemas';
 import { env } from '../config/env';
 import { DB } from '../db/db.module';
@@ -186,9 +186,32 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Turn activity events into pending deliveries. The cursor advances to the last
-   * event actually seen (not "now"), so an event written while this pass runs is
-   * picked up next time rather than skipped.
+   * Turn activity events into pending deliveries.
+   *
+   * #850 — this used to be `created_at > cursor_at ORDER BY created_at LIMIT 200`, advancing
+   * the cursor to the last row's timestamp. Two ways that silently dropped events to someone
+   * else's system, with no error:
+   *
+   *   1. A TIE. Every event of one transaction shares a created_at, so a tie spanning the
+   *      200-row boundary lost its remainder for good (300 written, 200 delivered).
+   *   2. A SLOW TRANSACTION. created_at is the transaction START time, so a transaction that
+   *      began before a scan and committed after it wrote rows stamped BEHIND the cursor.
+   *
+   * It now re-reads a lookback window behind the cursor (WEBHOOK_SCAN_LOOKBACK_SECONDS) and
+   * excludes every event already queued for this subscription. Both fixes fall out of that one
+   * predicate: a tie larger than a batch makes progress because the rows already queued drop
+   * out of the next read, and a late committer is found because it is inside the window.
+   * Exactly-once is still the unique index on (subscription, event), not this arithmetic; the
+   * NOT EXISTS only keeps the re-read from returning what it has already done.
+   *
+   * The floor is the subscription's own creation time, so widening the window can never replay
+   * history from before it existed. LIMIT is unchanged and the order is `(created_at, id)`, so
+   * delivery is still oldest-first within what the scan returns; a late committer is delivered
+   * late, which is the price of delivering it at all.
+   *
+   * STILL TRUE, and stated rather than hidden: a transaction open LONGER than the lookback can
+   * still lose its events. The full fix is ordering by commit visibility (a transaction-id
+   * column), which needs a migration and is tracked on the ticket.
    */
   async scan(): Promise<number> {
     const subs = await this.db.query.webhookSubscriptions.findMany({
@@ -222,18 +245,28 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
         .where(
           and(
             eq(activityEvents.workspaceId, sub.workspaceId),
-            // Compared in SQL against the stored column: created_at is microsecond
-            // precision and a JS Date is milliseconds, so a round-tripped cursor
-            // lands before the event it already saw and rescans it forever.
+            // Compared in SQL against the stored columns: created_at is microsecond
+            // precision and a JS Date is milliseconds, so a value round-tripped through JS
+            // lands before the event it already saw. FLOOR = the subscription's creation (never
+            // replay history); otherwise LOOKBACK behind the cursor, to catch a transaction that
+            // committed after the cursor passed its start time (#850).
             gt(
               activityEvents.createdAt,
-              sql`(SELECT cursor_at FROM webhook_subscriptions WHERE id = ${sub.id})`,
+              sql`(SELECT GREATEST(cursor_at - make_interval(secs => ${env().WEBHOOK_SCAN_LOOKBACK_SECONDS}), created_at) FROM webhook_subscriptions WHERE id = ${sub.id})`,
+            ),
+            // Already queued for THIS subscription: skip it, so a tie larger than one batch
+            // drains instead of re-reading the same first rows forever.
+            notExists(
+              this.db
+                .select({ one: sql`1` })
+                .from(webhookDeliveries)
+                .where(and(eq(webhookDeliveries.subscriptionId, sub.id), eq(webhookDeliveries.eventId, activityEvents.id))),
             ),
             inArray(activityEvents.type, types),
             sub.databaseId ? eq(records.databaseId, sub.databaseId) : sql`true`,
           ),
         )
-        .orderBy(asc(activityEvents.createdAt))
+        .orderBy(asc(activityEvents.createdAt), asc(activityEvents.id))
         .limit(200);
 
       if (rows.length === 0) continue;
@@ -274,10 +307,12 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       // created_at at microsecond precision and the driver hands back a
       // millisecond Date, so writing that value back lands *before* the event and
       // rescans it forever.
+      // GREATEST: a late committer inside the lookback window is OLDER than the cursor, and
+      // delivering it must never move the cursor backwards.
       const lastId = rows[rows.length - 1]!.id;
       await this.db.execute(sql`
         UPDATE webhook_subscriptions
-        SET cursor_at = (SELECT created_at FROM activity_events WHERE id = ${lastId})
+        SET cursor_at = GREATEST(cursor_at, (SELECT created_at FROM activity_events WHERE id = ${lastId}))
         WHERE id = ${sub.id}
       `);
     }

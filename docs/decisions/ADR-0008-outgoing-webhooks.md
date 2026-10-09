@@ -37,6 +37,25 @@ Cursor comparison happens in SQL: `created_at` is microsecond precision and a JS
 is milliseconds, so a cursor round-tripped through JS lands *before* the event it just
 saw and rescans it forever.
 
+**Amended by #850 — what the scan actually guarantees.** The paragraph above said the scan
+"advances a per-subscription cursor" and that "nothing is lost". Neither was true of the scan
+itself. It read `created_at > cursor_at ORDER BY created_at LIMIT 200` and moved the cursor to
+the last row's timestamp, which silently dropped events two ways: (1) a TIE — every event of one
+transaction shares a `created_at`, so a tie spanning the 200-row batch lost its remainder (300
+written, 200 delivered), and (2) a SLOW TRANSACTION — `created_at` is the transaction START time,
+so a transaction that began before a scan and committed after it wrote rows stamped *behind* the
+cursor and they were never delivered. Both were measured. The scan now re-reads a **lookback
+window** behind the cursor (`WEBHOOK_SCAN_LOOKBACK_SECONDS`, default 300) and skips every event
+already queued for that subscription; the unique index remains what makes delivery at-most-once,
+and the window's floor is the subscription's own creation, so history is never replayed.
+
+**The limit that remains, stated rather than hidden:** a transaction that stays open *longer than
+the lookback* can still lose its events, because the cursor orders by transaction start, not by
+commit. Delivery is therefore **at-most-once, and complete for transactions shorter than the
+window**, not unconditionally complete. Closing that fully means ordering by commit visibility
+(a transaction-id column compared against the snapshot's xmin), which needs a migration and is a
+separate change. Keep the window above the longest transaction you permit.
+
 **Retries:** 5 attempts, 1/2/4/8-minute backoff, then the delivery is marked failed and
 the subscription shows the reason.
 
