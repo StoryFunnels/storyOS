@@ -109,3 +109,19 @@ describe('the public skill page (ticket #866)', () => {
     expect(code(page.text)).toMatch(/throw new Error\(`public skill read failed/);
   });
 });
+
+describe('what the public skill page must NOT carry (ticket #866 AC8)', () => {
+  const page = surface.find((s) => s.file.endsWith(join('s', '[token]', 'page.tsx')))!;
+  const body = code(page.text);
+  it('declares exactly the portable fields, and nothing identifying', () => {
+    const iface = body.slice(body.indexOf('interface PublicSkill'), body.indexOf('async function getSkill'));
+    const keys = [...iface.matchAll(/^\s+([a-z_]+)\??:/gm)].map((m) => m[1]).sort();
+    expect(keys).toEqual(['description', 'examples', 'instructions', 'name', 'updated_at', 'version', 'when_to_use']);
+  });
+  it('never reads an identifier off the skill', () => {
+    expect(body).not.toMatch(/\b(workspace_id|owner_id|member_ids|public_token|source_template|last_run|\.id\b|author|published_by)\b/);
+  });
+  it('shows no publisher, and nothing in its place', () => {
+    expect(body).not.toMatch(/published by|shared by|written by|author|owner/i);
+  });
+});
