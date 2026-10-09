@@ -41,6 +41,7 @@ import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { FieldsMenu } from '@/components/views/fields-menu';
 import { isSingleOption } from '@/components/table-view/field-kinds';
 import { SelectDriftBanner } from './select-drift-banner';
+import { collectionControlsVisible } from './collection-empty';
 import { useOpenInSplit } from './split-panel-context';
 
 const COLLECTION_CAP = 20;
@@ -181,6 +182,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   const shown = showAll ? rows : rows.slice(0, COLLECTION_CAP);
   const filtersActive = (cv.filters?.and?.length ?? 0) > 0 || (cv.sorts?.length ?? 0) > 0;
   const total = filtersActive ? rows.length : chips.length;
+  // #642 item 3 — see collection-empty.ts: keyed on the UNFILTERED link count, so
+  // a filter that narrows a populated list to zero never removes its own controls.
+  const controlsVisible = collectionControlsVisible({ linkedCount: chips.length, filtersActive });
 
   const colorField = cv.color_by ? targetFields.find((f) => f.apiName === cv.color_by) : undefined;
   const dotColor = (row: RecordRow): string | null => {
@@ -219,7 +223,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
         <h2 className="text-label font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
         <span className="text-meta text-faint">{total}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={ws} db={db} collection />}
-        {schemaEditable && !collapsed && targetDb.data && (
+        {schemaEditable && !collapsed && controlsVisible && targetDb.data && (
           <span className="flex flex-wrap items-center gap-1">
             {conditions.map((c, i) => (
               <FilterChip
@@ -296,6 +300,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
       {!collapsed && (
         <>
           <SelectDriftBanner ws={ws} field={field} record={record} readOnly={readOnly} />
+          {/* #642 item 3 — EMPTY BY NATURE collapses to the one Add row below: no
+              bordered box, no toolbar. "Nothing linked yet." survives only for a
+              read-only viewer, who has no Add row to explain the emptiness.
+              "No matches." (a filter hiding rows) still gets the full box. */}
+          {controlsVisible || readOnly || rows.length > 0 ? (
           <div
             className={cn(
               'rounded-[var(--radius-card)] border border-border-default bg-card',
@@ -423,9 +432,17 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
               </button>
             )}
           </div>
+          ) : null}
           {/* Add lives OUTSIDE the overflow-hidden card so its picker never clips. */}
           {!readOnly && (
-            <div className="relative mt-1 flex items-center gap-3 px-1">
+            <div
+              className={cn(
+                'relative flex items-center gap-3 px-1',
+                // #642 item 3 — the collapsed empty relation IS this row: a fixed
+                // 28px, no top margin (there is no box above it to space from).
+                controlsVisible || rows.length > 0 ? 'mt-1' : 'h-7',
+              )}
+            >
               <button
                 className="inline-flex items-center gap-1 text-body text-muted hover:text-ink"
                 onClick={() => setAdding(true)}
