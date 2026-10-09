@@ -12,7 +12,6 @@ const skill: SkillSummary = {
   when_to_use: 'Every Friday, for a standing team update.',
   instructions: 'List records changed this week. Keep it under 200 words.',
   examples: [{ input: '10 records moved to Done', output: '10 done this week, 2 overdue.' }],
-  allowed_tools: ['records.read', 'databases.read'],
   source_template: 'weekly-digest',
   source: 'human',
   last_run_at: null,
@@ -32,8 +31,6 @@ describe('renderSkillExport (#40 portable export)', () => {
     expect(out.content).toContain('## Instructions');
     expect(out.content).toContain(skill.instructions);
     expect(out.content).toContain('## Examples');
-    expect(out.content).toContain('## Allowed tools');
-    expect(out.content).toContain('- records.read');
   });
 
   it('produces a SKILL.md with only name/description in frontmatter (Agent Skills convention)', () => {
@@ -54,10 +51,20 @@ describe('renderSkillExport (#40 portable export)', () => {
     expect(out.content).toContain('Custom instructions');
   });
 
-  it('omits the Examples/Allowed tools sections when a skill declares none', () => {
-    const bare: SkillSummary = { ...skill, examples: [], allowed_tools: [] };
-    const out = renderSkillExport(bare, 'markdown');
-    expect(out.content).not.toContain('## Examples');
-    expect(out.content).not.toContain('## Allowed tools');
+  it('omits the Examples section when a skill declares none', () => {
+    const bare: SkillSummary = { ...skill, examples: [] };
+    expect(renderSkillExport(bare, 'markdown').content).not.toContain('## Examples');
+  });
+
+  it('#841: allowed_tools is in NONE of the three renderers, even if an in-process caller passes one', () => {
+    // The summary type no longer has the field, but packs hand the service a superset
+    // internally — so assert on the OUTPUT, with the tool names present on the input.
+    const smuggled = { ...skill, allowed_tools: ['records.read', 'databases.read'] } as SkillSummary;
+    for (const format of ['markdown', 'claude_skill', 'chatgpt'] as const) {
+      const out = renderSkillExport(smuggled, format).content;
+      expect(out, format).not.toMatch(/allowed[ _-]tools/i);
+      expect(out, format).not.toContain('records.read');
+      expect(out, format).not.toContain('databases.read');
+    }
   });
 });

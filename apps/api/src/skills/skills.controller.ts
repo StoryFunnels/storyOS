@@ -17,7 +17,7 @@ import { createSkillSchema, skillExportFormatSchema, updateSkillSchema } from '@
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { SkillsService } from './skills.service';
+import { SkillsService, publicSkill } from './skills.service';
 
 class CreateSkillDto extends createZodDto(createSkillSchema) {}
 class UpdateSkillDto extends createZodDto(updateSkillSchema) {}
@@ -37,8 +37,9 @@ export class SkillsController {
 
   @Get()
   @ApiOperation({ summary: 'List skills visible to the caller: their own, plus every shared one' })
-  list(@Req() req: WorkspaceRequest) {
-    return this.skills.list(req.membership, req.user.id);
+  async list(@Req() req: WorkspaceRequest) {
+    const { data } = await this.skills.list(req.membership, req.user.id);
+    return { data: data.map(publicSkill) };
   }
 
   /**
@@ -54,25 +55,25 @@ export class SkillsController {
   @Get(':id')
   @ApiParam({ name: 'id', description: 'The skill record id' })
   @ApiOperation({ summary: 'Read one skill' })
-  get(@Req() req: WorkspaceRequest, @Param('id') id: string) {
-    return this.skills.get(req.membership, req.user.id, id);
+  async get(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+    return publicSkill(await this.skills.get(req.membership, req.user.id, id));
   }
 
   @Post()
   @MinRole('member')
   @ApiOperation({ summary: 'Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential' })
-  create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
+  async create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
     // #442: authorship comes from the AUTH context, never the body — a caller
     // must not be able to describe itself as a human.
-    return this.skills.create(req.membership, req.user.id, body, req.auth.source);
+    return publicSkill(await this.skills.create(req.membership, req.user.id, body, req.auth.source));
   }
 
   @Patch(':id')
   @MinRole('member')
   @ApiParam({ name: 'id', description: 'The skill record id' })
   @ApiOperation({ summary: "Edit a skill — owner-only, even if it's shared" })
-  update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateSkillDto) {
-    return this.skills.update(req.membership, req.user.id, id, body, req.auth.source);
+  async update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateSkillDto) {
+    return publicSkill(await this.skills.update(req.membership, req.user.id, id, body, req.auth.source));
   }
 
   @Delete(':id')

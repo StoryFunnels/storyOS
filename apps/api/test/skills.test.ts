@@ -23,7 +23,6 @@ const baseSkill = {
   when_to_use: 'When a new lead record needs a fast draft reply.',
   instructions: 'Read the lead, draft a short friendly reply, never invent pricing.',
   examples: [{ input: 'Lead asks about pricing', output: 'Happy to walk you through pricing!' }],
-  allowed_tools: ['records.read'],
 };
 
 beforeAll(async () => {
@@ -43,6 +42,54 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+});
+
+describe('#841 — allowed_tools is retired from the whole surface; admins read every skill', () => {
+  it('authoring with allowed_tools is a clear 422, on create AND update (not a silent discard)', async () => {
+    const created = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'No tools please', allowed_tools: ['records.read'] });
+    expect(created.statusCode, created.body).toBe(422);
+    expect(created.body).toMatch(/allowed_tools/);
+    expect(created.body).toMatch(/no longer accepted/);
+
+    const ok = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'No tools, fine' });
+    expect(ok.statusCode, ok.body).toBe(201);
+    const patched = await inject('PATCH', `/workspaces/${wsId}/skills/${ok.json().id}`, { allowed_tools: ['x'] });
+    expect(patched.statusCode, patched.body).toBe(422);
+  });
+
+  it('is in NO response body: create, get, list, templates, and all three exports', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Body check skill' });
+    const id = made.json().id;
+    const bodies = [
+      made.body,
+      (await inject('GET', `/workspaces/${wsId}/skills/${id}`)).body,
+      (await inject('GET', `/workspaces/${wsId}/skills`)).body,
+      (await inject('GET', `/workspaces/${wsId}/skills/templates`)).body,
+      (await inject('GET', `/workspaces/${wsId}/skills/${id}/export?format=markdown`)).body,
+      (await inject('GET', `/workspaces/${wsId}/skills/${id}/export?format=claude_skill`)).body,
+      (await inject('GET', `/workspaces/${wsId}/skills/${id}/export?format=chatgpt`)).body,
+      (await inject('POST', `/workspaces/${wsId}/skills/${id}/run`)).body,
+    ];
+    for (const [i, b] of bodies.entries()) expect(b, `response #${i}`).not.toMatch(/allowed[_ -]tools|Allowed tools/i);
+  });
+
+  it('a workspace ADMIN reads every skill including another member\'s personal one; a member still cannot', async () => {
+    const theirs = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Only-me skill of a member', visibility: 'personal' }, member.token);
+    expect(theirs.statusCode, theirs.body).toBe(201);
+    const id = theirs.json().id;
+    // The admin (owner) sees it in the list and by id, but does not own it.
+    const list = await inject('GET', `/workspaces/${wsId}/skills`);
+    expect(list.json().data.map((x: { id: string }) => x.id)).toContain(id);
+    const got = await inject('GET', `/workspaces/${wsId}/skills/${id}`);
+    expect(got.statusCode).toBe(200);
+    expect(got.json().editable).toBe(false);
+    expect((await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { description: 'x' })).statusCode).toBe(403);
+    // The control: another MEMBER still gets a 404 for it.
+    const other = await signUpUser(app, 'SkillOther');
+    const inv = await inject('POST', `/workspaces/${wsId}/invites`, { email: other.email, role: 'member' });
+    await inject('POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! }, other.token);
+    expect((await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, other.token)).statusCode).toBe(404);
+  });
 });
 
 describe('#832 — a skill a PERSON creates is visible to the workspace by default', () => {

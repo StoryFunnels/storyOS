@@ -23,6 +23,24 @@ import { renderSkillExport } from './skill-export';
 type SkillRow = typeof skills.$inferSelect;
 
 /**
+ * #841 — what the service hands to IN-PROCESS callers (packs hash and re-install skills,
+ * and a pack's content hash has always included `allowed_tools`, so dropping it there would
+ * flip every installed pack to "changed since install"). It is NOT what an API client
+ * receives: the controller strips it with `publicSkill` at the boundary.
+ */
+export type SkillView = SkillSummary & { allowed_tools: string[] };
+
+/** Strip the retired `allowed_tools` from anything that crosses the API boundary. */
+export function publicSkill<T extends { allowed_tools?: unknown }>(skill: T): Omit<T, 'allowed_tools'> {
+  const { allowed_tools: _retired, ...rest } = skill;
+  void _retired;
+  return rest;
+}
+
+/** `allowed_tools` is rejected at the API (see the schema); packs still carry it internally. */
+export type InternalCreateSkillInput = Omit<CreateSkillInput, 'allowed_tools'> & { allowed_tools?: string[] };
+
+/**
  * #40 — the Skills framework.
  *
  * Storage is a plain table (see schema.ts's note on why this is not a
@@ -52,7 +70,7 @@ type SkillRow = typeof skills.$inferSelect;
 export class SkillsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  private present(row: SkillRow, callerUserId: string): SkillSummary {
+  private present(row: SkillRow, callerUserId: string): SkillView {
     return {
       id: row.id,
       workspace_id: row.workspaceId,
@@ -74,12 +92,18 @@ export class SkillsService {
     };
   }
 
-  /** Every skill visible to this caller: their own, plus every shared one. */
-  async list(membership: Membership, userId: string): Promise<{ data: SkillSummary[] }> {
+  /**
+   * Every skill visible to this caller: their own, plus every shared one — and, for a
+   * workspace ADMIN, every skill in the workspace including other people's `personal`
+   * ones (#841 AC5, Ievgen's rule). A `personal` skill is "Only me" to everyone ELSE;
+   * the API never calls it "private", because personal-space.md uses that word for
+   * private-FROM-admins and the two must not collide.
+   */
+  async list(membership: Membership, userId: string): Promise<{ data: SkillView[] }> {
     const rows = await this.db.query.skills.findMany({
       where: and(
         eq(skills.workspaceId, membership.workspaceId),
-        or(eq(skills.ownerId, userId), eq(skills.visibility, 'shared')),
+        membership.role === 'admin' ? undefined : or(eq(skills.ownerId, userId), eq(skills.visibility, 'shared')),
       ),
       orderBy: [desc(skills.createdAt)],
     });
@@ -101,13 +125,13 @@ export class SkillsService {
     const row = await this.db.query.skills.findFirst({
       where: and(eq(skills.id, id), eq(skills.workspaceId, membership.workspaceId)),
     });
-    if (!row || (row.visibility === 'personal' && row.ownerId !== userId)) {
+    if (!row || (row.visibility === 'personal' && row.ownerId !== userId && membership.role !== 'admin')) {
       throw new NotFoundException('Skill not found');
     }
     return row;
   }
 
-  async get(membership: Membership, userId: string, id: string): Promise<SkillSummary> {
+  async get(membership: Membership, userId: string, id: string): Promise<SkillView> {
     const row = await this.findVisible(membership, userId, id);
     return this.present(row, userId);
   }
@@ -141,10 +165,10 @@ export class SkillsService {
   async create(
     membership: Membership,
     userId: string,
-    input: CreateSkillInput,
+    input: InternalCreateSkillInput,
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
-  ): Promise<SkillSummary> {
+  ): Promise<SkillView> {
     // #832: omitted visibility depends on who is writing. A person's skill is shared with
     // the workspace (so "my skill, your AI" works without a settings step); an agent's stays
     // personal — it may not publish (#442 / ADR-0010), and defaulting an agent to `shared`
@@ -162,7 +186,7 @@ export class SkillsService {
         whenToUse: input.when_to_use,
         instructions: input.instructions,
         examples: input.examples,
-        allowedTools: input.allowed_tools,
+        allowedTools: input.allowed_tools ?? [],
         sourceTemplate: input.source_template ?? null,
         source,
       })
@@ -186,7 +210,7 @@ export class SkillsService {
     input: UpdateSkillInput,
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
-  ): Promise<SkillSummary> {
+  ): Promise<SkillView> {
     await this.requireOwner(membership, userId, id);
     // Promoting an existing skill to `shared` is the same decision as creating
     // one shared, so it meets the same gate — otherwise the create-side rule is
@@ -198,7 +222,6 @@ export class SkillsService {
     if (input.when_to_use !== undefined) patch.whenToUse = input.when_to_use;
     if (input.instructions !== undefined) patch.instructions = input.instructions;
     if (input.examples !== undefined) patch.examples = input.examples;
-    if (input.allowed_tools !== undefined) patch.allowedTools = input.allowed_tools;
     if (input.visibility !== undefined) patch.visibility = input.visibility;
 
     const [row] = await this.db
@@ -250,16 +273,6 @@ export class SkillsService {
           ? `When to use: ${row.whenToUse.trim()}`
           : 'No "when to use" set on this skill',
         detail: row.instructions,
-      },
-      {
-        tool: 'skill.tools',
-        summary:
-          (row.allowedTools as string[] | null)?.length
-            ? `Allowed tools: ${(row.allowedTools as string[]).join(', ')}`
-            : 'No tools declared — this skill is advisory only',
-        detail:
-          'Tool access over MCP is a separate ticket (#41); today this list is read-only metadata ' +
-          'carried on the skill for that future allowlist.',
       },
       {
         tool: 'runtime.note',

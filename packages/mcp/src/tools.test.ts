@@ -1146,7 +1146,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'Every Friday.',
       instructions: 'List records changed this week.',
       examples: [],
-      allowed_tools: ['records.read'],
       visibility: 'shared',
       editable: false,
       source_template: 'weekly-digest',
@@ -1158,7 +1157,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'A new lead lands.',
       instructions: 'Draft a friendly reply.',
       examples: [],
-      allowed_tools: [],
       visibility: 'personal',
       editable: true,
       source_template: null,
@@ -1205,7 +1203,8 @@ describe('list_skills / run_skill (#41)', () => {
     const res = await callTool(handlers, 'list_skills', { workspace: 'JCM Agency' });
     expect(res).toHaveLength(2);
     expect(res.map((s: { name: string }) => s.name)).toEqual(['Weekly Status Digest', 'Lead Triage Reply']);
-    expect(res[0].allowed_tools).toEqual(['records.read']);
+    // #841: the retired field is not returned to an agent at all.
+    expect(res[0]).not.toHaveProperty('allowed_tools');
   });
 
   it('run_skill resolves a skill by name (not just id), posts the run, and echoes instructions + inputs back', async () => {
@@ -2833,7 +2832,6 @@ describe('#442 — skill authoring tools', () => {
       when_to_use: 'w',
       instructions: 'full steps here',
       examples: [],
-      allowed_tools: ['query_records'],
       visibility: 'personal',
       editable: true,
       source_template: null,

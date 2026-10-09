@@ -70,7 +70,6 @@ export interface SkillRef {
   when_to_use: string;
   instructions: string;
   examples: Array<{ input: string; output: string }>;
-  allowed_tools: string[];
   visibility: 'personal' | 'shared';
   editable: boolean;
   source_template: string | null;

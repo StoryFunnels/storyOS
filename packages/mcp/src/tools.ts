@@ -5454,7 +5454,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         "List the skills visible to the caller in a workspace: the caller's own personal skills, plus " +
         'every skill shared with the workspace. A teammate\'s personal skill is never listed. ' +
-        'Each entry carries when_to_use and allowed_tools so you can pick the right one, then call ' +
+        'Each entry carries when_to_use so you can pick the right one, then call ' +
         'run_skill with its name or id.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
     },
@@ -5468,7 +5468,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           description: s.description,
           when_to_use: s.when_to_use,
           visibility: s.visibility,
-          allowed_tools: s.allowed_tools,
           editable: s.editable,
         })),
       );
@@ -5516,7 +5515,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     when_to_use: s.when_to_use,
     instructions: s.instructions,
     examples: s.examples,
-    allowed_tools: s.allowed_tools,
     visibility: s.visibility,
     // Surfaced on every skill read: the only way a reader can tell an
     // agent-written instruction from a human-written one WITHOUT trusting the
@@ -5552,7 +5550,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List skill templates',
       description:
-        'The starter scaffolds a skill can be authored from — each a complete, worked example of the six fields (name, description, when_to_use, instructions, examples, allowed_tools). Read one before create_skill: a skill written from a blank box tends to be a title and a vague sentence, and these show the level of detail that actually makes a skill re-runnable. Pass the one you started from as create_skill\'s `from_template`.',
+        'The starter scaffolds a skill can be authored from — each a complete, worked example of the five fields (name, description, when_to_use, instructions, examples). Read one before create_skill: a skill written from a blank box tends to be a title and a vague sentence, and these show the level of detail that actually makes a skill re-runnable. Pass the one you started from as create_skill\'s `from_template`.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5589,10 +5587,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .array(z.object({ input: z.string(), output: z.string() }))
           .optional()
           .describe('Worked input→output pairs. One good example does more than a paragraph of clarification. Max 20.'),
-        allowed_tools: z
-          .array(z.string())
-          .optional()
-          .describe('Tool names this skill should stick to when run, e.g. ["query_records","create_record"]. Max 50.'),
         from_template: z.string().optional().describe('Template id from list_skill_templates, recorded as provenance.'),
       },
     },
@@ -5603,9 +5597,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use: string;
       instructions: string;
       examples?: Array<{ input: string; output: string }>;
-      allowed_tools?: string[];
       from_template?: string;
-    }>(async ({ workspace, name, description, when_to_use, instructions, examples, allowed_tools, from_template }) => {
+    }>(async ({ workspace, name, description, when_to_use, instructions, examples, from_template }) => {
       const ws = await resolveWorkspace(client, workspace);
       const created = await unwrap<SkillFull>(
         client.POST('/api/v1/workspaces/{ws}/skills', {
@@ -5620,7 +5613,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             when_to_use,
             instructions,
             examples: examples ?? [],
-            allowed_tools: allowed_tools ?? [],
             // `visibility` is deliberately NOT sent. SkillsService.create is the one place
             // that decides what an omitted visibility means (a person's skill is shared,
             // an agent's is personal — #442), so this tool neither restates the rule nor
@@ -5650,7 +5642,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         when_to_use: z.string().optional(),
         instructions: z.string().optional().describe('Replaces the whole procedure — get_skill first.'),
         examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
-        allowed_tools: z.array(z.string()).optional(),
       },
     },
     handle<{
@@ -5661,7 +5652,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use?: string;
       instructions?: string;
       examples?: Array<{ input: string; output: string }>;
-      allowed_tools?: string[];
     }>(async ({ workspace, skill, ...patch }) => {
       const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
       if (Object.keys(given).length === 0) throw new Error('Nothing to change — pass at least one field to update.');
@@ -5742,11 +5732,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Run skill',
       description:
         'Run a saved skill by name or id (from list_skills). StoryOS has no managed AI runtime yet ' +
-        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use/allowed_tools and " +
+        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use and " +
         'records the run (last_run_at/last_run_status), but ' +
         'YOU are the model that actually carries out `instructions` against `inputs`; StoryOS executes nothing. `inputs` is free-form ' +
-        'and is only echoed back for you to act on — there is no server-side execution to send it to yet. ' +
-        'If the skill declares allowed_tools, prefer those tools while following it.',
+        'and is only echoed back for you to act on — there is no server-side execution to send it to yet.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         name: z.string().describe('Skill name or id (from list_skills).'),
@@ -5763,10 +5752,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.POST('/api/v1/workspaces/{ws}/skills/{id}/run', { params: { path: { ws: ws.id, id: skill.id } } } as never),
       );
       return text({
-        skill: { id: skill.id, name: skill.name, when_to_use: skill.when_to_use, allowed_tools: skill.allowed_tools },
+        skill: { id: skill.id, name: skill.name, when_to_use: skill.when_to_use },
         instructions: skill.instructions,
         inputs: inputs ?? {},
-        note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, preferring tools named in allowed_tools when the skill declares any.',
+        note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, with your own tools and the permissions of the credential you are connected with.',
         run_log: run,
       });
     }),
