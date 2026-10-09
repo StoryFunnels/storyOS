@@ -60,3 +60,27 @@ describe('allowed_tools is off the surface (ticket #833 amended AC2)', () => {
     }
   });
 });
+
+describe('the picker keeps each tier’s detail under that tier, and a read-only viewer cannot click (ticket #833 polish)', () => {
+  const editor = surface.find((s) => s.file.endsWith('skill-editor.tsx'))!;
+  it('renders the member list and the public link inside the option loop, not after it', () => {
+    const t = code(editor.text);
+    const loop = t.slice(t.indexOf('VISIBILITY_OPTIONS.map'), t.indexOf('</fieldset>'));
+    expect(loop).toMatch(/<MemberPicker/);
+    expect(loop).toMatch(/<PublicLink/);
+  });
+  it('disables the radios and drops the pointer cursor for a read-only viewer', () => {
+    const t = code(editor.text);
+    expect(t).toMatch(/disabled=\{readOnly\}\s+checked=/);
+    expect(t).toMatch(/readOnly \? 'cursor-not-allowed/);
+  });
+});
+
+describe('the import dialog does not show the native file control (ticket #833 polish)', () => {
+  it('uses a hidden input driven by an app button', () => {
+    const dialog = surface.find((s) => s.file.endsWith('skill-import-dialog.tsx'))!;
+    const t = code(dialog.text);
+    expect(t).toMatch(/type="file"[\s\S]{0,200}sr-only/);
+    expect(t).toMatch(/Choose file…/);
+  });
+});

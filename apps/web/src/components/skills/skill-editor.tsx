@@ -25,7 +25,7 @@ import {
   estimateTokens,
   type Verdict,
 } from './skill-compare';
-import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowsAudience, publicSkillUrl } from './skill-meta';
+import { VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillUrl } from './skill-meta';
 import { fetchSkillExport, useSkillMutations, useSkills } from './use-skills';
 
 /** What the form holds. Strings only: validation is the schema's, on save. */
@@ -137,7 +137,7 @@ export function SkillEditor({
       if (narrowsAudience(skill.visibility, draft.visibility)) {
         const ok = await confirm({
           title: `Change who can see “${skill.name}”?`,
-          message: `It will go from “${VISIBILITY_CHIP[skill.visibility]}” to “${VISIBILITY_CHIP[draft.visibility]}”. People who lose access, and their AI, can no longer find or run it.`,
+          message: narrowingMessage(skill.visibility, draft.visibility),
           confirmLabel: 'Change visibility',
         });
         if (!ok) return;
@@ -263,37 +263,46 @@ export function SkillEditor({
           <fieldset disabled={readOnly} className="flex flex-col gap-1.5">
             <legend className="mb-1 text-label font-semibold text-ink-secondary">Who can see it</legend>
             {VISIBILITY_OPTIONS.map((o) => (
-              <label
-                key={o.value}
-                className={cn(
-                  'flex cursor-pointer items-start gap-2 rounded-[var(--radius-control)] border px-3 py-2',
-                  draft.visibility === o.value ? 'border-accent bg-accent-soft' : 'border-border-default bg-card hover:bg-hover',
+              <div key={o.value} className="flex flex-col gap-1.5">
+                <label
+                  className={cn(
+                    'flex items-start gap-2 rounded-[var(--radius-control)] border px-3 py-2',
+                    // A read-only viewer sees the audience but cannot change it: no pointer cursor, no hover, muted.
+                    readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
+                    draft.visibility === o.value
+                      ? 'border-accent bg-accent-soft'
+                      : cn('border-border-default bg-card', !readOnly && 'hover:bg-hover'),
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="visibility"
+                    className="mt-0.5"
+                    disabled={readOnly}
+                    checked={draft.visibility === o.value}
+                    onChange={() => set('visibility', o.value)}
+                  />
+                  <span>
+                    <span className="block text-body font-medium text-ink">{o.label}</span>
+                    <span className="block text-label text-muted">{o.hint}</span>
+                  </span>
+                </label>
+                {/* Each option's own detail sits UNDER that option, so it cannot read as belonging to the card below. */}
+                {o.value === 'members' && draft.visibility === 'members' && (
+                  <MemberPicker
+                    people={people.data ?? []}
+                    loading={people.isPending}
+                    ownerId={ownerId}
+                    selected={draft.member_ids}
+                    disabled={readOnly}
+                    onChange={(ids) => set('member_ids', ids)}
+                  />
                 )}
-              >
-                <input
-                  type="radio"
-                  name="visibility"
-                  className="mt-0.5"
-                  checked={draft.visibility === o.value}
-                  onChange={() => set('visibility', o.value)}
-                />
-                <span>
-                  <span className="block text-body font-medium text-ink">{o.label}</span>
-                  <span className="block text-label text-muted">{o.hint}</span>
-                </span>
-              </label>
+                {o.value === 'public' && draft.visibility === 'public' && (
+                  <PublicLink url={publicSkillUrl(API_URL, skill?.public_token)} saved={skill?.visibility === 'public'} />
+                )}
+              </div>
             ))}
-            {draft.visibility === 'members' && (
-              <MemberPicker
-                people={people.data ?? []}
-                loading={people.isPending}
-                ownerId={ownerId}
-                selected={draft.member_ids}
-                disabled={readOnly}
-                onChange={(ids) => set('member_ids', ids)}
-              />
-            )}
-            {draft.visibility === 'public' && <PublicLink url={publicSkillUrl(API_URL, skill?.public_token)} saved={skill?.visibility === 'public'} />}
           </fieldset>
 
           {problem && !readOnly && (dirty || !skill) && <p className="text-label text-muted">{problem}</p>}
@@ -438,6 +447,7 @@ function MemberPicker({
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
     <div className="ml-6 flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2" role="group" aria-label="People who can see this skill">
+      <p className="text-label font-semibold text-ink-secondary">Share with</p>
       {loading && <p className="text-label text-muted">Loading people…</p>}
       {!loading && others.length === 0 && <p className="text-label text-muted">There is nobody else in this workspace to share it with yet.</p>}
       {others.map((m) => (

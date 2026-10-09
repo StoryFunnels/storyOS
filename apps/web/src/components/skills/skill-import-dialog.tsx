@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
@@ -35,12 +35,15 @@ export function SkillImportDialog({ ws, open, onOpenChange }: { ws: string; open
   const [overrides, setOverrides] = useState<Overrides>({});
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   function reset() {
     setContent('');
     setOverrides({});
     setResult(null);
     setError(null);
+    setFileName(null);
   }
 
   async function run(create: boolean) {
@@ -61,6 +64,7 @@ export function SkillImportDialog({ ws, open, onOpenChange }: { ws: string; open
 
   async function onFile(file: File | undefined) {
     if (!file) return;
+    setFileName(file.name);
     setContent(await file.text());
     setResult(null); // a different file invalidates the report on screen
   }
@@ -78,13 +82,23 @@ export function SkillImportDialog({ ws, open, onOpenChange }: { ws: string; open
         <p className="mb-3 text-label leading-normal text-muted">
           Paste a SKILL.md, or choose the file. You will see what was kept and what was dropped before anything is created.
         </p>
+        {/* The native file control is replaced by the app's own button: a browser-chrome "Choose File"
+            inside a custom dialog reads as a different product. The real input stays, hidden, for the picker. */}
         <input
+          ref={fileInput}
           type="file"
           accept=".md,text/markdown,text/plain"
           aria-label="Choose a SKILL.md file"
-          className="mb-2 block w-full text-label text-muted"
+          className="sr-only"
+          tabIndex={-1}
           onChange={(e) => void onFile(e.target.files?.[0])}
         />
+        <div className="mb-2 flex items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => fileInput.current?.click()}>
+            Choose file…
+          </Button>
+          <span className="min-w-0 truncate text-label text-muted">{fileName ?? 'No file chosen'}</span>
+        </div>
         <Textarea
           className="min-h-32 font-mono text-label"
           aria-label="SKILL.md contents"
