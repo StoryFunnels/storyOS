@@ -121,14 +121,12 @@ describe('#867 AC3 — an AI asking for `public` raises a proposal; nothing is p
     expect(row.publicToken).toBeNull();
   });
 
-  it('a different member (neither admin nor the named approver) cannot approve; `members` is still refused outright', async () => {
+  it('a different member (neither admin nor the named approver) cannot approve', async () => {
     const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('not yours to approve', { visibility: 'public' }));
     const res = await call(teammate.token, 'POST', `/workspaces/${wsId}/approvals/${made.json().pending_approval.id}/approve`);
     expect(res.statusCode, res.body).toBeGreaterThanOrEqual(403);
     expect(res.statusCode).toBeLessThan(500);
     expect((await stored(made.json().id)).visibility).toBe('personal');
-    const members = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('named', { visibility: 'members', member_ids: [adminId] }));
-    expect(members.statusCode, members.body).toBe(403);
   });
 
   it('approving after the skill was DELETED is a no-op, not a crash', async () => {

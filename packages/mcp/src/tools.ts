@@ -37,7 +37,7 @@ interface PendingApprovalResult {
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
-import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveMemberIds, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
 import {
@@ -900,18 +900,29 @@ function scopeExclusions(effective: EffectiveScope): string {
  * Register the tool catalog (MN-076), trimmed to what the credential can do (MN-134).
  * `effective` comes from GET /me; a session/OAuth login (or a /me hiccup) is full admin.
  */
-/** The tiers a tool may ask for. `members` (naming people) is deliberately absent: the server refuses it for
- *  a non-human author. `public` is offered but is only a PROPOSAL: a person approves it in the app (#867). */
+/** The tiers a tool may ask for, ALL FOUR (#868). `public` is only a PROPOSAL a person approves (#867);
+ *  `members` needs the `members` argument. The descriptions below are checked against this enum by
+ *  tool-description-honesty.test.ts, so they cannot name a tier the schema does not accept. */
 const skillTierArg = z
-  .enum(['personal', 'shared', 'public'])
+  .enum(['personal', 'members', 'shared', 'public'])
   .optional()
   .describe(
-    'Who can see it: `shared` (the whole workspace; the default), `personal` (only the token owner), or `public` (anyone with a link). `public` is NOT applied by this call: it raises an approval that a PERSON must give in the StoryOS app (Inbox); until then the skill stays as it was. Sharing with chosen people only is not offered.',
+    'Who can see it: `shared` (the whole workspace; the default), `personal` (only the token owner), `members` (only the people in `members`, plus you), or `public` (anyone with a link). `public` is NOT applied by this call: it raises an approval that a PERSON must give in the app Inbox; until then the skill stays as it was.',
+  );
+
+const skillMembersArg = z
+  .array(z.string())
+  .optional()
+  .describe(
+    'With visibility `members`: who can see it, as user ids from list_members or exact names. On update this REPLACES the whole set, so get_skill first and send the full new list to add or remove someone. Everyone not named gets nothing, not even a hint the skill exists.',
   );
 
 function skillVisibilityNote(visibility: string, pendingApprovalId?: string): string {
   if (pendingApprovalId) {
     return `NOT public yet: a person must approve this in the StoryOS app (Inbox, approval ${pendingApprovalId}). It stays ${visibility} until they do, and you cannot approve it: approvals are made by people only.`;
+  }
+  if (visibility === 'members') {
+    return 'Shared with the named people only (plus you), recorded as agent-authored. Everyone else gets nothing, not even a hint it exists. Change the set with update_skill `members`, which replaces the whole list.';
   }
   return visibility === 'shared'
     ? "Shared with the whole workspace and recorded as agent-authored: every member's AI can find it with list_skills and may run it. Pass visibility \"personal\" (create_skill / update_skill) to keep one private."
@@ -5534,6 +5545,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     last_run_status: 'ok' | 'error' | null;
     /** #867 AC3: present when `public` was asked for: a person still has to approve it. */
     pending_approval?: { id: string };
+    /** Present to the owner and admins on a `members` skill: the people it is shared with. */
+    member_ids?: string[];
   }
 
   /** One shape for a skill however you touched it, same reasoning as #343's
@@ -5558,6 +5571,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     last_run_at: s.last_run_at ?? null,
     last_run_status: s.last_run_status ?? null,
     ...(s.pending_approval ? { pending_approval: s.pending_approval } : {}),
+    ...(s.member_ids ? { members: s.member_ids } : {}),
   });
 
   reg(
@@ -5601,7 +5615,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create skill',
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
-        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. Sharing with chosen people only is not available to AI: a person does that in the Skills library.',
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. You can also pass `visibility: "members"` with `members` to share with only the named people.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
@@ -5623,6 +5637,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         version: z.string().optional().describe('Semver, e.g. "1.0.0". Default 1.0.0.'),
         from_template: z.string().optional().describe('Template id from list_skill_templates, recorded as provenance.'),
         visibility: skillTierArg,
+        members: skillMembersArg,
       },
     },
     handle<{
@@ -5634,9 +5649,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       examples?: Array<{ input: string; output: string }>;
       version?: string;
       from_template?: string;
-      visibility?: 'personal' | 'shared';
-    }>(async ({ workspace, name, description, when_to_use, instructions, examples, version, from_template, visibility }) => {
+      visibility?: 'personal' | 'members' | 'shared' | 'public';
+      members?: string[];
+    }>(async ({ workspace, name, description, when_to_use, instructions, examples, version, from_template, visibility, members }) => {
       const ws = await resolveWorkspace(client, workspace);
+      // `members` only means something with visibility `members`; saying so beats a 422 from the server.
+      if (members !== undefined && visibility !== 'members') {
+        throw new Error('`members` only applies with visibility "members". Pass visibility: "members", or drop `members`.');
+      }
+      const memberIds = members !== undefined ? await resolveMemberIds(client, ws.id, members) : undefined;
       const created = await unwrap<SkillFull>(
         client.POST('/api/v1/workspaces/{ws}/skills', {
           // `as never` because the skills routes declare `parameters: []` in the
@@ -5655,6 +5676,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             // SkillsService.create is the one place that decides what it means (#867: shared, unless
             // an admin switched AI publishing off), so this tool does not restate the default.
             ...(visibility ? { visibility } : {}),
+            ...(memberIds ? { member_ids: memberIds } : {}),
             source_template: from_template,
           } as never,
         }),
@@ -5671,7 +5693,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       description:
-        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal` and `shared` (shared is refused only if an admin switched AI publishing off for the workspace); asking for `public` only raises an approval a person must give in the app Inbox, and sharing with chosen people is not available (see create_skill).',
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal`, `members` (only the people in `members`; that list REPLACES the whole set, so get_skill first to add or remove one person), `shared` (the whole workspace; refused only if an admin switched AI publishing off), and `public` (only raises an approval a person must give in the app Inbox; see create_skill).',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
@@ -5682,6 +5704,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
         version: z.string().optional().describe('Semver, e.g. "1.1.0". Bump it when you change the procedure.'),
         visibility: skillTierArg,
+        members: skillMembersArg,
       },
     },
     handle<{
@@ -5693,11 +5716,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       instructions?: string;
       examples?: Array<{ input: string; output: string }>;
       version?: string;
-      visibility?: 'personal' | 'shared';
-    }>(async ({ workspace, skill, ...patch }) => {
-      const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-      if (Object.keys(given).length === 0) throw new Error('Nothing to change — pass at least one field to update.');
+      visibility?: 'personal' | 'members' | 'shared' | 'public';
+      members?: string[];
+    }>(async ({ workspace, skill, members, ...patch }) => {
+      const given: Record<string, unknown> = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      if (Object.keys(given).length === 0 && members === undefined) throw new Error('Nothing to change — pass at least one field to update.');
       const ws = await resolveWorkspace(client, workspace);
+      if (members !== undefined) given.member_ids = await resolveMemberIds(client, ws.id, members);
       const ref = await resolveSkill(client, ws.id, skill);
       const updated = await unwrap<SkillFull>(
         client.PATCH('/api/v1/workspaces/{ws}/skills/{id}', {
@@ -5781,7 +5806,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'StoryOS has no field for (with the reason — e.g. `allowed-tools`, `license`, `compatibility`, `version`), and `missing` ' +
         'lists required fields the file did not supply. StoryOS never invents a missing field: pass it in `overrides` ' +
         '(a skill needs a `when_to_use`, which most SKILL.md files lack). Show the person the `dropped` list before you pass ' +
-        '`create: true`. The skill is recorded as agent-authored and created SHARED with the whole workspace (personal if an admin switched AI publishing off in Settings > General); this tool cannot make it public or share it with chosen people (a person does that in the Skills library).',
+        '`create: true`. The skill is recorded as agent-authored and created SHARED with the whole workspace (personal if an admin switched AI publishing off in Settings > General); this tool cannot make it public or share it with named people (use create_skill or update_skill afterwards for that).',
       inputSchema: {
         workspace: z.string(),
         content: z.string().describe('The full text of the SKILL.md, including any frontmatter.'),

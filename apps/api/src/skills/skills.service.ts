@@ -273,29 +273,24 @@ export class SkillsService {
     // to the 403 below (the safe state).
     // Switched OFF means OFF (#867 AC4: exactly #1011's behaviour): no proposal either.
     if (visibility === 'public' && this.publicGate && (await this.agentsMayPublish(workspaceId))) return 'needs_approval';
-    // #848/#867 — the ONE exception: a non-human author may publish at `shared` unless a person
-    // switched that off for the workspace (`agents_may_publish_skills: false`, settable only from a
-    // human-sourced request). EXACTLY `shared`. `members` (naming people) stays human-only whatever
-    // the setting says, and `public` (an unauthenticated URL) is only ever a PROPOSAL a person
-    // approves (above); written as an equality, not "anything up to shared", so a tier added later
-    // is gated by default and the setting cannot silently widen to cover it.
-    if (visibility === 'shared' && (await this.agentsMayPublish(workspaceId))) return 'ok';
-    // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
-    // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
-    // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
-    // URL. Written as "anything but personal" so a tier added later is gated by default.
+    // #848/#867/#868 — the exceptions, all gated by the SAME switch (`agents_may_publish_skills`,
+    // settable only from a human-sourced request): a non-human author may publish at `shared`, and
+    // at `members` (named colleagues who are already in the workspace and could have been given
+    // `shared`; narrower than a tier an AI may already set alone, so it needs no approval of its own:
+    // ticket #868 AC4). Written as equalities, not "anything up to shared", so a tier added later is
+    // gated by default. `public` (an unauthenticated URL) is only ever a PROPOSAL a person approves
+    // (above): it leaves the workspace and reaches an unknown audience.
+    if ((visibility === 'shared' || visibility === 'members') && (await this.agentsMayPublish(workspaceId))) return 'ok';
     // The refusal is an instruction a MODEL reads and acts on, so it must not send it into a second
-    // guaranteed failure: with AI publishing switched OFF, "share it with the workspace instead" is
-    // ALSO refused, so it is only offered when that would actually work.
+    // guaranteed failure: it only offers an alternative that would actually work.
     const switchedOff = !(await this.agentsMayPublish(workspaceId));
-    const what = visibility === 'public' ? 'a public link' : 'sharing with chosen people';
     throw new ForbiddenException(
-      switchedOff
-        ? visibility === 'shared'
-          ? 'An admin has switched off AI publishing to the workspace, so a skill authored over the API stays ' +
-            '`personal`. They can switch it back on in Settings > General; a person can also share it in the Skills library.'
-          : `A skill authored over the API cannot be \`${visibility}\`: ${what} is a decision a person makes (ADR-0010), and an admin has switched off AI publishing, so this skill stays \`personal\`. A person can do this in the Skills library.`
-        : `A skill authored over the API cannot be \`${visibility}\`: ${what} is a decision a person makes (ADR-0010). Share it with the workspace instead, or a person can do this in the Skills library.`,
+      visibility === 'public'
+        ? `A skill authored over the API cannot be made public by an AI acting alone: a public link is a decision a person makes (ADR-0010).${
+            switchedOff ? ' An admin has switched off AI publishing, so this skill stays `personal`.' : ' Share it with the workspace instead.'
+          } A person can make it public in the Skills library.`
+        : 'An admin has switched off AI publishing to the workspace, so a skill authored over the API stays ' +
+            '`personal`. They can switch it back on in Settings > General; a person can also share it in the Skills library.',
     );
   }
 
