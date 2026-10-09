@@ -124,6 +124,25 @@ describe('#867 AC4/AC5 — the #848 switch is INVERTED: an admin can switch AI p
     expect((await call(patA, 'POST', `/workspaces/${wsA}/skills`, skill('on again'))).json().visibility).toBe('shared');
   });
 
+  it('the refusal never tells an AI to do something that is ALSO refused: "share it with the workspace" only when that works', async () => {
+    // ON: members is refused and sharing with the workspace really is the alternative.
+    const on = await call(patA, 'POST', `/workspaces/${wsA}/skills`, skill('copy members on', { visibility: 'members', member_ids: [adminId] }));
+    expect(on.statusCode).toBe(403);
+    expect(on.json().error.message).toMatch(/Share it with the workspace instead/);
+    // OFF: that alternative would be refused too, so it must not be offered.
+    expect((await setFlag(false)).statusCode).toBe(200);
+    try {
+      for (const visibility of ['members', 'public']) {
+        const off = await call(patA, 'POST', `/workspaces/${wsA}/skills`, skill(`copy ${visibility} off`, { visibility, member_ids: visibility === 'members' ? [adminId] : undefined }));
+        expect(off.statusCode, off.body).toBe(403);
+        expect(off.json().error.message, visibility).not.toMatch(/Share it with the workspace instead/);
+        expect(off.json().error.message, visibility).toMatch(/switched off AI publishing/);
+      }
+    } finally {
+      await setFlag(true);
+    }
+  });
+
   it('AC5 adversarial, stored value read back: a token cannot turn it back ON after an admin turned it OFF (nor OFF in a default workspace)', async () => {
     expect((await setFlag(false)).statusCode).toBe(200);
     for (const t of [patA, agentA]) {

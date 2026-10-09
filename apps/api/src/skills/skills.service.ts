@@ -284,13 +284,18 @@ export class SkillsService {
     // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
     // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
     // URL. Written as "anything but personal" so a tier added later is gated by default.
+    // The refusal is an instruction a MODEL reads and acts on, so it must not send it into a second
+    // guaranteed failure: with AI publishing switched OFF, "share it with the workspace instead" is
+    // ALSO refused, so it is only offered when that would actually work.
+    const switchedOff = !(await this.agentsMayPublish(workspaceId));
+    const what = visibility === 'public' ? 'a public link' : 'sharing with chosen people';
     throw new ForbiddenException(
-      visibility === 'shared'
-        ? 'An admin has switched off AI publishing to the workspace, so a skill authored over the API stays ' +
+      switchedOff
+        ? visibility === 'shared'
+          ? 'An admin has switched off AI publishing to the workspace, so a skill authored over the API stays ' +
             '`personal`. They can switch it back on in Settings > General; a person can also share it in the Skills library.'
-        : `A skill authored over the API cannot be \`${visibility}\`: ${
-            visibility === 'public' ? 'a public link' : 'sharing with chosen people'
-          } is a decision a person makes (ADR-0010). Share it with the workspace instead, or a person can do this in the Skills library.`,
+          : `A skill authored over the API cannot be \`${visibility}\`: ${what} is a decision a person makes (ADR-0010), and an admin has switched off AI publishing, so this skill stays \`personal\`. A person can do this in the Skills library.`
+        : `A skill authored over the API cannot be \`${visibility}\`: ${what} is a decision a person makes (ADR-0010). Share it with the workspace instead, or a person can do this in the Skills library.`,
     );
   }
 
