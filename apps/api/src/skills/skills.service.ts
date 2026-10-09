@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, desc, eq, or } from 'drizzle-orm';
 import type { ChangeSource } from '../db/schema';
 import type {
@@ -19,6 +19,8 @@ import { skills } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { scopeForRole } from '../agents/agent-principal';
 import { renderSkillExport } from './skill-export';
+import { buildSkillImport } from './skill-import';
+import type { ImportReport } from './skill-import';
 
 type SkillRow = typeof skills.$inferSelect;
 
@@ -153,11 +155,15 @@ export class SkillsService {
    * otherwise POST `visibility: "shared"` directly.
    */
   private assertMayPublish(source: ChangeSource, visibility: SkillVisibility): void {
-    if (visibility === 'shared' && source !== 'human') {
+    // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
+    // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
+    // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
+    // URL. Written as "anything but personal" so a tier added later is gated by default.
+    if (visibility !== 'personal' && source !== 'human') {
       throw new ForbiddenException(
-        'A skill authored over the API cannot be shared to the workspace directly — it is created as `personal`, ' +
-          'and a person promotes it to `shared` in-app after reading it. A shared skill is instructions everyone ' +
-          "else's agent follows, so publishing one is a human decision (ADR-0010).",
+        `A skill authored over the API cannot be shared (\`${visibility}\`) directly — it is created as \`personal\`. ` +
+          "A shared skill is instructions other people's agents follow, so publishing one is a decision a person " +
+          'makes, not an agent (ADR-0010).',
       );
     }
   }
@@ -192,6 +198,39 @@ export class SkillsService {
       })
       .returning();
     return this.present(row!, userId);
+  }
+
+  /**
+   * #841 — import a SKILL.md. The report is computed BEFORE anything is written and is part
+   * of every response; `create` only decides whether the record follows. A file that cannot
+   * become a valid skill (missing or over-long fields) is reported, and refuses to create
+   * with that report attached rather than writing a guess.
+   */
+  async importSkill(
+    membership: Membership,
+    userId: string,
+    req: { content: string; create: boolean; overrides?: Parameters<typeof buildSkillImport>[1] },
+    source: ChangeSource = 'human',
+  ): Promise<{ report: ImportReport; importable: boolean; created: SkillView | null }> {
+    const { input, report } = buildSkillImport(req.content, req.overrides);
+    if (!req.create) return { report, importable: input !== null, created: null };
+    if (!input) {
+      // The error envelope carries `details: [{ path, message }]`, so the reasons ride there;
+      // the full KEPT/DROPPED report is what a create:false call returns.
+      throw new UnprocessableEntityException({
+        message:
+          'This file cannot be imported as it stands. Nothing was created. Call import without `create` for the full KEPT/DROPPED report.',
+        details: [
+          ...report.missing.map((path) => ({
+            path,
+            message: 'The file does not supply this and StoryOS will not invent it — pass it in `overrides`.',
+          })),
+          ...report.problems.map((message) => ({ message })),
+        ],
+      });
+    }
+    const created = await this.create(membership, userId, input, source);
+    return { report, importable: true, created };
   }
 
   /** Owner-only (visible-but-not-mine is a 403 here — see class doc). */

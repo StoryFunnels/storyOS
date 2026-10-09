@@ -638,6 +638,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_skill: 'read',
   list_skill_templates: 'read',
   export_skill: 'read',
+  // Previews by default and creates only with `create: true`; an agent-created skill is
+  // personal and cannot be published, same as create_skill, so `write` is the right floor.
+  import_skill: 'write',
   create_skill: 'write',
   update_skill: 'write',
   delete_skill: 'write',
@@ -5724,6 +5727,57 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text({ skill: ref.name, format: format ?? 'markdown', ...res });
       },
     ),
+  );
+
+  reg(
+    'import_skill',
+    {
+      title: 'Import skill',
+      description:
+        'Bring a SKILL.md (or a Markdown export from StoryOS) in as a skill. It ALWAYS returns a KEPT/DROPPED report first, ' +
+        'and by default creates nothing: `kept` lists what landed in which StoryOS field, `dropped` lists every part of the file ' +
+        'StoryOS has no field for (with the reason — e.g. `allowed-tools`, `license`, `compatibility`, `version`), and `missing` ' +
+        'lists required fields the file did not supply. StoryOS never invents a missing field: pass it in `overrides` ' +
+        '(a skill needs a `when_to_use`, which most SKILL.md files lack). Show the person the `dropped` list before you pass ' +
+        '`create: true`. The skill is created personal to the token owner and recorded as agent-authored; this tool cannot share it.',
+      inputSchema: {
+        workspace: z.string(),
+        content: z.string().describe('The full text of the SKILL.md, including any frontmatter.'),
+        create: z.boolean().optional().describe('Default false = preview only. true = write the skill after reporting.'),
+        overrides: z
+          .object({
+            name: z.string().optional(),
+            description: z.string().optional(),
+            when_to_use: z.string().optional(),
+            instructions: z.string().optional(),
+          })
+          .strict()
+          .optional()
+          .describe('Fields to supply or replace — use this for what the report lists under `missing`.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      content: string;
+      create?: boolean;
+      overrides?: { name?: string; description?: string; when_to_use?: string; instructions?: string };
+    }>(async ({ workspace, content, create, overrides }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ report: unknown; importable: boolean; created: Parameters<typeof serializeSkill>[0] | null }>(
+        client.POST('/api/v1/workspaces/{ws}/skills/import', {
+          params: { path: { ws: ws.id } } as never,
+          body: { content, create: create ?? false, overrides } as never,
+        }),
+      );
+      return text({
+        report: res.report,
+        importable: res.importable,
+        created: res.created ? serializeSkill(res.created) : null,
+        note: res.created
+          ? 'Created personal to you and recorded as agent-authored. Teammates cannot see it.'
+          : 'Nothing was created. Review `dropped` and `missing`, then call again with create: true.',
+      });
+    }),
   );
 
   reg(

@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { createSkillSchema, skillExportFormatSchema, updateSkillSchema } from '@storyos/schemas';
+import { createSkillSchema, importSkillSchema, skillExportFormatSchema, updateSkillSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
@@ -21,6 +21,7 @@ import { SkillsService, publicSkill } from './skills.service';
 
 class CreateSkillDto extends createZodDto(createSkillSchema) {}
 class UpdateSkillDto extends createZodDto(updateSkillSchema) {}
+class ImportSkillDto extends createZodDto(importSkillSchema) {}
 
 /**
  * #40 — the Skills framework. Any active member can list/read/run/export a
@@ -66,6 +67,26 @@ export class SkillsController {
     // #442: authorship comes from the AUTH context, never the body — a caller
     // must not be able to describe itself as a human.
     return publicSkill(await this.skills.create(req.membership, req.user.id, body, req.auth.source));
+  }
+
+  /**
+   * #841 — import a SKILL.md. Declared before the `:id` routes. Preview by default (the
+   * KEPT/DROPPED report, nothing written); `create: true` writes it. Authorship comes from
+   * the auth context exactly as on create, and the same publish gate applies.
+   */
+  @Post('import')
+  @MinRole('member')
+  @ApiOperation({
+    summary: 'Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill',
+  })
+  async import(@Req() req: WorkspaceRequest, @Body() body: ImportSkillDto) {
+    const result = await this.skills.importSkill(
+      req.membership,
+      req.user.id,
+      { content: body.content, create: body.create, overrides: body.overrides },
+      req.auth.source,
+    );
+    return { ...result, created: result.created ? publicSkill(result.created) : null };
   }
 
   @Patch(':id')

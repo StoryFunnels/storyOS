@@ -3827,6 +3827,23 @@ export interface paths {
         patch: operations["SkillsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/skills/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill */
+        post: operations["SkillsController_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills/{id}/export": {
         parameters: {
             query?: never;
@@ -6222,11 +6239,23 @@ export interface components {
                 input: string;
                 output: string;
             }[];
-            /** @default [] */
-            allowed_tools: string[];
+            allowed_tools?: unknown;
             /** @enum {string} */
             visibility?: "personal" | "shared";
             source_template?: string;
+        };
+        ImportSkillDto: {
+            content: string;
+            /** @default false */
+            create: boolean;
+            overrides?: {
+                name?: string;
+                description?: string;
+                when_to_use?: string;
+                instructions?: string;
+                /** @enum {string} */
+                visibility?: "personal" | "shared";
+            };
         };
         UpdateSkillDto: {
             name?: string;
@@ -6237,7 +6266,7 @@ export interface components {
                 input: string;
                 output: string;
             }[];
-            allowed_tools?: string[];
+            allowed_tools?: unknown;
             /** @enum {string} */
             visibility?: "personal" | "shared";
         };
@@ -12247,6 +12276,27 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportSkillDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

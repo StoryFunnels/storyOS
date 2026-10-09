@@ -50,7 +50,7 @@ const instructionsSchema = z.string().min(1).max(20_000);
  * a silent discard, so a stale client learns it rather than believing it was honoured.
  */
 const removedField = z
-  .undefined({
+  .never({
     error:
       '`allowed_tools` is no longer accepted. Nothing enforced it: the model that follows a skill is always the reader\'s own.',
   })
@@ -73,6 +73,25 @@ export const createSkillSchema = z.object({
   source_template: z.string().max(100).optional(),
 });
 export type CreateSkillInput = z.infer<typeof createSkillSchema>;
+
+/** POST body — import a SKILL.md. PREVIEW by default: the response is the KEPT/DROPPED report
+ * with nothing created; `create: true` writes the skill, and the report is still computed
+ * first. `overrides` supplies what the file lacks (a skill needs a `when_to_use`, and the
+ * importer never invents one). */
+export const importSkillSchema = z.object({
+  content: z.string().min(1).max(200_000),
+  create: z.boolean().default(false),
+  overrides: z
+    .object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      when_to_use: z.string().optional(),
+      instructions: z.string().optional(),
+      visibility: skillVisibilitySchema.optional(),
+    })
+    .optional(),
+});
+export type ImportSkillInput = z.infer<typeof importSkillSchema>;
 
 /** PATCH body — every field optional, same validation per-field as create. */
 export const updateSkillSchema = z.object({

@@ -9305,6 +9305,31 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/skills/import": {
+      "post": {
+        "operationId": "SkillsController_import",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSkillDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills/{id}/export": {
       "get": {
         "operationId": "SkillsController_export",
@@ -17333,14 +17358,7 @@
             }
           },
           "allowed_tools": {
-            "default": [],
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100
-            }
+            "not": {}
           },
           "visibility": {
             "type": "string",
@@ -17359,6 +17377,47 @@
           "description",
           "when_to_use",
           "instructions"
+        ]
+      },
+      "ImportSkillDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "create": {
+            "default": false,
+            "type": "boolean"
+          },
+          "overrides": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "when_to_use": {
+                "type": "string"
+              },
+              "instructions": {
+                "type": "string"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "shared"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "content"
         ]
       },
       "UpdateSkillDto": {
@@ -17408,13 +17467,7 @@
             }
           },
           "allowed_tools": {
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 100
-            }
+            "not": {}
           },
           "visibility": {
             "type": "string",

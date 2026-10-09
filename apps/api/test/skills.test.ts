@@ -320,3 +320,68 @@ describe('#442 — authorship is derived, and an agent cannot publish a skill', 
     expect(promote.json().source).toBe('mcp');
   });
 });
+
+describe('#841 — POST /skills/import: the report comes first', () => {
+  const FOREIGN = `---
+name: pdf-forms
+description: Fill in PDF forms.
+license: MIT
+allowed-tools: Read Write
+---
+
+# PDF forms
+
+1. Read the form.
+2. Fill it.
+`;
+
+  it('PREVIEW by default: returns the KEPT/DROPPED report and writes NOTHING', async () => {
+    const before = (await inject('GET', `/workspaces/${wsId}/skills`)).json().data.length;
+    const res = await inject('POST', `/workspaces/${wsId}/skills/import`, { content: FOREIGN });
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json();
+    expect(body.created).toBeNull();
+    expect(body.importable).toBe(false); // no when_to_use in the file, and it is not invented
+    expect(body.report.missing).toEqual(['when_to_use']);
+    expect(body.report.dropped.map((d: { item: string }) => d.item)).toEqual(
+      expect.arrayContaining(['frontmatter `license`', 'frontmatter `allowed-tools`']),
+    );
+    expect((await inject('GET', `/workspaces/${wsId}/skills`)).json().data.length).toBe(before);
+  });
+
+  it('create:true on a file that cannot become a skill is a 422 carrying the report, and creates nothing', async () => {
+    const before = (await inject('GET', `/workspaces/${wsId}/skills`)).json().data.length;
+    const res = await inject('POST', `/workspaces/${wsId}/skills/import`, { content: FOREIGN, create: true });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json().error.details).toEqual([expect.objectContaining({ path: 'when_to_use' })]);
+    expect((await inject('GET', `/workspaces/${wsId}/skills`)).json().data.length).toBe(before);
+  });
+
+  it('with the missing field supplied, create:true writes it, report included, and the dropped items are still listed', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/skills/import`, {
+      content: FOREIGN,
+      create: true,
+      overrides: { when_to_use: 'When asked to fill a PDF form.' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json();
+    expect(body.created.name).toBe('pdf-forms');
+    expect(body.created.instructions).toContain('1. Read the form.');
+    expect(body.created.visibility).toBe('shared'); // a person's default (#832)
+    expect(body.created).not.toHaveProperty('allowed_tools');
+    expect(body.report.dropped.length).toBeGreaterThan(0);
+  });
+
+  it('an agent importing is bound by the same publish gate: cannot create it shared, and gets personal by default', async () => {
+    const mint = await inject('POST', '/me/tokens', { name: 'import-test', workspace_id: wsId });
+    const token = mint.json().token as string;
+    const asAgent = (payload: unknown) => inject('POST', `/workspaces/${wsId}/skills/import`, payload, token);
+    const content = '---\nname: agent-made\ndescription: d\n---\n\nSteps here.\n';
+    const shared = await asAgent({ content, create: true, overrides: { when_to_use: 'w', visibility: 'shared' } });
+    expect(shared.statusCode, shared.body).toBe(403);
+    const dflt = await asAgent({ content, create: true, overrides: { when_to_use: 'w' } });
+    expect(dflt.statusCode, dflt.body).toBe(201);
+    expect(dflt.json().created.visibility).toBe('personal');
+    expect(dflt.json().created.source).toBe('mcp');
+  });
+});
