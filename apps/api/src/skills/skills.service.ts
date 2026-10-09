@@ -16,7 +16,7 @@ import type {
 import { SKILL_TEMPLATES } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, skillMembers, skills } from '../db/schema';
+import { memberships, skillMembers, skills, workspaces } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { scopeForRole } from '../agents/agent-principal';
 import { renderSkillExport } from './skill-export';
@@ -229,18 +229,41 @@ export class SkillsService {
    * a rule that lives in the client is a suggestion — any PAT holder could
    * otherwise POST `visibility: "shared"` directly.
    */
-  private assertMayPublish(source: ChangeSource, visibility: SkillVisibility): void {
+  private async assertMayPublish(
+    workspaceId: string,
+    source: ChangeSource,
+    visibility: SkillVisibility,
+  ): Promise<void> {
+    if (visibility === 'personal' || source === 'human') return;
+    // #848 — the ONE exception, decided by a person in advance for the whole workspace
+    // (`agents_may_publish_skills`, settable only from a human-sourced request): a non-human
+    // author may publish at `shared`. EXACTLY `shared`. `members` (naming people) and `public`
+    // (an unauthenticated URL) stay human-only with the opt-in on or off; written as an equality,
+    // not "anything up to shared", so a tier added later is gated by default and the opt-in
+    // cannot silently widen to cover it.
+    if (visibility === 'shared' && (await this.agentsMayPublish(workspaceId))) return;
     // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
     // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
     // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
     // URL. Written as "anything but personal" so a tier added later is gated by default.
-    if (visibility !== 'personal' && source !== 'human') {
-      throw new ForbiddenException(
-        `A skill authored over the API cannot be shared (\`${visibility}\`) directly — it is created as \`personal\`. ` +
-          "A shared skill is instructions other people's agents follow, so publishing one is a decision a person " +
-          'makes, not an agent (ADR-0010).',
-      );
-    }
+    throw new ForbiddenException(
+      `A skill authored over the API cannot be shared (\`${visibility}\`) directly — it is created as \`personal\`. ` +
+        "A shared skill is instructions other people's agents follow, so publishing one is a decision a person " +
+        'makes, not an agent (ADR-0010).' +
+        (visibility === 'shared'
+          ? ' A workspace admin can allow agents to publish to the workspace in Settings > General; `members` and `public` are never allowed.'
+          : ''),
+    );
+  }
+
+  /** #848 — has a person opted this workspace in? Read fresh each call (one small query, and only
+   * on the non-human path that needs it): a revoked opt-in must apply to the very next request. */
+  private async agentsMayPublish(workspaceId: string): Promise<boolean> {
+    const ws = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+      columns: { settings: true },
+    });
+    return (ws?.settings as Record<string, unknown> | null | undefined)?.['agents_may_publish_skills'] === true;
   }
 
   async create(
@@ -254,10 +277,16 @@ export class SkillsService {
     // the workspace (so "my skill, your AI" works without a settings step); an agent's stays
     // personal — it may not publish (#442 / ADR-0010), and defaulting an agent to `shared`
     // would turn every omitted field into a 403 instead of a safe personal skill.
-    const visibility: SkillVisibility = input.visibility ?? (source === 'human' ? 'shared' : 'personal');
-    this.assertMayPublish(source, visibility);
+    // #848: with the workspace's opt-in ON, an agent's omitted visibility follows the same default
+    // a person gets (`shared`) - the workspace has decided agents may do this, and demanding the
+    // flag on every call would make the opt-in half-useless. OFF it stays `personal`. This is
+    // still the single place an omitted visibility is decided; do not add a second resolver.
+    const visibility: SkillVisibility =
+      input.visibility ??
+      (source === 'human' || (await this.agentsMayPublish(membership.workspaceId)) ? 'shared' : 'personal');
+    await this.assertMayPublish(membership.workspaceId, source, visibility);
     // Naming people to share with is itself a publication (see assertMayPublish).
-    if (input.member_ids?.length) this.assertMayPublish(source, 'members');
+    if (input.member_ids?.length) await this.assertMayPublish(membership.workspaceId, source, 'members');
     if (input.member_ids !== undefined && visibility !== 'members') {
       throw new UnprocessableEntityException({
         message: '`member_ids` only applies to a skill whose visibility is `members`.',
@@ -347,8 +376,8 @@ export class SkillsService {
     // Promoting an existing skill to `shared` is the same decision as creating
     // one shared, so it meets the same gate — otherwise the create-side rule is
     // one PATCH away from being decorative.
-    if (input.visibility !== undefined) this.assertMayPublish(source, input.visibility);
-    if (input.member_ids !== undefined) this.assertMayPublish(source, 'members');
+    if (input.visibility !== undefined) await this.assertMayPublish(membership.workspaceId, source, input.visibility);
+    if (input.member_ids !== undefined) await this.assertMayPublish(membership.workspaceId, source, 'members');
     const nextVisibility = input.visibility ?? existing.visibility;
     if (input.member_ids !== undefined && nextVisibility !== 'members') {
       throw new UnprocessableEntityException({

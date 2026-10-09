@@ -5188,6 +5188,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
        * CAPABILITY is reachable, not that every field of every schema is —
        * this is a deliberate exclusion, recorded here rather than left silent.
        *
+       * Nor `agents_may_publish_skills` (#848), for a sharper reason: the server REFUSES it from
+       * any non-human source (a token or a connected AI, #858), because a flag an agent can turn
+       * on to let agents publish is decorative. A tool for it could only ever 403, so it is not
+       * offered; a person changes it in Settings > General.
+       *
        * `branding` (#539) is the opposite call: cosmetic client-portal
        * configuration, not a security posture, so it's exposed like rename/
        * description above rather than excluded like private_attachments.

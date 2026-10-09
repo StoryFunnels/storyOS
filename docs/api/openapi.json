@@ -10459,6 +10459,9 @@
           "private_attachments": {
             "type": "boolean"
           },
+          "agents_may_publish_skills": {
+            "type": "boolean"
+          },
           "description": {
             "type": "string",
             "maxLength": 200,

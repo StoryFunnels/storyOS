@@ -4456,6 +4456,7 @@ export interface components {
         UpdateWorkspaceDto: {
             name?: string;
             private_attachments?: boolean;
+            agents_may_publish_skills?: boolean;
             description?: string | null;
             branding?: {
                 logo_url?: string | null;
