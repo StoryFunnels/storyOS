@@ -77,3 +77,38 @@ describe('every font the app offers has a vendored face and its variable (#797)'
     }
   });
 });
+
+describe('the OFL licence travels with the font files (ticket #856)', () => {
+  const ofl = readFileSync(join(fontsDir, 'OFL.txt'), 'utf8');
+  const families = ['Figtree', 'Inter', 'Source Sans 3', 'DM Sans', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'];
+
+  it('carries the licence text itself and one copyright notice per family, not a link', () => {
+    expect(ofl).toMatch(/SIL OPEN FONT LICENSE Version 1\.1/);
+    for (const family of families) {
+      // Each family has its own block: a header line, then upstream's own notice. (Upstream's
+      // Source Sans 3 notice says "Source", not the family name, so the header is the anchor.)
+      expect(ofl, `${family} has no block with a copyright notice`).toMatch(new RegExp(`\\n${family}\\n=+\\n\\nCopyright 20\\d\\d`));
+    }
+    expect((ofl.match(/SIL OPEN FONT LICENSE Version 1\.1/g) ?? []).length).toBe(families.length);
+  });
+
+  it('has a face in fonts.css for every family it licenses', () => {
+    for (const family of families) expect(css, family).toContain(family);
+  });
+
+  it('is served beside the app, because the Docker image copies public/ but not app/fonts', () => {
+    const served = join(src, '..', 'public/licenses/fonts-OFL.txt');
+    expect(existsSync(served)).toBe(true);
+    expect(readFileSync(served, 'utf8')).toBe(ofl);
+  });
+
+  it('is pointed to from the README', () => {
+    expect(readFileSync(join(fontsDir, 'README.md'), 'utf8')).toMatch(/\(\.\/OFL\.txt\)/);
+  });
+});
+
+describe('no comment describes the removed next/font/google mechanism (ticket #856)', () => {
+  it('embed-fonts.ts does not mention it', () => {
+    expect(readFileSync(join(src, 'lib/embed-fonts.ts'), 'utf8')).not.toMatch(/next\/font\/google/);
+  });
+});
