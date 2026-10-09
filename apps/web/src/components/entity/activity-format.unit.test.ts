@@ -116,9 +116,23 @@ describe('rich_text as text (#829)', () => {
 });
 
 describe('resolveBlockChanges — legacy rows are recomputed, not given up on (#829)', () => {
-  it('uses the stored blocks when the row has them (rows written since #796)', () => {
+  // #840 — this used to assert "uses the stored blocks when the row has them",
+  // which quietly specified the defect: rows written before #840 carry blocks the
+  // old diff got wrong (every block of API-written content stored as "changed"),
+  // and history rows cannot be repaired. The renderer now recomputes from from/to.
+  it('does NOT trust stored blocks that disagree with from/to: a stored phantom "changed" is dropped (#840)', () => {
+    const from = [para('b0', 'Line 0'), para('b1', 'Line 1')];
+    const to = [para('b0', 'Line 0'), para('b1', 'Line 1')]; // identical
+    const phantom = [
+      { kind: 'changed' as const, blockId: 'b0', from: from[0], to: to[0] },
+      { kind: 'changed' as const, blockId: 'b1', from: from[1], to: to[1] },
+    ];
+    expect(resolveBlockChanges({ from, to, blocks: phantom }, 'rich_text')).toEqual([]);
+  });
+
+  it('falls back to the stored blocks only for a value that is not block-shaped at all', () => {
     const stored = [{ kind: 'added' as const, blockId: 'x', to: para('x', 'new') }];
-    expect(resolveBlockChanges({ from: null, to: [], blocks: stored }, 'rich_text')).toBe(stored);
+    expect(resolveBlockChanges({ from: 'a', to: 'b', blocks: stored }, 'text')).toBe(stored);
   });
 
   // The screenshot's rows: `from`/`to` are full block arrays but there is no `blocks`.

@@ -93,21 +93,24 @@ export function formatActivityValue(
 /**
  * The block-level changes for a rich_text change, or undefined when this is not one.
  *
- * Rows written since #796 carry `blocks`. Rows written before it carry only the raw
- * `from` / `to` — which are still the full block arrays, so the same `diffBlocks` the
- * API now runs can simply be run here. Legacy rows are therefore not "unrecoverable":
- * they are recomputed, and render exactly like a fresh edit.
+ * ALWAYS recomputed from the stored `from` / `to` (which are the full block arrays)
+ * rather than trusting the `blocks` stored beside them (#840). Rows written before
+ * #796 carry no `blocks` at all, and rows written before #840 carry blocks the old
+ * `diffBlocks` got wrong: every block of API- or agent-written content was stored as
+ * "changed" because the diff compared JSON key order, and history rows cannot be
+ * repaired after the fact. Recomputing with the current `diffBlocks` makes an old row
+ * render exactly like a fresh edit, and the stored `blocks` only matter for a value
+ * that is not block-shaped at all.
  */
 export function resolveBlockChanges(
   change: { from: unknown; to: unknown; blocks?: BlockChange[] },
   fieldType: string | undefined,
 ): BlockChange[] | undefined {
-  if (change.blocks) return change.blocks;
   const blockish = (v: unknown) => Array.isArray(v) && v.some(isBlockLike);
   if (fieldType === 'rich_text' || blockish(change.from) || blockish(change.to)) {
     return diffBlocks(change.from, change.to);
   }
-  return undefined;
+  return change.blocks;
 }
 
 export type BlockLine =
