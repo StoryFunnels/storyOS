@@ -253,14 +253,20 @@ describe('approval gate (MN-255)', () => {
     expect(commentRows.data.some((c: { body: Array<{ text: string }> }) => c.body[0]!.text.includes('Expired'))).toBe(true);
   });
 
-  it('approving (or rejecting) an already-decided approval is a no-op, not an error', async () => {
+  it('repeating a decision is a no-op; the OPPOSITE decision on a decided approval is refused (#869)', async () => {
+    // This test used to assert that the opposite decision "is a no-op, not an error" (< 300). That
+    // quietly SPECIFIED the defect #869 found: Reject returned a success while the approval stayed in
+    // force. The same decision twice (a double click) is still harmless; the opposite one is refused.
     const rule = await createRule();
     const rec = await createRecordAndSettle('Already decided');
     const approval = await pendingApprovalFor(rec.id, rule.id);
     const first = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`);
     expect(first.statusCode).toBeLessThan(300);
+    const again = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`);
+    expect(again.statusCode, 'the same decision twice is idempotent').toBeLessThan(300);
     const second = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`);
-    expect(second.statusCode).toBeLessThan(300);
+    expect(second.statusCode, second.body).toBe(409);
+    expect(second.json().error.message).toMatch(/already rejected/i);
     // The second call didn't flip a rejected approval to approved.
     const after = await db.query.approvals.findFirst({ where: eq(approvals.id, approval.id) });
     expect(after!.status).toBe('rejected');
