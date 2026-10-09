@@ -34,7 +34,12 @@ function newService(opts: { fieldsFindFirst?: unknown; attachmentsFindFirst?: un
   const db = {
     query: {
       fields: { findFirst: vi.fn().mockResolvedValue(opts.fieldsFindFirst ?? null) },
-      attachments: { findFirst: vi.fn().mockResolvedValue(opts.attachmentsFindFirst ?? null) },
+      // #826: the executor now lists the field's attachments and picks by the FIELD's order (see
+      // test/post-social-media-rule.test.ts for the rule itself); this mock only supplies the row.
+      attachments: {
+        findFirst: vi.fn().mockResolvedValue(opts.attachmentsFindFirst ?? null),
+        findMany: vi.fn().mockResolvedValue(opts.attachmentsFindFirst ? [{ id: 'att1', ...(opts.attachmentsFindFirst as object) }] : []),
+      },
     },
   };
   const jobs = { registerExecutor: vi.fn() };
