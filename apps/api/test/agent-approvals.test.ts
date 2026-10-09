@@ -6,6 +6,7 @@ import { authed, signUpUser } from './helpers/users';
 import { connectTestDb } from './helpers/db';
 import { approvals } from '../src/db/schema';
 import { AgentsService } from '../src/agents/agents.service';
+import { TokensService } from '../src/tokens/tokens.service';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { ApprovalActionSnapshot } from '../src/automations/approvals.service';
 
@@ -1002,5 +1003,40 @@ describe('#603: agent-run gates unify onto the shared approvals table', () => {
     // documented gap — see approvals.service.ts's `decide()` doc) but the
     // action must still never apply against a stale approval.
     await expectIssueAlive(issue.id, 'an expired agent-run gate must apply nothing even though the run still LOOKS parked');
+  });
+});
+
+describe('#859 — the agent-run gate needs a person: it asked NOTHING before (no role, no source)', () => {
+  /** An admin-scoped ordinary PAT (`mcp`) for the SAME admin the session belongs to. */
+  async function adminToken(): Promise<string> {
+    const me = (await as(admin.token, 'GET', '/me')).json();
+    const userId = (me.user?.id ?? me.id) as string;
+    return (await app.get(TokensService).create(userId, wsId, `run-gate-${Date.now()}`, 'admin', true)).token;
+  }
+
+  it('the SAME admin: a token cannot approve or reject a REAL parked run (still Waiting, record alive); the session approves it', async () => {
+    const agent = await createAgent('Gate source tester', ['delete']);
+    const issue = await createIssue('Only a person may approve my deletion');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete me', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    const runFields = await fieldsOf(runsDbId);
+    const waiting = optionId(runFields.get('status'), 'Waiting approval');
+    expect(run.values.status).toBe(waiting);
+
+    const token = await adminToken();
+    for (const verb of ['approve', 'reject'] as const) {
+      const res = await as(token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/${verb}`);
+      expect(res.statusCode, `${verb}: ${res.body}`).toBe(403);
+      expect(res.json().error.message).toMatch(/needs a person/);
+      expect((await getRun(run.id)).values.status, `${verb} by a token leaves the run parked`).toBe(waiting);
+      await expectIssueAlive(issue.id, `${verb} by a token must apply nothing`);
+    }
+
+    const person = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/approve`);
+    expect(person.statusCode, person.body).toBeLessThan(300);
+    const after = await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/${issue.id}`);
+    expect(after.statusCode, 'the person approved: the delete applied').toBe(404);
   });
 });
