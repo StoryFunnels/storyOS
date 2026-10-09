@@ -10,9 +10,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  # #865 — the old single `ci` job ran everything in series and took ~19 min
+  # against its own 20-min timeout; 948 s of that was @storyos/api's tests, which
+  # run file-by-file (`fileParallelism: false`, one shared DB). So the work is
+  # split: `checks` (no tests), `test-api` (4 shards, each with its OWN postgres),
+  # `test-other`, and a `ci` gate at the bottom. The gate keeps the name `ci`
+  # because that is the status check the `main` ruleset and merge queue require.
+  checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Kept: `openapi:generate` boots the full AppModule, so this job keeps the
+    # same database the old single job had rather than finding out it needs one.
     services:
       postgres:
         image: postgres:16-alpine
@@ -56,8 +64,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
+          key: turbo-checks-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-checks-${{ runner.os }}-
 
       - name: Lint
         run: pnpm lint
@@ -68,8 +76,7 @@ jobs:
       - name: Docs links
         run: pnpm docs:check
 
-      - name: Test
-        run: pnpm test
+      # Tests are NOT here any more — see `test-api` and `test-other` below.
 
       - name: Build
         run: pnpm build
@@ -145,6 +152,123 @@ jobs:
           name: sbom-cyclonedx
           path: sbom.cdx.json
           if-no-files-found: warn
+
+  # #865 — @storyos/api's suite, split into shards that run in parallel. Each
+  # shard is its own job with its own postgres service, so `fileParallelism:
+  # false` (one shared DB per run) still holds INSIDE a shard while the shards
+  # run side by side. Vitest splits by file, so the shards together run exactly
+  # the files one serial run would.
+  test-api:
+    name: test-api (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Let every shard finish: one red shard should not hide what the others
+      # would have found.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storyos
+          POSTGRES_PASSWORD: storyos
+          POSTGRES_DB: storyos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U storyos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://storyos:storyos@localhost:5432/storyos_test
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-test-api-${{ matrix.shard }}-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-test-api-${{ matrix.shard }}-${{ runner.os }}-
+
+      # turbo.json's `test` task depends on `^build`; this is that, for api only.
+      - name: Build api's workspace dependencies
+        run: pnpm turbo run build --filter=@storyos/api^...
+
+      - name: Test (api shard ${{ matrix.shard }}/4)
+        run: pnpm --filter @storyos/api exec vitest run --shard=${{ matrix.shard }}/4
+
+  # #865 — every other package's tests, plus the repo scripts' own tests: what
+  # `pnpm test` ran besides @storyos/api.
+  test-other:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-test-other-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-test-other-${{ runner.os }}-
+
+      - name: Test (all packages except api)
+        run: pnpm turbo run test --filter='!@storyos/api'
+
+      - name: Test (scripts)
+        run: pnpm test:scripts
+
+  # #865 — THE required check. The `main` ruleset and the merge queue wait on a
+  # status check named `ci`; this job is it. It runs whenever the run was not
+  # cancelled (so a red dependency still produces a red `ci`, never a missing
+  # one) and passes only if every job above is `success`. `skipped` and
+  # `cancelled` count as not-green on purpose: a gate that lets "didn't run"
+  # through is a gate that lets anything through.
+  ci:
+    name: ci
+    if: ${{ !cancelled() }}
+    needs: [checks, test-api, test-other]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every required job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(" ")')
+          if [ -n "$bad" ]; then
+            echo "::error::not green: $bad"
+            exit 1
+          fi
+          echo "all required jobs succeeded"
 
   # MN-129: `pnpm build` says nothing about whether the SERVER can build or run
   # these. The Docker graph is different — it copies a subset of the workspace and
