@@ -11,6 +11,7 @@ import type { Db } from '../db/client';
 import { accessGrants, databases, memberships, records, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { forgetForRequest, memoizeForRequest } from './request-memo';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
 export type EffectiveRole =
@@ -57,13 +58,19 @@ export interface GrantInput {
 export class AccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  private async guestGrants(membership: Membership) {
-    return this.db.query.accessGrants.findMany({
-      where: and(
-        eq(accessGrants.workspaceId, membership.workspaceId),
-        eq(accessGrants.userId, membership.userId),
-      ),
-    });
+  /**
+   * #861 — read once per REQUEST (see `request-memo.ts`: the memo cannot outlive the request, and
+   * `createGrant`/`deleteGrant` drop it). Never cache this any wider: MN-125.
+   */
+  private guestGrants(membership: Membership) {
+    return memoizeForRequest(`grants:${membership.workspaceId}:${membership.userId}`, () =>
+      this.db.query.accessGrants.findMany({
+        where: and(
+          eq(accessGrants.workspaceId, membership.workspaceId),
+          eq(accessGrants.userId, membership.userId),
+        ),
+      }),
+    );
   }
 
 
@@ -552,6 +559,7 @@ export class AccessService {
       : input.database_id
         ? sql`${accessGrants.databaseId} IS NOT NULL`
         : sql`${accessGrants.recordId} IS NOT NULL`;
+    forgetForRequest('grants:');
     const [row] = await this.db
       .insert(accessGrants)
       .values({
@@ -595,6 +603,7 @@ export class AccessService {
       : grant.databaseId
         ? eq(accessGrants.databaseId, grant.databaseId)
         : eq(accessGrants.recordId, grant.recordId!);
+    forgetForRequest('grants:');
     const gone = await this.db
       .delete(accessGrants)
       .where(
