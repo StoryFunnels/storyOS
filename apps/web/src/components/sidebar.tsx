@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, Library, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -715,6 +715,7 @@ function SidebarRail({
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
   const isRuns = pathname === `/w/${ws}/runs` || pathname?.startsWith(`/w/${ws}/runs/`);
+  const isSkills = pathname === `/w/${ws}/skills` || pathname?.startsWith(`/w/${ws}/skills/`);
 
   return (
     <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border-default bg-hover/40 py-2">
@@ -733,6 +734,12 @@ function SidebarRail({
       </RailButton>
       <RailLink href={`/w/${ws}/me`} title="My Work" active={isMyWork}>
         <UserRound className="h-[17px] w-[17px]" />
+      </RailLink>
+      {/* #833 — Skills is a rail entry, not a Settings page: it is the thing the
+          product sells (your process, stored here, run by someone else's AI), and
+          a cornerstone does not live behind a gear icon. */}
+      <RailLink href={`/w/${ws}/skills`} title="Skills" active={!!isSkills}>
+        <Library className="h-[17px] w-[17px]" />
       </RailLink>
       <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
       <RailLink href={`/w/${ws}/runs`} title="Runs" active={isRuns}>
