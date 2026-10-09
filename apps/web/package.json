@@ -38,7 +38,8 @@
     "react-dom": "^19.2.7",
     "recharts": "^3.10.1",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "twitter-text": "^3.1.0"
   },
   "devDependencies": {
     "@storyos/config": "workspace:*",
@@ -46,6 +47,7 @@
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/twitter-text": "^3.1.10",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",

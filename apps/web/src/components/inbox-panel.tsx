@@ -1,6 +1,7 @@
 'use client';
 
 import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -438,6 +439,10 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       </span>
                     )}
                     {n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>}
+                    {/* #826 — a post_social approval shows what will actually be published: full text, account, image. */}
+                    {n.type === 'action_approval_requested' && n.ref_id && n.record && (
+                      <PostApprovalPreview ws={ws} approvalId={n.ref_id} db={n.record.database_id} rec={n.record.id} />
+                    )}
                     {/* The killer mobile flow (mobile-responsive-plan.md): approve or
                         reject a gated agent action in one tap, right from the Inbox.
                         min-h-11 (44px) keeps both a comfortable thumb target. */}

@@ -69,6 +69,7 @@ const ACTION_LABELS: Record<string, string> = {
   run_agent: 'Run an agent',
   send_email: 'Send an email',
   http_request: 'Call an API (HTTP request)',
+  post_social: 'Post to LinkedIn or X',
 };
 
 const OP_LABELS: Record<string, string> = {
