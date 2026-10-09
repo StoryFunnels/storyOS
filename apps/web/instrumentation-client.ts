@@ -1,4 +1,5 @@
 import posthog from 'posthog-js';
+import { withSurface } from '@/lib/funnel';
 
 const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 const host = process.env.NEXT_PUBLIC_POSTHOG_HOST;
@@ -34,7 +35,9 @@ if (!token || !host) {
     defaults: '2026-01-30',
     capture_exceptions: true,
     debug: process.env.NODE_ENV === 'development',
+    // #818 — one place, not per call site: every app event carries which surface sent it. NOT
+    // `posthog.register`: a registered property is cleared by `posthog.reset()` (IdentitySync calls
+    // it on every identity change) and the first $pageview is captured inside init, before any register.
+    before_send: (event) => withSurface(event),
   });
-  // #818 — one place, not per call site: every app event carries which surface sent it.
-  posthog.register({ surface: 'app' });
 }

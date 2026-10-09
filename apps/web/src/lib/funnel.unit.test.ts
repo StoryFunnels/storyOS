@@ -9,6 +9,7 @@ import {
   parseFirstTouch,
   readFirstTouch,
   stripAuthEvent,
+  withSurface,
 } from './funnel';
 
 function memoryStore(initial?: string) {
@@ -122,8 +123,8 @@ describe('where the events are emitted', () => {
     expect(signup).toMatch(/method: 'email'/);
     expect(signup).toMatch(/firstTouchProperties/);
   });
-  it('every app event gets surface: app from ONE registration, not per call site (AC4)', () => {
-    expect(code(read('../instrumentation-client.ts'))).toMatch(/posthog\.register\(\{ surface: 'app' \}\)/);
+  it('every app event gets surface: app from ONE place, not per call site (AC4)', () => {
+    expect(code(read('../instrumentation-client.ts'))).toMatch(/before_send: \(event\) => withSurface\(event\)/);
     const perSite = allSources(src).filter((f) => /posthog\.capture\([^)]*surface/.test(code(readFileSync(f, 'utf8'))));
     expect(perSite).toEqual([]);
   });
@@ -154,5 +155,23 @@ describe('where the events are emitted', () => {
     ]) {
       expect(names, name).toContain(name);
     }
+  });
+});
+
+describe('withSurface (ticket #818 AC4, after the send-back)', () => {
+  it('stamps surface on every event, including the $-events a super property missed', () => {
+    for (const name of ['$pageview', '$identify', '$set', '$pageleave', 'workspace_created']) {
+      expect(withSurface({ event: name, properties: { a: 1 } } as never)).toMatchObject({ properties: { surface: 'app', a: 1 } });
+    }
+  });
+  it('works on an event with no properties yet, and leaves a dropped event dropped', () => {
+    expect(withSurface({ event: '$pageview' } as never)).toMatchObject({ properties: { surface: 'app' } });
+    expect(withSurface(null)).toBeNull();
+  });
+  it('does not overwrite a surface an event already carries', () => {
+    expect(withSurface({ properties: { surface: 'docs' } })).toEqual({ properties: { surface: 'docs' } });
+  });
+  it('does not depend on registration, so posthog.reset() cannot remove it', () => {
+    expect(code(read('../instrumentation-client.ts'))).not.toMatch(/posthog\.register/);
   });
 });

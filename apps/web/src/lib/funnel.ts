@@ -95,3 +95,17 @@ export function stripAuthEvent(search: string): string {
   const rest = params.toString();
   return rest ? `?${rest}` : '';
 }
+
+/**
+ * Which surface sent an event. Applied in PostHog's `before_send`, i.e. to EVERY event at the moment
+ * it is sent, rather than registered once as a super property. A registered property does not
+ * survive `posthog.reset()`, which `IdentitySync` calls on every identity change (login, logout,
+ * another tab) — so after the first login in a tab, later events lost `surface` (ticket #818, found
+ * by verification). `$pageview`, `$identify` and the first pageview captured inside `init` were
+ * missing it for the same reason. There is nothing to re-register after a reset, because nothing
+ * was registered.
+ */
+export function withSurface<E extends { properties?: Record<string, unknown> } | null>(event: E): E {
+  if (!event) return event;
+  return { ...event, properties: { surface: 'app', ...(event.properties ?? {}) } } as E;
+}
