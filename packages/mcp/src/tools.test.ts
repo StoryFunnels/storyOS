@@ -2875,9 +2875,8 @@ describe('#442 — skill authoring tools', () => {
       instructions: 'i',
     });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
-    // Always personal, stated by the tool itself: the server's source-aware default cannot be
-    // trusted for an OAuth-connected AI, which the auth guard calls `human` (#848 probe).
-    expect(post.body!.visibility).toBe('personal');
+    // The tool states no visibility at all: the API decides from the credential (#832).
+    expect(post.body!).not.toHaveProperty('visibility');
 
     const res = await handlers.get('create_skill')!({
       workspace: 'Eng',
@@ -2896,7 +2895,7 @@ describe('#442 — skill authoring tools', () => {
     const preview = await call('import_skill', { workspace: 'Eng', content: '---\nname: x\n---\nbody' });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills/import')!;
     expect(post.body).toMatchObject({ create: false });
-    expect((post.body as { overrides?: { visibility?: string } }).overrides?.visibility).toBe('personal');
+    expect(post.body).not.toHaveProperty('overrides.visibility');
     expect(preview.created).toBeNull();
     expect(preview.report.dropped[0].item).toContain('license');
     expect(preview.note).toMatch(/Nothing was created/);
