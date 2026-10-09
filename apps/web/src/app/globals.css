@@ -370,6 +370,30 @@
    * After this, a hand-sprinkled `leading-relaxed` is a mistake you can grep
    * for rather than the only way to get readable prose.
    *
+   * NEITHER HALF GOVERNS A PAGE WITH NO APP AROUND IT (#843). Both paragraphs
+   * above assume app furniture — a sidebar, a toolbar, a table — giving text
+   * its context and holding its measure in. `apps/web`'s UNAUTHENTICATED
+   * routes have none of that: `packs/[slug]`, `f/[token]` and `v/[token]` are
+   * served outside the workspace shell to someone who may have no account.
+   *
+   * On those routes, CONTENT uses Tailwind's named scale — the same place #869
+   * already sends content titles — and not the chrome steps. The pack page is
+   * the worked example: its summary is a lede, and at the chrome body size it
+   * renders at exactly the size of the highlight bullets beneath it, so the one
+   * sentence selling the pack stops looking like the thing to read first. It is
+   * `text-base`. Chrome on those pages (metadata, captions, button labels) stays
+   * on the chrome steps; this governs the content, not the furniture.
+   *
+   * No step was minted for this. A 15px literal existed here and a 15px TOKEN
+   * would have been a step with one call site — the failure #748 named, in the
+   * other direction.
+   *
+   * SCOPE, AND IT IS DELIBERATE: this governs `apps/web` public routes ONLY.
+   * The marketing site in the separate `storyos-website` checkout has its own
+   * design language and is NOT covered — accepted knowingly by Otto on #843
+   * rather than discovered later. If that site ever adopts this, it is a
+   * migration somebody chooses, not drift nobody noticed.
+   *
    * No display steps were added, and that is a decision rather than an omission:
    * #624 kept this scale small after measuring real call sites, and two title
    * sites do not make a scale. A step nothing uses is worse than no step.

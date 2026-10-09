@@ -121,15 +121,16 @@ export default async function PackPublicPreviewPage({
 
         <div className="rounded-[var(--radius-modal)] border border-border-default bg-card p-8">
           <h1 className="text-2xl font-semibold text-ink">{pack.name}</h1>
-          {/* #792 — NOT migrated to `text-reading`, deliberately, under that ticket's
-              own AC6 stop clause. The reading treatment is 13px, and at 13px this
-              summary renders at exactly the size of the highlight bullets below it,
-              so the pack's one selling sentence stops reading as a lede and becomes
-              part of the list. Checked rendered on agency-os and on support-inbox,
-              the longest summary in the registry. Left at 15px pending the
-              public-surface type question AC6 calls for — do NOT quietly fold this
-              into the next sweep. */}
-          <p className="mt-2 text-[15px] leading-relaxed text-ink-secondary">{pack.summary}</p>
+          {/* #843 — `text-base`, not a chrome token and not `text-reading`.
+              This page has no app around it: no sidebar, no toolbar, no table
+              holding the measure in. The chrome scale tops out at 13px body,
+              which here renders this sentence at exactly the size of the
+              highlight bullets below it — the pack's one selling line stops
+              reading as a lede and joins the list. Tailwind's named scale is
+              where #869 already sends CONTENT, so that is what public routes
+              use. 1.5 rather than 1.625: leading ratios tighten as size grows,
+              and 16/1.5 is the same 24px line box #792's 13/1.625 produces. */}
+          <p className="mt-2 text-base text-ink-secondary">{pack.summary}</p>
 
           {pack.highlights.length > 0 && (
             <ul className="mt-5 flex flex-col gap-1.5">
