@@ -5671,6 +5671,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {
@@ -5872,6 +5874,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {
@@ -6069,6 +6073,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {

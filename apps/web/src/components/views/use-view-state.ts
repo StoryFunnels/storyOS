@@ -115,6 +115,10 @@ export interface ViewConfig {
         | 'source-serif-4'
         | 'playfair-display'
         | 'jetbrains-mono';
+      /** #721 — the light/dark the builder's embed snippet requests (`?theme=dark`).
+       *  Absent = light. Mirrors packages/schemas' `theme.mode`; never read by the
+       *  public page for painting (that would flash — the URL param is read pre-paint). */
+      mode?: 'light' | 'dark';
     };
   };
   /**

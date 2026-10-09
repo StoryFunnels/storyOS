@@ -15239,6 +15239,13 @@
                           "playfair-display",
                           "jetbrains-mono"
                         ]
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "light",
+                          "dark"
+                        ]
                       }
                     }
                   }
@@ -16010,6 +16017,13 @@
                           "playfair-display",
                           "jetbrains-mono"
                         ]
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "light",
+                          "dark"
+                        ]
                       }
                     }
                   }
@@ -16760,6 +16774,13 @@
                           "source-serif-4",
                           "playfair-display",
                           "jetbrains-mono"
+                        ]
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "light",
+                          "dark"
                         ]
                       }
                     }

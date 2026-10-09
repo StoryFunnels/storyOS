@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Copy, GripVertical, ListChecks, ListFilter, Plus, Share2, X } from 'lucide-react';
@@ -34,6 +34,7 @@ import {
   toggleFieldSelection,
 } from './form-fields';
 import type { FormFieldCfg } from './form-fields';
+import { embedSnippet } from '@/lib/embed-mode';
 
 /** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
  * (config.form.fields) and their order — the generic Cards popover no longer
@@ -511,7 +512,15 @@ function FormBuilder({
   const access = form.access ?? 'members';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const link = token ? `${origin}/f/${token}` : '';
-  const embed = token ? `<iframe src="${origin}/f/${token}?embed=1" width="100%" height="600" style="border:0"></iframe>` : '';
+  // #721 — the builder writes the snippet, including `&theme=dark` when the host
+  // pinned dark. Light emits nothing extra, so an unchanged embed is byte-identical.
+  const embed = token ? embedSnippet(origin, token, form.theme?.mode === 'dark' ? 'dark' : 'light') : '';
+  // The embed code a host already pasted is frozen: changing the switch changes the
+  // code, not their live page. Remember what this builder opened with so a change can
+  // say "copy it again" — a silently stale embed is worse than no control.
+  const openedWith = useRef(embed);
+  if (!openedWith.current && embed) openedWith.current = embed;
+  const embedChanged = Boolean(embed) && Boolean(openedWith.current) && embed !== openedWith.current;
 
   // form.fields must list ALL shown fields so the public form renders them all.
   const fieldCfgs: FormFieldCfg[] = fields.map(
@@ -579,6 +588,12 @@ function FormBuilder({
                 </div>
                 <CopyRow label="Link" value={link} onCopy={() => copy(link, 'Link')} />
                 <CopyRow label="Embed" value={embed} onCopy={() => copy(embed, 'Embed snippet')} />
+                {embedChanged && (
+                  <p role="status" className="rounded-[var(--radius-control)] bg-accent-soft px-2 py-1.5 text-label text-ink">
+                    The embed code changed. Copy it again and replace the one on your site — a snippet you
+                    already pasted keeps its old setting.
+                  </p>
+                )}
                 <button
                   type="button"
                   className="self-start text-label text-muted underline-offset-2 hover:text-error hover:underline"
