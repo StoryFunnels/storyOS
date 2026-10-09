@@ -6,6 +6,7 @@ export const youtubeVideosDatabase: TemplateDef = {
   name: 'YouTube videos',
   description: 'A source-ready catalog for videos from a connected YouTube channel.',
   category: 'marketing',
+    industry: 'media',
   scope: 'database',
   guide: `## YouTube videos
 
@@ -53,6 +54,7 @@ export const youtubeCommentsDatabase: TemplateDef = {
   name: 'YouTube comments',
   description: 'A source-ready inbox for channel comments and replies.',
   category: 'marketing',
+    industry: 'media',
   scope: 'database',
   guide: `## YouTube comments
 
@@ -98,6 +100,7 @@ export const youtubeMetricsDatabase: TemplateDef = {
   name: 'YouTube metrics',
   description: 'Daily video metric snapshots ready for the YouTube metrics source.',
   category: 'marketing',
+    industry: 'media',
   scope: 'database',
   guide: `## YouTube metrics
 

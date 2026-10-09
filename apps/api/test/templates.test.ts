@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { TEMPLATE_INDUSTRIES } from '@storyos/schemas';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
@@ -68,6 +69,21 @@ describe('template registry (MN-033/035/036/037)', () => {
     }
     const newClient = body.intents.find((i: { id: string }) => i.id === 'new-client');
     expect(newClient.ends_with_invite).toBe(true);
+  });
+
+  it('tags EVERY template with exactly one industry from the shared list, and every industry has a template (ticket #586)', async () => {
+    const body = (await inject('GET', '/templates')).json();
+    const allowed = TEMPLATE_INDUSTRIES.map((i) => i.value) as string[];
+    for (const t of body.data as Array<{ slug: string; industry: string; category: string }>) {
+      expect(allowed, `${t.slug} has industry "${t.industry}"`).toContain(t.industry);
+      expect(t.category, `${t.slug} keeps its function category`).toBeTruthy();
+    }
+    // An industry nobody is tagged with would be an empty filter in the gallery.
+    const used = new Set((body.data as Array<{ industry: string }>).map((t) => t.industry));
+    for (const value of allowed) expect(used.has(value), `no template is tagged "${value}"`).toBe(true);
+    const bySlug = new Map((body.data as Array<{ slug: string; industry: string }>).map((t) => [t.slug, t.industry]));
+    expect(bySlug.get('client-work')).toBe('agencies');
+    expect(bySlug.get('sales-crm')).toBe('general');
   });
 
   it('installs EVERY template cleanly (each into its own workspace)', async () => {

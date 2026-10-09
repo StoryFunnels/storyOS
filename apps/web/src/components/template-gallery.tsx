@@ -1,5 +1,6 @@
 'use client';
 
+import { filterTemplates, industryOptions } from '@/components/template-filter';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import posthog from 'posthog-js';
@@ -43,6 +44,8 @@ export interface TemplateSummary {
   name: string;
   description: string;
   category: 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
+  /** #586 — the industry axis; optional so an older API response still renders. */
+  industry?: string;
   scope: 'pack' | 'database';
   guide?: string | null;
   /** #585 — real installs across every workspace, never an estimate. */
@@ -236,6 +239,7 @@ export function TemplateGalleryDialog({
   const qc = useQueryClient();
   const registry = useTemplateRegistry();
   const [category, setCategory] = useState<string>('all');
+  const [industry, setIndustry] = useState<string>('all');
   const [slug, setSlug] = useState<string | null>(initialSlug ?? null);
   const [spaceName, setSpaceName] = useState('');
   const [spaceId, setSpaceId] = useState('');
@@ -244,7 +248,8 @@ export function TemplateGalleryDialog({
 
   const templates = registry.data?.data ?? [];
   const selected = templates.find((t) => t.slug === slug);
-  const visible = category === 'all' ? templates : templates.filter((t) => t.category === category);
+  const visible = filterTemplates(templates, category, industry);
+  const industries = industryOptions(templates);
   const intent = registry.data?.intents.find((i) => i.template === slug);
 
   async function install() {
@@ -305,6 +310,40 @@ export function TemplateGalleryDialog({
                 </button>
               ))}
             </div>
+            {/* #586 — industry is a SECOND, independent axis, not a replacement for the function row above. */}
+            {industries.length > 2 && (
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Industry">
+                <span className="mr-1 text-label text-faint">Industry</span>
+                {industries.map((i) => (
+                  <button
+                    key={i.value}
+                    type="button"
+                    className={cn(
+                      'rounded-[var(--radius-control)] px-2.5 py-1 text-label',
+                      industry === i.value ? 'bg-primary text-[var(--text-on-dark)]' : 'text-muted hover:bg-hover',
+                    )}
+                    onClick={() => setIndustry(i.value)}
+                  >
+                    {i.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {visible.length === 0 && (
+              <p className="py-6 text-center text-body text-muted">
+                No templates match both filters.{' '}
+                <button
+                  type="button"
+                  className="text-accent underline underline-offset-2"
+                  onClick={() => {
+                    setCategory('all');
+                    setIndustry('all');
+                  }}
+                >
+                  Clear filters
+                </button>
+              </p>
+            )}
             <div className="flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto pr-1">
               {visible.map((t) => (
                 <TemplateCard key={t.slug} template={t} onClick={() => setSlug(t.slug)} />

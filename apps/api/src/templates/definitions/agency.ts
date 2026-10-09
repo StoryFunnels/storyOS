@@ -8,6 +8,7 @@ export const clientWork: TemplateDef = {
   name: 'Client Projects & Tasks',
   description: 'Clients, contacts, projects, tasks and invoices — the whole agency backbone, interlinked.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'pack',
   space: 'Client Work',
     guide: `## How this works
@@ -160,6 +161,7 @@ export const clientSpace: TemplateDef = {
   name: 'Client Space',
   description: 'A per-client space you share with the client — tasks, deliverables, meetings, requests.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'pack',
   space: 'New Client', // renamed at install from the intent's name prompt
     guide: `## How this works
@@ -255,6 +257,7 @@ export const agencyCrm: TemplateDef = {
   name: 'Agency CRM',
   description: 'Lead pipeline with proposals — the board where the money happens.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'pack',
   space: 'Sales',
     guide: `## How this works
@@ -327,6 +330,7 @@ export const socialCalendar: TemplateDef = {
   name: 'Social Media Calendar',
   description: 'Plan posts around calendar moments, across platforms, with an approval flow.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'pack',
   space: 'Social',
   guide: `## How this works
@@ -414,6 +418,7 @@ export const funnels: TemplateDef = {
   name: 'Funnels',
   description: 'Track marketing funnels with real numbers — opt-ins, conversions, revenue.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'database',
     guide: `## How this works
 
@@ -468,6 +473,7 @@ export const contentPipeline: TemplateDef = {
   name: 'Content Pipeline',
   description: 'Ideas rated, articles through an editorial board, organized by topic clusters.',
   category: 'agency',
+    industry: 'agencies',
   scope: 'pack',
   space: 'Content',
   guide: `## How this works

@@ -10,6 +10,7 @@ export const calendarDatabase: TemplateDef = {
   name: 'Calendar',
   description: 'A ready-to-sync event calendar with dates, notes, status and location.',
   category: 'marketing',
+    industry: 'general',
   scope: 'database',
   guide: `## Calendar database
 

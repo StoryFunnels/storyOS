@@ -7,6 +7,7 @@ export const orgChart: TemplateDef = {
   name: 'Org Chart',
   description: 'Teams, people and reporting lines — the company directory that stays current.',
   category: 'people',
+    industry: 'general',
   scope: 'pack',
   space: 'People',
   guide: `## How this works
@@ -66,6 +67,7 @@ export const timeOff: TemplateDef = {
   name: 'Time Off',
   description: 'Vacations, sick leave and overtime — who is out, when, and is it approved.',
   category: 'people',
+    industry: 'general',
   scope: 'pack',
   space: 'Time Off',
   guide: `## How this works

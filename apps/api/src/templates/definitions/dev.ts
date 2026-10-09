@@ -28,6 +28,7 @@ export const devProject: TemplateDef = {
   name: 'Dev Project',
   description: 'Issues with a Triage inbox, lightweight sprints, releases with changelogs, and specs.',
   category: 'dev',
+    industry: 'software',
   scope: 'pack',
   space: 'Product',
     guide: `## How this works
@@ -107,6 +108,7 @@ export const soloDev: TemplateDef = {
   name: 'Solo Dev',
   description: 'Issues + releases, zero ceremony — for shipping on vibes and a changelog.',
   category: 'dev',
+    industry: 'software',
   scope: 'pack',
   space: 'Product',
     guide: `## How this works

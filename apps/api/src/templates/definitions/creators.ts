@@ -8,6 +8,7 @@ export const coachingPractice: TemplateDef = {
   name: 'Coaching Practice',
   description: 'Clients, programs, sessions with notes, and action items — your whole practice, linked.',
   category: 'creators',
+    industry: 'professional-services',
   scope: 'pack',
   space: 'Coaching',
     guide: `## How this works
@@ -111,6 +112,7 @@ export const consulting: TemplateDef = {
   name: 'Consulting Engagements',
   description: 'Proposal pipeline, engagements with hours budgets, and delivery boards.',
   category: 'creators',
+    industry: 'professional-services',
   scope: 'pack',
   space: 'Consulting',
     guide: `## How this works
@@ -206,6 +208,7 @@ export const authorStudio: TemplateDef = {
   name: 'Author Studio',
   description: 'Books, a manuscript board of chapters, research notes, launch tasks, and appearances.',
   category: 'creators',
+    industry: 'media',
   scope: 'pack',
   space: 'Writing',
     guide: `## How this works

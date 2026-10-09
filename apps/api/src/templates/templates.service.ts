@@ -57,6 +57,7 @@ export class TemplatesService {
         name: t.name,
         description: t.description,
         category: t.category,
+        industry: t.industry,
         scope: t.scope,
         guide: t.guide ?? null,
         install_count: countBySlug.get(t.slug) ?? 0,

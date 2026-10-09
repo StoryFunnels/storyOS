@@ -11,6 +11,7 @@ export const meetings: TemplateDef = {
   name: 'Meetings & Action Items',
   description: 'Capture notes for any meeting and make sure action items actually get done.',
   category: 'marketing',
+    industry: 'general',
   scope: 'pack',
   space: 'Meetings',
   guide: `## How this works
@@ -79,6 +80,7 @@ export const customerJourney: TemplateDef = {
   name: 'Customer Journey Map',
   description: 'Map every stage of the customer experience and mine it for opportunities.',
   category: 'marketing',
+    industry: 'general',
   scope: 'pack',
   space: 'Customer Journey',
   guide: `## How this works
@@ -153,6 +155,7 @@ export const eventPlanning: TemplateDef = {
   name: 'Event Planning',
   description: 'Tasks, budget and timeline for events that actually run on time.',
   category: 'marketing',
+    industry: 'events',
   scope: 'pack',
   space: 'Events',
   guide: `## How this works
@@ -231,6 +234,7 @@ export const videoProduction: TemplateDef = {
   name: 'Video Production',
   description: 'From idea to published: scripts, shoots, edits and costs in one pipeline.',
   category: 'marketing',
+    industry: 'media',
   scope: 'pack',
   space: 'Video',
   guide: `## How this works
@@ -316,6 +320,7 @@ export const campaignsHq: TemplateDef = {
   name: 'Campaigns HQ',
   description: 'Brief, launch and measure marketing campaigns — objectives, audiences and metrics in one place.',
   category: 'marketing',
+    industry: 'general',
   scope: 'pack',
   space: 'Campaigns',
   guide: `## How this works
@@ -407,6 +412,7 @@ export const salesCrm: TemplateDef = {
   name: 'Sales CRM',
   description: 'Accounts, contacts and a real opportunity pipeline — lighter than a CRM, stronger than a spreadsheet.',
   category: 'marketing',
+    industry: 'general',
   scope: 'pack',
   space: 'Sales',
   guide: `## How this works

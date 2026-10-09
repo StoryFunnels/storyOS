@@ -1,4 +1,5 @@
 /** Template registry types (MN-033). Definitions are pure data; the installer resolves. */
+import type { TemplateIndustry } from '@storyos/schemas';
 
 export type TemplateCategory = 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
 export type TemplateScope = 'pack' | 'database';
@@ -84,6 +85,8 @@ export interface TemplateDef {
   name: string;
   description: string;
   category: TemplateCategory;
+  /** #586 — the industry axis, one value per template; `general` when it is useful in any industry. */
+  industry: TemplateIndustry;
   scope: TemplateScope;
   /** pack: the space it installs; database: ignored (installs into a chosen space) */
   space?: string;
