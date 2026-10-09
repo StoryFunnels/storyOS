@@ -239,7 +239,11 @@
    vars through @theme inline, so overriding the raw tokens here flips the whole app.
    The resolved theme ('light' | 'dark') is written to <html data-theme> before paint
    by the no-flash script in layout.tsx; 'system' resolves to one of the two. */
-:root[data-theme='dark'] {
+:root[data-theme='dark'],
+/* #721 — the same palette, scoped to ONE element: the form builder's embed preview
+   must render in the mode the host picked without turning the whole settings page
+   dark. Real pages still get it from <html data-theme>. */
+.theme-dark-scope {
   /* Surfaces — warm navy dark, not flat black */
   --bg-app: #0f131b;
   --bg-sidebar: #0b0e15;

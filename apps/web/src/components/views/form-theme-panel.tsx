@@ -10,6 +10,9 @@ import {
 } from '@/lib/embed-theme';
 import { EMBED_FONT_LABELS } from '@/lib/embed-fonts';
 import { Select } from '@/components/ui/select';
+import { Segmented } from '@/components/ui/segmented';
+import { EMBED_MODES, EMBED_MODE_HINTS, EMBED_MODE_LABELS, type EmbedMode } from '@/lib/embed-mode';
+import { cn } from '@/lib/utils';
 
 type Theme = NonNullable<NonNullable<ViewConfig['form']>['theme']>;
 
@@ -46,6 +49,16 @@ export function FormThemePanel({
   const font = theme?.font ?? '';
 
   const set = (patch: Partial<Theme>) => onChange({ ...(theme ?? {}), ...patch });
+  // #721 — Light is the DEFAULT and is stored as ABSENT, never as 'light', so an
+  // untouched theme stays byte-identical to today's (spec §2). Choosing Light after
+  // Dark therefore clears the key, and drops the whole theme if nothing else is set.
+  const mode: EmbedMode = theme?.mode === 'dark' ? 'dark' : 'light';
+  const setMode = (m: EmbedMode) => {
+    const next: Theme = { ...(theme ?? {}) };
+    if (m === 'dark') next.mode = 'dark';
+    else delete next.mode;
+    onChange(Object.keys(next).length > 0 ? next : undefined);
+  };
 
   const ratio = useMemo(() => contrastRatio(text, surface), [text, surface]);
   const uncomfortable = ratio < COMFORTABLE_CONTRAST;
@@ -73,6 +86,23 @@ export function FormThemePanel({
       <p className="text-label text-muted">
         Applies to the embedded form only. Your own copy of the form is unchanged.
       </p>
+
+      {/* #721 — the HOST picks light or dark; the visitor's device never does
+          (AC1, phase 0 of #711). Two choices only: following the visitor's device
+          was considered and dropped, because it hands a light page a dark form. */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="w-20 shrink-0 text-muted">Mode</span>
+          <Segmented
+            label="Embedded form mode"
+            size="sm"
+            value={mode}
+            onChange={setMode}
+            options={EMBED_MODES.map((m) => ({ value: m, label: EMBED_MODE_LABELS[m] }))}
+          />
+        </div>
+        <p className="text-label text-muted">{EMBED_MODE_HINTS[mode]}</p>
+      </div>
 
       <Swatch label="Accent" hint="button, links, focus ring" value={accent} onChange={(v) => set({ accent: v })} />
       <Swatch label="Surface" hint="input backgrounds" value={surface} onChange={(v) => set({ surface: v })} />
@@ -133,7 +163,18 @@ export function FormThemePanel({
         </div>
       )}
 
-      <div className="rounded-[var(--radius-control)] border border-border-default p-3" style={style}>
+      <div
+        // The preview resolves through the same tokens the real form does, in the
+        // mode the host picked — the whole argument for the preview is that nobody
+        // can predict a form from abstract controls, and mode is the largest change.
+        className={cn(
+          'rounded-[var(--radius-control)] border border-border-default p-3',
+          mode === 'dark' && 'theme-dark-scope bg-app',
+        )}
+        style={style}
+        data-testid="embed-preview"
+        data-mode={mode}
+      >
         <p className="mb-2 text-meta uppercase tracking-wider text-muted">Preview</p>
         <div className="flex flex-col gap-2 text-body">
           <span className="text-title font-semibold text-ink">Your form</span>
