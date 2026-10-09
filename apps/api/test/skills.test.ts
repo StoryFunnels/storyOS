@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { eq } from 'drizzle-orm';
+import { DB } from '../src/db/db.module';
+import type { Db } from '../src/db/client';
+import { user as userTable } from '../src/db/schema';
 
 let app: NestFastifyApplication;
 let owner: { token: string; email: string };
@@ -546,4 +550,34 @@ describe('#841 — members, public and version', () => {
     // The owner's view of the audience no longer names the erased person.
     expect((await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, member.token)).json().member_ids).not.toContain(cId);
   });
+  it('ERASURE POLICY: erasing an AUTHOR keeps the workspace\'s skill, keeps owner_id as a bare id, and that id now resolves to a tombstone with no PII', async () => {
+    const author = await signUpUser(app, 'SkillAuthorToErase');
+    await joinAsMember(author);
+    const authorId = (await inject('GET', '/me', undefined, author.token)).json().id;
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, base('Process that outlives its author'), author.token);
+    expect(made.statusCode, made.body).toBe(201);
+    const skillId = made.json().id;
+    expect(made.json().owner_id).toBe(authorId);
+
+    const members = (await inject('GET', `/workspaces/${wsId}/members`)).json();
+    const membership = (members.data ?? members).find((m: { user_id?: string; userId?: string }) => (m.user_id ?? m.userId) === authorId);
+    const erased = await inject('POST', `/workspaces/${wsId}/members/${membership.id}/gdpr/anonymize`);
+    expect(erased.statusCode, erased.body).toBeLessThan(300);
+
+    // A skill is the workspace's process, not the author's personal data: it is NOT deleted.
+    const still = await inject('GET', `/workspaces/${wsId}/skills/${skillId}`);
+    expect(still.statusCode).toBe(200);
+    expect(still.json().instructions).toBe(baseSkill.instructions);
+    // The author link stays a bare id...
+    expect(still.json().owner_id).toBe(authorId);
+    // ...and that id resolves to a tombstoned user row: nothing identifying is left to point at.
+    const row = await app.get<Db>(DB).query.user.findFirst({ where: eq(userTable.id, authorId) });
+    expect(row?.name).toBe('Deleted user');
+    expect(row?.email).toBe(`deleted-${authorId}@anonymized.invalid`);
+    expect(row?.image).toBeNull();
+    // Admins can still read and own the accountability: the skill remains editable by nobody
+    // but its (now unresolvable) owner, which is the "admins (author left)" state the design renders.
+    expect(still.json().editable).toBe(false);
+  });
 });
+
