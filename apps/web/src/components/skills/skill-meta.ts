@@ -65,6 +65,16 @@ export function narrowsAudience(from: SkillVisibility, to: SkillVisibility): boo
   return rank[to] < rank[from];
 }
 
+/**
+ * What changing the audience costs, said before it is changed. Leaving `public` has one more
+ * consequence than every other narrowing: the link stops working, for everyone who has it — which is
+ * what a person who pasted that link somewhere needs to hear (ticket #833 polish).
+ */
+export function narrowingMessage(from: SkillVisibility, to: SkillVisibility): string {
+  const base = `It will go from “${VISIBILITY_CHIP[from]}” to “${VISIBILITY_CHIP[to]}”. People who lose access, and their AI, can no longer find or run it.`;
+  return from === 'public' ? `${base} The public link stops working for everyone who has it.` : base;
+}
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

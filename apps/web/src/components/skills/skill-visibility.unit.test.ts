@@ -1,7 +1,7 @@
 import { skillVisibilitySchema } from '@storyos/schemas';
 import { describe, expect, it } from 'vitest';
 import { draftBody, draftFromSkill, draftProblem, draftFromTemplate } from './skill-editor';
-import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowsAudience, publicSkillUrl } from './skill-meta';
+import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillUrl } from './skill-meta';
 
 const tiers = skillVisibilitySchema.options;
 
@@ -72,5 +72,19 @@ describe('the editor draft', () => {
   it('round-trips a stored skill', () => {
     const d = draftFromSkill({ name: 'n', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'members', version: '1.0.0', member_ids: ['u1', 'u2'] } as never);
     expect(d).toMatchObject({ version: '1.0.0', member_ids: ['u1', 'u2'], visibility: 'members' });
+  });
+});
+
+describe('narrowingMessage (ticket #833 polish)', () => {
+  it('names the from and to tiers and what people lose', () => {
+    const m = narrowingMessage('shared', 'personal');
+    expect(m).toContain('“Workspace”');
+    expect(m).toContain('“Only me”');
+    expect(m).toMatch(/can no longer find or run it/);
+  });
+  it('says the public link stops working when leaving public, and only then', () => {
+    expect(narrowingMessage('public', 'shared')).toMatch(/public link stops working/);
+    expect(narrowingMessage('public', 'personal')).toMatch(/public link stops working/);
+    expect(narrowingMessage('shared', 'members')).not.toMatch(/link/);
   });
 });
