@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { isTypingTarget } from './shortcuts';
 
 /**
  * #834 — Esc closes the open RECORD, but only after every layer above it has had its Esc.
@@ -66,13 +67,6 @@ export function shouldCloseOnEscape(s: EscapeSnapshot): boolean {
 export function isEditorTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return Boolean(el && el.tagName && el.isContentEditable);
-}
-
-export function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el || !el.tagName) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el.isContentEditable);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { OPEN_LAYER_SELECTOR, escapeAction, hasOpenLayer, isTypingTarget, shouldCloseOnEscape } from './escape-layers';
+import { OPEN_LAYER_SELECTOR, escapeAction, hasOpenLayer, shouldCloseOnEscape } from './escape-layers';
+import { isTypingTarget } from './shortcuts';
 
 const base = {
   key: 'Escape',

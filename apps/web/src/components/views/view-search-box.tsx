@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
-import { useShortcut, useShortcutKeys } from '@/lib/shortcuts';
+import { isTypingTarget, useShortcut, useShortcutKeys } from '@/lib/shortcuts';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { queryBodyFromConfig, type FilterNode, type ViewConfig } from './use-view-state';
@@ -44,13 +44,10 @@ export function ViewSearchBox({
   const hint = useShortcutKeys('find');
 
   useShortcut('mod+f', (e) => {
-    const t = e.target as HTMLElement | null;
     // A text input, textarea or rich-text editor keeps the browser's find —
     // including THIS box: a second ⌘F while it is focused is the escape hatch
     // for people who want page find.
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) {
-      return;
-    }
+    if (isTypingTarget(e.target)) return;
     e.preventDefault();
     setOpen(true);
     // The input may not be mounted yet on the first press.
