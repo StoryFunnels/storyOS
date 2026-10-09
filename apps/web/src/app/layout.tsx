@@ -4,6 +4,7 @@ import Script from 'next/script';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './fonts/fonts.css';
+import figtreeLatin from './fonts/figtree-latin.woff2';
 import './globals.css';
 
 /*
@@ -11,6 +12,13 @@ import './globals.css';
  * `next/font/google`, so the build makes no third-party network call. The old
  * loaders declared Figtree plus the six embed families (#720); fonts.css declares the
  * same seven under the same CSS variable names, so nothing downstream changed.
+ *
+ * #855 — `next/font` used to emit a <link rel="preload"> for Figtree's Latin file and plain
+ * @font-face does not, so on a cold load the browser met the font only when layout needed it
+ * and showed the fallback face for one round trip (measured on the ticket: ~120 ms at 100 ms RTT,
+ * 4-11 ms on localhost). The preload below restores it for ONLY that one file: not the family,
+ * not the other six embed families, not the other subsets. It is imported (not hand-typed) so its
+ * URL is the same content-hashed file the @font-face rule fetches, which makes it one request.
  */
 
 export const metadata: Metadata = {
@@ -51,6 +59,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="preload" href={figtreeLatin.src} as="font" type="font/woff2" crossOrigin="anonymous" />
         {/* Resolve + apply the saved theme before paint so there's no light flash
             (#30). next/script's beforeInteractive strategy, not a raw <script> tag —
             #486: React warns "Encountered a script tag while rendering React

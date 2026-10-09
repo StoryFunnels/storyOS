@@ -112,3 +112,18 @@ describe('no comment describes the removed next/font/google mechanism (ticket #8
     expect(readFileSync(join(src, 'lib/embed-fonts.ts'), 'utf8')).not.toMatch(/next\/font\/google/);
   });
 });
+
+describe('exactly one font is preloaded: Figtree Latin (ticket #855)', () => {
+  const layout = readFileSync(join(src, 'app/layout.tsx'), 'utf8');
+  const markup = strip(layout);
+  it('preloads Figtree\u2019s Latin file, imported so it is the same hashed file the @font-face fetches', () => {
+    expect(markup).toMatch(/import figtreeLatin from '\.\/fonts\/figtree-latin\.woff2'/);
+    expect(markup).toMatch(/<link rel="preload" href=\{figtreeLatin\.src\} as="font" type="font\/woff2" crossOrigin="anonymous" \/>/);
+    expect(css).toContain("url('./figtree-latin.woff2')");
+  });
+  it('preloads nothing else (not the family, not the other subsets or families)', () => {
+    expect((markup.match(/rel="preload"/g) ?? []).length).toBe(1);
+    const imports = [...markup.matchAll(/from '\.\/fonts\/([^']+\.woff2)'/g)].map((m) => m[1]);
+    expect(imports).toEqual(['figtree-latin.woff2']);
+  });
+});
