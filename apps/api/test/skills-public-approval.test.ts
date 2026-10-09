@@ -141,6 +141,56 @@ describe('#867 AC3 — an AI asking for `public` raises a proposal; nothing is p
   });
 });
 
+describe('#869 — a decided public-skill approval refuses the opposite decision, and the SKILL\'s state is asserted, not just the approval\'s', () => {
+  it('Reject AFTER Approve: refused 409 with a reason; the skill is STILL public with the SAME token; the approval stays approved', async () => {
+    const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('regretted approval', { visibility: 'public' }));
+    const approvalId = made.json().pending_approval.id as string;
+    expect((await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/approve`)).statusCode).toBeLessThan(300);
+    await jobs.tick();
+    const before = await stored(made.json().id);
+    expect(before.visibility).toBe('public');
+    expect(before.publicToken).toBeTruthy();
+
+    const late = await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/reject`, { reason: 'oops' });
+    expect(late.statusCode, late.body).toBe(409);
+    expect(late.json().error.message, 'tells the person it was NOT undone').toMatch(/already approved/i);
+    await jobs.tick();
+    const after = await stored(made.json().id);
+    expect(after.visibility, 'the skill is STILL public: a Reject that "worked" would have lied').toBe('public');
+    expect(after.publicToken, 'and the link is unchanged').toBe(before.publicToken);
+    expect((await approvalRow(approvalId)).status).toBe('approved');
+    // The unauthenticated link still reads (this is exactly what a regretful person must understand).
+    expect((await app.inject({ method: 'GET', url: `/api/v1/public/skills/${before.publicToken}` })).statusCode).toBe(200);
+  });
+
+  it('Approve AFTER Reject: refused 409; the skill never becomes public, no token, even after a job tick', async () => {
+    const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('rejected then approved', { visibility: 'public' }));
+    const approvalId = made.json().pending_approval.id as string;
+    expect((await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/reject`, { reason: 'no' })).statusCode).toBeLessThan(300);
+    const late = await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/approve`);
+    expect(late.statusCode, late.body).toBe(409);
+    expect(late.json().error.message).toMatch(/already rejected/i);
+    await jobs.tick();
+    const row = await stored(made.json().id);
+    expect(row.visibility).toBe('personal');
+    expect(row.publicToken).toBeNull();
+    expect((await approvalRow(approvalId)).status).toBe('rejected');
+  });
+
+  it('Approve twice with the same token is idempotent by design (a double click), and mints ONE link', async () => {
+    const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('double approve', { visibility: 'public' }));
+    const approvalId = made.json().pending_approval.id as string;
+    const a = await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/approve`);
+    const b = await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalId}/approve`);
+    expect(a.statusCode).toBeLessThan(300);
+    expect(b.statusCode).toBeLessThan(300);
+    await jobs.tick();
+    const first = (await stored(made.json().id)).publicToken;
+    await jobs.tick();
+    expect((await stored(made.json().id)).publicToken, 'the token did not change').toBe(first);
+  });
+});
+
 describe('#867 AC10 — fail closed: with NO approval path registered, `public` from a token is a 403, never an allow', () => {
   it('unregistered gate -> 403 on create and update, nothing created or changed; re-registering restores the proposal', async () => {
     const svc = app.get(SkillsService);
