@@ -13,6 +13,7 @@ import { recordSegment } from '@/lib/records';
 import { recordBreadcrumb } from '@/components/entity/mention-items';
 import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
+import { stepIndex } from '@/lib/list-nav';
 import { cn } from '@/lib/utils';
 
 interface RecordHit {
@@ -317,10 +318,10 @@ export function CommandPalette() {
               }
               else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setIndex((i) => (rows.length ? (i + 1) % rows.length : 0));
+                setIndex((i) => stepIndex(i, 1, rows.length));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setIndex((i) => (rows.length ? (i - 1 + rows.length) % rows.length : 0));
+                setIndex((i) => stepIndex(i, -1, rows.length));
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 rows[index]?.run();

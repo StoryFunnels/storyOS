@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -10,6 +10,12 @@ import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { queryBodyFromConfig, type FilterNode, type ViewConfig } from './use-view-state';
 import { normalizeSearch, setViewSearch, useViewSearchText } from './view-search';
+import { stepIndex } from '@/lib/list-nav';
+import { useRecordCount, useRecordsInfinite } from '@/components/table-view/use-table-data';
+
+/** How many matches the results list shows. Narrowing the text reaches the rest;
+ * the list says how many more there are rather than pretending it is complete. */
+const FIND_RESULT_LIMIT = 8;
 
 /**
  * #835 — "find in this view": ⌘/Ctrl+F opens this box, typing narrows the view's
@@ -43,6 +49,21 @@ export function ViewSearchBox({
   const openRecord = useOpenRecord();
   const hint = useShortcutKeys('find');
 
+  // #838 — the matches, for ↑/↓ + Enter. The SAME server-side query the view
+  // itself runs (view filters + personal filter + sort + q), capped small, so it
+  // reaches rows that were never paged in and agrees with what the view shows.
+  const q = normalizeSearch(text);
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [q]); // a new search starts back on the first match
+  const matchBody = useMemo(
+    (): Record<string, unknown> | undefined =>
+      q ? { ...queryBodyFromConfig(config, personalFilter, q), limit: FIND_RESULT_LIMIT } : undefined,
+    [config, personalFilter, q],
+  );
+  const matchQuery = useRecordsInfinite(ws, db, matchBody, Boolean(q));
+  const matches = q ? (matchQuery.data?.pages[0]?.data ?? []) : [];
+  const totalMatches = useRecordCount(ws, db, matchBody?.['filter'], Boolean(q), q).data;
+
   useShortcut('mod+f', (e) => {
     const t = e.target as HTMLElement | null;
     // A text input, textarea or rich-text editor keeps the browser's find —
@@ -65,6 +86,14 @@ export function ViewSearchBox({
   // user cannot see is the worse failure.
   useEffect(() => () => setViewSearch(db, ''), [db]);
 
+  function openRow(row: { id: string; title?: string | null; number?: number | null }) {
+    openRecord(
+      { db, rec: recordSegment(row), title: row.title ?? '', number: row.number ?? undefined },
+      { button: 0, preventDefault: () => {} },
+      () => router.push(recordHref(ws, db, row)),
+    );
+  }
+
   async function openFirstMatch() {
     const q = normalizeSearch(text);
     if (!q) return;
@@ -79,11 +108,7 @@ export function ViewSearchBox({
     if (error) return;
     const first = (data as unknown as { data: Array<{ id: string; title?: string | null; number?: number | null }> }).data[0];
     if (!first) return;
-    openRecord(
-      { db, rec: recordSegment(first), title: first.title ?? '', number: first.number ?? undefined },
-      { button: 0, preventDefault: () => {} },
-      () => router.push(recordHref(ws, db, first)),
-    );
+    openRow(first);
   }
 
   function close() {
@@ -113,7 +138,7 @@ export function ViewSearchBox({
   return (
     <div
       className={cn(
-        'flex items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5',
+        'relative flex items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5',
         'focus-within:border-accent',
       )}
     >
@@ -131,12 +156,26 @@ export function ViewSearchBox({
             e.preventDefault();
             e.stopPropagation();
             close();
+          } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            // Nothing to move through: leave the key to the page.
+            if (matches.length === 0) return;
+            e.preventDefault();
+            setActive((i) => stepIndex(i, e.key === 'ArrowDown' ? 1 : -1, matches.length));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            void openFirstMatch();
+            // The highlighted match; with no arrow pressed that is the FIRST one,
+            // exactly what #835 shipped. If the list has not loaded yet, fall back
+            // to asking the server for the first match, as before.
+            const row = matches[active];
+            if (row) openRow(row);
+            else void openFirstMatch();
           }
         }}
         placeholder="Find in this view…"
+        role="combobox"
+        aria-expanded={matches.length > 0}
+        aria-controls="find-results"
+        aria-activedescendant={matches[active] ? `find-result-${matches[active]!.id}` : undefined}
         aria-label="Find in this view"
         className="w-44 bg-transparent text-body text-ink outline-none placeholder:text-muted"
       />
@@ -149,6 +188,44 @@ export function ViewSearchBox({
       >
         <X className="h-3 w-3" />
       </button>
+
+      {q && matches.length > 0 && (
+        <ul
+          id="find-results"
+          role="listbox"
+          aria-label="Matching records"
+          className="absolute left-0 top-full z-[var(--z-popover)] mt-1 w-72 overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[var(--shadow-palette)]"
+        >
+          {matches.map((row, i) => (
+            <li key={row.id} role="presentation">
+              <button
+                type="button"
+                id={`find-result-${row.id}`}
+                role="option"
+                aria-selected={i === active}
+                // Keep focus in the box: clicking a result must not blur the input
+                // (the typing stays live) before the open handler runs.
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseMove={() => setActive(i)}
+                onClick={() => openRow(row)}
+                // The palette's own highlight, so the two result lists look alike.
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink',
+                  i === active ? 'bg-accent-soft' : 'hover:bg-hover',
+                )}
+              >
+                {row.number != null && <span className="shrink-0 text-meta text-muted">#{row.number}</span>}
+                <span className="min-w-0 flex-1 truncate font-medium">{row.title || 'Untitled'}</span>
+              </button>
+            </li>
+          ))}
+          {totalMatches !== undefined && totalMatches > matches.length && (
+            <li role="presentation" className="px-2 py-1 text-meta text-muted">
+              + {totalMatches - matches.length} more — keep typing to narrow
+            </li>
+          )}
+        </ul>
+      )}
     </div>
   );
 }
