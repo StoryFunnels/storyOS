@@ -102,3 +102,24 @@ describe('#852 — backlinks (GET .../backlinks)', () => {
     });
   }
 });
+
+describe('#852 — cursors minted before this change still resume', () => {
+  it('runs: the old { createdAt, id } millisecond cursor is accepted, and an unparseable one is ignored as before', async () => {
+    const first = (await as('GET', `/workspaces/${wsId}/runs?limit=2`)).json();
+    const last = first.data[first.data.length - 1];
+    const legacy = Buffer.from(JSON.stringify({ createdAt: new Date(last.started_at).toISOString(), id: last.id })).toString('base64url');
+    const res = await as('GET', `/workspaces/${wsId}/runs?limit=50&cursor=${legacy}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await as('GET', `/workspaces/${wsId}/runs?limit=2&cursor=%25%25`)).statusCode).toBe(200);
+  });
+
+  it('backlinks: the old cursor is accepted, and an unparseable one is still a 422 (this endpoint never ignored it)', async () => {
+    const url = `/workspaces/${wsId}/databases/${dbId}/records/${targetId}/backlinks`;
+    const page = (await as('GET', `${url}?limit=2`)).json();
+    expect(page.next_cursor).toBeTruthy();
+    const decoded = JSON.parse(Buffer.from(page.next_cursor, 'base64url').toString()) as { t: string; id: string };
+    const legacy = Buffer.from(JSON.stringify({ createdAt: new Date(decoded.t).toISOString(), id: decoded.id })).toString('base64url');
+    expect((await as('GET', `${url}?limit=50&cursor=${legacy}`)).statusCode).toBe(200);
+    expect((await as('GET', `${url}?limit=2&cursor=%25%25`)).statusCode).toBe(422);
+  });
+});
