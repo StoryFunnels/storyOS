@@ -7,6 +7,7 @@ import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as Inbox
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
@@ -194,6 +195,7 @@ export default function InboxPage() {
                   <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
                   {NOTIFICATION_VERBS[n.type]}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
+                  {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                 </span>
                 {n.record ? (
                   <span
@@ -348,6 +350,7 @@ export default function InboxPage() {
                   approval to decide (no record required — a webhook-
                   triggered gated action has none). */}
               {selected.type === 'action_approval_requested' && selected.ref_id && (
+                <ApprovalGate ws={ws} approvalId={selected.ref_id}>
                 <div className="mt-4 flex flex-col gap-2">
                   <Textarea
                     value={rejectReason}
@@ -383,6 +386,7 @@ export default function InboxPage() {
                     </button>
                   </div>
                 </div>
+                </ApprovalGate>
               )}
             </div>
           )}
