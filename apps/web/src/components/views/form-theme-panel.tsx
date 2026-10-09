@@ -13,6 +13,7 @@ import { Select } from '@/components/ui/select';
 import { Segmented } from '@/components/ui/segmented';
 import { EMBED_MODES, EMBED_MODE_HINTS, EMBED_MODE_LABELS, type EmbedMode } from '@/lib/embed-mode';
 import { cn } from '@/lib/utils';
+import { EmbedFormPreview } from './form-theme-preview';
 
 type Theme = NonNullable<NonNullable<ViewConfig['form']>['theme']>;
 
@@ -176,16 +177,7 @@ export function FormThemePanel({
         data-mode={mode}
       >
         <p className="mb-2 text-meta uppercase tracking-wider text-muted">Preview</p>
-        <div className="flex flex-col gap-2 text-body">
-          <span className="text-title font-semibold text-ink">Your form</span>
-          <span className="text-label text-muted">A short description under the title.</span>
-          <span className="text-label font-medium text-ink-secondary">Email</span>
-          <div className="h-8 rounded-[var(--radius-control)] border border-border-strong bg-card" />
-          <span className="text-meta text-muted">Help text under the field.</span>
-          <div className="mt-1 rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-center text-body font-medium text-[var(--text-on-dark)]">
-            Submit
-          </div>
-        </div>
+        <EmbedFormPreview />
       </div>
     </section>
   );
