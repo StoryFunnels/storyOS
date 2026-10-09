@@ -485,24 +485,34 @@ describe('#841 — members, public and version', () => {
     expect((await inject('GET', `/workspaces/${wsId}/grants`)).json()).toEqual(before);
   });
 
-  it('an agent credential cannot create or promote to members/public, nor name people', async () => {
+  it('an agent credential cannot create or promote to members, nor name people; `public` is only a PROPOSAL a person approves (#867 AC3)', async () => {
     const mint = await inject('POST', '/me/tokens', { name: 'tiers-test', workspace_id: wsId });
     const token = mint.json().token as string;
     const asAgent = (method: string, url: string, payload?: unknown) => inject(method, url, payload, token);
     for (const body of [
       { ...base('Agent members'), visibility: 'members' },
-      { ...base('Agent public'), visibility: 'public' },
       { ...base('Agent named'), visibility: 'members', member_ids: [bId] },
     ]) {
       expect((await asAgent('POST', `/workspaces/${wsId}/skills`, body)).statusCode, JSON.stringify(body)).toBe(403);
     }
+    // `public`: not refused, not granted: a personal skill plus a pending approval, no link.
+    const proposal = await asAgent('POST', `/workspaces/${wsId}/skills`, { ...base('Agent public'), visibility: 'public' });
+    expect(proposal.statusCode, proposal.body).toBe(201);
+    expect(proposal.json().visibility).toBe('personal');
+    expect(proposal.json().pending_approval?.id).toBeTruthy();
     const mine = await asAgent('POST', `/workspaces/${wsId}/skills`, base('Agent default'));
     expect(mine.statusCode, mine.body).toBe(201);
-    for (const patch of [{ visibility: 'members' }, { visibility: 'public' }, { member_ids: [bId] }]) {
+    for (const patch of [{ visibility: 'members' }, { member_ids: [bId] }]) {
       expect((await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, patch)).statusCode, JSON.stringify(patch)).toBe(403);
     }
-    // Control: the owner (a person) CAN do the same to the same skill.
-    expect((await inject('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, { visibility: 'public' })).statusCode).toBeLessThan(300);
+    const toPublic = await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, { visibility: 'public' });
+    expect(toPublic.statusCode, toPublic.body).toBe(200);
+    expect(toPublic.json().visibility, 'unchanged until a person approves').toBe('shared');
+    expect(toPublic.json().pending_approval?.id).toBeTruthy();
+    // Control: the owner (a person) CAN do the same to the same skill, at once, with no approval.
+    const direct = await inject('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, { visibility: 'public' });
+    expect(direct.statusCode).toBeLessThan(300);
+    expect(direct.json().visibility).toBe('public');
   });
 
   it('public: a server-minted link, an unauthenticated read of portable fields only, and revocation that is immediate', async () => {

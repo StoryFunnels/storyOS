@@ -33,6 +33,22 @@ type SkillRow = typeof skills.$inferSelect;
  */
 export type SkillView = SkillSummary & { allowed_tools: string[] };
 
+/**
+ * #867 AC3 — how an AI's request to make a skill PUBLIC becomes a person's decision. Registered by
+ * the automations module at boot (it owns approvals; importing it here would be a module cycle).
+ * No gate registered means NO path to `public` for a non-human author: fail closed, a 403 exactly
+ * as before #867. That is the one ordering rule that must never break (ticket #867 AC10).
+ */
+export interface PublicPublishGate {
+  propose(input: {
+    workspaceId: string;
+    skillId: string;
+    skillName: string;
+    ownerId: string;
+    requesterSource: ChangeSource;
+  }): Promise<{ approvalId: string }>;
+}
+
 /** Strip the retired `allowed_tools` from anything that crosses the API boundary. */
 export function publicSkill<T extends { allowed_tools?: unknown }>(skill: T): Omit<T, 'allowed_tools'> {
   const { allowed_tools: _retired, ...rest } = skill;
@@ -213,6 +229,27 @@ export class SkillsService {
     return (await this.presentAll([row], membership, userId))[0]!;
   }
 
+  private publicGate: PublicPublishGate | null = null;
+
+  registerPublicGate(gate: PublicPublishGate | null): void {
+    this.publicGate = gate;
+  }
+
+  /** Called ONLY by an approved `skill_publish_public` job: a person said yes to this one skill. */
+  async applyApprovedPublic(workspaceId: string, skillId: string): Promise<void> {
+    const row = await this.db.query.skills.findFirst({
+      where: and(eq(skills.id, skillId), eq(skills.workspaceId, workspaceId)),
+    });
+    if (!row) return; // deleted while the approval was pending: nothing to publish
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(skills)
+        .set({ visibility: 'public', publicToken: row.publicToken ?? this.mintPublicToken() })
+        .where(eq(skills.id, skillId));
+      await tx.delete(skillMembers).where(eq(skillMembers.skillId, skillId));
+    });
+  }
+
   /**
    * Who may publish a skill at which tier, for a non-human author (a token or a connected AI).
    *
@@ -229,16 +266,20 @@ export class SkillsService {
     workspaceId: string,
     source: ChangeSource,
     visibility: SkillVisibility,
-  ): Promise<void> {
-    if (visibility === 'personal' || source === 'human') return;
+  ): Promise<'ok' | 'needs_approval'> {
+    if (visibility === 'personal' || source === 'human') return 'ok';
+    // #867 AC3 — `public` from a non-human author is NOT refused and NOT granted: it becomes a
+    // proposal a person approves. Only when the approval path exists; otherwise it falls through
+    // to the 403 below (the safe state).
+    // Switched OFF means OFF (#867 AC4: exactly #1011's behaviour): no proposal either.
+    if (visibility === 'public' && this.publicGate && (await this.agentsMayPublish(workspaceId))) return 'needs_approval';
     // #848/#867 — the ONE exception: a non-human author may publish at `shared` unless a person
     // switched that off for the workspace (`agents_may_publish_skills: false`, settable only from a
-    // human-sourced request). EXACTLY `shared`. `members` (naming people) and `public`
-    // (an unauthenticated URL) stay human-only whatever the setting says; written as an equality,
-    // not "anything up to shared", so a tier added later is gated by default and the setting
-    // cannot silently widen to cover it. (A per-action approval path for `public` via MCP is #867
-    // AC3 and is NOT built: it depends on #859, and until it exists `public` here is a 403.)
-    if (visibility === 'shared' && (await this.agentsMayPublish(workspaceId))) return;
+    // human-sourced request). EXACTLY `shared`. `members` (naming people) stays human-only whatever
+    // the setting says, and `public` (an unauthenticated URL) is only ever a PROPOSAL a person
+    // approves (above); written as an equality, not "anything up to shared", so a tier added later
+    // is gated by default and the setting cannot silently widen to cover it.
+    if (visibility === 'shared' && (await this.agentsMayPublish(workspaceId))) return 'ok';
     // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
     // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
     // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
@@ -282,10 +323,14 @@ export class SkillsService {
     // an admin switched agent publishing OFF for the workspace, in which case it is `personal`
     // (#848). Demanding the flag on every call would re-impose the friction the founder's ruling
     // removes. Still the single place an omitted visibility is decided; do not add a second resolver.
-    const visibility: SkillVisibility =
+    const requested: SkillVisibility =
       input.visibility ??
       (source === 'human' || (await this.agentsMayPublish(membership.workspaceId)) ? 'shared' : 'personal');
-    await this.assertMayPublish(membership.workspaceId, source, visibility);
+    const outcome = await this.assertMayPublish(membership.workspaceId, source, requested);
+    // #867 AC3: an AI that asked for `public` gets a PERSONAL skill now and a proposal a person
+    // approves; it is never public, and never workspace-visible meanwhile, until that decision.
+    const needsApproval = outcome === 'needs_approval';
+    const visibility: SkillVisibility = needsApproval ? 'personal' : requested;
     // Naming people to share with is itself a publication (see assertMayPublish).
     if (input.member_ids?.length) await this.assertMayPublish(membership.workspaceId, source, 'members');
     if (input.member_ids !== undefined && visibility !== 'members') {
@@ -320,7 +365,26 @@ export class SkillsService {
       }
       return inserted;
     });
-    return (await this.presentAll([row!], membership, userId))[0]!;
+    const view = (await this.presentAll([row!], membership, userId))[0]!;
+    return needsApproval ? this.withProposal(view, membership.workspaceId, row!, userId, source) : view;
+  }
+
+  /** Raises the person-approved `public` proposal and returns the view with its id attached. */
+  private async withProposal(
+    view: SkillView,
+    workspaceId: string,
+    row: SkillRow,
+    ownerId: string,
+    source: ChangeSource,
+  ): Promise<SkillView> {
+    const { approvalId } = await this.publicGate!.propose({
+      workspaceId,
+      skillId: row.id,
+      skillName: row.name,
+      ownerId,
+      requesterSource: source,
+    });
+    return { ...view, pending_approval: { id: approvalId } };
   }
 
   /**
@@ -377,9 +441,16 @@ export class SkillsService {
     // Promoting an existing skill to `shared` is the same decision as creating
     // one shared, so it meets the same gate — otherwise the create-side rule is
     // one PATCH away from being decorative.
-    if (input.visibility !== undefined) await this.assertMayPublish(membership.workspaceId, source, input.visibility);
+    const outcome =
+      input.visibility !== undefined
+        ? await this.assertMayPublish(membership.workspaceId, source, input.visibility)
+        : 'ok';
     if (input.member_ids !== undefined) await this.assertMayPublish(membership.workspaceId, source, 'members');
-    const nextVisibility = input.visibility ?? existing.visibility;
+    // #867 AC3: a non-human `public` request changes NOTHING about visibility now; it raises the
+    // proposal (unless the skill is already public) and the rest of the edit still applies.
+    const proposePublic = outcome === 'needs_approval' && existing.visibility !== 'public';
+    const effectiveVisibility = outcome === 'needs_approval' ? undefined : input.visibility;
+    const nextVisibility = effectiveVisibility ?? existing.visibility;
     if (input.member_ids !== undefined && nextVisibility !== 'members') {
       throw new UnprocessableEntityException({
         message: '`member_ids` only applies to a skill whose visibility is `members`.',
@@ -395,7 +466,7 @@ export class SkillsService {
     if (input.when_to_use !== undefined) patch.whenToUse = input.when_to_use;
     if (input.instructions !== undefined) patch.instructions = input.instructions;
     if (input.examples !== undefined) patch.examples = input.examples;
-    if (input.visibility !== undefined) patch.visibility = input.visibility;
+    if (effectiveVisibility !== undefined) patch.visibility = effectiveVisibility;
     // The public link is a credential: minted when a skill BECOMES public, and cleared the
     // instant it stops being public, so revoking is effective immediately (a link that
     // outlived `public` and silently worked again on a re-share would be a standing leak).
@@ -413,7 +484,8 @@ export class SkillsService {
       }
       return updated;
     });
-    return (await this.presentAll([row!], membership, userId))[0]!;
+    const view = (await this.presentAll([row!], membership, userId))[0]!;
+    return proposePublic ? this.withProposal(view, membership.workspaceId, row!, userId, source) : view;
   }
 
   /**

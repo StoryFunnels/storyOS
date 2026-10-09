@@ -87,22 +87,25 @@ describe('#867 AC1/AC2 — in a workspace NO setting was ever touched, an agent 
   });
 });
 
-describe('#867 AC3 (deferred) — members and public stay human-only; a token gets a 403, never a silent success', () => {
-  it('on create and update, with the default ON: stored row unchanged, no public link minted, naming people refused', async () => {
+describe('#867 AC3 — `members` stays human-only; `public` from a token is a PROPOSAL, never a silent success (full flow: skills-public-approval.test.ts)', () => {
+  it('with the default ON: members refused (create, update, naming people); public changes nothing by itself: personal/unchanged, no link minted', async () => {
     for (const t of [patA, agentA]) {
-      for (const visibility of ['public', 'members']) {
-        const res = await call(t, 'POST', `/workspaces/${wsA}/skills`, skill(`no ${visibility}`, { visibility, member_ids: visibility === 'members' ? [adminId] : undefined }));
-        expect(res.statusCode, `${visibility}: ${res.body}`).toBe(403);
-      }
+      const members = await call(t, 'POST', `/workspaces/${wsA}/skills`, skill('no members', { visibility: 'members', member_ids: [adminId] }));
+      expect(members.statusCode, members.body).toBe(403);
       const named = await call(t, 'POST', `/workspaces/${wsA}/skills`, skill('shared but named', { visibility: 'shared', member_ids: [adminId] }));
       expect(named.statusCode, named.body).not.toBe(201);
+      const pub = await call(t, 'POST', `/workspaces/${wsA}/skills`, skill('proposal only', { visibility: 'public' }));
+      expect(pub.statusCode, pub.body).toBe(201);
+      expect(pub.json().visibility).toBe('personal');
+      const row = await db.query.skills.findFirst({ where: eq(skills.id, pub.json().id) });
+      expect(row!.publicToken, 'no public link without a person').toBeNull();
     }
     const mine = await call(patA, 'POST', `/workspaces/${wsA}/skills`, skill('to widen'));
-    for (const visibility of ['public', 'members']) {
-      expect((await call(patA, 'PATCH', `/workspaces/${wsA}/skills/${mine.json().id}`, { visibility })).statusCode, visibility).toBe(403);
-    }
+    expect((await call(patA, 'PATCH', `/workspaces/${wsA}/skills/${mine.json().id}`, { visibility: 'members' })).statusCode).toBe(403);
+    const toPublic = await call(patA, 'PATCH', `/workspaces/${wsA}/skills/${mine.json().id}`, { visibility: 'public' });
+    expect(toPublic.statusCode, toPublic.body).toBe(200);
     const stored = await db.query.skills.findFirst({ where: eq(skills.id, mine.json().id) });
-    expect(stored!.visibility).toBe('shared');
+    expect(stored!.visibility, 'unchanged until a person approves').toBe('shared');
     expect(stored!.publicToken).toBeNull();
   });
 });

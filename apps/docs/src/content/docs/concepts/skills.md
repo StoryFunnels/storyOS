@@ -54,10 +54,15 @@ so anyone reading a skill can see where it came from.
   be changed through an API token or a connected AI, even one acting for an admin.
 - **Skills that were already personal stay personal.** Switching anything does not widen an existing
   skill. Its owner can share it from the Skills library, or ask their AI to.
-- **Public links and sharing with chosen people are a person's decision.** An AI acting alone cannot
-  make a skill public or share it with named people: such a request is refused. A person does it in
-  the Skills library. (Letting a person approve an AI's proposal to make a skill public is planned,
-  not built yet.)
+- **Making a skill public needs a person to approve it.** An AI can *ask* for a skill to be public
+  (anyone with the link), but asking does not make it public. It creates an approval, the skill stays
+  as it was, and the person whose AI asked gets it in the **Inbox** in the StoryOS app. The skill
+  becomes public only when that person approves it there. The AI cannot approve it, even one acting
+  for an admin: approvals are made by people in the app, not through an API token or a connected AI.
+  If an admin has switched AI sharing off, an AI cannot ask at all. When a person makes a skill
+  public themselves, in the Skills library, no approval is needed.
+- **Sharing with chosen people only is a person's decision.** An AI cannot do it; such a request is
+  refused.
 
 Because an AI can now share a skill without a person reading it first, treat the AI-written mark as
 the signal: a skill with it was not typed by a person.

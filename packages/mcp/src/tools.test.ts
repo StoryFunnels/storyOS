@@ -2865,7 +2865,7 @@ describe('#442 — skill authoring tools', () => {
     return { call, sent, handlers, configs };
   }
 
-  it('create_skill sends NO visibility unless asked (the server decides the default), offers only personal|shared, and never public or members', async () => {
+  it('create_skill sends NO visibility unless asked (the server decides the default), offers personal|shared|public (public is only a proposal) and never members', async () => {
     const { call, sent, configs } = harness();
     await call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i' });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
@@ -2877,14 +2877,16 @@ describe('#442 — skill authoring tools', () => {
     await call('create_skill', { workspace: 'Eng', name: 'n2', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'personal' });
     expect(sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!.body!.visibility).toBe('personal');
 
-    // The tiers a person owns are not even expressible by a model: the argument's own schema refuses them.
+    // Naming people is not even expressible by a model: the argument's own schema refuses it.
     for (const tool of ['create_skill', 'update_skill']) {
       type Arg = { safeParse: (v: unknown) => { success: boolean } };
       const schema = configs.get(tool)!.inputSchema as unknown as { shape?: Record<string, Arg> } & Record<string, Arg>;
       const arg = (schema.shape ?? schema)['visibility']!;
       expect(arg.safeParse('personal').success, `${tool} personal`).toBe(true);
       expect(arg.safeParse('shared').success, `${tool} shared`).toBe(true);
-      for (const tier of ['public', 'members']) expect(arg.safeParse(tier).success, `${tool} ${tier}`).toBe(false);
+      // `public` is offered but is only a proposal a person approves; `members` is not expressible.
+      expect(arg.safeParse('public').success, `${tool} public`).toBe(true);
+      expect(arg.safeParse('members').success, `${tool} members`).toBe(false);
     }
   });
 

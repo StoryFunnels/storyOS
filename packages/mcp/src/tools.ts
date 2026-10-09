@@ -900,16 +900,19 @@ function scopeExclusions(effective: EffectiveScope): string {
  * Register the tool catalog (MN-076), trimmed to what the credential can do (MN-134).
  * `effective` comes from GET /me; a session/OAuth login (or a /me hiccup) is full admin.
  */
-/** The only two tiers a tool may ask for. `members` and `public` are deliberately not offered: the server
- *  refuses them for a non-human author (a person does those in the Skills library). */
+/** The tiers a tool may ask for. `members` (naming people) is deliberately absent: the server refuses it for
+ *  a non-human author. `public` is offered but is only a PROPOSAL: a person approves it in the app (#867). */
 const skillTierArg = z
-  .enum(['personal', 'shared'])
+  .enum(['personal', 'shared', 'public'])
   .optional()
   .describe(
-    'Who can see it: `shared` (the whole workspace; the default) or `personal` (only the token owner). Not offered: public links and sharing with chosen people, which a person does in the Skills library.',
+    'Who can see it: `shared` (the whole workspace; the default), `personal` (only the token owner), or `public` (anyone with a link). `public` is NOT applied by this call: it raises an approval that a PERSON must give in the StoryOS app (Inbox); until then the skill stays as it was. Sharing with chosen people only is not offered.',
   );
 
-function skillVisibilityNote(visibility: string): string {
+function skillVisibilityNote(visibility: string, pendingApprovalId?: string): string {
+  if (pendingApprovalId) {
+    return `NOT public yet: a person must approve this in the StoryOS app (Inbox, approval ${pendingApprovalId}). It stays ${visibility} until they do, and you cannot approve it: approvals are made by people only.`;
+  }
   return visibility === 'shared'
     ? "Shared with the whole workspace and recorded as agent-authored: every member's AI can find it with list_skills and may run it. Pass visibility \"personal\" (create_skill / update_skill) to keep one private."
     : 'Personal to you and recorded as agent-authored. Teammates cannot see it (an admin switched AI publishing off, or you asked for personal).';
@@ -5529,6 +5532,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     updated_at: string;
     last_run_at: string | null;
     last_run_status: 'ok' | 'error' | null;
+    /** #867 AC3: present when `public` was asked for: a person still has to approve it. */
+    pending_approval?: { id: string };
   }
 
   /** One shape for a skill however you touched it, same reasoning as #343's
@@ -5552,6 +5557,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     editable: s.editable,
     last_run_at: s.last_run_at ?? null,
     last_run_status: s.last_run_status ?? null,
+    ...(s.pending_approval ? { pending_approval: s.pending_approval } : {}),
   });
 
   reg(
@@ -5595,7 +5601,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create skill',
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
-        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) This tool cannot make a skill public or share it with chosen people only: a person does that in the Skills library in the web app.',
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. Sharing with chosen people only is not available to AI: a person does that in the Skills library.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
@@ -5655,7 +5661,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({
         skill: serializeSkill(created),
-        note: skillVisibilityNote(created.visibility),
+        note: skillVisibilityNote(created.visibility, created.pending_approval?.id),
       });
     }),
   );
@@ -5665,7 +5671,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       description:
-        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal` and `shared` (shared is refused only if an admin switched AI publishing off for the workspace); it can never make one public or share it with chosen people (see create_skill).',
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal` and `shared` (shared is refused only if an admin switched AI publishing off for the workspace); asking for `public` only raises an approval a person must give in the app Inbox, and sharing with chosen people is not available (see create_skill).',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
@@ -5699,7 +5705,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body: given as never,
         }),
       );
-      return text(serializeSkill(updated));
+      return text({
+        ...serializeSkill(updated),
+        ...(updated.pending_approval ? { note: skillVisibilityNote(updated.visibility, updated.pending_approval.id) } : {}),
+      });
     }),
   );
 
@@ -5772,7 +5781,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'StoryOS has no field for (with the reason — e.g. `allowed-tools`, `license`, `compatibility`, `version`), and `missing` ' +
         'lists required fields the file did not supply. StoryOS never invents a missing field: pass it in `overrides` ' +
         '(a skill needs a `when_to_use`, which most SKILL.md files lack). Show the person the `dropped` list before you pass ' +
-        '`create: true`. The skill is recorded as agent-authored and created SHARED with the whole workspace (personal if an admin switched AI publishing off in Settings > General); this tool cannot make it public or share it with chosen people.',
+        '`create: true`. The skill is recorded as agent-authored and created SHARED with the whole workspace (personal if an admin switched AI publishing off in Settings > General); this tool cannot make it public or share it with chosen people (a person does that in the Skills library).',
       inputSchema: {
         workspace: z.string(),
         content: z.string().describe('The full text of the SKILL.md, including any frontmatter.'),

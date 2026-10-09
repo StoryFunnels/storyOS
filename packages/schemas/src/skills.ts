@@ -146,6 +146,9 @@ export const skillSummarySchema = z.object({
   last_run_at: z.string().nullable(),
   last_run_status: z.enum(['ok', 'error']).nullable(),
   editable: z.boolean(),
+  /** #867 AC3 — present when an AI asked for `public`: the skill is NOT public yet; a person must approve
+   * this proposal (in the app's Inbox) first. Absent otherwise. */
+  pending_approval: z.object({ id: z.uuid() }).optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });

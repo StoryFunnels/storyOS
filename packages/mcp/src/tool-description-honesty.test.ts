@@ -23,6 +23,8 @@ const CLAIM =
 
 const SURFACES: Array<{ tool: string; claim: RegExp; path: string; why: string }> = [
   { tool: 'list_approvals', claim: /app Inbox/i, path: 'apps/web/src/app/w/[ws]/inbox/page.tsx', why: 'approvals are decided in the Inbox' },
+  { tool: 'create_skill', claim: /app Inbox/i, path: 'apps/web/src/app/w/[ws]/inbox/page.tsx', why: 'a public-skill approval (#867 AC3) is decided in the Inbox, like any approval' },
+  { tool: 'update_skill', claim: /app Inbox/i, path: 'apps/web/src/app/w/[ws]/inbox/page.tsx', why: 'a public-skill approval (#867 AC3) is decided in the Inbox, like any approval' },
   { tool: 'get_runs', claim: /app Runs page/i, path: 'apps/web/src/app/w/[ws]/runs', why: 'failed actions are re-run from the Runs page' },
   { tool: 'list_connections', claim: /in the app|Settings\s*→\s*Connections/i, path: 'apps/web/src/app/w/[ws]/settings/connections', why: 'accounts are connected here' },
   { tool: 'create_source', claim: /Settings\s*→\s*Connections/i, path: 'apps/web/src/app/w/[ws]/settings/connections', why: 'accounts are connected here' },
