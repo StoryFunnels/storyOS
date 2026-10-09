@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, desc, eq, lt } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -486,7 +486,20 @@ export class ApprovalsService implements OnModuleInit {
     }
 
     const { row: updated, applied } = await this.decide(workspaceId, id, actorId, verdict, reason);
-    if (!applied) return updated;
+    if (!applied) {
+      // #869 — NOT applied means this approval was already decided (or expired, or a concurrent
+      // decision won). The same decision again is an idempotent no-op (a double click), but the
+      // OPPOSITE decision must be REFUSED with the reason, never returned as a success: a person who
+      // realises too late and clicks Reject was told "Rejected" while the approved action stayed in
+      // force. A security control that says "done" and does nothing is the dangerous half (MN-125).
+      if (updated.status === (verdict === 'approved' ? 'approved' : 'rejected')) return updated;
+      throw new ConflictException(
+        updated.status === 'expired'
+          ? 'This approval expired and can no longer be decided.'
+          : `This approval was already ${updated.status}, so it cannot be ${verdict}. A decision here is final; ` +
+            'to undo what it did, change that thing directly.',
+      );
+    }
 
     const snapshot = updated.actionSnapshot as ApprovalActionSnapshot;
     if (verdict === 'approved') {

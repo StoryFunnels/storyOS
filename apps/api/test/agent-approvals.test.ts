@@ -1040,3 +1040,30 @@ describe('#859 — the agent-run gate needs a person: it asked NOTHING before (n
     expect(after.statusCode, 'the person approved: the delete applied').toBe(404);
   });
 });
+
+describe('#869 — the agent-run gate also refuses a second, opposite decision (proven, not assumed)', () => {
+  it('Reject after Approve on a parked run is refused 422 with a reason; the approved delete stays applied; Approve after Reject cannot resurrect a rejected run', async () => {
+    const agent = await createAgent('Second decision tester', ['delete']);
+    const issue = await createIssue('Decided once');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({ kind: 'delete', summary: 'delete me', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id } }),
+    );
+    expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/approve`)).statusCode).toBeLessThan(300);
+    const late = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`, { reason: 'too late' });
+    expect(late.statusCode, late.body).toBe(422);
+    expect(late.json().error.message).toMatch(/not waiting for approval/i);
+    expect((await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/${issue.id}`)).statusCode, 'the approved delete stays applied').toBe(404);
+
+    const agent2 = await createAgent('Second decision tester B', ['delete']);
+    const issue2 = await createIssue('Rejected once');
+    const run2 = await runWith(
+      agent2.id,
+      stubRuntime({ kind: 'delete', summary: 'delete me too', payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue2.id } }),
+    );
+    expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run2.id}/reject`, { reason: 'no' })).statusCode).toBeLessThan(300);
+    const lateApprove = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run2.id}/approve`);
+    expect(lateApprove.statusCode, lateApprove.body).toBe(422);
+    await expectIssueAlive(issue2.id, 'a rejected run can never be approved afterwards');
+  });
+});
