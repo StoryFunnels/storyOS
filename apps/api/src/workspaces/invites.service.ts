@@ -23,6 +23,7 @@ import { EntitlementsService } from '../billing/entitlements.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
 import { MembershipEventsService } from '../events/membership-events.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RECORD_SHARE_NOTICE } from '../access/mention-narrowing';
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** #177: throttle repeat resends of the same pending invite. There's no
@@ -102,7 +103,14 @@ export class InvitesService {
     const acceptUrl = await this.sendInviteEmail(workspaceId, email, input.role, token);
 
     // accept_url returned so admins can copy-share it when SMTP is absent (A2).
-    return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };
+    return {
+      id: invite!.id,
+      email: invite!.email,
+      role: invite!.role,
+      accept_url: acceptUrl,
+      // #857: a record-scoped guest sees mentions of records they cannot read as a redaction.
+      ...(input.grants?.some((g) => g.record_id) ? { notice: RECORD_SHARE_NOTICE } : {}),
+    };
   }
 
   /**
