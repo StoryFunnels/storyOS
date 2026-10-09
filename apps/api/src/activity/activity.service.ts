@@ -1,9 +1,10 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, exists, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, exists, getTableColumns, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, fields, recordLinks, records, relations, user } from '../db/schema';
 import { buildRenderContext, renderValue } from './render-values';
+import { cursorTimestampSql, decodeKeysetCursor, encodeKeysetCursor, keysetBefore } from './keyset-cursor';
 import { extractText } from '../documents/documents.service';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -75,6 +76,23 @@ export class ActivityService {
     return or(isNull(ref), exists(readable)) as SQL;
   }
 
+  /** The `(created_at, id)` cursor of a row, from the exact timestamp text Postgres produced. */
+  private cursorFor(row: { cursorTs: string; id: string }): string {
+    return encodeKeysetCursor({ t: row.cursorTs, id: row.id });
+  }
+
+  /**
+   * Resume strictly after a cursor. A cursor minted before #849 is a bare timestamp: it still
+   * works (old `<` semantics, for that one request) so a client paging across a deploy is not
+   * broken; an unparseable one is ignored, as it always was.
+   */
+  private pushCursor(conditions: SQL[], cursor: string | undefined): void {
+    if (!cursor) return;
+    const decoded = decodeKeysetCursor(cursor);
+    if (decoded?.kind === 'keyset') conditions.push(keysetBefore(activityEvents.createdAt, activityEvents.id, decoded.cursor));
+    else if (decoded?.kind === 'legacy') conditions.push(lt(activityEvents.createdAt, decoded.at));
+  }
+
   async listForRecord(
     membership: Membership,
     databaseId: string,
@@ -87,20 +105,20 @@ export class ActivityService {
     // trail is the real history and stays whole; admins and members get no condition.
     const exclusion = await this.hiddenReferenceExclusion(membership);
     if (exclusion) conditions.push(exclusion);
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
-    }
+    this.pushCursor(conditions, cursor);
     // The plain select builder (not db.query): the exclusion's subquery names the table as
     // `activity_events`, and the relational API aliases it as "activityEvents".
     const rows = await this.db
-      .select()
+      .select({ ...getTableColumns(activityEvents), cursorTs: cursorTimestampSql(activityEvents.createdAt) })
       .from(activityEvents)
       .where(and(...conditions))
-      .orderBy(desc(activityEvents.createdAt))
+      // (created_at, id): created_at alone is NOT unique — every event of one transaction
+      // shares it — so a page boundary inside such a group dropped the rest of it (#849).
+      .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
       .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
+    const nextCursor = hasMore && page.length > 0 ? this.cursorFor(page[page.length - 1]!) : null;
 
     // Resolution context: fields (INCLUDING soft-deleted, for old diffs), options, actors.
     // Shared with listFieldChanges since #335 — the two read the SAME diff, and
@@ -147,10 +165,7 @@ export class ActivityService {
           source: event.source,
         };
       }),
-      next_cursor:
-        hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
-          : null,
+      next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
@@ -228,20 +243,20 @@ export class ActivityService {
     // paginate correctly too and their cursor is never a hidden event's timestamp.
     const exclusion = await this.hiddenReferenceExclusion(membership);
     if (exclusion) conditions.push(exclusion);
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
-    }
+    this.pushCursor(conditions, cursor);
     // The plain select builder (not db.query): the exclusion's subquery names the table as
     // `activity_events`, and the relational API aliases it as "activityEvents".
     const rows = await this.db
-      .select()
+      .select({ ...getTableColumns(activityEvents), cursorTs: cursorTimestampSql(activityEvents.createdAt) })
       .from(activityEvents)
       .where(and(...conditions))
-      .orderBy(desc(activityEvents.createdAt))
+      // (created_at, id): created_at alone is NOT unique — every event of one transaction
+      // shares it — so a page boundary inside such a group dropped the rest of it (#849).
+      .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
       .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
+    const nextCursor = hasMore && page.length > 0 ? this.cursorFor(page[page.length - 1]!) : null;
 
     const commentIds = page
       .filter((e) => e.type === 'comment.created')
@@ -321,10 +336,7 @@ export class ActivityService {
             source: event.source,
           };
         }),
-      next_cursor:
-        hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
-          : null,
+      next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
