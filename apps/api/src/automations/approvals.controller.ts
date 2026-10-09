@@ -4,6 +4,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
+import { assertHumanSource } from '../auth/assert-human-source';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { ApprovalsService } from './approvals.service';
@@ -19,6 +20,8 @@ class RejectApprovalDto extends createZodDto(z.object({ reason: z.string().max(2
  * `admin` scope to get past AuthGuard at all (`@RequiresScope('admin')`),
  * and — for BOTH a session and a PAT — `assertHuman` below additionally
  * requires the caller be the approval's own approver or a workspace admin.
+ * #859: and a PERSON — `assertHumanSource` refuses any non-`human` source (a token, or a
+ * connected AI, #858) even when it holds that role. Role says who among people; this says a person.
  * AuthGuard only enforces token scope for `via: 'token'` requests (see its
  * own doc), so a session caller is never blocked by the decorator, only by
  * `assertHuman`; that's the "session or admin PAT, not member PAT" split the
@@ -54,6 +57,10 @@ export class ApprovalsController {
   }
 
   private async assertHuman(req: WorkspaceRequest, id: string): Promise<void> {
+    // #859 — the role/approver check below says WHO may decide; this says a PERSON must. An agent
+    // holding an admin's credentials satisfies the role check, so without this the gate was
+    // "agent proposes, agent confirms".
+    assertHumanSource(req);
     const approval = await this.approvals.get(req.membership.workspaceId, id);
     const isAdmin = req.membership.role === 'admin';
     const isApprover = approval.approverId === req.user.id;
