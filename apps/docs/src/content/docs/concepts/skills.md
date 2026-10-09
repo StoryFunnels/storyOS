@@ -61,6 +61,9 @@ so anyone reading a skill can see where it came from.
   for an admin: approvals are made by people in the app, not through an API token or a connected AI.
   If an admin has switched AI sharing off, an AI cannot ask at all. When a person makes a skill
   public themselves, in the Skills library, no approval is needed.
+- **To take a public skill back, change its visibility in the Skills library.** That revokes the
+  link at once. An approval can be decided only once: rejecting it after you approved does nothing
+  (the app refuses it and says so), so it is never the way to undo a public skill.
 - **Sharing with chosen people only is a person's decision.** An AI cannot do it; such a request is
   refused.
 
