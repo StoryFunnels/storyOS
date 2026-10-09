@@ -60,7 +60,20 @@ function run(env = {}) {
   const r = spawnSync('node', [SCRIPT], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, COLLISION_BASE: 'main', PR_NUMBER: '980', ...env },
+    // GITHUB_REF_NAME is pinned: the script reads it to find its own PR number on a merge-queue
+    // ref (`gh-readonly-queue/main/pr-N-...`), so a test that INHERITS it from the environment
+    // passes on a PR branch and fails when this suite runs in the queue (the "no PR to ask about"
+    // case below resolves SELF from the queue ref and asks the stub for a body). Same for the
+    // PR-number and body variables: nothing the CI job exports may leak in.
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      COLLISION_BASE: 'main',
+      GITHUB_REF_NAME: 'feature',
+      PR_BODY: '',
+      PR_NUMBER: '980',
+      ...env,
+    },
   });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
