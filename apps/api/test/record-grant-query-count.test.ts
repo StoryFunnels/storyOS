@@ -96,11 +96,13 @@ describe('#473 AC5 — statements per GET /records/:id', () => {
       }
     }
     process.stderr.write(`QUERY-COUNT ${JSON.stringify(rows)}\n`);
-    // MEASURED 2026-10-09 (main @ #1005's base): admin 14, database guest 18, record-scoped guest 22,
-    // plain AND rich alike. The record guest's extra 4 over a database guest are all access
-    // resolution (two more `access_grants` reads, two `records where id in (…)` resolutions of the
-    // granted ids, i.e. visibleRecordIds from #474) - none is an inheritance check from #473, and none
-    // scales with what the record carries. A fifth would be a new check in the plain path.
+    // MEASURED 2026-10-09 (main at the time): admin 14, database guest 18, record-scoped guest 22,
+    // plain AND rich alike. The record guest's extra 4 over a database guest are access resolution:
+    // attributable from a statement dump are one more `access_grants` read and one `records where
+    // id in (...)` resolution of the granted ids (visibleRecordIds, #474); the other two were not
+    // attributed. None is an inheritance check from #473 and none scales with what the record
+    // carries. A fifth would be a new check in the plain path. (An earlier version of this comment
+    // said "two more grants reads and two lookups": a miscount, corrected in ticket #861.)
     expect(rows.recGuest!.plain! - rows.dbGuest!.plain!, 'extra statements for a record grant on a plain record').toBeLessThanOrEqual(4);
     // And the plain record costs no more than the rich one for the same caller (nothing scales
     // with what is NOT there).
