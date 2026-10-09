@@ -1,4 +1,4 @@
-import { sql, type SQL } from 'drizzle-orm';
+import { lt, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 
 /**
@@ -63,6 +63,31 @@ export function decodeKeysetCursor(raw: string): DecodedCursor {
     const at = new Date(text);
     return Number.isNaN(at.getTime()) ? null : { kind: 'legacy', at };
   }
+}
+
+/**
+ * The WHERE condition that resumes a newest-first read strictly after `raw`, or undefined when
+ * there is nothing to resume from (no cursor, or one that does not parse: ignored, as it always
+ * was). Accepts a pre-#849 bare-timestamp cursor (old `<` semantics for that one request).
+ * `plainIsoFallback` additionally accepts a RAW ISO string, which the notifications list used to
+ * hand out unencoded, so a client paging across a deploy is not sent back to page one.
+ */
+export function keysetCondition(createdAt: PgColumn, id: PgColumn, raw: string | undefined, plainIsoFallback = false): SQL | undefined {
+  if (!raw) return undefined;
+  const decoded = decodeKeysetCursor(raw);
+  if (decoded?.kind === 'keyset') return keysetBefore(createdAt, id, decoded.cursor);
+  if (decoded?.kind === 'legacy') return lt(createdAt, decoded.at);
+  if (plainIsoFallback) {
+    const at = new Date(raw);
+    if (!Number.isNaN(at.getTime())) return lt(createdAt, at);
+  }
+  return undefined;
+}
+
+/** Newest-first sort key for merging rows from SEVERAL tables: exact timestamp text, then id. */
+export function newestFirst(a: { cursorTs: string; id: string }, b: { cursorTs: string; id: string }): number {
+  if (a.cursorTs !== b.cursorTs) return a.cursorTs < b.cursorTs ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
 /** `(created_at, id) < (cursor.t, cursor.id)`: the rows strictly AFTER the cursor, newest first. */

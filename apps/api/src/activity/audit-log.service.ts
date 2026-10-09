@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, lte, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, lte } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, recordFieldChanges } from '../db/schema';
 import { MembersDbService } from '../members/members-db.service';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } from './keyset-cursor';
 
 /**
  * #454 — a read model and access boundary over data that ALREADY EXISTS
@@ -54,29 +55,31 @@ export class AuditLogService {
       eventConditions.push(eq(activityEvents.recordId, filter.entity));
       changeConditions.push(eq(recordFieldChanges.recordId, filter.entity));
     }
-    if (filter.cursor) {
-      const created = new Date(Buffer.from(filter.cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) {
-        eventConditions.push(lt(activityEvents.createdAt, created));
-        changeConditions.push(lt(recordFieldChanges.createdAt, created));
-      }
-    }
+    // #851 — a (created_at, id) tuple, NOT created_at alone: rows of one transaction share it.
+    // One cursor serves both tables: it is only a (timestamp, uuid) constant to compare against,
+    // and uuids are unique across both, so it resumes correctly wherever its row came from.
+    const eventAfter = keysetCondition(activityEvents.createdAt, activityEvents.id, filter.cursor);
+    if (eventAfter) eventConditions.push(eventAfter);
+    const changeAfter = keysetCondition(recordFieldChanges.createdAt, recordFieldChanges.id, filter.cursor);
+    if (changeAfter) changeConditions.push(changeAfter);
 
     // Two independent tables, merged and re-sorted here rather than a SQL
     // UNION — record_field_changes carries a per-FIELD row (#31's design),
     // event carries a per-WRITE row; a caller reading "what happened" wants
     // both without needing to know that split exists.
     const [events, changes] = await Promise.all([
-      this.db.query.activityEvents.findMany({
-        where: and(...eventConditions),
-        orderBy: [desc(activityEvents.createdAt)],
-        limit: limit + 1,
-      }),
-      this.db.query.recordFieldChanges.findMany({
-        where: and(...changeConditions),
-        orderBy: [desc(recordFieldChanges.createdAt)],
-        limit: limit + 1,
-      }),
+      this.db
+        .select({ ...getTableColumns(activityEvents), cursorTs: cursorTimestampSql(activityEvents.createdAt) })
+        .from(activityEvents)
+        .where(and(...eventConditions))
+        .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
+        .limit(limit + 1),
+      this.db
+        .select({ ...getTableColumns(recordFieldChanges), cursorTs: cursorTimestampSql(recordFieldChanges.createdAt) })
+        .from(recordFieldChanges)
+        .where(and(...changeConditions))
+        .orderBy(desc(recordFieldChanges.createdAt), desc(recordFieldChanges.id))
+        .limit(limit + 1),
     ]);
 
     const fieldIds = [...new Set(changes.map((c) => c.fieldId).filter((id): id is string => Boolean(id)))];
@@ -111,6 +114,7 @@ export class AuditLogService {
         source: e.source,
         payload: e.payload,
         created_at: e.createdAt,
+        cursorTs: e.cursorTs,
       })),
       ...changes.map((c) => ({
         kind: 'field_change' as const,
@@ -123,14 +127,20 @@ export class AuditLogService {
         old_value: c.oldValue,
         new_value: c.newValue,
         created_at: c.createdAt,
+        cursorTs: c.cursorTs,
       })),
-    ].sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    ].sort(newestFirst); // exact (microsecond text, id): a ms Date would tie rows that are not tied
 
     const page = merged.slice(0, limit);
     const hasMore = merged.length > limit;
+    const last = page[page.length - 1];
     return {
-      data: page,
-      next_cursor: hasMore && page.length > 0 ? Buffer.from(page[page.length - 1]!.created_at.toISOString()).toString('base64url') : null,
+      // cursorTs is a transport detail of the merge; it never reaches the client.
+      data: page.map(({ cursorTs: _ts, ...row }) => {
+        void _ts;
+        return row;
+      }),
+      next_cursor: hasMore && last ? encodeKeysetCursor({ t: last.cursorTs, id: last.id }) : null,
       has_more: hasMore,
     };
   }
