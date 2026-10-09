@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, lt, type SQL } from 'drizzle-orm';
+import { and, desc, eq, exists, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, fields, recordLinks, records, relations, user } from '../db/schema';
@@ -31,39 +31,48 @@ export class ActivityService {
   ) {}
 
   /**
-   * #845 — the id of ANOTHER record an event names in its payload, if any. Relation
-   * events store `other: { id, title }` (the title frozen at write time); a mention
-   * stores `target_record_id`. Every writer of those shapes is covered here, so a new
-   * event type that names a record is a one-line addition rather than a new leak.
+   * #845 — the id of ANOTHER record an event names in its payload, as a SQL expression: relation
+   * events store `other: { id, title }` (the title frozen at write time) and a mention stores
+   * `target_record_id`. Null for every other event type.
    */
-  private referencedRecordId(type: string, payload: Record<string, unknown>): string | null {
-    if (type === 'relation.linked' || type === 'relation.unlinked') {
-      const other = payload.other as { id?: unknown } | undefined;
-      return typeof other?.id === 'string' ? other.id : null;
-    }
-    if (type === 'reference.created') {
-      return typeof payload.target_record_id === 'string' ? payload.target_record_id : null;
-    }
-    return null;
+  private referencedRecordIdSql(): SQL<string | null> {
+    return sql<string | null>`CASE
+      WHEN ${activityEvents.type} IN ('relation.linked', 'relation.unlinked') THEN ${activityEvents.payload} -> 'other' ->> 'id'
+      WHEN ${activityEvents.type} = 'reference.created' THEN ${activityEvents.payload} ->> 'target_record_id'
+    END`;
   }
 
   /**
-   * #845 — which of `ids` the caller may read. Admins and members need no lookup
-   * (same short-circuit every `effectiveFor*` has); a guest is resolved against their
-   * grants in one query, so a record they hold no grant on — or that is deleted — is
-   * simply not in the set.
+   * #845 — the predicate that keeps a guest's trail free of records they cannot read, pushed
+   * INTO THE QUERY rather than applied to the page afterwards.
+   *
+   * That placement is the point, not an optimisation. Dropping rows after the page is cut
+   * leaves a page short or empty while `has_more` is still true, and a cursor taken from the
+   * filtered page (or, worse, from a hidden row — the cursor is a plain base64 timestamp)
+   * either strands the guest or hands them the exact time of an event they may not see. You
+   * cannot paginate correctly over a set you filter after the fact. With the predicate in
+   * the WHERE, every fetched row is readable, so every page is full and every cursor is a
+   * readable row's.
+   *
+   * An event that names a record the caller cannot read is ABSENT, count included (not
+   * blanked). Admins and members get null: no condition, no query, behaviour unchanged.
    */
-  private async readableRecordIds(membership: Membership, ids: string[]): Promise<Set<string>> {
-    const unique = [...new Set(ids)];
-    if (unique.length === 0) return new Set();
-    if (membership.role !== 'guest') return new Set(unique);
-    const rows = await this.db
-      .select({ id: records.id, databaseId: records.databaseId, spaceId: databases.spaceId })
+  private async hiddenReferenceExclusion(membership: Membership): Promise<SQL | null> {
+    const scope = await this.access.guestScopeIds(membership);
+    if (!scope) return null;
+    const ref = this.referencedRecordIdSql();
+    const reachable = [
+      scope.recordIds.length ? inArray(records.id, scope.recordIds) : undefined,
+      scope.databaseIds.length ? inArray(records.databaseId, scope.databaseIds) : undefined,
+      scope.spaceIds.length ? inArray(databases.spaceId, scope.spaceIds) : undefined,
+    ].filter((c): c is SQL => c !== undefined);
+    if (reachable.length === 0) return or(isNull(ref), sql`false`) as SQL;
+    const readable = this.db
+      .select({ one: sql`1` })
       .from(records)
       .innerJoin(databases, eq(databases.id, records.databaseId))
-      .where(and(inArray(records.id, unique), isNull(records.deletedAt)));
-    const roles = await this.access.effectiveForRecords(membership, rows);
-    return new Set(rows.filter((r) => roles.get(r.id)).map((r) => r.id));
+      .where(and(sql`${records.id}::text = ${ref}`, isNull(records.deletedAt), or(...reachable)));
+    return or(isNull(ref), exists(readable)) as SQL;
   }
 
   async listForRecord(
@@ -74,29 +83,24 @@ export class ActivityService {
     cursor?: string,
   ) {
     const conditions = [eq(activityEvents.recordId, recordId)];
+    // #845 — read-time narrowing, IN the query (see hiddenReferenceExclusion). The stored
+    // trail is the real history and stays whole; admins and members get no condition.
+    const exclusion = await this.hiddenReferenceExclusion(membership);
+    if (exclusion) conditions.push(exclusion);
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
       if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
     }
-    const rows = await this.db.query.activityEvents.findMany({
-      where: and(...conditions),
-      orderBy: [desc(activityEvents.createdAt)],
-      limit: limit + 1,
-    });
+    // The plain select builder (not db.query): the exclusion's subquery names the table as
+    // `activity_events`, and the relational API aliases it as "activityEvents".
+    const rows = await this.db
+      .select()
+      .from(activityEvents)
+      .where(and(...conditions))
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(limit + 1);
+    const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
-    // #845 — NARROWED AT READ TIME; the stored trail is the real history and stays whole
-    // (admins and members still get every event). An event that names a record the
-    // caller cannot read is DROPPED, not redacted: a "linked something" row with the
-    // name blanked still discloses that something exists, and the rule is that an
-    // unreadable record is absent from the response, count included.
-    const named = rows
-      .slice(0, limit)
-      .map((e) => this.referencedRecordId(e.type, e.payload as Record<string, unknown>));
-    const readable = await this.readableRecordIds(
-      membership,
-      named.filter((id): id is string => id !== null),
-    );
-    const page = rows.slice(0, limit).filter((_, i) => named[i] === null || readable.has(named[i]!));
 
     // Resolution context: fields (INCLUDING soft-deleted, for old diffs), options, actors.
     // Shared with listFieldChanges since #335 — the two read the SAME diff, and
@@ -218,15 +222,24 @@ export class ActivityService {
    */
   private async buildFeed(membership: Membership, recordIdCondition: SQL, limit: number, cursor?: string) {
     const conditions = [inArray(activityEvents.type, ['comment.created', 'reference.created']), recordIdCondition];
+    // #845 — `recordIdCondition` narrows which records' events are read, but a reference's
+    // TARGET is a different record it says nothing about (it used to be resolved to a titled
+    // chip unconditionally). Excluded IN the query, not after the page is cut, so these feeds
+    // paginate correctly too and their cursor is never a hidden event's timestamp.
+    const exclusion = await this.hiddenReferenceExclusion(membership);
+    if (exclusion) conditions.push(exclusion);
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
       if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
     }
-    const rows = await this.db.query.activityEvents.findMany({
-      where: and(...conditions),
-      orderBy: [desc(activityEvents.createdAt)],
-      limit: limit + 1,
-    });
+    // The plain select builder (not db.query): the exclusion's subquery names the table as
+    // `activity_events`, and the relational API aliases it as "activityEvents".
+    const rows = await this.db
+      .select()
+      .from(activityEvents)
+      .where(and(...conditions))
+      .orderBy(desc(activityEvents.createdAt))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
 
@@ -249,11 +262,6 @@ export class ActivityService {
       .filter((e) => e.type === 'reference.created')
       .map((e) => (e.payload as Record<string, unknown>).target_record_id)
       .filter((id): id is string => typeof id === 'string');
-    // #845 — `recordIdCondition` narrows which records' events are read, but a reference's
-    // TARGET is a different record that condition says nothing about. It used to be
-    // resolved to a titled chip unconditionally; now a target the caller cannot read makes
-    // the reference event absent.
-    const readableTargets = await this.readableRecordIds(membership, targetIds);
     const recordIds = [
       ...new Set([...page.map((e) => e.recordId).filter((id): id is string => Boolean(id)), ...targetIds]),
     ];
@@ -283,7 +291,7 @@ export class ActivityService {
           if (e.type === 'comment.created') return commentById.has(payload.comment_id as string);
           if (e.type === 'reference.created') {
             const target = payload.target_record_id as string;
-            return recordById.has(target) && readableTargets.has(target);
+            return recordById.has(target);
           }
           return false;
         })

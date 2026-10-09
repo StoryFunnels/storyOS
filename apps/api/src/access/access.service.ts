@@ -68,6 +68,26 @@ export class AccessService {
 
 
   /**
+   * #845 — a guest's grants reduced to the three id sets a record can be matched against
+   * (a record is readable if its id, its database, or its space is in the matching set —
+   * the same three-way max `effectiveForRecords` computes in memory, expressed as data so a
+   * caller can push it into SQL). null for admin/member: no narrowing applies.
+   */
+  async guestScopeIds(
+    membership: Membership,
+  ): Promise<{ spaceIds: string[]; databaseIds: string[]; recordIds: string[] } | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    const ids = (pick: (g: (typeof grants)[number]) => string | null) =>
+      [...new Set(grants.map(pick).filter((id): id is string => Boolean(id)))];
+    return {
+      spaceIds: ids((g) => g.spaceId),
+      databaseIds: ids((g) => g.databaseId),
+      recordIds: ids((g) => g.recordId),
+    };
+  }
+
+  /**
    * #291 — is this personal space readable by this member?
    *
    * The ONE rule: a personal space belongs to its owner and to nobody else, admins
