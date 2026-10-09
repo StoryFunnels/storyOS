@@ -12,13 +12,17 @@ import type { SkillSummary, SkillVisibility } from '@storyos/schemas';
  */
 export const VISIBILITY_CHIP: Record<SkillVisibility, string> = {
   personal: 'Only me',
-  // #841: the API has four tiers; the picker below still offers two (the library UI for
-  // naming people and a public link is its own ticket), but a skill can already be in these.
   members: 'Specific people',
   shared: 'Workspace',
   public: 'Anyone with the link',
 };
 
+/**
+ * The picker offers EXACTLY the four values the API accepts (ticket #841) — a picker
+ * that offers less than the chip can draw is the bug CLAUDE.md warns about. Each hint
+ * says what the choice COSTS before it is made, the same principle as the copy-cap and
+ * date-field pickers: a person finds out who gets it here, not after the click.
+ */
 export const VISIBILITY_OPTIONS: Array<{ value: SkillVisibility; label: string; hint: string }> = [
   {
     value: 'shared',
@@ -26,11 +30,40 @@ export const VISIBILITY_OPTIONS: Array<{ value: SkillVisibility; label: string; 
     hint: 'Every active member, and their AI, can find and run it.',
   },
   {
+    value: 'members',
+    label: 'Specific people',
+    hint: 'Only the people you name, and you. Their AI can find it; nobody else’s can.',
+  },
+  {
     value: 'personal',
     label: 'Only me — you and workspace admins',
-    hint: 'Admins can see it too. Specific members and a public link are coming.',
+    hint: 'Admins can see it too.',
+  },
+  {
+    value: 'public',
+    label: 'Anyone with the link',
+    hint: 'Readable by anyone who has the link, signed in or not. Anyone can copy it, and the link keeps working until you change this.',
   },
 ];
+
+/** The unauthenticated read behind a `public` skill (a link, not a page — there is no public skill page yet). */
+export function publicSkillUrl(apiUrl: string, token: string | null | undefined): string | null {
+  if (!token) return null;
+  return `${apiUrl.replace(/\/$/, '')}/api/v1/public/skills/${encodeURIComponent(token)}`;
+}
+
+/** Why a draft's audience is not yet valid, or null. `members` with nobody named is a skill only its owner sees. */
+export function audienceProblem(visibility: SkillVisibility, memberIds: readonly string[], ownerId: string | undefined): string | null {
+  if (visibility !== 'members') return null;
+  const others = memberIds.filter((id) => id !== ownerId);
+  return others.length === 0 ? 'Pick at least one person, or choose “Only me”.' : null;
+}
+
+/** Whether a person leaving the audience is silent: narrowing a skill takes it away from people who could use it. */
+export function narrowsAudience(from: SkillVisibility, to: SkillVisibility): boolean {
+  const rank: Record<SkillVisibility, number> = { personal: 0, members: 1, shared: 2, public: 3 };
+  return rank[to] < rank[from];
+}
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

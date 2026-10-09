@@ -3,12 +3,18 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import type { SkillSummary, SkillTemplate, SkillVisibility } from '@storyos/schemas';
+import { ArrowLeft, Copy, Download } from 'lucide-react';
+import { toast } from 'sonner';
+import { skillVersionSchema } from '@storyos/schemas';
+import type { SkillExportFormat, SkillSummary, SkillTemplate, SkillVisibility } from '@storyos/schemas';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useMembers } from '@/components/table-view/use-table-data';
+import { API_URL, apiErrorMessage } from '@/lib/api';
+import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { MarkedText, SkillSourceMark } from './skill-bits';
 import {
@@ -19,8 +25,8 @@ import {
   estimateTokens,
   type Verdict,
 } from './skill-compare';
-import { VISIBILITY_OPTIONS } from './skill-meta';
-import { useSkillMutations, useSkills } from './use-skills';
+import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowsAudience, publicSkillUrl } from './skill-meta';
+import { fetchSkillExport, useSkillMutations, useSkills } from './use-skills';
 
 /** What the form holds. Strings only: validation is the schema's, on save. */
 export interface SkillDraft {
@@ -29,6 +35,10 @@ export interface SkillDraft {
   when_to_use: string;
   instructions: string;
   visibility: SkillVisibility;
+  /** Semver. Empty on a new skill means "let the server pick its default". */
+  version: string;
+  /** Only sent while `visibility` is `members`. The owner is always included by the server. */
+  member_ids: string[];
 }
 
 export function draftFromSkill(skill: SkillSummary): SkillDraft {
@@ -38,6 +48,8 @@ export function draftFromSkill(skill: SkillSummary): SkillDraft {
     when_to_use: skill.when_to_use,
     instructions: skill.instructions,
     visibility: skill.visibility,
+    version: skill.version,
+    member_ids: skill.member_ids ?? [],
   };
 }
 
@@ -51,6 +63,8 @@ export function draftFromTemplate(t: SkillTemplate | undefined): SkillDraft {
     when_to_use: t?.when_to_use ?? '',
     instructions: t?.instructions ?? '',
     visibility: 'shared',
+    version: '',
+    member_ids: [],
   };
 }
 
@@ -58,7 +72,7 @@ const LIMITS = { name: 100, description: 500, when_to_use: 1000, instructions: 2
 
 /** Why a draft cannot be saved yet, or null. Mirrors the API's schema bounds so
  * the button explains itself rather than the server answering 422. */
-export function draftProblem(d: SkillDraft): string | null {
+export function draftProblem(d: SkillDraft, ownerId?: string): string | null {
   if (!d.name.trim()) return 'Give the skill a name.';
   if (!d.description.trim()) return 'Add a one-line description.';
   if (!d.when_to_use.trim()) return 'Say when a model should use it.';
@@ -66,7 +80,18 @@ export function draftProblem(d: SkillDraft): string | null {
   for (const k of ['name', 'description', 'when_to_use', 'instructions'] as const) {
     if (d[k].length > LIMITS[k]) return `${k.replace('_', ' ')} is over ${LIMITS[k].toLocaleString()} characters.`;
   }
-  return null;
+  if (d.version.trim() && !skillVersionSchema.safeParse(d.version).success) return 'Version must look like 1.2.0.';
+  return audienceProblem(d.visibility, d.member_ids, ownerId);
+}
+
+/** The wire body: `member_ids` only travels with `members`, and an empty version is left for the server to default. */
+export function draftBody(d: SkillDraft): Record<string, unknown> {
+  const { member_ids, version, ...rest } = d;
+  return {
+    ...rest,
+    ...(version.trim() ? { version: version.trim() } : {}),
+    ...(d.visibility === 'members' ? { member_ids } : {}),
+  };
 }
 
 export function SkillEditor({
@@ -88,8 +113,11 @@ export function SkillEditor({
   const readOnly = skill ? !skill.editable : false;
   const set = <K extends keyof SkillDraft>(k: K, v: SkillDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const dirty = (Object.keys(initial) as Array<keyof SkillDraft>).some((k) => initial[k] !== draft[k]);
-  const problem = draftProblem(draft);
+  const dirty = (Object.keys(initial) as Array<keyof SkillDraft>).some((k) => JSON.stringify(initial[k]) !== JSON.stringify(draft[k]));
+  const session = useSession();
+  const ownerId = skill?.owner_id ?? session.data?.user?.id;
+  const people = useMembers(ws, true);
+  const problem = draftProblem(draft, ownerId);
   const saving = create.isPending || update.isPending;
 
   const rivals = useMemo(
@@ -106,11 +134,19 @@ export function SkillEditor({
   async function save() {
     if (problem || readOnly) return;
     if (skill) {
-      await update.mutateAsync({ id: skill.id, body: draft });
+      if (narrowsAudience(skill.visibility, draft.visibility)) {
+        const ok = await confirm({
+          title: `Change who can see “${skill.name}”?`,
+          message: `It will go from “${VISIBILITY_CHIP[skill.visibility]}” to “${VISIBILITY_CHIP[draft.visibility]}”. People who lose access, and their AI, can no longer find or run it.`,
+          confirmLabel: 'Change visibility',
+        });
+        if (!ok) return;
+      }
+      await update.mutateAsync({ id: skill.id, body: draftBody(draft) as never });
       router.push(`/w/${ws}/skills`);
     } else {
       await create.mutateAsync({
-        ...draft,
+        ...draftBody(draft),
         examples: template?.examples ?? [],
         source_template: template && template.id !== 'blank' ? template.id : undefined,
       } as never);
@@ -148,6 +184,7 @@ export function SkillEditor({
         {skill && <SkillSourceMark source={skill.source} />}
         <span className="text-label text-muted">{skill ? (readOnly ? 'read only' : 'editing') : 'new'}</span>
         <span className="flex-1" />
+        {skill && <ExportControl ws={ws} id={skill.id} />}
         {skill && !readOnly && (
           <Button variant="destructive" size="sm" onClick={() => void onDelete()} disabled={remove.isPending}>
             Delete
@@ -170,6 +207,17 @@ export function SkillEditor({
         <div className="flex min-w-0 flex-col gap-4 p-4">
           <Field label="Name" count={draft.name.length} max={LIMITS.name}>
             <Input value={draft.name} disabled={readOnly} maxLength={LIMITS.name} onChange={(e) => set('name', e.target.value)} />
+          </Field>
+
+          <Field label="Version" hint="Semver, like 1.2.0. Bump it when the wording changes so a reader can tell which copy they have.">
+            <Input
+              className="w-40 font-mono"
+              value={draft.version}
+              placeholder={skill ? undefined : '1.0.0'}
+              disabled={readOnly}
+              maxLength={64}
+              onChange={(e) => set('version', e.target.value)}
+            />
           </Field>
 
           <Field label="Description" tag="model reads" count={draft.description.length} max={LIMITS.description}>
@@ -235,6 +283,17 @@ export function SkillEditor({
                 </span>
               </label>
             ))}
+            {draft.visibility === 'members' && (
+              <MemberPicker
+                people={people.data ?? []}
+                loading={people.isPending}
+                ownerId={ownerId}
+                selected={draft.member_ids}
+                disabled={readOnly}
+                onChange={(ids) => set('member_ids', ids)}
+              />
+            )}
+            {draft.visibility === 'public' && <PublicLink url={publicSkillUrl(API_URL, skill?.public_token)} saved={skill?.visibility === 'public'} />}
           </fieldset>
 
           {problem && !readOnly && (dirty || !skill) && <p className="text-label text-muted">{problem}</p>}
@@ -356,5 +415,102 @@ function Field({
       {children}
       {hint && <p className="mt-1 text-label leading-normal text-muted">{hint}</p>}
     </div>
+  );
+}
+
+function MemberPicker({
+  people,
+  loading,
+  ownerId,
+  selected,
+  disabled,
+  onChange,
+}: {
+  people: Array<{ user: { id: string; name: string } }>;
+  loading: boolean;
+  ownerId: string | undefined;
+  selected: string[];
+  disabled: boolean;
+  onChange: (ids: string[]) => void;
+}) {
+  // The owner always has it; listing them as a choice would offer a toggle that does nothing.
+  const others = people.filter((m) => m.user.id !== ownerId);
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  return (
+    <div className="ml-6 flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2" role="group" aria-label="People who can see this skill">
+      {loading && <p className="text-label text-muted">Loading people…</p>}
+      {!loading && others.length === 0 && <p className="text-label text-muted">There is nobody else in this workspace to share it with yet.</p>}
+      {others.map((m) => (
+        <label key={m.user.id} className="flex cursor-pointer items-center gap-2 text-body text-ink">
+          <input type="checkbox" disabled={disabled} checked={selected.includes(m.user.id)} onChange={() => toggle(m.user.id)} />
+          {m.user.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function PublicLink({ url, saved }: { url: string | null; saved: boolean }) {
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link copied');
+    } catch {
+      toast.error('Could not copy — select the link and copy it by hand');
+    }
+  }
+  if (!saved || !url) {
+    return <p className="ml-6 text-label text-muted">The link is created when you save.</p>;
+  }
+  return (
+    <div className="ml-6 flex items-center gap-2">
+      <Input readOnly value={url} aria-label="Public link" className="font-mono text-label" onFocus={(e) => e.currentTarget.select()} />
+      <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>
+        <Copy className="mr-1 h-3 w-3" /> Copy
+      </Button>
+    </div>
+  );
+}
+
+const EXPORT_FORMATS: Array<{ value: SkillExportFormat; label: string }> = [
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'claude_skill', label: 'Claude skill (SKILL.md)' },
+  { value: 'chatgpt', label: 'ChatGPT instructions' },
+];
+
+/** Export the SAVED skill — what the server renders, not the unsaved draft — as a file download. */
+function ExportControl({ ws, id }: { ws: string; id: string }) {
+  const [format, setFormat] = useState<SkillExportFormat>('markdown');
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      const out = await fetchSkillExport(ws, id, format);
+      const url = URL.createObjectURL(new Blob([out.content], { type: 'text/markdown;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = out.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(apiErrorMessage(e, 'Could not export the skill'));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="flex items-center gap-1">
+      <Select size="sm" value={format} onChange={(e) => setFormat(e.target.value as SkillExportFormat)} aria-label="Export format">
+        {EXPORT_FORMATS.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </Select>
+      <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run()}>
+        <Download className="mr-1 h-3 w-3" /> {busy ? 'Exporting…' : 'Export'}
+      </Button>
+    </span>
   );
 }
