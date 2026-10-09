@@ -25,14 +25,21 @@ import { extendTailwindMerge } from 'tailwind-merge';
  * from nothing.
  *
  * Declaring the scale fixes every call site at once, including the ones nobody
- * has written yet. Keep this list in step with the `--text-*` steps in
- * globals.css; a step missing from here is a step that silently vanishes when
- * combined with a colour.
+ * has written yet.
+ *
+ * #846 — this list is kept in step with globals.css BY A TEST, not by a comment.
+ * It used to say "keep this list in step"; the first step added after that
+ * (`--text-reading`, #792) was not added here and every `cn()` that combined it
+ * with a colour silently lost its font size. `font-size-steps.unit.test.ts`
+ * parses globals.css and fails, naming the step and this file, when the two
+ * disagree in either direction. Edit FONT_SIZE_STEPS when that test tells you to.
  */
+export const FONT_SIZE_STEPS = ['micro', 'meta', 'label', 'body', 'prose', 'title'] as const;
+
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
-      'font-size': [{ text: ['micro', 'meta', 'label', 'body', 'prose', 'title'] }],
+      'font-size': [{ text: [...FONT_SIZE_STEPS] }],
     },
   },
 });
