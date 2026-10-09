@@ -2890,6 +2890,19 @@ describe('#442 — skill authoring tools', () => {
     expect(res.content[0]!.text).toContain('"visibility"');
   });
 
+  it('update_skill states what it cannot do: it takes no visibility, and its description does not claim otherwise', () => {
+    const cfgs = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
+    registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
+      client: {} as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    const cfg = cfgs.get('update_skill')!;
+    expect(Object.keys(cfg.inputSchema ?? {})).not.toContain('visibility');
+    expect(cfg.description).toMatch(/cannot change who can see a skill/);
+    expect(cfg.description).not.toMatch(/can move a skill to the workspace/);
+  });
+
   it('import_skill previews by default (create:false), surfaces the dropped list, and never offers visibility', async () => {
     const { call, sent, handlers } = harness();
     const preview = await call('import_skill', { workspace: 'Eng', content: '---\nname: x\n---\nbody' });

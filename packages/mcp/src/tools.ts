@@ -5648,7 +5648,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       description:
-        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. It can move a skill to the workspace only when a workspace admin has allowed AI to share skills, and it can never make one public or share it with chosen people (see create_skill).',
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. This tool cannot change who can see a skill (it takes no `visibility`): moving one to the workspace, making it public or sharing it with chosen people is done by a person in the Skills library.',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
