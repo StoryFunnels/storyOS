@@ -1,5 +1,8 @@
 import { Global, Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AccessService } from './access.service';
+import { MentionNarrowingService } from './mention-narrowing.service';
+import { MentionNarrowingInterceptor } from './mention-narrowing.interceptor';
 import { GrantsController } from './grants.controller';
 
 /**
@@ -13,7 +16,7 @@ import { GrantsController } from './grants.controller';
 @Global()
 @Module({
   controllers: [GrantsController],
-  providers: [AccessService],
-  exports: [AccessService],
+  providers: [AccessService, MentionNarrowingService, { provide: APP_INTERCEPTOR, useClass: MentionNarrowingInterceptor }],
+  exports: [AccessService, MentionNarrowingService],
 })
 export class AccessModule {}
