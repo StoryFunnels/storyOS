@@ -30,7 +30,49 @@ export class ActivityService {
     private readonly access: AccessService,
   ) {}
 
-  async listForRecord(databaseId: string, recordId: string, limit: number, cursor?: string) {
+  /**
+   * #845 — the id of ANOTHER record an event names in its payload, if any. Relation
+   * events store `other: { id, title }` (the title frozen at write time); a mention
+   * stores `target_record_id`. Every writer of those shapes is covered here, so a new
+   * event type that names a record is a one-line addition rather than a new leak.
+   */
+  private referencedRecordId(type: string, payload: Record<string, unknown>): string | null {
+    if (type === 'relation.linked' || type === 'relation.unlinked') {
+      const other = payload.other as { id?: unknown } | undefined;
+      return typeof other?.id === 'string' ? other.id : null;
+    }
+    if (type === 'reference.created') {
+      return typeof payload.target_record_id === 'string' ? payload.target_record_id : null;
+    }
+    return null;
+  }
+
+  /**
+   * #845 — which of `ids` the caller may read. Admins and members need no lookup
+   * (same short-circuit every `effectiveFor*` has); a guest is resolved against their
+   * grants in one query, so a record they hold no grant on — or that is deleted — is
+   * simply not in the set.
+   */
+  private async readableRecordIds(membership: Membership, ids: string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Set();
+    if (membership.role !== 'guest') return new Set(unique);
+    const rows = await this.db
+      .select({ id: records.id, databaseId: records.databaseId, spaceId: databases.spaceId })
+      .from(records)
+      .innerJoin(databases, eq(databases.id, records.databaseId))
+      .where(and(inArray(records.id, unique), isNull(records.deletedAt)));
+    const roles = await this.access.effectiveForRecords(membership, rows);
+    return new Set(rows.filter((r) => roles.get(r.id)).map((r) => r.id));
+  }
+
+  async listForRecord(
+    membership: Membership,
+    databaseId: string,
+    recordId: string,
+    limit: number,
+    cursor?: string,
+  ) {
     const conditions = [eq(activityEvents.recordId, recordId)];
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
@@ -41,8 +83,20 @@ export class ActivityService {
       orderBy: [desc(activityEvents.createdAt)],
       limit: limit + 1,
     });
-    const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
+    // #845 — NARROWED AT READ TIME; the stored trail is the real history and stays whole
+    // (admins and members still get every event). An event that names a record the
+    // caller cannot read is DROPPED, not redacted: a "linked something" row with the
+    // name blanked still discloses that something exists, and the rule is that an
+    // unreadable record is absent from the response, count included.
+    const named = rows
+      .slice(0, limit)
+      .map((e) => this.referencedRecordId(e.type, e.payload as Record<string, unknown>));
+    const readable = await this.readableRecordIds(
+      membership,
+      named.filter((id): id is string => id !== null),
+    );
+    const page = rows.slice(0, limit).filter((_, i) => named[i] === null || readable.has(named[i]!));
 
     // Resolution context: fields (INCLUDING soft-deleted, for old diffs), options, actors.
     // Shared with listFieldChanges since #335 — the two read the SAME diff, and
@@ -118,12 +172,25 @@ export class ActivityService {
    * smaller, already-decided acceptance criterion ("a feed of comments/
    * references on a database"), not the hierarchy traversal.
    */
-  async listCommentsForDatabase(databaseId: string, limit: number, cursor?: string) {
+  async listCommentsForDatabase(membership: Membership, databaseId: string, limit: number, cursor?: string) {
+    // #845 — the controller's gate (`assertAccess`) lets a guest with ONLY a record-scoped
+    // grant through the door; without this they were handed every record's comments in the
+    // database. Narrowed in SQL (not by dropping rows after the page is cut), so a guest's
+    // pages stay full and `has_more` stays honest. null = admin/member or a broader grant.
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    const scoped = database ? await this.access.visibleRecordIds(membership, database) : null;
+    if (scoped && scoped.ids.size === 0) return { data: [], next_cursor: null, has_more: false };
     return this.buildFeed(
-      inArray(
-        activityEvents.recordId,
-        this.db.select({ id: records.id }).from(records).where(eq(records.databaseId, databaseId)),
-      ),
+      membership,
+      scoped
+        ? inArray(activityEvents.recordId, [...scoped.ids])
+        : inArray(
+            activityEvents.recordId,
+            this.db.select({ id: records.id }).from(records).where(eq(records.databaseId, databaseId)),
+          ),
       limit,
       cursor,
     );
@@ -137,9 +204,9 @@ export class ActivityService {
    * looks and behaves identically whether it came from one database or a
    * whole walked hierarchy.
    */
-  private async listActivityForRecordIds(recordIds: string[], limit: number, cursor?: string) {
+  private async listActivityForRecordIds(membership: Membership, recordIds: string[], limit: number, cursor?: string) {
     if (recordIds.length === 0) return { data: [], next_cursor: null, has_more: false };
-    return this.buildFeed(inArray(activityEvents.recordId, recordIds), limit, cursor);
+    return this.buildFeed(membership, inArray(activityEvents.recordId, recordIds), limit, cursor);
   }
 
   /**
@@ -149,7 +216,7 @@ export class ActivityService {
    * (type filtering, comment/reference resolution, actor/record chip
    * batching, cursor pagination) is scope-agnostic.
    */
-  private async buildFeed(recordIdCondition: SQL, limit: number, cursor?: string) {
+  private async buildFeed(membership: Membership, recordIdCondition: SQL, limit: number, cursor?: string) {
     const conditions = [inArray(activityEvents.type, ['comment.created', 'reference.created']), recordIdCondition];
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
@@ -182,6 +249,11 @@ export class ActivityService {
       .filter((e) => e.type === 'reference.created')
       .map((e) => (e.payload as Record<string, unknown>).target_record_id)
       .filter((id): id is string => typeof id === 'string');
+    // #845 — `recordIdCondition` narrows which records' events are read, but a reference's
+    // TARGET is a different record that condition says nothing about. It used to be
+    // resolved to a titled chip unconditionally; now a target the caller cannot read makes
+    // the reference event absent.
+    const readableTargets = await this.readableRecordIds(membership, targetIds);
     const recordIds = [
       ...new Set([...page.map((e) => e.recordId).filter((id): id is string => Boolean(id)), ...targetIds]),
     ];
@@ -209,7 +281,10 @@ export class ActivityService {
         .filter((e) => {
           const payload = e.payload as Record<string, unknown>;
           if (e.type === 'comment.created') return commentById.has(payload.comment_id as string);
-          if (e.type === 'reference.created') return recordById.has(payload.target_record_id as string);
+          if (e.type === 'reference.created') {
+            const target = payload.target_record_id as string;
+            return recordById.has(target) && readableTargets.has(target);
+          }
           return false;
         })
         .map((event) => {
@@ -303,7 +378,7 @@ export class ActivityService {
     if (!roles.get(root.id)) throw new NotFoundException('Record not found');
     const visibleIds = allRecords.filter((r) => roles.get(r.id)).map((r) => r.id);
 
-    return this.listActivityForRecordIds(visibleIds, limit, cursor);
+    return this.listActivityForRecordIds(membership, visibleIds, limit, cursor);
   }
 
   /**

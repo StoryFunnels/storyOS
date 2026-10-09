@@ -52,7 +52,7 @@ export class ActivityController {
     // existence + the per-record check into the one call every other
     // single-record read route already uses.
     await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
-    return this.activityService.listForRecord(databaseId, recordId, query.limit, query.cursor);
+    return this.activityService.listForRecord(req.membership, databaseId, recordId, query.limit, query.cursor);
   }
 
   /**
