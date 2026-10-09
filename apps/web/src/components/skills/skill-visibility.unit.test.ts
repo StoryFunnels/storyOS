@@ -1,7 +1,7 @@
 import { skillVisibilitySchema } from '@storyos/schemas';
 import { describe, expect, it } from 'vitest';
 import { draftBody, draftFromSkill, draftProblem, draftFromTemplate } from './skill-editor';
-import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillUrl } from './skill-meta';
+import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillPageUrl } from './skill-meta';
 
 const tiers = skillVisibilitySchema.options;
 
@@ -44,13 +44,14 @@ describe('narrowsAudience', () => {
   });
 });
 
-describe('publicSkillUrl', () => {
-  it('builds the link from the token and tolerates a trailing slash', () => {
-    expect(publicSkillUrl('http://x/', 'a b')).toBe('http://x/api/v1/public/skills/a%20b');
+describe('publicSkillPageUrl (ticket #866)', () => {
+  it('is the page a person can read, not the API read behind it', () => {
+    expect(publicSkillPageUrl('http://x/', 'a b')).toBe('http://x/s/a%20b');
+    expect(publicSkillPageUrl('https://app.example.com', 'tok')).not.toMatch(/\/api\//);
   });
   it('is null without a token', () => {
-    expect(publicSkillUrl('http://x', null)).toBeNull();
-    expect(publicSkillUrl('http://x', undefined)).toBeNull();
+    expect(publicSkillPageUrl('http://x', null)).toBeNull();
+    expect(publicSkillPageUrl('http://x', undefined)).toBeNull();
   });
 });
 

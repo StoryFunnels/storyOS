@@ -14,6 +14,8 @@ import { describe, expect, it } from 'vitest';
  */
 const here = fileURLToPath(new URL('.', import.meta.url));
 const pagesDir = fileURLToPath(new URL('../../app/w/[ws]/skills', import.meta.url));
+// #866 — the public page is part of the Skills surface: it must never offer a Run either.
+const publicPageDir = fileURLToPath(new URL('../../app/s', import.meta.url));
 
 function sources(dir: string): Array<{ file: string; text: string }> {
   const out: Array<{ file: string; text: string }> = [];
@@ -25,7 +27,7 @@ function sources(dir: string): Array<{ file: string; text: string }> {
   return out;
 }
 
-const surface = [...sources(here), ...sources(pagesDir)];
+const surface = [...sources(here), ...sources(pagesDir), ...sources(publicPageDir)];
 
 /** Strip comments, so the explanatory note above SkillRow (which names the run
  * endpoint on purpose) does not trip the guard that protects it. */
@@ -82,5 +84,44 @@ describe('the import dialog does not show the native file control (ticket #833 p
     const t = code(dialog.text);
     expect(t).toMatch(/type="file"[\s\S]{0,200}sr-only/);
     expect(t).toMatch(/Choose file…/);
+  });
+});
+
+describe('the public skill page (ticket #866)', () => {
+  const page = surface.find((s) => s.file.endsWith(join('s', '[token]', 'page.tsx')))!;
+  const notFound = surface.find((s) => s.file.endsWith(join('s', '[token]', 'not-found.tsx')))!;
+  it('is part of the checked surface', () => {
+    expect(page).toBeTruthy();
+    expect(notFound).toBeTruthy();
+  });
+  it('keeps the no-Run reason where someone would add the button', () => {
+    expect(page.text).toMatch(/THERE IS NO RUN BUTTON HERE/);
+  });
+  it('is not indexable, for a live token and an unknown one alike', () => {
+    expect(page.text).toMatch(/index: false, follow: false/);
+    expect(code(page.text).match(/robots/g)!.length).toBeGreaterThanOrEqual(3);
+  });
+  it('answers an unknown, malformed or revoked token with the same not-found, and never says which', () => {
+    expect(code(page.text)).toMatch(/if \(!skill\) notFound\(\)/);
+    expect(code(notFound.text)).not.toMatch(/revoked|expired|deleted|never existed/i);
+  });
+  it('a server failure is not shown as "not found"', () => {
+    expect(code(page.text)).toMatch(/throw new Error\(`public skill read failed/);
+  });
+});
+
+describe('what the public skill page must NOT carry (ticket #866 AC8)', () => {
+  const page = surface.find((s) => s.file.endsWith(join('s', '[token]', 'page.tsx')))!;
+  const body = code(page.text);
+  it('declares exactly the portable fields, and nothing identifying', () => {
+    const iface = body.slice(body.indexOf('interface PublicSkill'), body.indexOf('async function getSkill'));
+    const keys = [...iface.matchAll(/^\s+([a-z_]+)\??:/gm)].map((m) => m[1]).sort();
+    expect(keys).toEqual(['description', 'examples', 'instructions', 'name', 'updated_at', 'version', 'when_to_use']);
+  });
+  it('never reads an identifier off the skill', () => {
+    expect(body).not.toMatch(/\b(workspace_id|owner_id|member_ids|public_token|source_template|last_run|\.id\b|author|published_by)\b/);
+  });
+  it('shows no publisher, and nothing in its place', () => {
+    expect(body).not.toMatch(/published by|shared by|written by|author|owner/i);
   });
 });

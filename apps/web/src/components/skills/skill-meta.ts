@@ -46,10 +46,14 @@ export const VISIBILITY_OPTIONS: Array<{ value: SkillVisibility; label: string; 
   },
 ];
 
-/** The unauthenticated read behind a `public` skill (a link, not a page — there is no public skill page yet). */
-export function publicSkillUrl(apiUrl: string, token: string | null | undefined): string | null {
+/**
+ * The link a person shares for a public skill: the PAGE (`/s/<token>`, ticket #866), not the API
+ * read behind it — opening the API URL in a browser shows JSON, which serves a model and not the
+ * colleague who was handed the link.
+ */
+export function publicSkillPageUrl(origin: string, token: string | null | undefined): string | null {
   if (!token) return null;
-  return `${apiUrl.replace(/\/$/, '')}/api/v1/public/skills/${encodeURIComponent(token)}`;
+  return `${origin.replace(/\/$/, '')}/s/${encodeURIComponent(token)}`;
 }
 
 /** Why a draft's audience is not yet valid, or null. `members` with nobody named is a skill only its owner sees. */
