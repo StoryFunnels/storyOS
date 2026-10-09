@@ -35,4 +35,6 @@ if (!token || !host) {
     capture_exceptions: true,
     debug: process.env.NODE_ENV === 'development',
   });
+  // #818 — one place, not per call site: every app event carries which surface sent it.
+  posthog.register({ surface: 'app' });
 }

@@ -6,6 +6,7 @@ import { Suspense, useState } from 'react';
 import posthog from 'posthog-js';
 import { authClient } from '@/lib/auth-client';
 import { attributeCapturedReferral } from '@/lib/referral';
+import { firstTouchProperties, readFirstTouch } from '@/lib/funnel';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,7 +31,10 @@ function SignupForm() {
       setError(result.error.message ?? 'Sign-up failed');
       return;
     }
-    posthog.capture('user_signed_up', { method: 'email' });
+    posthog.capture('user_signed_up', {
+      method: 'email',
+      ...firstTouchProperties(readFirstTouch(window.sessionStorage)),
+    });
     // #33 — best-effort, never blocks the redirect: an unattributed sign-up
     // is a missed reward, not a broken account.
     await attributeCapturedReferral();
