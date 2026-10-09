@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -82,6 +83,16 @@ export class WorkspaceController {
   @MinRole('admin')
   @ApiOperation({ summary: 'Update workspace (admin)' })
   update(@Req() req: WorkspaceRequest, @Body() body: UpdateWorkspaceDto) {
+    // #848 — the opt-in that lets agents publish skills to the workspace is a HUMAN decision made
+    // once, in advance (ADR-0010: an agent never decides for a human). `source` is derived at the
+    // auth boundary and cannot be claimed, and after #858 an OAuth-connected AI is `mcp`, so this
+    // refuses every token and connected AI even when it holds an admin's role. Refused when the
+    // key is PRESENT, either value: an agent has no business touching the flag at all.
+    if (body.agents_may_publish_skills !== undefined && (req.auth?.source ?? 'human') !== 'human') {
+      throw new ForbiddenException(
+        'Whether agents may publish skills to the workspace is decided by a person: it cannot be changed through an API token or a connected AI, even one acting for an admin. Change it in Settings > General.',
+      );
+    }
     return this.workspaces.update(req.membership.workspaceId, body);
   }
 

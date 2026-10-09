@@ -72,7 +72,7 @@ export interface WorkspaceInfo {
   /** #539 — the shared jsonb `settings` bag was always on the wire (same
    *  under-typed-response pattern #293 found for `Space`); this type just
    *  didn't declare the one key the settings page needs to read/round-trip. */
-  settings?: { branding?: WorkspaceBranding };
+  settings?: { branding?: WorkspaceBranding; agents_may_publish_skills?: boolean };
 }
 
 function unwrap<T>({ data, error }: { data?: unknown; error?: unknown }): T {
@@ -169,7 +169,12 @@ export function useSidebarMutations(ws: string) {
      * be described by an agent but not by a person.
      */
     updateWorkspace: useMutation({
-      mutationFn: async (body: { name?: string; description?: string | null; branding?: WorkspaceBranding }) =>
+      mutationFn: async (body: {
+        name?: string;
+        description?: string | null;
+        branding?: WorkspaceBranding;
+        agents_may_publish_skills?: boolean;
+      }) =>
         unwrap<WorkspaceInfo>(
           await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
         ),
