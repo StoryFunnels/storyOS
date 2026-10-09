@@ -26,6 +26,8 @@ import {
   oauthConsent,
   records,
   session,
+  skillMembers,
+  skills,
   user,
   userPreferences,
   workspaceFiles,
@@ -184,6 +186,20 @@ export class GdprService {
         eq(accessGrants.userId, userId),
       ),
     });
+
+    // #841 — a person's skill shares are their personal data: which skills in this workspace
+    // name them (`skill_members`), and which skills they authored. Both are in the export, and
+    // the shares are erased below with the rest of their access. A table GDPR does not know
+    // about is a compliance hole nobody notices until it matters.
+    const skillShares = await this.db
+      .select({ skill_id: skills.id, name: skills.name, visibility: skills.visibility, shared_at: skillMembers.createdAt })
+      .from(skillMembers)
+      .innerJoin(skills, eq(skills.id, skillMembers.skillId))
+      .where(and(eq(skills.workspaceId, workspaceId), eq(skillMembers.userId, userId)));
+    const authoredSkills = await this.db
+      .select({ id: skills.id, name: skills.name, visibility: skills.visibility, created_at: skills.createdAt })
+      .from(skills)
+      .where(and(eq(skills.workspaceId, workspaceId), eq(skills.ownerId, userId)));
 
     const authoredRecords = dbIds.length
       ? await this.db
@@ -348,6 +364,8 @@ export class GdprService {
         database_id: g.databaseId,
         role: g.role,
       })),
+      skill_shares: skillShares,
+      authored_skills: authoredSkills,
       authored_records: authoredRecords,
       authored_comments: authoredComments,
       activity,
@@ -492,6 +510,21 @@ export class GdprService {
           )
           .returning()
       ).length;
+      // #841 — skill shares naming this person, scoped to THIS workspace's skills.
+      const skillSharesRemoved = (
+        await tx
+          .delete(skillMembers)
+          .where(
+            and(
+              eq(skillMembers.userId, userId),
+              inArray(
+                skillMembers.skillId,
+                tx.select({ id: skills.id }).from(skills).where(eq(skills.workspaceId, workspaceId)),
+              ),
+            ),
+          )
+          .returning()
+      ).length;
       const favs = (
         await tx
           .delete(favorites)
@@ -531,6 +564,7 @@ export class GdprService {
           user_preferences: prefs,
           memberships: 1,
           access_grants: grants,
+          skill_shares: skillSharesRemoved,
           favorites: favs,
           notifications: notifs,
           user_field_references: userFieldsCleared,

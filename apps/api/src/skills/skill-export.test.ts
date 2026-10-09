@@ -12,6 +12,7 @@ const skill: SkillSummary = {
   when_to_use: 'Every Friday, for a standing team update.',
   instructions: 'List records changed this week. Keep it under 200 words.',
   examples: [{ input: '10 records moved to Done', output: '10 done this week, 2 overdue.' }],
+  version: '1.0.0',
   source_template: 'weekly-digest',
   source: 'human',
   last_run_at: null,
@@ -33,12 +34,12 @@ describe('renderSkillExport (#40 portable export)', () => {
     expect(out.content).toContain('## Examples');
   });
 
-  it('produces a SKILL.md with only name/description in frontmatter (Agent Skills convention)', () => {
+  it('produces a SKILL.md with name, description and version in frontmatter (Agent Skills convention)', () => {
     const out = renderSkillExport(skill, 'claude_skill');
     expect(out.filename).toBe('SKILL.md');
     // Slug drops punctuation ("!") — the frontmatter name is a clean identifier.
     expect(
-      out.content.startsWith('---\nname: weekly-status-digest\ndescription: Summarizes the week.\n---'),
+      out.content.startsWith('---\nname: weekly-status-digest\ndescription: Summarizes the week.\nversion: 1.0.0\n---'),
     ).toBe(true);
     expect(out.content).toContain('## Instructions');
   });

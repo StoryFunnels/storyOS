@@ -13,7 +13,7 @@ const skill: SkillSummary = {
   when_to_use: 'Every Friday, for a standing team update.',
   instructions: '1. List records changed this week.\n2. Keep it under 200 words.',
   examples: [{ input: '10 moved to Done', output: '10 done, 2 overdue.' }],
-  source_template: null, source: 'human', last_run_at: null, last_run_status: null, editable: true,
+  version: '1.0.0', source_template: null, source: 'human', last_run_at: null, last_run_status: null, editable: true,
   created_at: '', updated_at: '',
 };
 
@@ -50,14 +50,25 @@ Never guess a signature.
     expect(parsed.description).toBe('Fill in PDF forms.');
     expect(parsed.instructions).toContain('1. Read the form.');
     expect(parsed.instructions).toContain('Never guess a signature.'); // free-form: the whole body is the procedure
-    for (const key of ['license', 'compatibility', 'allowed-tools', 'version', 'author']) {
+    // `version` is semver here, so it is KEPT (#841), not dropped.
+    expect(parsed.version).toBe('1.2.0');
+    expect(report.kept).toContainEqual({ field: 'version', from: '`version` frontmatter' });
+    for (const key of ['license', 'compatibility', 'allowed-tools', 'author']) {
       expect(dropped(report), key).toContain(`frontmatter \`${key}\``);
     }
     expect(report.dropped.find((d) => d.item.includes('allowed-tools'))!.reason).toMatch(/retired/i);
     expect(dropped(report)).toContain('the `# Title` heading'); // name came from the frontmatter
     // Accounting: every frontmatter key is in exactly one list.
     const seen = [...report.kept.map((k) => k.from), ...dropped(report)].join(' ');
-    for (const key of ['name', 'description', 'license', 'compatibility', 'allowed-tools', 'version', 'author']) expect(seen, key).toContain(`\`${key}\``);
+    for (const key of ['name', 'description', 'license', 'compatibility', 'allowed-tools', 'author']) expect(seen, key).toContain(`\`${key}\``);
+    expect(seen).toContain('version');
+  });
+
+  it('a version that is not semver is DROPPED by name with the reason, never coerced', () => {
+    const r = buildSkillImport('---\nname: x\ndescription: d\nversion: v2\n---\n\nBody.\n', { when_to_use: 'w' });
+    expect(r.report.dropped.map((d) => d.item)).toContain('frontmatter `version`');
+    expect(r.report.dropped.find((d) => d.item.includes('version'))!.reason).toMatch(/not semver/);
+    expect(r.input!.version).toBeUndefined();
   });
 
   it('a file with no when_to_use is reported MISSING, never filled with a guess', () => {

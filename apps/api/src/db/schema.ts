@@ -7,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -1994,12 +1995,18 @@ export const actionGatePolicies = pgTable(
   ],
 );
 
-/** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its
- * owner, 'shared' to every active member of the workspace. There is no
- * separate teams table yet, so "team-shared" today means "workspace-shared" —
- * the same granularity `connections`/`automations` already use for
- * workspace-wide config. */
-export const skillVisibility = pgEnum('skill_visibility', ['personal', 'shared']);
+/**
+ * Who can see a skill (#40 AC #1, widened by #841 to four Drive-shaped tiers):
+ *   personal — "Only me": its owner, and workspace admins (admins read everything).
+ *   members  — the owner plus the people named in `skill_members`.
+ *   shared   — every active member of the workspace ("Workspace"; the default for a skill
+ *              a PERSON creates).
+ *   public   — everyone with the unauthenticated link `public_token`, and every member.
+ * The first and third are the original two values, unchanged in meaning: existing rows keep
+ * exactly who could see them. NOTE the API never calls `personal` "private":
+ * docs/architecture/personal-space.md uses that word for private-FROM-admins.
+ */
+export const skillVisibility = pgEnum('skill_visibility', ['personal', 'members', 'shared', 'public']);
 
 /**
  * #40 — the Skills framework: named, reusable instruction+workflow bundles for
@@ -2039,6 +2046,19 @@ export const skills = pgTable(
      * lands, or null for a from-scratch skill. Provenance only. */
     sourceTemplate: text('source_template'),
     /**
+     * #841 — semver, travels with the skill and appears in exported SKILL.md frontmatter.
+     * Without it an import is lossy by construction: every incoming file's version would be
+     * discarded. Existing rows take the default; the value is the author's to change.
+     */
+    version: text('version').notNull().default('1.0.0'),
+    /**
+     * #841 — the credential for the `public` tier, mirroring a form's `public_token`:
+     * server-minted (never client-supplied), unauthenticated read, and CLEARED the moment the
+     * skill leaves `public`, so revoking is effective immediately. Null whenever the skill is
+     * not public.
+     */
+    publicToken: text('public_token'),
+    /**
      * #442 — WHO authored this: a person typing, or an agent writing over MCP.
      *
      * Deliberately a separate column from `sourceTemplate` even though that one
@@ -2062,7 +2082,31 @@ export const skills = pgTable(
   (t) => [
     index('skills_workspace_visibility_idx').on(t.workspaceId, t.visibility),
     index('skills_owner_idx').on(t.workspaceId, t.ownerId),
+    uniqueIndex('skills_public_token_uq').on(t.publicToken).where(sql`${t.publicToken} IS NOT NULL`),
   ],
+);
+
+/**
+ * #841 — who a `members`-tier skill is shared with. A plain membership join: `(skill_id,
+ * user_id)`, NO roles, NO precedence, NO billing semantics, NO hierarchy. Visibility itself
+ * lives on the skill; this only enumerates WHO for one tier.
+ *
+ * Deliberately NOT a fourth scope on `access_grants` (Otto's ruling on #841): that table
+ * encodes a containment hierarchy (space > database > record), carries roles, and is the
+ * billing boundary, and a skill is outside all three. The mitigation for "who can see this"
+ * having two homes is a rule, not a hope: no grant consumer ever reads this table, and the
+ * skill resolver (SkillsService.canSee / visibleWhere) never reads `access_grants`.
+ */
+export const skillMembers = pgTable(
+  'skill_members',
+  {
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.skillId, t.userId] }), index('skill_members_user_idx').on(t.userId)],
 );
 
 /** What kind of live object a `pack_install_items` row tracks (MN-219 / #161). */

@@ -9393,6 +9393,30 @@
         ]
       }
     },
+    "/api/v1/public/skills/{token}": {
+      "get": {
+        "operationId": "PublicSkillsController_get",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "A public skill, by its link token (portable fields only)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -17364,8 +17388,23 @@
             "type": "string",
             "enum": [
               "personal",
-              "shared"
+              "members",
+              "shared",
+              "public"
             ]
+          },
+          "member_ids": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
           },
           "source_template": {
             "type": "string",
@@ -17406,11 +17445,18 @@
               "instructions": {
                 "type": "string"
               },
+              "version": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+              },
               "visibility": {
                 "type": "string",
                 "enum": [
                   "personal",
-                  "shared"
+                  "members",
+                  "shared",
+                  "public"
                 ]
               }
             }
@@ -17473,8 +17519,23 @@
             "type": "string",
             "enum": [
               "personal",
-              "shared"
+              "members",
+              "shared",
+              "public"
             ]
+          },
+          "member_ids": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
           }
         }
       },

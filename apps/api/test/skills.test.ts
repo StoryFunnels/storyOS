@@ -385,3 +385,165 @@ allowed-tools: Read Write
     expect(dflt.json().created.source).toBe('mcp');
   });
 });
+
+/**
+ * #841 — four visibility tiers. The two-account-plus-a-third shape is the point of the
+ * `members` tier: A names B; B sees it; C does NOT; an admin still reads everything.
+ */
+describe('#841 — members, public and version', () => {
+  let b: { token: string; email: string };
+  let c: { token: string; email: string };
+  let bId: string;
+  let cId: string;
+  let ownerId: string;
+
+  async function joinAsMember(user: { token: string; email: string }) {
+    const inv = await inject('POST', `/workspaces/${wsId}/invites`, { email: user.email, role: 'member' });
+    const res = await inject('POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! }, user.token);
+    if (res.statusCode >= 300) throw new Error(res.body);
+  }
+  const ids = (res: { json: () => { data: Array<{ id: string }> } }) => res.json().data.map((s) => s.id);
+  const base = (name: string) => ({ ...baseSkill, name });
+
+  beforeAll(async () => {
+    b = await signUpUser(app, 'SkillB');
+    c = await signUpUser(app, 'SkillC');
+    await joinAsMember(b);
+    await joinAsMember(c);
+    bId = (await inject('GET', '/me', undefined, b.token)).json().id;
+    cId = (await inject('GET', '/me', undefined, c.token)).json().id;
+    ownerId = (await inject('GET', '/me')).json().id;
+  });
+
+  it('A names B: B lists, reads and runs it; C does not see it at all; the admin does; neither sees the share list', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Members-tier skill'), visibility: 'members', member_ids: [bId] }, member.token);
+    expect(made.statusCode, made.body).toBe(201);
+    const id = made.json().id;
+    expect(made.json().member_ids).toEqual([bId]); // the owner sees who it is shared with
+
+    expect(ids(await inject('GET', `/workspaces/${wsId}/skills`, undefined, b.token))).toContain(id);
+    const read = await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, b.token);
+    expect(read.statusCode).toBe(200);
+    expect(read.json().editable).toBe(false);
+    expect(read.json()).not.toHaveProperty('member_ids'); // B is named, but is not shown the audience
+    expect((await inject('POST', `/workspaces/${wsId}/skills/${id}/run`, undefined, b.token)).statusCode).toBeLessThan(300);
+
+    // C is a member of the same workspace and is NOT named: absent from the list, 404 by id and on run.
+    expect(ids(await inject('GET', `/workspaces/${wsId}/skills`, undefined, c.token))).not.toContain(id);
+    expect((await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, c.token)).statusCode).toBe(404);
+    expect((await inject('POST', `/workspaces/${wsId}/skills/${id}/run`, undefined, c.token)).statusCode).toBe(404);
+    expect((await inject('GET', `/workspaces/${wsId}/skills/${id}/export?format=markdown`, undefined, c.token)).statusCode).toBe(404);
+
+    // The admin reads it too, and sees the audience.
+    const asAdmin = await inject('GET', `/workspaces/${wsId}/skills/${id}`);
+    expect(asAdmin.statusCode).toBe(200);
+    expect(asAdmin.json().member_ids).toEqual([bId]);
+  });
+
+  it('naming someone outside the workspace is a 422 naming them; member_ids without the members tier is a 422', async () => {
+    const stranger = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Stranger'), visibility: 'members', member_ids: ['not-a-member'] }, member.token);
+    expect(stranger.statusCode, stranger.body).toBe(422);
+    expect(stranger.json().error.details[0].message).toMatch(/not-a-member/);
+    const wrongTier = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Wrong tier'), visibility: 'shared', member_ids: [bId] }, member.token);
+    expect(wrongTier.statusCode, wrongTier.body).toBe(422);
+  });
+
+  it('replacing the audience takes effect at once, and leaving the members tier DROPS the list', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Audience changes'), visibility: 'members', member_ids: [bId] }, member.token);
+    const id = made.json().id;
+    await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { member_ids: [cId] }, member.token);
+    expect(ids(await inject('GET', `/workspaces/${wsId}/skills`, undefined, b.token))).not.toContain(id);
+    expect(ids(await inject('GET', `/workspaces/${wsId}/skills`, undefined, c.token))).toContain(id);
+
+    await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { visibility: 'shared' }, member.token);
+    const back = await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { visibility: 'members' }, member.token);
+    expect(back.json().member_ids, 'a re-share must not silently revive the old audience').toEqual([]);
+    expect(ids(await inject('GET', `/workspaces/${wsId}/skills`, undefined, c.token))).not.toContain(id);
+  });
+
+  it('a skill share creates NO access grant: the grants table is untouched (AC3: the resolver never reads it)', async () => {
+    const before = (await inject('GET', `/workspaces/${wsId}/grants`)).json();
+    await inject('POST', `/workspaces/${wsId}/skills`, { ...base('No grant please'), visibility: 'members', member_ids: [bId, cId] }, member.token);
+    expect((await inject('GET', `/workspaces/${wsId}/grants`)).json()).toEqual(before);
+  });
+
+  it('an agent credential cannot create or promote to members/public, nor name people', async () => {
+    const mint = await inject('POST', '/me/tokens', { name: 'tiers-test', workspace_id: wsId });
+    const token = mint.json().token as string;
+    const asAgent = (method: string, url: string, payload?: unknown) => inject(method, url, payload, token);
+    for (const body of [
+      { ...base('Agent members'), visibility: 'members' },
+      { ...base('Agent public'), visibility: 'public' },
+      { ...base('Agent named'), visibility: 'members', member_ids: [bId] },
+    ]) {
+      expect((await asAgent('POST', `/workspaces/${wsId}/skills`, body)).statusCode, JSON.stringify(body)).toBe(403);
+    }
+    const mine = await asAgent('POST', `/workspaces/${wsId}/skills`, base('Agent personal'));
+    expect(mine.statusCode, mine.body).toBe(201);
+    for (const patch of [{ visibility: 'members' }, { visibility: 'public' }, { member_ids: [bId] }]) {
+      expect((await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, patch)).statusCode, JSON.stringify(patch)).toBe(403);
+    }
+    // Control: the owner (a person) CAN do the same to the same skill.
+    expect((await inject('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, { visibility: 'public' })).statusCode).toBeLessThan(300);
+  });
+
+  it('public: a server-minted link, an unauthenticated read of portable fields only, and revocation that is immediate', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Public skill'), visibility: 'public', public_token: 'client-chosen-token' });
+    expect(made.statusCode, made.body).toBe(201);
+    const token = made.json().public_token as string;
+    expect(token).toBeTruthy();
+    expect(token).not.toBe('client-chosen-token'); // never client-supplied
+
+    const anon = await app.inject({ method: 'GET', url: `/api/v1/public/skills/${token}` }); // NO auth header
+    expect(anon.statusCode, anon.body).toBe(200);
+    expect(Object.keys(anon.json()).sort()).toEqual(['description', 'examples', 'instructions', 'name', 'updated_at', 'version', 'when_to_use']);
+
+    // Only the owner and admins are shown the credential.
+    const asMember = await inject('GET', `/workspaces/${wsId}/skills/${made.json().id}`, undefined, b.token);
+    expect(asMember.json()).not.toHaveProperty('public_token');
+
+    // Revoke: leaving `public` clears the token, and the link 404s at once, same as an unknown one.
+    await inject('PATCH', `/workspaces/${wsId}/skills/${made.json().id}`, { visibility: 'shared' });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/public/skills/${token}` })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/public/skills/never-existed' })).statusCode).toBe(404);
+    // Re-publishing mints a NEW token; the old link stays dead.
+    const again = await inject('PATCH', `/workspaces/${wsId}/skills/${made.json().id}`, { visibility: 'public' });
+    expect(again.json().public_token).toBeTruthy();
+    expect(again.json().public_token).not.toBe(token);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/public/skills/${token}` })).statusCode).toBe(404);
+  });
+
+  it('version: defaults to 1.0.0, is settable, must be semver, and travels in the SKILL.md frontmatter and back through import', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, base('Versioned'));
+    expect(made.json().version).toBe('1.0.0');
+    const id = made.json().id;
+    expect((await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { version: 'v2' })).statusCode).toBe(422);
+    const bumped = await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { version: '1.2.0' });
+    expect(bumped.json().version).toBe('1.2.0');
+
+    const exported = (await inject('GET', `/workspaces/${wsId}/skills/${id}/export?format=claude_skill`)).json().content as string;
+    expect(exported).toMatch(/^---\nname: versioned\ndescription: .*\nversion: 1\.2\.0\n---/);
+    const imported = await inject('POST', `/workspaces/${wsId}/skills/import`, { content: exported, create: true });
+    expect(imported.statusCode, imported.body).toBe(201);
+    expect(imported.json().created.version).toBe('1.2.0');
+    expect(imported.json().report.dropped.map((d: { item: string }) => d.item)).not.toContain('frontmatter `version`');
+  });
+
+  it('a member removed from the workspace no longer sees what was shared with them, and is cleaned up with the rest of their access (GDPR)', async () => {
+    const made = await inject('POST', `/workspaces/${wsId}/skills`, { ...base('Share then erase'), visibility: 'members', member_ids: [cId] }, member.token);
+    const id = made.json().id;
+    const members = (await inject('GET', `/workspaces/${wsId}/members`)).json();
+    const cMembership = (members.data ?? members).find((m: { user_id?: string; userId?: string }) => (m.user_id ?? m.userId) === cId);
+    expect(cMembership, 'C is a member').toBeTruthy();
+
+    const exp = await inject('GET', `/workspaces/${wsId}/members/${cMembership.id}/gdpr/export`);
+    expect(exp.statusCode, exp.body).toBe(200);
+    expect(exp.json().skill_shares.map((s: { skill_id: string }) => s.skill_id)).toContain(id);
+
+    const erased = await inject('POST', `/workspaces/${wsId}/members/${cMembership.id}/gdpr/anonymize`);
+    expect(erased.statusCode, erased.body).toBeLessThan(300);
+    expect(erased.json().removed.skill_shares).toBeGreaterThanOrEqual(1);
+    // The owner's view of the audience no longer names the erased person.
+    expect((await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, member.token)).json().member_ids).not.toContain(cId);
+  });
+});

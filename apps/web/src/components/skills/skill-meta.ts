@@ -12,7 +12,11 @@ import type { SkillSummary, SkillVisibility } from '@storyos/schemas';
  */
 export const VISIBILITY_CHIP: Record<SkillVisibility, string> = {
   personal: 'Only me',
+  // #841: the API has four tiers; the picker below still offers two (the library UI for
+  // naming people and a public link is its own ticket), but a skill can already be in these.
+  members: 'Specific people',
   shared: 'Workspace',
+  public: 'Anyone with the link',
 };
 
 export const VISIBILITY_OPTIONS: Array<{ value: SkillVisibility; label: string; hint: string }> = [

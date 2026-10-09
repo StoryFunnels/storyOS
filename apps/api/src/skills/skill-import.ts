@@ -1,4 +1,4 @@
-import { createSkillSchema } from '@storyos/schemas';
+import { createSkillSchema, skillVersionSchema } from '@storyos/schemas';
 import type { CreateSkillInput } from '@storyos/schemas';
 
 /**
@@ -37,6 +37,7 @@ export interface ParsedSkill {
   when_to_use?: string;
   instructions?: string;
   examples: Array<{ input: string; output: string }>;
+  version?: string;
 }
 
 /** The frontmatter keys StoryOS has a field for. Everything else is DROPPED, loudly. */
@@ -49,7 +50,6 @@ const DROP_REASONS: Record<string, string> = {
     'StoryOS has retired allowed_tools: nothing enforced it, because the model that follows a skill is always the reader\'s own.',
   license: 'StoryOS skills have no license field.',
   compatibility: 'StoryOS skills have no compatibility field.',
-  version: 'StoryOS skills have no version field.',
   metadata: 'StoryOS skills have no free-form metadata.',
 };
 
@@ -91,6 +91,17 @@ export function parseSkillMarkdown(raw: string): { parsed: ParsedSkill; report: 
 
   const { entries, body } = parseFrontmatter(raw);
   for (const [key, value] of entries) {
+    if (key === 'version') {
+      // #841: kept when it is semver. A non-semver value is DROPPED by name with the reason,
+      // never coerced into one: a version is a promise, and guessing one would be inventing it.
+      if (skillVersionSchema.safeParse(value).success) {
+        parsed.version = value.trim();
+        kept.push({ field: 'version', from: '`version` frontmatter' });
+      } else {
+        dropped.push({ item: 'frontmatter `version`', reason: `"${value}" is not semver (e.g. 1.2.0), so it was not used and the skill keeps the default.` });
+      }
+      continue;
+    }
     const target = FRONTMATTER_KEPT[key];
     if (target && value.trim()) {
       parsed[target] = value.trim();
@@ -180,6 +191,7 @@ export interface ImportOverrides {
   description?: string;
   when_to_use?: string;
   instructions?: string;
+  version?: string;
   visibility?: CreateSkillInput['visibility'];
 }
 
@@ -188,7 +200,7 @@ export function buildSkillImport(raw: string, overrides: ImportOverrides = {}) {
   const { parsed, report } = parseSkillMarkdown(raw);
   const kept = [...report.kept];
   const merged: Record<string, unknown> = { ...parsed };
-  for (const field of ['name', 'description', 'when_to_use', 'instructions'] as const) {
+  for (const field of ['name', 'description', 'when_to_use', 'instructions', 'version'] as const) {
     const v = overrides[field];
     if (v !== undefined && v.trim()) {
       merged[field] = v.trim();

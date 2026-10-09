@@ -48,9 +48,14 @@ function toMarkdown(skill: SkillSummary): SkillExport {
  * so nothing could enforce it.)
  */
 function toClaudeSkill(skill: SkillSummary): SkillExport {
-  const frontmatter = ['---', `name: ${slugify(skill.name)}`, `description: ${skill.description}`, '---'].join(
-    '\n',
-  );
+  const frontmatter = [
+    '---',
+    `name: ${slugify(skill.name)}`,
+    `description: ${skill.description}`,
+    // #841: the version travels with the skill, so an export/import round trip keeps it.
+    `version: ${skill.version}`,
+    '---',
+  ].join('\n');
   const content =
     `${frontmatter}\n\n## When to use\n\n${skill.when_to_use}\n\n## Instructions\n\n${skill.instructions}` +
     examplesSection(skill) +

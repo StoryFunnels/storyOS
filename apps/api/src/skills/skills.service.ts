@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, desc, eq, exists, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
 import type { ChangeSource } from '../db/schema';
 import type {
   CreateSkillInput,
@@ -15,7 +16,7 @@ import type {
 import { SKILL_TEMPLATES } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { skills } from '../db/schema';
+import { memberships, skillMembers, skills } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { scopeForRole } from '../agents/agent-principal';
 import { renderSkillExport } from './skill-export';
@@ -72,7 +73,72 @@ export type InternalCreateSkillInput = Omit<CreateSkillInput, 'allowed_tools'> &
 export class SkillsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  private present(row: SkillRow, callerUserId: string): SkillView {
+  /**
+   * THE ONE PLACE "who can see this skill" is decided (#841, Otto's ruling on AC3).
+   *
+   * The `members` tier is backed by `skill_members`, a plain `(skill_id, user_id)` join, and
+   * NOT by a fourth scope on `access_grants`: that table encodes a containment hierarchy
+   * (space > database > record) and carries the roles that are the billing boundary, and a
+   * skill is outside both. The price of "who can see this" having two homes is this rule:
+   * NO grant consumer ever reads `skill_members`, and THIS function never reads
+   * `access_grants`. Both list() and findVisible() go through it, so there is no second copy.
+   *
+   *   admin   — every skill in the workspace, including other people's `personal` ones
+   *   others  — their own, every `shared` and `public` one, and a `members` one they are named on
+   */
+  private visibleTo(membership: Membership, userId: string): SQL | undefined {
+    if (membership.role === 'admin') return undefined;
+    return or(
+      eq(skills.ownerId, userId),
+      inArray(skills.visibility, ['shared', 'public']),
+      and(
+        eq(skills.visibility, 'members'),
+        exists(
+          this.db
+            .select({ one: sql`1` })
+            .from(skillMembers)
+            .where(and(eq(skillMembers.skillId, skills.id), eq(skillMembers.userId, userId))),
+        ),
+      ),
+    );
+  }
+
+  /** Mint the credential for a `public` skill: server-side only, never client-supplied. */
+  private mintPublicToken(): string {
+    return randomBytes(24).toString('base64url');
+  }
+
+  /** The people named on `members` skills, for the OWNER and workspace admins only. */
+  private async memberIdsFor(rows: SkillRow[], membership: Membership, userId: string): Promise<Map<string, string[]>> {
+    const wanted = rows
+      .filter((r) => r.visibility === 'members' && (r.ownerId === userId || membership.role === 'admin'))
+      .map((r) => r.id);
+    const out = new Map<string, string[]>();
+    if (wanted.length === 0) return out;
+    const shares = await this.db.select().from(skillMembers).where(inArray(skillMembers.skillId, wanted));
+    for (const s of shares) out.set(s.skillId, [...(out.get(s.skillId) ?? []), s.userId]);
+    return out;
+  }
+
+  /** Every named user must be an ACTIVE member of THIS workspace: a share is not a way to
+   *  reach someone outside it. Unknown ids are a 422 naming them, never silently dropped. */
+  private async assertWorkspaceMembers(workspaceId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const found = await this.db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active'), inArray(memberships.userId, ids)));
+    const have = new Set(found.map((f) => f.userId));
+    const unknown = ids.filter((id) => !have.has(id));
+    if (unknown.length) {
+      throw new UnprocessableEntityException({
+        message: 'member_ids must be active members of this workspace.',
+        details: unknown.map((id) => ({ path: 'member_ids', message: `${id} is not an active member of this workspace` })),
+      });
+    }
+  }
+
+  private present(row: SkillRow, callerUserId: string, extras: { memberIds?: string[]; canSeeToken?: boolean } = {}): SkillView {
     return {
       id: row.id,
       workspace_id: row.workspaceId,
@@ -84,6 +150,9 @@ export class SkillsService {
       instructions: row.instructions,
       examples: (row.examples ?? []) as SkillSummary['examples'],
       allowed_tools: (row.allowedTools ?? []) as string[],
+      version: row.version,
+      ...(extras.memberIds ? { member_ids: extras.memberIds } : {}),
+      ...(extras.canSeeToken ? { public_token: row.publicToken } : {}),
       source_template: row.sourceTemplate,
       source: row.source,
       last_run_at: row.lastRunAt ? row.lastRunAt.toISOString() : null,
@@ -103,13 +172,21 @@ export class SkillsService {
    */
   async list(membership: Membership, userId: string): Promise<{ data: SkillView[] }> {
     const rows = await this.db.query.skills.findMany({
-      where: and(
-        eq(skills.workspaceId, membership.workspaceId),
-        membership.role === 'admin' ? undefined : or(eq(skills.ownerId, userId), eq(skills.visibility, 'shared')),
-      ),
+      where: and(eq(skills.workspaceId, membership.workspaceId), this.visibleTo(membership, userId)),
       orderBy: [desc(skills.createdAt)],
     });
-    return { data: rows.map((r) => this.present(r, userId)) };
+    return { data: await this.presentAll(rows, membership, userId) };
+  }
+
+  /** present() for a batch, adding the owner/admin-only fields (member ids, public token). */
+  private async presentAll(rows: SkillRow[], membership: Membership, userId: string): Promise<SkillView[]> {
+    const members = await this.memberIdsFor(rows, membership, userId);
+    return rows.map((r) =>
+      this.present(r, userId, {
+        memberIds: members.get(r.id) ?? (r.visibility === 'members' && (r.ownerId === userId || membership.role === 'admin') ? [] : undefined),
+        canSeeToken: r.visibility === 'public' && (r.ownerId === userId || membership.role === 'admin'),
+      }),
+    );
   }
 
   templates(): { data: SkillTemplate[] } {
@@ -125,17 +202,15 @@ export class SkillsService {
     id: string,
   ): Promise<SkillRow> {
     const row = await this.db.query.skills.findFirst({
-      where: and(eq(skills.id, id), eq(skills.workspaceId, membership.workspaceId)),
+      where: and(eq(skills.id, id), eq(skills.workspaceId, membership.workspaceId), this.visibleTo(membership, userId)),
     });
-    if (!row || (row.visibility === 'personal' && row.ownerId !== userId && membership.role !== 'admin')) {
-      throw new NotFoundException('Skill not found');
-    }
+    if (!row) throw new NotFoundException('Skill not found');
     return row;
   }
 
   async get(membership: Membership, userId: string, id: string): Promise<SkillView> {
     const row = await this.findVisible(membership, userId, id);
-    return this.present(row, userId);
+    return (await this.presentAll([row], membership, userId))[0]!;
   }
 
   /**
@@ -181,12 +256,25 @@ export class SkillsService {
     // would turn every omitted field into a 403 instead of a safe personal skill.
     const visibility: SkillVisibility = input.visibility ?? (source === 'human' ? 'shared' : 'personal');
     this.assertMayPublish(source, visibility);
-    const [row] = await this.db
+    // Naming people to share with is itself a publication (see assertMayPublish).
+    if (input.member_ids?.length) this.assertMayPublish(source, 'members');
+    if (input.member_ids !== undefined && visibility !== 'members') {
+      throw new UnprocessableEntityException({
+        message: '`member_ids` only applies to a skill whose visibility is `members`.',
+        details: [{ path: 'member_ids', message: `visibility is \`${visibility}\`` }],
+      });
+    }
+    const memberIds = [...new Set((input.member_ids ?? []).filter((id) => id !== userId))];
+    await this.assertWorkspaceMembers(membership.workspaceId, memberIds);
+    const [row] = await this.db.transaction(async (tx) => {
+      const inserted = await tx
       .insert(skills)
       .values({
         workspaceId: membership.workspaceId,
         ownerId: userId,
         visibility,
+        ...(input.version ? { version: input.version } : {}),
+        publicToken: visibility === 'public' ? this.mintPublicToken() : null,
         name: input.name,
         description: input.description,
         whenToUse: input.when_to_use,
@@ -197,7 +285,12 @@ export class SkillsService {
         source,
       })
       .returning();
-    return this.present(row!, userId);
+      if (memberIds.length) {
+        await tx.insert(skillMembers).values(memberIds.map((id) => ({ skillId: inserted[0]!.id, userId: id })));
+      }
+      return inserted;
+    });
+    return (await this.presentAll([row!], membership, userId))[0]!;
   }
 
   /**
@@ -250,25 +343,69 @@ export class SkillsService {
     /** Derived from the request's auth, never from the body (#390's precedent). */
     source: ChangeSource = 'human',
   ): Promise<SkillView> {
-    await this.requireOwner(membership, userId, id);
+    const existing = await this.requireOwner(membership, userId, id);
     // Promoting an existing skill to `shared` is the same decision as creating
     // one shared, so it meets the same gate — otherwise the create-side rule is
     // one PATCH away from being decorative.
     if (input.visibility !== undefined) this.assertMayPublish(source, input.visibility);
+    if (input.member_ids !== undefined) this.assertMayPublish(source, 'members');
+    const nextVisibility = input.visibility ?? existing.visibility;
+    if (input.member_ids !== undefined && nextVisibility !== 'members') {
+      throw new UnprocessableEntityException({
+        message: '`member_ids` only applies to a skill whose visibility is `members`.',
+        details: [{ path: 'member_ids', message: `visibility is \`${nextVisibility}\`` }],
+      });
+    }
+    const memberIds = input.member_ids ? [...new Set(input.member_ids.filter((m) => m !== userId))] : undefined;
+    if (memberIds) await this.assertWorkspaceMembers(membership.workspaceId, memberIds);
     const patch: Partial<typeof skills.$inferInsert> = {};
+    if (input.version !== undefined) patch.version = input.version;
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;
     if (input.when_to_use !== undefined) patch.whenToUse = input.when_to_use;
     if (input.instructions !== undefined) patch.instructions = input.instructions;
     if (input.examples !== undefined) patch.examples = input.examples;
     if (input.visibility !== undefined) patch.visibility = input.visibility;
+    // The public link is a credential: minted when a skill BECOMES public, and cleared the
+    // instant it stops being public, so revoking is effective immediately (a link that
+    // outlived `public` and silently worked again on a re-share would be a standing leak).
+    if (nextVisibility === 'public' && !existing.publicToken) patch.publicToken = this.mintPublicToken();
+    if (nextVisibility !== 'public') patch.publicToken = null;
 
-    const [row] = await this.db
-      .update(skills)
-      .set(patch)
-      .where(eq(skills.id, id))
-      .returning();
-    return this.present(row!, userId);
+    const [row] = await this.db.transaction(async (tx) => {
+      const updated = await tx.update(skills).set(patch).where(eq(skills.id, id)).returning();
+      // Leaving `members` drops the named list, so switching back later cannot silently
+      // revive people someone no longer remembers sharing with.
+      if (nextVisibility !== 'members') await tx.delete(skillMembers).where(eq(skillMembers.skillId, id));
+      else if (memberIds) {
+        await tx.delete(skillMembers).where(eq(skillMembers.skillId, id));
+        if (memberIds.length) await tx.insert(skillMembers).values(memberIds.map((m) => ({ skillId: id, userId: m })));
+      }
+      return updated;
+    });
+    return (await this.presentAll([row!], membership, userId))[0]!;
+  }
+
+  /**
+   * #841 — the unauthenticated read behind a `public` skill's link, mirroring a form's
+   * `public_token`. The token is the only credential. A skill that is not `public` (or has no
+   * token) is a plain 404, the same answer as an unknown token, so the response never says
+   * which. Returns the portable fields only: no owner, workspace or source ids.
+   */
+  async getPublic(token: string) {
+    const row = await this.db.query.skills.findFirst({
+      where: and(eq(skills.publicToken, token), eq(skills.visibility, 'public')),
+    });
+    if (!row) throw new NotFoundException('Skill not found');
+    return {
+      name: row.name,
+      description: row.description,
+      when_to_use: row.whenToUse,
+      instructions: row.instructions,
+      examples: (row.examples ?? []) as SkillSummary['examples'],
+      version: row.version,
+      updated_at: row.updatedAt.toISOString(),
+    };
   }
 
   async remove(membership: Membership, userId: string, id: string): Promise<{ deleted: true }> {
@@ -318,7 +455,7 @@ export class SkillsService {
         summary: 'No model was invoked — StoryOS has no managed runtime configured yet',
         detail:
           'Same as a manual agent run (ADR-0010 §3): this is a real, inspectable resolution of ' +
-          'principal + instructions + tools, not a model call. Drive these instructions with your ' +
+          'principal + instructions, not a model call. Drive these instructions with your ' +
           'own AI over MCP (BYO-AI, never metered), or apply them by hand.',
       },
     ];

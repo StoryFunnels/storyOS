@@ -27,7 +27,8 @@ import { z } from 'zod';
  * the run endpoint is additive, not a rework.
  */
 
-export const skillVisibilitySchema = z.enum(['personal', 'shared']);
+/** personal = "Only me" · members = named people · shared = "Workspace" · public = anyone with the link. */
+export const skillVisibilitySchema = z.enum(['personal', 'members', 'shared', 'public']);
 export type SkillVisibility = z.infer<typeof skillVisibilitySchema>;
 
 /** One example the author gives future callers (and, on export, the reader). */
@@ -36,6 +37,13 @@ export const skillExampleSchema = z.object({
   output: z.string().min(1).max(4000),
 });
 export type SkillExample = z.infer<typeof skillExampleSchema>;
+
+/** Semver (`1.2.3`, optionally `-pre` / `+build`) — what a SKILL.md frontmatter `version` carries. */
+export const skillVersionSchema = z
+  .string()
+  .trim()
+  .max(64)
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/, 'version must be semver, e.g. 1.2.0');
 
 const nameSchema = z.string().min(1).max(100);
 const descriptionSchema = z.string().min(1).max(500);
@@ -70,6 +78,9 @@ export const createSkillSchema = z.object({
    *  is writing, which only the service knows (a person's skill is `shared`, an agent's is
    *  `personal` — ADR-0010 / #442), so a default here would decide it for everyone. */
   visibility: skillVisibilitySchema.optional(),
+  /** Only meaningful with `visibility: members`; the owner is always included. */
+  member_ids: z.array(z.string().min(1)).max(100).optional(),
+  version: skillVersionSchema.optional(),
   source_template: z.string().max(100).optional(),
 });
 export type CreateSkillInput = z.infer<typeof createSkillSchema>;
@@ -87,6 +98,7 @@ export const importSkillSchema = z.object({
       description: z.string().optional(),
       when_to_use: z.string().optional(),
       instructions: z.string().optional(),
+      version: skillVersionSchema.optional(),
       visibility: skillVisibilitySchema.optional(),
     })
     .optional(),
@@ -102,6 +114,9 @@ export const updateSkillSchema = z.object({
   examples: z.array(skillExampleSchema).max(20).optional(),
   allowed_tools: removedField,
   visibility: skillVisibilitySchema.optional(),
+  /** Replaces the whole set. Only valid while the skill is (or is becoming) `members`. */
+  member_ids: z.array(z.string().min(1)).max(100).optional(),
+  version: skillVersionSchema.optional(),
 });
 export type UpdateSkillInput = z.infer<typeof updateSkillSchema>;
 
@@ -117,6 +132,11 @@ export const skillSummarySchema = z.object({
   when_to_use: whenToUseSchema,
   instructions: instructionsSchema,
   examples: z.array(skillExampleSchema),
+  version: z.string(),
+  /** The people a `members` skill is shared with. Present only for the owner and workspace admins. */
+  member_ids: z.array(z.string()).optional(),
+  /** The unauthenticated link credential of a `public` skill. Present only for the owner and workspace admins. */
+  public_token: z.string().nullable().optional(),
   source_template: z.string().nullable(),
   /** #442 — who authored it: `human` when a person typed it, `mcp`/`agent`
    * when it was written over the API. Derived from the request's auth, so it

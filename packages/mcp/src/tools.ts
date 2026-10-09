@@ -5455,8 +5455,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List skills',
       description:
-        "List the skills visible to the caller in a workspace: the caller's own personal skills, plus " +
-        'every skill shared with the workspace. A teammate\'s personal skill is never listed. ' +
+        "List the skills visible to the caller in a workspace: the caller's own, every skill shared with the " +
+        'workspace, every public one, and any `members` skill that names the caller. `visibility` says which tier ' +
+        'each is: personal ("Only me"), members (named people), shared (the workspace), public (anyone with the link). ' +
+        "A teammate's personal skill is never listed to you (workspace admins see all of them). " +
         'Each entry carries when_to_use so you can pick the right one, then call ' +
         'run_skill with its name or id.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
@@ -5471,6 +5473,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           description: s.description,
           when_to_use: s.when_to_use,
           visibility: s.visibility,
+          version: s.version,
           editable: s.editable,
         })),
       );
@@ -5518,6 +5521,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     when_to_use: s.when_to_use,
     instructions: s.instructions,
     examples: s.examples,
+    version: s.version,
     visibility: s.visibility,
     // Surfaced on every skill read: the only way a reader can tell an
     // agent-written instruction from a human-written one WITHOUT trusting the
@@ -5590,6 +5594,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .array(z.object({ input: z.string(), output: z.string() }))
           .optional()
           .describe('Worked input→output pairs. One good example does more than a paragraph of clarification. Max 20.'),
+        version: z.string().optional().describe('Semver, e.g. "1.0.0". Default 1.0.0.'),
         from_template: z.string().optional().describe('Template id from list_skill_templates, recorded as provenance.'),
       },
     },
@@ -5600,8 +5605,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use: string;
       instructions: string;
       examples?: Array<{ input: string; output: string }>;
+      version?: string;
       from_template?: string;
-    }>(async ({ workspace, name, description, when_to_use, instructions, examples, from_template }) => {
+    }>(async ({ workspace, name, description, when_to_use, instructions, examples, version, from_template }) => {
       const ws = await resolveWorkspace(client, workspace);
       const created = await unwrap<SkillFull>(
         client.POST('/api/v1/workspaces/{ws}/skills', {
@@ -5616,6 +5622,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             when_to_use,
             instructions,
             examples: examples ?? [],
+            version,
             // `visibility` is deliberately NOT sent. SkillsService.create is the one place
             // that decides what an omitted visibility means (a person's skill is shared,
             // an agent's is personal — #442), so this tool neither restates the rule nor
@@ -5645,6 +5652,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         when_to_use: z.string().optional(),
         instructions: z.string().optional().describe('Replaces the whole procedure — get_skill first.'),
         examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
+        version: z.string().optional().describe('Semver, e.g. "1.1.0". Bump it when you change the procedure.'),
       },
     },
     handle<{
@@ -5655,6 +5663,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use?: string;
       instructions?: string;
       examples?: Array<{ input: string; output: string }>;
+      version?: string;
     }>(async ({ workspace, skill, ...patch }) => {
       const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
       if (Object.keys(given).length === 0) throw new Error('Nothing to change — pass at least one field to update.');
