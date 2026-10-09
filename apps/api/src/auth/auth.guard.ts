@@ -230,7 +230,12 @@ export class AuthGuard implements CanActivate {
             image: account.image,
             emailVerified: account.emailVerified,
           };
-          (request as AuthedRequest).auth = { via: 'oauth', source: 'human' };
+          // #858 — `mcp`, NOT `human`. The comment above says every token this server mints is an
+          // MCP token by construction; the provenance has to say the same. `human` here meant an
+          // AI connected through claude.ai skipped every gate meant for agents (ADR-0010's
+          // publish rule, action gates, ungating an approval) and was badged as a person. A PAT
+          // is `mcp`; this is the same kind of caller. Pinned by test/oauth-source.test.ts.
+          (request as AuthedRequest).auth = { via: 'oauth', source: 'mcp' };
           return true;
         }
       }
