@@ -5623,10 +5623,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             instructions,
             examples: examples ?? [],
             version,
-            // `visibility` is deliberately NOT sent. SkillsService.create is the one place
-            // that decides what an omitted visibility means (a person's skill is shared,
-            // an agent's is personal — #442), so this tool neither restates the rule nor
-            // offers an argument the server would refuse for a non-human author.
+            // ALWAYS `personal`, stated here and not left to the server's source-aware default.
+            // #995 moved that decision server-side (a person's skill is shared, an agent's is
+            // personal, keyed on `req.auth.source`), and measured afterwards (#848 probe): an
+            // OAuth access token, which is how claude.ai's hosted connector authenticates, is
+            // classified `source: 'human'` by the auth guard, so an AI connected that way would
+            // get `shared` here. Until that classification is decided, this tool must not leave
+            // the answer to a source it cannot trust. It never offers `visibility` as an
+            // argument, so there is nothing for a model to override.
+            visibility: 'personal',
             source_template: from_template,
           } as never,
         }),
@@ -5775,7 +5780,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<{ report: unknown; importable: boolean; created: Parameters<typeof serializeSkill>[0] | null }>(
         client.POST('/api/v1/workspaces/{ws}/skills/import', {
           params: { path: { ws: ws.id } } as never,
-          body: { content, create: create ?? false, overrides } as never,
+          // Same reason as create_skill: an imported skill is created personal, never by default-shared.
+          body: { content, create: create ?? false, overrides: { ...overrides, visibility: 'personal' } } as never,
         }),
       );
       return text({
