@@ -54,10 +54,11 @@ export const updateWorkspaceSchema = z.object({
    * unguessable. Off by default — existing capability-URL behavior is
    * unchanged. Mechanism only; no billing-tier gate is enforced here. */
   private_attachments: z.boolean().optional(),
-  /** #848 — when on, a non-human author (a token or a connected AI) may create/update a skill at
-   * `shared`, and an omitted visibility from one resolves to `shared`. `members` and `public` stay
-   * human-only whatever this says. Off by default. Settable ONLY from a human-sourced request: the
-   * controller refuses it from any other source, because a flag an agent can turn on is decorative. */
+  /** #848/#867 — may a non-human author (a token or a connected AI) create/update a skill at `shared`,
+   * with an omitted visibility resolving to `shared`? ON BY DEFAULT in every workspace (the founder's
+   * ruling, ADR-0010); only an explicit `false` turns it off. `members` and `public` stay human-only
+   * whatever this says. Settable ONLY from a human-sourced request: the controller refuses the key
+   * from any other source, either value, because a switch an agent can flip is decorative. */
   agents_may_publish_skills: z.boolean().optional(),
   /** #400 — null clears it. */
   description: descriptionPatchSchema,

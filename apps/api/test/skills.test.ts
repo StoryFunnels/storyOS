@@ -21,6 +21,9 @@ async function inject(method: string, url: string, payload?: unknown, token = ow
   });
 }
 
+/** #867: agents may publish to the workspace BY DEFAULT; the tests of the publish gate switch it OFF. */
+const agentPublishing = (on: boolean) => inject('PATCH', `/workspaces/${wsId}`, { agents_may_publish_skills: on });
+
 const baseSkill = {
   name: 'Lead triage reply drafter',
   description: 'Drafts a first-touch reply for a new lead.',
@@ -282,7 +285,8 @@ describe('#442 — authorship is derived, and an agent cannot publish a skill', 
     expect(res.json().source).toBe('mcp');
   });
 
-  it('refuses to create a SHARED skill over a token, naming why', async () => {
+  it('with AI publishing switched OFF: refuses to create a SHARED skill over a token, naming why', async () => {
+    expect((await agentPublishing(false)).statusCode).toBe(200);
     const res = await inject(
       'POST',
       `/workspaces/${wsId}/skills`,
@@ -291,10 +295,12 @@ describe('#442 — authorship is derived, and an agent cannot publish a skill', 
     );
     expect(res.statusCode).toBe(403);
     expect(res.json().message ?? res.body).toMatch(/personal/i);
+    await agentPublishing(true);
   });
 
-  it('refuses to PROMOTE an existing skill to shared over a token', async () => {
+  it('with AI publishing switched OFF: refuses to PROMOTE an existing skill to shared over a token', async () => {
     // Without this the create-side rule is one PATCH away from decorative.
+    expect((await agentPublishing(false)).statusCode).toBe(200);
     const created = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Promote me' }, pat);
     expect(created.statusCode).toBe(201);
     const id = created.json().id;
@@ -304,6 +310,7 @@ describe('#442 — authorship is derived, and an agent cannot publish a skill', 
 
     const after = await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, pat);
     expect(after.json().visibility).toBe('personal');
+    await agentPublishing(true);
   });
 
   it('still lets an agent edit its own skill, and a HUMAN promote it', async () => {
@@ -376,7 +383,8 @@ allowed-tools: Read Write
     expect(body.report.dropped.length).toBeGreaterThan(0);
   });
 
-  it('an agent importing is bound by the same publish gate: cannot create it shared, and gets personal by default', async () => {
+  it('an agent importing is bound by the same publish gate: with AI publishing OFF it cannot create it shared and gets personal by default; ON (the default) it gets shared', async () => {
+    expect((await agentPublishing(false)).statusCode).toBe(200);
     const mint = await inject('POST', '/me/tokens', { name: 'import-test', workspace_id: wsId });
     const token = mint.json().token as string;
     const asAgent = (payload: unknown) => inject('POST', `/workspaces/${wsId}/skills/import`, payload, token);
@@ -387,6 +395,12 @@ allowed-tools: Read Write
     expect(dflt.statusCode, dflt.body).toBe(201);
     expect(dflt.json().created.visibility).toBe('personal');
     expect(dflt.json().created.source).toBe('mcp');
+    // ON again (the default for every workspace): the same call lands shared, still badged as the agent's.
+    expect((await agentPublishing(true)).statusCode).toBe(200);
+    const on = await asAgent({ content: content.replace('agent-made', 'agent-made-two'), create: true, overrides: { when_to_use: 'w' } });
+    expect(on.statusCode, on.body).toBe(201);
+    expect(on.json().created.visibility).toBe('shared');
+    expect(on.json().created.source).toBe('mcp');
   });
 });
 
@@ -482,7 +496,7 @@ describe('#841 — members, public and version', () => {
     ]) {
       expect((await asAgent('POST', `/workspaces/${wsId}/skills`, body)).statusCode, JSON.stringify(body)).toBe(403);
     }
-    const mine = await asAgent('POST', `/workspaces/${wsId}/skills`, base('Agent personal'));
+    const mine = await asAgent('POST', `/workspaces/${wsId}/skills`, base('Agent default'));
     expect(mine.statusCode, mine.body).toBe(201);
     for (const patch of [{ visibility: 'members' }, { visibility: 'public' }, { member_ids: [bId] }]) {
       expect((await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, patch)).statusCode, JSON.stringify(patch)).toBe(403);

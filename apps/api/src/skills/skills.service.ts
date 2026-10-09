@@ -235,35 +235,40 @@ export class SkillsService {
     visibility: SkillVisibility,
   ): Promise<void> {
     if (visibility === 'personal' || source === 'human') return;
-    // #848 — the ONE exception, decided by a person in advance for the whole workspace
-    // (`agents_may_publish_skills`, settable only from a human-sourced request): a non-human
-    // author may publish at `shared`. EXACTLY `shared`. `members` (naming people) and `public`
-    // (an unauthenticated URL) stay human-only with the opt-in on or off; written as an equality,
-    // not "anything up to shared", so a tier added later is gated by default and the opt-in
-    // cannot silently widen to cover it.
+    // #848/#867 — the ONE exception: a non-human author may publish at `shared` unless a person
+    // switched that off for the workspace (`agents_may_publish_skills: false`, settable only from a
+    // human-sourced request). EXACTLY `shared`. `members` (naming people) and `public`
+    // (an unauthenticated URL) stay human-only whatever the setting says; written as an equality,
+    // not "anything up to shared", so a tier added later is gated by default and the setting
+    // cannot silently widen to cover it. (A per-action approval path for `public` via MCP is #867
+    // AC3 and is NOT built: it depends on #859, and until it exists `public` here is a 403.)
     if (visibility === 'shared' && (await this.agentsMayPublish(workspaceId))) return;
     // #841: EVERY tier above `personal`, not just `shared`. Sharing with three named people
     // (`members`) is the same breach of ADR-0010 as sharing with the workspace — arguably
     // worse, because it looks deliberate and targeted — and `public` is an unauthenticated
     // URL. Written as "anything but personal" so a tier added later is gated by default.
     throw new ForbiddenException(
-      `A skill authored over the API cannot be shared (\`${visibility}\`) directly — it is created as \`personal\`. ` +
-        "A shared skill is instructions other people's agents follow, so publishing one is a decision a person " +
-        'makes, not an agent (ADR-0010).' +
-        (visibility === 'shared'
-          ? ' A workspace admin can allow agents to publish to the workspace in Settings > General; `members` and `public` are never allowed.'
-          : ''),
+      visibility === 'shared'
+        ? 'An admin has switched off AI publishing to the workspace, so a skill authored over the API stays ' +
+            '`personal`. They can switch it back on in Settings > General; a person can also share it in the Skills library.'
+        : `A skill authored over the API cannot be \`${visibility}\`: ${
+            visibility === 'public' ? 'a public link' : 'sharing with chosen people'
+          } is a decision a person makes (ADR-0010). Share it with the workspace instead, or a person can do this in the Skills library.`,
     );
   }
 
-  /** #848 — has a person opted this workspace in? Read fresh each call (one small query, and only
-   * on the non-human path that needs it): a revoked opt-in must apply to the very next request. */
+  /** #867 — may an agent publish to this workspace? YES BY DEFAULT, in every workspace (the founder's
+   * ruling, ADR-0010 amendment): the user's AI is their hands. An admin can switch it OFF, and only a
+   * person can (the controller refuses the key from any non-human source). Only an EXPLICIT `false`
+   * turns it off, so absence, `true` and any workspace that never touched it all mean "allowed".
+   * Read fresh each call (one small query, only on the non-human path): switching it off must apply
+   * to the very next request. */
   private async agentsMayPublish(workspaceId: string): Promise<boolean> {
     const ws = await this.db.query.workspaces.findFirst({
       where: eq(workspaces.id, workspaceId),
       columns: { settings: true },
     });
-    return (ws?.settings as Record<string, unknown> | null | undefined)?.['agents_may_publish_skills'] === true;
+    return (ws?.settings as Record<string, unknown> | null | undefined)?.['agents_may_publish_skills'] !== false;
   }
 
   async create(
@@ -277,10 +282,10 @@ export class SkillsService {
     // the workspace (so "my skill, your AI" works without a settings step); an agent's stays
     // personal — it may not publish (#442 / ADR-0010), and defaulting an agent to `shared`
     // would turn every omitted field into a 403 instead of a safe personal skill.
-    // #848: with the workspace's opt-in ON, an agent's omitted visibility follows the same default
-    // a person gets (`shared`) - the workspace has decided agents may do this, and demanding the
-    // flag on every call would make the opt-in half-useless. OFF it stays `personal`. This is
-    // still the single place an omitted visibility is decided; do not add a second resolver.
+    // #867: an agent's omitted visibility follows the same default a person gets (`shared`) unless
+    // an admin switched agent publishing OFF for the workspace, in which case it is `personal`
+    // (#848). Demanding the flag on every call would re-impose the friction the founder's ruling
+    // removes. Still the single place an omitted visibility is decided; do not add a second resolver.
     const visibility: SkillVisibility =
       input.visibility ??
       (source === 'human' || (await this.agentsMayPublish(membership.workspaceId)) ? 'shared' : 'personal');
