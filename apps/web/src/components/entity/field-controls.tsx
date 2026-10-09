@@ -106,6 +106,58 @@ export function TopStripAdd({
   );
 }
 
+/**
+ * #809 — which fields the chip row under the record title shows. Lives with the other
+ * field-visibility controls ("New field", "N hidden"), not in its own corner, and writes the
+ * SAME stored `top` zone the row reads. Per database, not per record or person.
+ */
+export function TopRowMenu({
+  candidates,
+  selectedIds,
+  configured,
+  onToggle,
+}: {
+  candidates: Field[];
+  selectedIds: Set<string>;
+  /** False while the row is the automatic one (nothing stored yet). */
+  configured: boolean;
+  onToggle: (field: Field, on: boolean) => void;
+}) {
+  if (candidates.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-label text-muted hover:text-ink"
+          title="Choose which fields show in the row under the title (for every record in this database)"
+        >
+          <Pin className="h-3 w-3" /> Top row
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+        <p className="px-2 py-1.5 text-label text-muted">
+          {configured
+            ? 'Shown under the title on every record in this database.'
+            : 'Automatic: state, assignee and due date. Pick any field to choose your own.'}
+        </p>
+        {candidates.map((f) => (
+          <DropdownMenuItem
+            key={f.id}
+            onSelect={(e) => {
+              e.preventDefault();
+              onToggle(f, !selectedIds.has(f.id));
+            }}
+          >
+            <span className="mr-2 w-3 text-accent">{selectedIds.has(f.id) ? '✓' : ''}</span> {f.displayName}
+          </DropdownMenuItem>
+        ))}
+        {configured && <p className="px-2 py-1.5 text-label text-faint">Clear every field to go back to automatic.</p>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Per-field ⋯ menu: choose zones (a field can be in several), edit, hide, delete. */
 export function FieldMenu({
   ws,

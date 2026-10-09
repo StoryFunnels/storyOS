@@ -61,7 +61,8 @@ import {
   zonesOf,
 } from '@/components/entity/entity-field-utils';
 import type { FieldGroup, Zone } from '@/components/entity/entity-field-utils';
-import { FieldPicker, TopStripAdd, useSetFieldConfig } from '@/components/entity/field-controls';
+import { FieldPicker, TopRowMenu, TopStripAdd, useSetFieldConfig } from '@/components/entity/field-controls';
+import { canPinToStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
 import { BodyScalar, ScalarValue, SidebarField, TopChip, UnifiedFieldRow } from '@/components/entity/scalar-fields';
 import { CollectionSection } from '@/components/entity/collection-section';
 import { RichTextFieldSection } from '@/components/entity/rich-text-field';
@@ -270,9 +271,7 @@ export function RecordDetail({
    * matching type among fields that would have shown near the top before —
    * flagged on the ticket as provisional, not a designed mapping.
    */
-  const stripWorkflowField = visibleFields.find((f) => f.type === 'workflow');
-  const stripAssigneeField = unifiedFields.find((f) => f.type === 'user');
-  const stripDueField = unifiedFields.find((f) => f.type === 'date');
+  const strip = useMemo(() => stripFields({ topFields, visibleFields, unifiedFields }), [topFields, visibleFields, unifiedFields]);
 
   // #780 — one useCollapsedSection call per POSSIBLE group, fixed at 4 and
   // unconditional (never inside groupedFields' own .map, which varies in
@@ -387,6 +386,13 @@ export function RecordDetail({
     const next = cur.includes(zone) ? cur.filter((z) => z !== zone) : [...cur, zone];
     if (next.length === 0) setFieldConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } });
     else setFieldConfig.mutate({ fieldId: field.id, config: { entity_zones: next, entity_hidden: false } });
+  };
+
+  /** #809 — add a field to, or take one out of, the row under the title. Writes the stored `top` zone. */
+  const setStripMember = (field: Field, on: boolean) => {
+    for (const w of stripPlan({ current: strip, field, on })) {
+      setFieldConfig.mutate({ fieldId: w.field.id, config: { entity_zones: w.zones } });
+    }
   };
 
   // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
@@ -704,24 +710,22 @@ export function RecordDetail({
               watcher count, per the design screenshots. Hangs under the
               TITLE (same left inset as the title text, not the icon —
               matches the artifact's own `margin-left` offset), not a return
-              of field-zoning's pin-to-top mechanism. */}
-          {(stripWorkflowField || stripAssigneeField || stripDueField || (watchers.query.data?.watchers.length ?? 0) > 0) && (
+              of field-zoning's pin-to-top UI. #809: the row reads the stored `top` zone, and falls
+              back to the type heuristic only while a database has none. */}
+          {(strip.fields.length > 0 || (watchers.query.data?.watchers.length ?? 0) > 0) && (
             <div className="mb-5 ml-[43px] flex flex-wrap items-center gap-1.5">
-              {stripWorkflowField && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-hover px-2.5 py-1 text-label font-medium text-ink">
-                  <ScalarValue field={stripWorkflowField} {...vp} />
+              {strip.fields.map((field) => (
+                <span
+                  key={field.id}
+                  className={
+                    field.type === 'workflow'
+                      ? 'inline-flex items-center gap-1.5 rounded-full border border-border-default bg-hover px-2.5 py-1 text-label font-medium text-ink'
+                      : 'inline-flex items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-2 py-1 text-label text-ink-secondary'
+                  }
+                >
+                  <ScalarValue field={field} {...vp} />
                 </span>
-              )}
-              {stripAssigneeField && (
-                <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-2 py-1 text-label text-ink-secondary">
-                  <ScalarValue field={stripAssigneeField} {...vp} />
-                </span>
-              )}
-              {stripDueField && (
-                <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-2 py-1 text-label text-ink-secondary">
-                  <ScalarValue field={stripDueField} {...vp} />
-                </span>
-              )}
+              ))}
               {(watchers.query.data?.watchers.length ?? 0) > 0 && (
                 <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] px-2 py-1 text-label text-muted">
                   {watchers.query.data!.watchers.length} watching
@@ -761,8 +765,14 @@ export function RecordDetail({
             </div>
           ))}
           {schemaEditable && (
-            <div className="mb-1.5">
+            <div className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
               <AddFieldRow ws={ws} db={db} />
+              <TopRowMenu
+                candidates={visibleFields.filter(canPinToStrip)}
+                selectedIds={new Set(strip.fields.map((f) => f.id))}
+                configured={strip.configured}
+                onToggle={setStripMember}
+              />
             </div>
           )}
           {/* #780 — provisional home for two controls that only lived inside
