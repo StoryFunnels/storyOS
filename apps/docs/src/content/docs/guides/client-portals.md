@@ -42,6 +42,10 @@ Only the fields you add to the form are accepted. Anything else a caller tries t
 so a public form can never write to columns you didn't expose.
 :::
 
+A text field set to **multiline** renders as a real multi-line box on the form (a paragraph, not a
+single line), on the public page and in the builder alike. A form view doesn't offer **Filter** or
+**Sort** — a form has no rows to narrow, so those controls would do nothing.
+
 ### Showing or requiring a field only when an earlier one matches
 
 Expand a field in the builder and it carries two independent rule rows:
@@ -108,6 +112,30 @@ tells you where each submission came from without asking the visitor.
   rejects the pair as a config error. **Required** on a hidden field never blocks a submission.
 - **No toggle in the form builder yet** — set `hidden` and `value` on a field through the API, or
   with `create_view` / `update_view` over MCP (`form_fields`).
+
+### Matching your site when you embed a form
+
+An embedded form can take on your brand. In the form's **Configure & share** section, **Match your
+site** has a few controls and a live preview of the form:
+
+- **Embedded form mode** — **Light** (the default: always light, whatever device the visitor uses) or
+  **Dark** (always dark, for a dark site).
+- **Accent** (button, links, focus ring), **Surface** (input backgrounds), **Text** (headings and
+  labels), a **Corner radius**, and a **Font** from a short list of self-hosted faces — Inter,
+  Figtree, Source Sans 3, DM Sans, Source Serif 4, Playfair Display, JetBrains Mono. The font is a
+  *closest match*, not your exact brand font.
+- **The theme is stored on the form, not in the iframe link.** Change a colour once and **every
+  existing embed updates** — nobody re-pastes anything.
+- **Four colours, not a stylesheet.** The rest is derived from them, so the form's text hierarchy
+  holds together; the submit button's label picks white or near-black, whichever reads better on your
+  accent, and error colours stay semantic rather than brand-coloured.
+- **Contrast is protected.** The form keeps text legible whatever you pick. The panel also warns
+  when Text and Surface are uncomfortably close (below 7:1) and **Fix for me** nudges a colour toward
+  the opposite end while **keeping its hue**.
+- **Hex colours only** (alpha isn't accepted — a translucent colour would blend with whatever is behind
+  your iframe, which the form can't see) and a whole-number radius.
+- **Reset to default** removes the theme entirely; an untouched form emits no theme at all, and the
+  standalone link page is never themed.
 
 ## 2. Give the client a scoped space
 
