@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Script from 'next/script';
+import { preload } from 'react-dom';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './fonts/fonts.css';
+import figtreeLatin from './fonts/figtree-latin.woff2';
+import { assetUrl } from '@/lib/asset-url';
 import './globals.css';
 
 /*
@@ -11,6 +14,13 @@ import './globals.css';
  * `next/font/google`, so the build makes no third-party network call. The old
  * loaders declared Figtree plus the six embed families (#720); fonts.css declares the
  * same seven under the same CSS variable names, so nothing downstream changed.
+ *
+ * #855 — `next/font` used to emit a <link rel="preload"> for Figtree's Latin file and plain
+ * @font-face does not, so on a cold load the browser met the font only when layout needed it
+ * and showed the fallback face for one round trip (measured on the ticket: ~120 ms at 100 ms RTT,
+ * 4-11 ms on localhost). The preload below restores it for ONLY that one file: not the family,
+ * not the other six embed families, not the other subsets. It is imported (not hand-typed) so its
+ * URL is the same content-hashed file the @font-face rule fetches, which makes it one request.
  */
 
 export const metadata: Metadata = {
@@ -48,6 +58,8 @@ export const metadata: Metadata = {
 export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAF7F1' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // #855 — React's own preload API: it emits ONE <link rel="preload"> in the head and dedupes repeat calls.
+  preload(assetUrl(figtreeLatin), { as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' });
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
