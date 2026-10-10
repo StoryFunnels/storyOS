@@ -305,6 +305,10 @@ export class DatabasesService {
       // chip's cylinder marker with no extra per-chip fetch.
       const dbColor = new Map(targetDbs.map((d) => [d.id, resolveDatabaseColor(d.id, d.color)]));
       const byId = new Map(relationRows.map((r) => [r.id, r]));
+      // #881 — a relation field on a database the caller CAN read still named its far side, even
+      // when that is a database they cannot reach ("Clients"). The field renders; it just says
+      // nothing about the other end. null = unrestricted (admin/member), so they are unchanged.
+      const reachable = await this.access.reachableDatabaseIds(membership);
 
       for (const field of fieldsWithOptions) {
         if (field.type !== 'relation') continue;
@@ -313,14 +317,19 @@ export class DatabasesService {
         if (!relation) continue;
         const targetDatabaseId =
           config.side === 'a' ? relation.databaseBId : relation.databaseAId;
+        const farSideVisible = reachable === null || reachable.has(targetDatabaseId);
         (field as Record<string, unknown>).relation = {
           id: relation.id,
           cardinality: relation.cardinality,
           side: config.side,
-          target_database_id: targetDatabaseId,
-          target_database_name: dbName.get(targetDatabaseId) ?? null,
-          target_database_color: dbColor.get(targetDatabaseId) ?? null,
-          inverse_field_id: config.side === 'a' ? relation.fieldBId : relation.fieldAId,
+          target_database_id: farSideVisible ? targetDatabaseId : null,
+          target_database_name: farSideVisible ? (dbName.get(targetDatabaseId) ?? null) : null,
+          target_database_color: farSideVisible ? (dbColor.get(targetDatabaseId) ?? null) : null,
+          inverse_field_id: farSideVisible
+            ? config.side === 'a'
+              ? relation.fieldBId
+              : relation.fieldAId
+            : null,
         };
       }
     }
