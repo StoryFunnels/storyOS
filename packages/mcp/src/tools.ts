@@ -5513,7 +5513,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'change_field_type',
     {
       title: 'Change field type',
-      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error.',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),

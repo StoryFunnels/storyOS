@@ -110,6 +110,7 @@ export class FieldsController {
       fieldId,
       body.type,
       body.dry_run,
+      body.confirm_dependent_rules,
     );
   }
 

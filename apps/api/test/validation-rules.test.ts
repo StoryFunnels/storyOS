@@ -338,3 +338,136 @@ describe('#231 SURFACE ON READ: existing violations are visible', () => {
     expect((await as(owner.token, 'GET', `${base()}/validation-rules/${ruleId}/violations`)).statusCode).toBe(422);
   });
 });
+
+/**
+ * #231 (Otto's ruling on Vera's finding): a rule must never go SILENTLY ineffective. A field type change, or deleting an
+ * option, while an ENABLED rule depends on it is REFUSED naming the rules; an explicit confirm lets it proceed; and then
+ * the rule is shown NOT CHECKABLE, never left displaying as enabled while enforcing nothing. This is the same
+ * refuse-unless-confirmed pattern removeOption already uses for an option records still hold, extended to "a rule depends
+ * on this".
+ */
+describe('#231 a rule can never silently stop enforcing', () => {
+  async function fixture(label: string) {
+    const space = (await as(owner.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id as string;
+    const db = (await as(owner.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name: `Gated ${label}` })).json().id as string;
+    const b = `/workspaces/${ws}/databases/${db}`;
+    const stage = (await as(owner.token, 'POST', `${b}/fields`, {
+      display_name: 'Stage', type: 'select', config: {}, options: [{ label: 'Todo' }, { label: 'Done' }, { label: 'Extra' }],
+    })).json();
+    const opt = (l: string) => stage.options.find((o: { label: string }) => o.label === l).id as string;
+    const sum = (await as(owner.token, 'POST', `${b}/fields`, { display_name: 'Summary', type: 'text', config: {} })).json();
+    const note = (await as(owner.token, 'POST', `${b}/fields`, { display_name: 'Note', type: 'text', config: {} })).json();
+    const t = (await as(owner.token, 'POST', `${b}/validation-rules`, {
+      name: 'T: Done needs a summary', trigger: 'transition', transition: { field: stage.apiName, to: 'Done' },
+      condition: { field: sum.apiName, op: 'not_empty' }, message: 'Add a summary',
+    })).json();
+    const u = (await as(owner.token, 'POST', `${b}/validation-rules`, {
+      name: 'U: Extra needs a note', trigger: 'update', message: 'Say why',
+      condition: { or: [{ field: stage.apiName, op: 'has_none', value: [opt('Extra')] }, { field: note.apiName, op: 'not_empty' }] },
+    })).json();
+    expect(t.id, JSON.stringify(t)).toBeTruthy();
+    expect(u.id, JSON.stringify(u)).toBeTruthy();
+    const rules = async () => ((await as(owner.token, 'GET', `${b}/validation-rules`)).json().data as Array<Record<string, any>>);
+    const write = (values: Record<string, unknown>) => as(owner.token, 'POST', `${b}/records`, { values });
+    return { b, stage, sum, note, t, u, opt, rules, write };
+  }
+
+  it('(a) a LOSSLESS type change (select -> text): the dry run names the rules, the apply is refused, a confirm proceeds', async () => {
+    const f = await fixture('a');
+    const dry = await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'text', dry_run: true });
+    expect(dry.statusCode, dry.body).toBeLessThan(300);
+    expect(dry.json().lossy_conversions).toBe(0);
+    expect((dry.json().dependent_rules as Array<{ name: string; breaks: boolean }>).map((d) => [d.name, d.breaks]).sort()).toEqual([
+      ['T: Done needs a summary', true], ['U: Extra needs a note', true],
+    ]);
+    const refused = await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'text' });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.message).toContain('T: Done needs a summary');
+    expect(refused.json().error.message).toContain('U: Extra needs a note');
+    expect((await as(owner.token, 'GET', f.b)).json().fields.find((x: { id: string }) => x.id === f.stage.id).type, 'a refused change changes nothing').toBe('select');
+    const ok = await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'text', confirm_dependent_rules: true });
+    expect(ok.statusCode, ok.body).toBeLessThan(300);
+    // (f) the rules are now shown NOT CHECKABLE, not as enforcing; the violations read says so instead of returning 0
+    for (const r of await f.rules()) {
+      expect(r.status, r.name).toBe('not_checkable');
+      expect(r.not_checkable, r.name).toBeTruthy();
+      expect(r.violation_count, 'never a misleading 0').toBeNull();
+      const v = await as(owner.token, 'GET', `${f.b}/validation-rules/${r.id}/violations`);
+      expect(v.statusCode).toBe(422);
+      expect(v.json().error.message).toContain('NOT CHECKABLE');
+    }
+    // and it cannot be re-enabled or re-conditioned as if it worked
+    const again = await as(owner.token, 'PATCH', `${f.b}/validation-rules/${f.t.id}`, { enabled: true });
+    expect(again.statusCode).toBe(422);
+    expect(again.json().error.message).toContain('cannot be checked');
+    // nothing is locked: writes still go through while the rules are unable to enforce
+    expect((await f.write({ name: 'x', stage: 'whatever' })).statusCode).toBe(201);
+  });
+
+  it('(a) a LOSSY change (text -> date with a value that does not parse): the lossy count AND the dependent rule are both reported, and refused', async () => {
+    const f = await fixture('a2');
+    const lossyRule = await as(owner.token, 'POST', `${f.b}/validation-rules`, {
+      name: 'L: note must mention ship', trigger: 'update', message: 'mention ship', condition: { field: f.note.apiName, op: 'contains', value: 'ship' },
+    });
+    expect(lossyRule.statusCode, lossyRule.body).toBe(201);
+    expect((await f.write({ name: 'r', [f.note.apiName]: 'we ship soon', stage: undefined })).statusCode).toBe(201);
+    const dry = await as(owner.token, 'POST', `${f.b}/fields/${f.note.id}/change-type`, { type: 'date', dry_run: true });
+    expect(dry.statusCode, dry.body).toBeLessThan(300);
+    expect(dry.json().lossy_conversions).toBeGreaterThanOrEqual(1);
+    expect((dry.json().dependent_rules as Array<{ name: string; breaks: boolean }>).some((d) => d.name.startsWith('L:') && d.breaks)).toBe(true);
+    const refused = await as(owner.token, 'POST', `${f.b}/fields/${f.note.id}/change-type`, { type: 'date' });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain('L: note must mention ship');
+  });
+
+  it('a change the rule SURVIVES is not refused: select -> workflow keeps a transition rule enforcing', async () => {
+    const f = await fixture('a3');
+    const dry = await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'workflow', dry_run: true });
+    expect((dry.json().dependent_rules as Array<{ breaks: boolean }>).every((d) => !d.breaks)).toBe(true);
+    expect((await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'workflow' })).statusCode).toBeLessThan(300);
+    for (const r of await f.rules()) expect(r.status, r.name).toBe('enforcing');
+    expect((await f.write({ name: 'still blocked', [f.stage.apiName]: f.opt('Done') })).statusCode).toBe(422);
+  });
+
+  it('(b) deleting the option a transition rule names is REFUSED naming the rule, even if no record uses it; a confirm proceeds and the rule is marked', async () => {
+    const f = await fixture('b');
+    const refused = await as(owner.token, 'DELETE', `${f.b}/fields/${f.stage.id}/options/${f.opt('Done')}`, { confirm: true });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.message).toContain('T: Done needs a summary');
+    // an option named only inside another rule's CONDITION is protected the same way
+    const extra = await as(owner.token, 'DELETE', `${f.b}/fields/${f.stage.id}/options/${f.opt('Extra')}`, { confirm: true });
+    expect(extra.statusCode).toBe(409);
+    expect(extra.json().error.message).toContain('U: Extra needs a note');
+    const ok = await as(owner.token, 'DELETE', `${f.b}/fields/${f.stage.id}/options/${f.opt('Done')}`, { confirm: true, confirm_dependent_rules: true });
+    expect(ok.statusCode, ok.body).toBeLessThan(300);
+    const t = (await f.rules()).find((r) => r.id === f.t.id)!;
+    expect(t.status).toBe('not_checkable');
+    expect(t.not_checkable).toContain('no longer exists');
+  });
+
+  it('(c) RENAMING that option is not refused and the rule keeps enforcing (it stores the option ID); the new label shows', async () => {
+    const f = await fixture('c');
+    const rename = await as(owner.token, 'PATCH', `${f.b}/fields/${f.stage.id}/options/${f.opt('Done')}`, { label: 'Complete' });
+    expect(rename.statusCode, rename.body).toBe(200);
+    const t = (await f.rules()).find((r) => r.id === f.t.id)!;
+    expect(t.status).toBe('enforcing');
+    expect(t.transition.to).toBe('Complete');
+    expect((await f.write({ name: 'x', [f.stage.apiName]: f.opt('Done') })).statusCode, 'the rule still bites after the rename').toBe(422);
+  });
+
+  it('(d) RENAMING a field a rule references changes its display name only: the api_name is stable and the rule keeps enforcing', async () => {
+    const f = await fixture('d');
+    const rename = await as(owner.token, 'PATCH', `${f.b}/fields/${f.stage.id}`, { display_name: 'Phase' });
+    expect(rename.statusCode, rename.body).toBe(200);
+    expect(rename.json().apiName, 'a rename must not change the api_name rules are stored against').toBe(f.stage.apiName);
+    for (const r of await f.rules()) expect(r.status, r.name).toBe('enforcing');
+    expect((await f.write({ name: 'x', [f.stage.apiName]: f.opt('Done') })).statusCode).toBe(422);
+  });
+
+  it('a DISABLED rule is not a dependent: it does not block the change', async () => {
+    const f = await fixture('e');
+    await as(owner.token, 'PATCH', `${f.b}/validation-rules/${f.t.id}`, { enabled: false });
+    await as(owner.token, 'PATCH', `${f.b}/validation-rules/${f.u.id}`, { enabled: false });
+    expect((await as(owner.token, 'POST', `${f.b}/fields/${f.stage.id}/change-type`, { type: 'text' })).statusCode).toBeLessThan(300);
+  });
+});

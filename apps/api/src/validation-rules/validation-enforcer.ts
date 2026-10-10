@@ -4,7 +4,7 @@ import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { systemFieldDefsFor } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { records, validationRules } from '../db/schema';
+import { records, selectOptions, validationRules } from '../db/schema';
 import { compileFilter, filterReferencedFields } from '../records/query-compiler';
 
 export type ValidationRuleRow = typeof validationRules.$inferSelect;
@@ -58,6 +58,44 @@ export class ValidationEnforcer {
     return false;
   }
 
+  /**
+   * WHY a rule cannot be checked right now, or null when it can. A rule that cannot be checked is SKIPPED on every
+   * write (never a lockout) and must be SHOWN as not checkable, never left displaying as enabled while enforcing
+   * nothing. Live-derived rather than stored, so it cannot go stale:
+   *   - a field it names was deleted;
+   *   - its transition field is no longer a select/workflow field, or the option it names is gone;
+   *   - a field it reads is now a type a rule cannot read;
+   *   - its condition no longer compiles (an operator or option that no longer fits the field's current type).
+   * `optionIds` is the set of option ids that exist on the transition field (needed only for transition rules).
+   */
+  static notCheckableReason(rule: ValidationRuleRow, defs: FieldDef[], optionIds?: ReadonlySet<string>): string | null {
+    const byName = new Map([...defs, ...systemFieldDefsFor(defs.map((d) => d.api_name))].map((d) => [d.api_name, d]));
+    for (const name of filterReferencedFields(rule.condition as unknown as FilterNode)) {
+      const def = byName.get(name);
+      if (!def) return `the field "${name}" it names no longer exists`;
+      if (NON_VALIDATABLE_TYPES.has(def.type)) return `the field "${name}" is now a ${def.type} field, which a rule cannot read`;
+    }
+    if (rule.transitionFieldId) {
+      const t = defs.find((d) => d.id === rule.transitionFieldId);
+      if (!t) return 'its transition field no longer exists';
+      if (t.type !== 'select' && t.type !== 'workflow') return `its transition field "${t.api_name}" is now a ${t.type} field, not a select or workflow field`;
+      if (optionIds && !optionIds.has(rule.transitionTo ?? '')) return `the option it moves to no longer exists on "${t.api_name}"`;
+    }
+    try {
+      ValidationEnforcer.compile(rule, defs, null);
+    } catch (err) {
+      return `its condition no longer fits the current fields: ${err instanceof Error ? err.message : 'does not compile'}`;
+    }
+    return null;
+  }
+
+  /** The option ids of a transition rule's field (empty set otherwise): one small read, only for transition rules. */
+  async optionIdsFor(tx: Db, rule: ValidationRuleRow): Promise<ReadonlySet<string> | undefined> {
+    if (!rule.transitionFieldId) return undefined;
+    const rows = await tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, rule.transitionFieldId), columns: { id: true } });
+    return new Set(rows.map((r) => r.id));
+  }
+
   /** The compiled condition for a rule, against the database's current fields. */
   static compile(rule: ValidationRuleRow, defs: FieldDef[], actorId: string | null) {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
@@ -91,12 +129,14 @@ export class ValidationEnforcer {
       where: and(eq(validationRules.databaseId, ctx.databaseId), eq(validationRules.enabled, true)),
     });
     for (const rule of rules) {
-      if (ValidationEnforcer.isDangling(rule, ctx.defs)) {
-        // A rule naming a deleted field must not lock every write to the database (#305's rule: unconfigured is not invalid).
-        this.logger.warn({ ruleId: rule.id }, 'validation rule skipped: it names a field that no longer exists');
+      if (!this.fires(rule, ctx)) continue;
+      // A rule that cannot be checked must not lock every write to the database (#305's rule: unconfigured is not
+      // invalid); it is skipped here and SHOWN as not checkable on read (see `present`).
+      const unchecked = ValidationEnforcer.notCheckableReason(rule, ctx.defs, await this.optionIdsFor(tx, rule));
+      if (unchecked) {
+        this.logger.warn({ ruleId: rule.id, unchecked }, 'validation rule skipped: it cannot be checked');
         continue;
       }
-      if (!this.fires(rule, ctx)) continue;
       const condition = ValidationEnforcer.compile(rule, ctx.defs, ctx.actorId);
       const [ok] = await tx
         .select({ one: sql<number>`1` })

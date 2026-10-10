@@ -60,6 +60,24 @@ caught. So every rule reports **how many stored records break it right now**, an
 Fixing one is an ordinary update. A rule that names a field you later deleted is **dangling**: it is
 skipped on every write (it never locks the database) and is flagged in the list until you fix or delete it.
 
+## A rule never silently stops enforcing
+
+A rule stores a field's `api_name` and a transition's option **ID**, so renaming a field or an option changes
+nothing about it and it keeps enforcing; a select-to-workflow conversion keeps it working too. What can stop
+a rule enforcing is a change that removes what it reads, so those changes are **refused**:
+
+- changing a field's type, when that would leave an enabled rule unable to check it (a transition rule needs a
+  select or workflow field; a condition's operators must still fit the new type);
+- deleting an option an enabled rule names, even if no record uses it.
+
+The refusal names the rules. The change-type preview (`dry_run`) already lists `dependent_rules` and which of
+them would break. To go ahead anyway, pass `confirm_dependent_rules: true` (the same refuse-unless-confirmed
+pattern deleting an option that records still use already follows). After a confirmed change the rule is
+marked **not checkable**: its `status` reads `not_checkable` with the reason, it is skipped on writes so it
+never locks the database, its violation count is absent rather than a misleading 0, the violations list says
+why it cannot answer, and it cannot be re-enabled until fixed. A rule is `enforcing`, `disabled` or
+`not_checkable`, never enabled while enforcing nothing. Confirming is not available over MCP.
+
 ## Declaring them
 
 Admin only, over the API: `POST /api/v1/workspaces/{ws}/databases/{db}/validation-rules` with

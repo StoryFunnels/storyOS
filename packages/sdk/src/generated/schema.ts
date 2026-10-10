@@ -4695,6 +4695,8 @@ export interface components {
             type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
             /** @default false */
             dry_run: boolean;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         CreateOptionDto: {
             label: string;
@@ -4717,6 +4719,8 @@ export interface components {
             confirm: boolean;
             /** Format: uuid */
             reassign_to?: string;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         SetCollectionViewDto: {
             filters?: {
