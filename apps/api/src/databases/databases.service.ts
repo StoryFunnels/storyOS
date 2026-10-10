@@ -14,7 +14,7 @@ import { AccessService } from '../access/access.service';
 import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import { presentFieldConfig } from '../common/webhook-headers';
-import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
+import { formulaRefs, normalizeDescription, type FormulaNode, type ViewConfig } from '@storyos/schemas';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import type { ChangeSource } from '../db/schema';
 import type { PendingApprovalResult } from '../records/records.service';
@@ -312,6 +312,10 @@ export class DatabasesService {
       // chip's cylinder marker with no extra per-chip fetch.
       const dbColor = new Map(targetDbs.map((d) => [d.id, resolveDatabaseColor(d.id, d.color)]));
       const byId = new Map(relationRows.map((r) => [r.id, r]));
+      // #881 — a relation field on a database the caller CAN read still named its far side, even
+      // when that is a database they cannot reach ("Clients"). The field renders; it just says
+      // nothing about the other end. null = unrestricted (admin/member), so they are unchanged.
+      const reachable = await this.access.reachableDatabaseIds(membership);
 
       for (const field of fieldsWithOptions) {
         if (field.type !== 'relation') continue;
@@ -320,15 +324,75 @@ export class DatabasesService {
         if (!relation) continue;
         const targetDatabaseId =
           config.side === 'a' ? relation.databaseBId : relation.databaseAId;
+        const farSideVisible = reachable === null || reachable.has(targetDatabaseId);
         (field as Record<string, unknown>).relation = {
           id: relation.id,
           cardinality: relation.cardinality,
           side: config.side,
-          target_database_id: targetDatabaseId,
-          target_database_name: dbName.get(targetDatabaseId) ?? null,
-          target_database_color: dbColor.get(targetDatabaseId) ?? null,
-          inverse_field_id: config.side === 'a' ? relation.fieldBId : relation.fieldAId,
+          target_database_id: farSideVisible ? targetDatabaseId : null,
+          target_database_name: farSideVisible ? (dbName.get(targetDatabaseId) ?? null) : null,
+          target_database_color: farSideVisible ? (dbColor.get(targetDatabaseId) ?? null) : null,
+          inverse_field_id: farSideVisible
+            ? config.side === 'a'
+              ? relation.fieldBId
+              : relation.fieldAId
+            : null,
         };
+      }
+
+      // #881 — the config of a rollup, lookup or formula DERIVED THROUGH a relation whose far side
+      // the caller cannot read in full still named the far side's fields (`target_field_api_name:
+      // "revenue"`, a rollup's filter and order-by, a formula's expression). A caller must learn
+      // nothing about the far side of a relation they cannot access: not its id, not its name, not
+      // its field names, not its shape. So that config is reduced to the own-side relation id.
+      // null = unrestricted (admin/member) and a guest with a grant on the target: config unchanged.
+      const readsFully = await this.access.visibleDatabaseIds(membership);
+      if (readsFully !== null) {
+        const fullByRelationField = new Map<string, boolean>();
+        for (const field of fieldsWithOptions) {
+          if (field.type !== 'relation') continue;
+          const config = field.config as { relation_id: string; side: 'a' | 'b' };
+          const relation = byId.get(config.relation_id);
+          const target = relation ? (config.side === 'a' ? relation.databaseBId : relation.databaseAId) : null;
+          fullByRelationField.set(field.id, target !== null && readsFully.has(target));
+        }
+        const byApiName = new Map(fieldsWithOptions.map((f) => [f.apiName, f]));
+        const memo = new Map<string, boolean>();
+        const tainted = (f: (typeof fieldsWithOptions)[number]): boolean => {
+          const known = memo.get(f.id);
+          if (known !== undefined) return known;
+          memo.set(f.id, false); // cycle guard
+          let result = false;
+          const config = (f.config ?? {}) as Record<string, unknown>;
+          if (f.type === 'rollup' || f.type === 'lookup') {
+            const via = String(config['relation_field_id'] ?? '');
+            result = fullByRelationField.get(via) === false;
+          } else if (f.type === 'formula') {
+            for (const apiName of config['ast'] ? formulaRefs(config['ast'] as FormulaNode) : []) {
+              const t = byApiName.get(apiName);
+              if (!t) continue;
+              if (t.type === 'relation' ? fullByRelationField.get(t.id) === false : tainted(t)) {
+                result = true;
+                break;
+              }
+            }
+          }
+          memo.set(f.id, result);
+          return result;
+        };
+        for (const field of fieldsWithOptions) {
+          if (!tainted(field)) continue;
+          const config = (field.config ?? {}) as Record<string, unknown>;
+          (field as Record<string, unknown>).config =
+            field.type === 'formula'
+              ? {
+                  // the result's own type and display survive; the expression and its compiled
+                  // form (which name the far side's fields) do not
+                  ...(config['result_type'] ? { result_type: config['result_type'] } : {}),
+                  ...(config['format'] ? { format: config['format'] } : {}),
+                }
+              : { relation_field_id: config['relation_field_id'] };
+        }
       }
     }
 
