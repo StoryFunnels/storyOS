@@ -91,6 +91,32 @@ easy to miss precisely because it's identical to `select` rather than its own th
 [MCP tools](/mcp/tools/) page for how `describe_database` and `query_records`/`count_records`
 make this discoverable and filterable by label over MCP.
 
+## Bulk operations
+
+Three tiers, by how many records you're touching:
+
+| Selection | Use | Behaviour |
+|---|---|---|
+| up to **5,000** | `POST .../records/batch` (one patch, many records) · `POST .../records/batch-delete` · `POST .../records/batch-restore` | Answers in one call. Processed in chunks of 200 server-side; a failure on one record is **reported per record**, not a failed call. |
+| up to **50,000** | `POST .../records/batch-jobs` with `{ op: "update" \| "delete", record_ids, values? }` | A durable background job. Returns a job id at once; poll `GET .../records/batch-jobs/:id`. |
+| any update | `POST .../records/batch-update-undo` | Reverts a bulk **field edit** using the `restorable` list its response carried. |
+
+- **An update's response carries `restorable`** — one `{ record_id, version_id }` pair per record
+  actually changed. Pass that array back, verbatim, to `batch-update-undo` to restore each record
+  to its exact pre-edit snapshot. Use the list from the call you want to undo; a stale list from an
+  earlier call restores to the wrong point in time.
+- **A job survives a restart.** It advances one chunk at a time and records its position only once
+  a chunk is saved, so a crash resumes where it stopped rather than starting over or double-counting.
+- **Polling a job** returns `status` (`queued`, `running`, `succeeded`, or `partially_failed`),
+  `total` / `processed` / `succeeded`, a `failed` list of `{ record_id, message }`, and — for an
+  update — the same `restorable` list, which feeds `batch-update-undo`. A job is never silently
+  partial: per-record failures are listed, not dropped.
+- **`values` is required for an update job** and omitted for a delete.
+
+Over MCP: `update_records` and `delete_records` take up to **200** ids per call (the REST
+endpoints above take 5,000), `undo_batch_update` takes the `restorable` list, and
+`enqueue_bulk_record_job` / `get_bulk_record_job` are the large-selection pair.
+
 ## Pagination
 
 Keyset cursors only — an opaque base64url of `{sort_values, id}`. Responses are
