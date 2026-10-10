@@ -27,6 +27,19 @@ A skill is **shared with the workspace** unless you say otherwise, whether you o
 the **Skills** library in the sidebar rail is where people read, create and change skills, including
 their visibility.
 
+## Writing a skill that gets used
+
+- **"When to use" is the part that matters most.** It is how a reader's AI decides to pick your
+  skill without being told its name. A vague "when to use" is a skill nobody's AI will ever choose;
+  say the situation, in the words someone would actually ask in.
+- **Instructions are the steps**, written for an AI that has never seen your workspace. Worked
+  examples are optional but make the result more reliable.
+- **Publishing a skill gives the reader no access to your data.** A skill is text that runs in the
+  reader's own AI, against the reader's own workspace, with the reader's own permissions. StoryOS
+  stores, versions and governs it; it does not run it.
+- **There is no "Run" button in the app, on purpose.** Running means your own AI carries the
+  instructions out, so a button inside StoryOS would imply a managed model that doesn't exist.
+
 ## Running a skill
 
 There is no managed AI model inside StoryOS. Running a skill **resolves its instructions and
