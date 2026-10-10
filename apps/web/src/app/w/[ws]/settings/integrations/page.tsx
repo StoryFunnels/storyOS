@@ -189,7 +189,7 @@ export default function IntegrationsPage() {
                 across StoryOS and the provider integrations below.
               </p>
             </div>
-            <Link href={`/w/${ws}/settings/integrations/mcp`}>
+            <Link href={`/w/${ws}/settings/connect-ai`}>
               <Button>Connect Claude or ChatGPT</Button>
             </Link>
           </div>

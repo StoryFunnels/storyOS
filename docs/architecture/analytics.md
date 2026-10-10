@@ -41,8 +41,8 @@ Client events (`posthog.capture` in the web app):
 | `csv_import_completed` · `share_access_granted` | `import-wizard`, `share-dialog` |
 | `integration_disconnected` | `settings/integrations` |
 | `mcp_endpoint_copied` | `settings/integrations` |
-| `mcp_setup_started` · `mcp_setup_client_selected` | `settings/integrations/mcp` |
-| `mcp_setup_check_started` · `_succeeded` · `_failed` | `settings/integrations/mcp` |
+| `mcp_setup_started` · `mcp_setup_client_selected` | `settings/connect-ai` |
+| `mcp_setup_check_started` · `_succeeded` · `_failed` | `settings/connect-ai` |
 | `plan_upgrade_clicked` · `trial_started` | `settings/billing` |
 
 Server events (`AnalyticsService.capture`, attributed to the workspace's founding admin, each with a
