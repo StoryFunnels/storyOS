@@ -76,6 +76,39 @@ record's id directly is refused, not just hidden from the picker's own search. L
 and the picker behaves exactly as it always has: an unfiltered search across the whole target
 database.
 
+### Collecting a file
+
+A form can take an **attachment** field, so a client can send a brief, a screenshot or a signed PDF
+along with the answers. Add it in the builder like any other field; the public page then shows a
+file picker and uploads the file with the submission.
+
+- **One attachment field per form, and one file per submission.** The builder refuses a second
+  attachment field (the button explains why). Anything beyond one file is rejected with a `422`
+  — *"only one file may be submitted"* — rather than silently keeping the first.
+- **The usual size cap applies** — the same limit as an upload inside the app (20 MB unless your
+  self-hosted instance sets `ATTACHMENT_MAX_BYTES`); a bigger file is a `422`, not a partial save.
+- **Required means required.** A required attachment field with no file is a `422` naming the
+  field, same as any other required answer.
+- **Over the API**, a form with an attachment field accepts `multipart/form-data`: a `payload`
+  part holding the same JSON body as always (`{ values, … }`) plus at most one file part. A form
+  without an attachment field is still JSON-only, and a file sent to it is refused.
+
+### Stamping a fixed value the visitor never sees
+
+A field can be **hidden** and carry a fixed **value** that's written onto every record the form
+creates — a job or tenant id, a lead-source tag, a UTM campaign — so one form per job or channel
+tells you where each submission came from without asking the visitor.
+
+- **It comes from the saved form, never the request.** A visitor who posts their own value for a
+  hidden field is ignored; the stored one is stamped regardless.
+- **Supported for relation, text, select and workflow fields.** The value is validated when the
+  form is saved — a select's value must be a real option id (not its label), a relation's must
+  name a record that exists in the target database.
+- **Hidden means never shown to anyone**, so it can't be combined with **Show only when**; the API
+  rejects the pair as a config error. **Required** on a hidden field never blocks a submission.
+- **No toggle in the form builder yet** — set `hidden` and `value` on a field through the API, or
+  with `create_view` / `update_view` over MCP (`form_fields`).
+
 ## 2. Give the client a scoped space
 
 [Spaces](/getting-started/concepts/) are the unit of guest access. The cleanest portal is **one
