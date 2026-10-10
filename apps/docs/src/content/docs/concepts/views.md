@@ -261,9 +261,26 @@ explicit allowlist of which fields travel. Nothing is exposed by default:
   recipient](/concepts/portal-recipients/) and only that recipient's rows come back. This isn't in
   the Share… dialog yet — a direct API call, same as the recipient itself.
 
-**Table views only.** A board's group-by column or a dashboard's tiles and widgets have no single
-set of records to allowlist the way a table's rows do, so **Share…** doesn't appear on the tab
-menu for anything but a table view.
+**Tables, boards and dashboards can be shared.** **Share…** is on the tab menu for those three; other
+view types don't offer it.
+
+- **A shared board renders as columns**, grouped by the same field as in the app, with the view's
+  own column order and empty-group settings. The grouping field must be on the allowlist — publishing
+  is refused (`422`, naming the field) if it isn't, so a board can't expose a column you didn't name.
+- **A shared dashboard shows its tiles**, computed on the server. Each tile's field, filter fields
+  and database go through the same allowlist and are checked when you publish; a tile that points at
+  another database is rejected. **Charts and grouped tables are not published yet** — the Share dialog
+  says how many a dashboard has that won't appear.
+- **A board's column count is "N loaded" until everything has loaded.** The public page loads in
+  pages, so a bare number would understate; once the whole set is in, it's a plain count. "Hide empty
+  groups" likewise applies only after loading finishes, so a column that simply hasn't filled yet isn't
+  mistaken for an empty one.
+- **If the owner later hides or deletes the grouping field**, the board renders as one unlabelled
+  column rather than failing; a dashboard drops just the affected tile.
+- **A tile with nothing to aggregate reads "—", never 0** — a real zero is shown as a real zero. A
+  tile's comparison is plain text, not a link.
+- **Read-only, completely:** no dragging, no per-column or per-tile menus, and no click-through from a
+  card or tile — absent, not greyed out.
 
 **A personal view can never be published — not even by its own owner.** Personal space's whole
 premise is invisibility to everyone else, including admins; a public, anonymous URL is a
