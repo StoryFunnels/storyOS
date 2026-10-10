@@ -62,6 +62,22 @@ placeholder `--text-muted` by construction, so that category cannot drift again.
 sweep cleared its file proved it — so the acceptance rests on detection rather
 than prevention, and `#722` wires the contrast probe into CI to supply it.
 
+**The CI contrast advisory (`#722`).** Every PR touching `apps/web` gets a **Contrast advisory**
+section in its CI step summary (`pnpm design:contrast`, `scripts/contrast-advisory.mjs`). It
+**reports and never fails the build** — it would be red across the ~174 accepted sites, and a check
+that blocks everyone gets turned off by the first person it blocks. What it tells you:
+
+- **Token pairs below AA.** `--text-faint` appearing here is expected (it is reserved for decorative
+  text and non-text graphics, judged at 3:1). A **new** token appearing is the thing to look at.
+- **"New --text-faint sites vs origin/main: N"**, naming files and lines. A listed site is one of
+  two things: a genuinely new faint site, or a **silent revert** of an earlier fix — PR #793
+  reverted five that way by rewrapping lines against stale text, which no test or click-through
+  catches. Judge each one with the glyph-vs-prose question above: if it is prose, move it to
+  `--text-muted`; if it is a glyph with a visible co-signal, it can stay.
+- **What it does not cover:** composited or alpha contrast (text over a translucent or tinted
+  surface), which needs a real browser. That is why `docs/design/contrast-probe.js` remains a
+  console snippet. A green advisory does **not** mean all contrast is fine.
+
 **Select-option colors** (user-pickable, for tags/kanban columns). Fifteen, and
 the source of truth is
 [`table-view/option-colors.ts`](../../apps/web/src/components/table-view/option-colors.ts),
