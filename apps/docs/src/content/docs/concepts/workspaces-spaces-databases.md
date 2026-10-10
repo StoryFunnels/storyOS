@@ -70,9 +70,12 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   `+` per axis: axis placement is balance-only and carries no direction, so four buttons that all
   do the identical thing would imply a choice the diagram doesn't actually offer.
 
-  **Known limitation:** on a space with many related databases, the diagram can overflow its own
-  card below roughly 870px of viewport width, rather than reflowing — a narrow browser window, not
-  only a phone. Give it a wide window (or a small space) if you're capturing it.
+  **On a narrow space it stacks into one column.** Below about 640px of the *diagram's own* width
+  the four axes give way to a single column — the centre database first, then every related group
+  beneath it, in the same order, with the axis lines not drawn. Nothing is missing: every chip is
+  still there. It follows the diagram's width, not the browser's, so collapsing the sidebar can
+  flip it back to the cross at the same window size. Axis placement carries no meaning in either
+  form, so stacking loses nothing.
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
   without it.
 
