@@ -81,6 +81,89 @@ personal view is only reachable from here today.
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |
 
+## More read tools
+
+| Tool | What it does |
+|---|---|
+| `get_workspace` | One workspace by name, slug or id, with its full metadata and settings. |
+| `list_members` / `list_invites` | Who is in the workspace and their role (check **before** writing a `user` field — a non-member is rejected); invitations not yet accepted. Read-only. |
+| `list_relations` / `get_relation` | The whole relation graph in one call (read before structural work); one relation's sides, cardinality, auto-link rules and the comparable fields `set_auto_link` accepts. |
+| `list_linked_records` | The full link set of one relation field on a record, as records you can act on. (Not `get_links`, which builds web URLs.) |
+| `list_records` | Records in the hand-arranged (drag) order a person sees — the one thing `query_records` can't express. |
+| `count_records_grouped` | Count, or sum/average/min/max a numeric field, **per group** of another field, computed in the database — for "how many of each status" and board column counts. |
+| `get_field_usage` | What depends on a field before you delete it: records with a value, and the views, automations and formulas that reference it. Call before `delete_field`. |
+| `get_view` | One view by id, whether it belongs to a database or a space. |
+| `list_space_views` | Views that belong to a **space** (dashboards over several databases), which `describe_database` never shows. |
+| `list_sources` / `list_youtube_channels` | The scheduled syncs feeding a database (provider, schedule, status, last sync); the channels a connected Google account owns, needed to configure a YouTube source. |
+| `get_record_description` | A record's rich-text description (the block editor under its title) — not a custom field called "description". |
+| `list_comments` | A record's comment thread, newest first, each with its id, author, and `source`. |
+| `list_action_gates` / `list_approvals` | Workspace-declared approval gates and the held items. Read-only by design — approving is a person's act, in the app Inbox. |
+
+## Documents and folders
+
+A **document** is a standalone page in a space, belonging to no record — use it for a write-up or
+plan instead of cramming prose into a record or inventing a database for one page.
+
+| Tool | What it does |
+|---|---|
+| `list_documents` / `get_document` | Titles and ids in a space; one document as Markdown, with its `version`. |
+| `create_document` | Write a page in a space (`content` is Markdown). |
+| `update_document` | Change title, icon, folder or body. `content` **replaces** the whole body, so read it first; pass the `version` you read to be told about a conflicting edit rather than overwrite it. |
+| `delete_document` | Permanent — a document has no browsable trash. |
+| `list_folders` / `create_folder` / `update_folder` / `delete_folder` | Sidebar folders in a space. List first so you don't make a near-duplicate. Deleting a folder deletes nothing in it — contents fall back to the space root. |
+| `update_record_description` | Overwrite a record's rich-text description (Markdown). |
+| `restore_document_version` / `restore_version` | Roll a record's **description**, or its **field values**, back to a captured version — see [record history](/concepts/record-history/). Both are recorded and undoable. |
+
+## Building and reshaping a workspace
+
+| Tool | What it does |
+|---|---|
+| `propose_schema` → `build_schema` | Turn a plain-language goal into a plan of databases, fields, relations and states (each create-new or reuse-existing) — creates nothing; then build the approved plan in one call. |
+| `list_templates` / `apply_template` | Single-database or small-space starter templates. They seed sample rows; `remove_sample_data` deletes exactly those and nothing a person added. |
+| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery; install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Check installed packs first — installing twice makes a second copy. |
+| `browse_pack_marketplace` / `list_pack_submissions` / `export_pack` | Community packs; your submissions' review status (read-only); turn part of this workspace into an installable pack manifest. |
+| `duplicate_database` / `duplicate_view` | Copy a database's schema, views and self-relations into a new independent database; copy a view with its filters, sorts and layout. |
+| `set_auto_link` / `run_auto_link` | Teach a relation to link itself from matching field pairs; apply the rules to records that already exist (use after an import). |
+| `find_select_drift` / `fix_select_drift` | Find records that look linked through a matching select label but carry no actual link; link them in one call (show the list to a person first). |
+| `unlink_records` / `move_record` | Remove specific links without touching the relation; reposition a record in manual order (`before` or `after`). |
+| `create_records` | Create up to 100 records in one atomic call — all succeed or none do. |
+| `set_default_view` / `set_favorite` | Which view people land on; star a record or database for the calling identity. |
+| `list_icon_set` | The curated icon names usable as `icon` on databases and spaces. |
+
+### Space-level views and groups
+
+| Tool | What it does |
+|---|---|
+| `create_space_view` / `update_space_view` / `delete_space_view` | A space-level **dashboard** that reads from several databases (`update` can also move a database dashboard into a space). Deleting a view never deletes the records it showed. |
+| `list_space_groups` / `create_space_group` / `update_space_group` / `delete_space_group` | Presentational sidebar groups above spaces. Deleting a group leaves its spaces ungrouped. |
+| `delete_space` | Soft delete of a space and everything in it — restorable; see [trash and restore](#trash--restore). |
+
+## Personal space and personal filters
+
+Alongside the tools above: `list_personal_views` (every personal view you own, workspace-wide),
+`copy_view_to_personal_space` / `copy_document_to_personal_space` (an independent fork, never synced
+back), and `publish_view` / `move_document_to_space` (the one-way move out of Personal).
+`get_personal_filter` / `set_personal_filter` read and set **your own** extra filter on a view — "the
+team board, but just my rows"; invisible to teammates, and `clear: true` removes it. The
+`…_collection_filter` pair does the same for a record page's embedded relation collection.
+
+## Me: notifications and my work
+
+| Tool | What it does |
+|---|---|
+| `get_my_work` | `assigned` (default), `created`, or `recent` records for the identity the token belongs to. |
+| `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests); a single unread number; mark read or archive (`all: true` clears the inbox). |
+
+## Agents, runs and automations
+
+| Tool | What it does |
+|---|---|
+| `get_agents` / `setup_agents` | Whether the Agentic OS space exists (with a summary), and provisioning it (idempotent). |
+| `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
+| `create_agent_trigger` | Fire an agent when a record reaches a given state; `human_gate: true` makes it stage its action for a person to approve. |
+| `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
+| `test_automation` / `get_automation_last_payload` | Dry-run a rule against one record before trusting it (no side effects unless you pass an `action_index`); the latest payload a webhook-triggered rule received. |
+
 ## Conveniences
 
 - `query_records` / `get_record` return select values as **labels** (not option ids).
