@@ -464,6 +464,23 @@ describe('#231 a rule can never silently stop enforcing', () => {
     expect((await f.write({ name: 'x', [f.stage.apiName]: f.opt('Done') })).statusCode).toBe(422);
   });
 
+  it('a rule that is ALREADY not checkable does not block retyping a field it reads: only rules this change would break are named', async () => {
+    const f = await fixture('g');
+    // C reads Summary with an operator that only fits text
+    const c = await as(owner.token, 'POST', `${f.b}/validation-rules`, {
+      name: 'C: summary mentions ship', trigger: 'update', message: 'mention ship', condition: { field: f.sum.apiName, op: 'contains', value: 'ship' },
+    });
+    expect(c.statusCode, c.body).toBe(201);
+    // make T (which also reads Summary) not checkable for ITS OWN reason: its option is gone
+    const gone = await as(owner.token, 'DELETE', `${f.b}/fields/${f.stage.id}/options/${f.opt('Done')}`, { confirm: true, confirm_dependent_rules: true });
+    expect(gone.statusCode, gone.body).toBeLessThan(300);
+    const refused = await as(owner.token, 'POST', `${f.b}/fields/${f.sum.id}/change-type`, { type: 'date' });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.message).toContain('C: summary mentions ship');
+    expect(refused.json().error.message, 'T was already not checkable for another reason and is not named').not.toContain('T: Done needs a summary');
+    expect(refused.json().error.message).toContain('not available over MCP');
+  });
+
   it('a DISABLED rule is not a dependent: it does not block the change', async () => {
     const f = await fixture('e');
     await as(owner.token, 'PATCH', `${f.b}/validation-rules/${f.t.id}`, { enabled: false });

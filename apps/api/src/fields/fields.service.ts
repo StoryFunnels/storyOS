@@ -1622,6 +1622,16 @@ export class FieldsService {
         continue;
       }
       if (!reads) continue;
+      // A rule that ALREADY cannot be checked (for a reason of its own) is not broken by this change and must not block
+      // it: otherwise retyping an unrelated field is refused over somebody else's problem.
+      const currentOptionIds = rule.transitionFieldId
+        ? new Set((await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, rule.transitionFieldId), columns: { id: true } })).map((o) => o.id))
+        : undefined;
+      const already = ValidationEnforcer.notCheckableReason(rule, defs, currentOptionIds);
+      if (already) {
+        out.push({ id: rule.id, name: rule.name, breaks: false, reason: `already not checkable: ${already}` });
+        continue;
+      }
       const leavesOptions = OPTIONED_FIELD_TYPES.has(field.type) && !OPTIONED_FIELD_TYPES.has(change.toType);
       const hypothetical = defs.map((d) => (d.id === field.id ? { ...d, type: change.toType, config: {}, option_ids: leavesOptions ? [] : d.option_ids } : d));
       const optionIds = rule.transitionFieldId
@@ -1643,7 +1653,7 @@ export class FieldsService {
     if (breaking.length === 0 || confirmed) return;
     throw new ConflictException(
       `${what} would leave ${breaking.length} validation rule(s) unable to enforce: ${breaking.map((d) => `"${d.name}" (${d.reason})`).join('; ')}. ` +
-        'Pass confirm_dependent_rules: true to proceed; those rules will then be marked NOT CHECKABLE and enforce nothing until fixed.',
+        'A person can pass confirm_dependent_rules: true to proceed (it is not available over MCP); those rules will then be marked NOT CHECKABLE and enforce nothing until fixed.',
     );
   }
 
