@@ -45,10 +45,16 @@ export const createValidationRuleSchema = z
 export type CreateValidationRuleInput = z.infer<typeof createValidationRuleSchema>;
 
 /** The trigger is fixed at creation: to change it, delete the rule and declare another. */
-export const updateValidationRuleSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(),
-  condition: filterSchema.optional(),
-  message: z.string().trim().min(1).max(500).optional(),
-  enabled: z.boolean().optional(),
-});
+export const updateValidationRuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    condition: filterSchema.optional(),
+    message: z.string().trim().min(1).max(500).optional(),
+    enabled: z.boolean().optional(),
+  })
+  // Unknown keys are REFUSED, not dropped: a `trigger` silently ignored would look like it had changed.
+  .strict()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'nothing to change: send at least one of name, condition, message, enabled (the trigger cannot be edited; delete the rule and declare another)',
+  });
 export type UpdateValidationRuleInput = z.infer<typeof updateValidationRuleSchema>;

@@ -114,6 +114,25 @@ describe('#231 declaring rules', () => {
   });
 });
 
+describe('#231 editing a rule: a body with nothing editable is a 422 that says what can be edited, never a 500', () => {
+  it.each([{}, { unknown: 1 }, { trigger: 'create' }, { name: 'ok', trigger: 'update' }])('PATCH %j', async (body) => {
+    const made = await declare({ name: 'edit me', trigger: 'create', condition: { field: summary, op: 'not_empty' }, message: 'm' });
+    expect(made.statusCode, made.body).toBe(201);
+    const res = await as(owner.token, 'PATCH', `${base()}/validation-rules/${made.json().id}`, body);
+    expect(res.statusCode, res.body).toBe(422);
+    expect(JSON.stringify(res.json())).toMatch(/nothing to change|Unrecognized key|trigger/i);
+    await as(owner.token, 'DELETE', `${base()}/validation-rules/${made.json().id}`);
+  });
+
+  it('name, message, enabled and condition alone are still accepted', async () => {
+    const made = (await declare({ name: 'edit me too', trigger: 'create', condition: { field: summary, op: 'not_empty' }, message: 'm' })).json();
+    for (const body of [{ name: 'n2' }, { message: 'm2' }, { enabled: false }, { condition: { field: summary, op: 'is_empty' } }]) {
+      expect((await as(owner.token, 'PATCH', `${base()}/validation-rules/${made.id}`, body)).statusCode, JSON.stringify(body)).toBe(200);
+    }
+    await as(owner.token, 'DELETE', `${base()}/validation-rules/${made.id}`);
+  });
+});
+
 describe('#231 a transition rule: Done requires a summary', () => {
   let ruleId: string;
   beforeAll(async () => {
