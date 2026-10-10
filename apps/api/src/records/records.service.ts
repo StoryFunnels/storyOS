@@ -65,6 +65,7 @@ import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
 // runtime dependency on CommentsService, so this can't create the module
@@ -159,6 +160,9 @@ export class RecordsService {
      *  notably AgentsService.applyProposedAction's record_delete branch,
      *  which calls these methods directly and bypasses RecordsController. */
     private readonly actionGates: ActionGatesService,
+    /** #231 — validation rules, evaluated INSIDE the write's own transaction (createBatch, update,
+     *  restoreVersion) so a failing rule aborts it and every writer is covered by construction. */
+    private readonly validation: ValidationEnforcer,
   ) {}
 
   /**
@@ -2820,6 +2824,20 @@ export class RecordsService {
             if (linked.length) linkedRelationsByIndex.set(i, linked);
           }
         }
+        // #231 — validation rules, against each row as the write has left it (links included), inside the
+        // transaction: a failing rule aborts the WHOLE batch, so nothing here is persisted.
+        for (const row of inserted) {
+          await this.validation.enforce(tx as unknown as Db, {
+            databaseId,
+            recordId: row.id,
+            defs,
+            event: 'create',
+            before: null,
+            after: row.values as Record<string, unknown>,
+            changedFieldIds: new Set<string>(),
+            actorId,
+          });
+        }
         return inserted;
       });
     } catch (err) {
@@ -3204,6 +3222,25 @@ export class RecordsService {
             source,
           );
         }
+        // #231 — validation rules, inside the transaction, against the row as it now stands. A rule fires only if a
+        // field it REFERENCES changed (a stored value, a written relation, or the title), so an unrelated edit to a
+        // record that already breaks a rule is never blocked by it.
+        const changedFieldIds = new Set<string>(Object.keys(diff).filter((k) => k !== 'title'));
+        for (const plan of linkPlans) changedFieldIds.add(plan.fieldId);
+        if (diff['title'] !== undefined) {
+          const titleField = defs.find((d) => d.type === 'title');
+          if (titleField) changedFieldIds.add(titleField.id);
+        }
+        await this.validation.enforce(tx as unknown as Db, {
+          databaseId,
+          recordId,
+          defs,
+          event: 'update',
+          before,
+          after: next!.values as Record<string, unknown>,
+          changedFieldIds,
+          actorId,
+        });
         return next!;
       });
     } catch (err) {
@@ -3750,6 +3787,22 @@ export class RecordsService {
         source,
         agentId,
         agentName,
+      });
+      // #231 — restoring an old snapshot is a write like any other: it must not be a way around a rule.
+      const restoredChanged = new Set<string>(Object.keys(diff).filter((k) => k !== 'title'));
+      if (diff['title'] !== undefined) {
+        const titleField = defs.find((d) => d.type === 'title');
+        if (titleField) restoredChanged.add(titleField.id);
+      }
+      await this.validation.enforce(tx as unknown as Db, {
+        databaseId,
+        recordId,
+        defs,
+        event: 'update',
+        before: row.values as Record<string, unknown>,
+        after: next!.values as Record<string, unknown>,
+        changedFieldIds: restoredChanged,
+        actorId,
       });
       return next!;
     });

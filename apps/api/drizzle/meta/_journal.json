@@ -750,6 +750,13 @@
       "when": 1791665654143,
       "tag": "0106_cool_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1791672257460,
+      "tag": "0107_fancy_pyro",
+      "breakpoints": true
     }
   ]
 }

@@ -2005,6 +2005,41 @@ export const actionGatePolicies = pgTable(
 );
 
 /**
+ * #231 — validation rules: a write that would leave a record invalid is REFUSED, inside the write's own
+ * transaction. See `packages/schemas/src/validation-rules.ts` for the semantics. The condition is stored as the
+ * filter AST (field api_names), so it is evaluated by the same compiler saved views use; a rule whose field was
+ * later deleted is skipped and reported as dangling rather than refusing every write to the database.
+ *
+ * Applies to EVERY writer, admins and people in the web app included, and has NO bypass: a rule that is wrong
+ * is changed (visible, recorded), never skipped (invisible). That is the difference from an action gate, which
+ * is about AUTHORITY and exempts a person; validity cannot be exempted because the data does not know who wrote it.
+ */
+export const validationRuleTrigger = pgEnum('validation_rule_trigger', ['create', 'update', 'transition']);
+export const validationRules = pgTable(
+  'validation_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    trigger: validationRuleTrigger('trigger').notNull(),
+    /** transition only: the select/workflow field and the option id it must move TO. */
+    transitionFieldId: uuid('transition_field_id'),
+    transitionTo: text('transition_to'),
+    condition: jsonb('condition').notNull().$type<Record<string, unknown>>(),
+    message: text('message').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    createdBy: text('created_by').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('validation_rules_database_idx').on(t.databaseId)],
+);
+
+/**
  * Who can see a skill (#40 AC #1, widened by #841 to four Drive-shaped tiers):
  *   personal — "Only me": its owner, and workspace admins (admins read everything).
  *   members  — the owner plus the people named in `skill_members`.
