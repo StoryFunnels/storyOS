@@ -126,6 +126,27 @@ view; an existing view keeps exactly the columns it had.
 **Row height** (28, 32 or 40) is a control in the table toolbar and is saved on the view; the
 default is 32.
 
+## Nesting rows under their parent
+
+A **table** can show a hierarchy in place. When a database has a **self-referencing one-to-many
+relation** — Tasks with a *Parent* task, Epics holding Stories — the table toolbar's **Nest by**
+picker offers it; choose it and rows with children get an expand caret, and expanding one reveals its
+children indented beneath it, in the same table, without leaving the page. **Flat** turns it back off
+and restores the ordinary table exactly.
+
+- **Only the "parent" side is offered** — the single-valued reference, identified by its structure,
+  never by its name. A database can have more than one self-relation, and each shows up on its own.
+- **Any depth.** Children can have children; the caret appears only on a row that actually has some.
+- **Children load when you open a parent**, not all at once, so a large tree opens quickly. For the
+  same reason **Expand all** opens every row *currently known* to have children — click again to open
+  the level that just appeared.
+- **Your view's filter and sort apply at every level** — to the top-level rows and to each parent's
+  children. Top-level rows are the ones with no parent, so a child only appears under a parent that
+  itself passes the filter.
+- **Which rows are expanded is remembered for the browser session**, per view — it survives a reload
+  but isn't saved on the view for other people.
+- Selection and arrow-key navigation move through the nested rows as one list.
+
 ## Hiding columns
 
 **Hide fields** in the view toolbar turns any column off — including **Created at** and **Updated
