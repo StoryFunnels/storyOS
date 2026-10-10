@@ -1,11 +1,14 @@
-import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, PayloadTooLargeException, UnprocessableEntityException } from '@nestjs/common';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { spaceDocuments, spaceFolders } from '../db/schema';
+import { spaceDocuments, spaceFolders, workspaceFiles } from '../db/schema';
 import { extractText } from './documents.service';
 import { blocksToMarkdown } from '@storyos/schemas/markdown';
+import { getStorage } from '../attachments/storage';
+import { blocksToHtml } from './export/blocks-to-html';
+import { PdfRenderer } from './export/pdf-renderer';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -13,6 +16,13 @@ import { collectMentions } from '../mentions/mentions.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 const MAX_BYTES = 2 * 1024 * 1024;
+
+/** #262 — a document's HTML (before images) past this is refused rather than sent to a small host's browser. */
+const MAX_PDF_HTML_CHARS = 6_000_000;
+/** Raw image bytes inlined into ONE export. Past it, further images become a visible placeholder. */
+const MAX_PDF_IMAGE_BYTES = 24 * 1024 * 1024;
+/** `/api/v1/files/<uuid>` — how the editor stores an uploaded image (see FilesService.upload). */
+const EDITOR_FILE_PATH = /^\/api\/v1\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /** Standalone space-level documents (MN-095) — rich pages that live in the nav
  * tree next to databases, independent of any record. Single-editor optimistic
@@ -24,6 +34,7 @@ export class SpaceDocumentsService {
     private readonly access: AccessService,
     private readonly notifications: NotificationsService,
     private readonly spaces: SpacesService,
+    private readonly pdf: PdfRenderer,
   ) {}
 
   private project(row: typeof spaceDocuments.$inferSelect) {
@@ -129,6 +140,62 @@ export class SpaceDocumentsService {
     const body = blocksToMarkdown(existing.content);
     const markdown = `# ${existing.title}\n\n${body}`.trim() + '\n';
     return { title: existing.title, markdown };
+  }
+
+  /**
+   * #262 phase 2 — the document as a PDF, rendered by the sidecar chosen in #794.
+   *
+   * Same access rule as `exportMarkdown`: you export what you can already read.
+   * Content goes blocks → self-contained HTML → sidecar; no second Markdown writer.
+   *
+   * Images are the careful part. An editor image is stored as `/api/v1/files/<id>`;
+   * it is read STRAIGHT FROM STORAGE and inlined as a data URI — never fetched over
+   * HTTP, because (a) the sidecar has no egress and (b) fetching a URL a user typed
+   * into a document would be an SSRF primitive. The file row must belong to THIS
+   * workspace and not be revoked, so a pasted link to another workspace's image
+   * does not leak it into an export. Anything else (an external URL, a file from
+   * elsewhere, one over budget) renders as a visible placeholder and is counted.
+   */
+  async exportPdf(
+    membership: Membership,
+    docId: string,
+  ): Promise<{ title: string; pdf: Buffer; skippedImages: number }> {
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'viewer');
+
+    let imageBytesLeft = MAX_PDF_IMAGE_BYTES;
+    let inlinedImageChars = 0;
+    const resolveImage = async (url: string): Promise<string | null> => {
+      let fileId: string | undefined;
+      try {
+        fileId = EDITOR_FILE_PATH.exec(new URL(url, 'http://storyos.invalid').pathname)?.[1];
+      } catch {
+        return null;
+      }
+      if (!fileId) return null;
+      const file = await this.db.query.workspaceFiles.findFirst({
+        where: and(eq(workspaceFiles.id, fileId), eq(workspaceFiles.workspaceId, membership.workspaceId)),
+      });
+      if (!file || file.revokedAt) return null;
+      if (!/^image\/[a-z0-9.+-]+$/i.test(file.mime)) return null;
+      if (file.size > imageBytesLeft) return null;
+      const chunks: Buffer[] = [];
+      for await (const chunk of await getStorage().getStream(file.storageKey)) chunks.push(Buffer.from(chunk as Buffer));
+      const data = Buffer.concat(chunks);
+      if (data.length > imageBytesLeft) return null;
+      imageBytesLeft -= data.length;
+      const dataUri = `data:${file.mime};base64,${data.toString('base64')}`;
+      inlinedImageChars += dataUri.length;
+      return dataUri;
+    };
+
+    const { html, skippedImages } = await blocksToHtml(existing.title, existing.content, { resolveImage });
+    // The cap is on the document's own text and structure; image bytes have their own budget above.
+    if (html.length - inlinedImageChars > MAX_PDF_HTML_CHARS) {
+      throw new PayloadTooLargeException('This document is too large to export as a PDF.');
+    }
+    const pdf = await this.pdf.render(html);
+    return { title: existing.title, pdf, skippedImages };
   }
 
   async update(

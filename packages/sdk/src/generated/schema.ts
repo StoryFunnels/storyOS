@@ -2490,8 +2490,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the document as Markdown (#262 — the PDF export reuses this serializer) */
+        /** Download the document as Markdown (#262) */
         get: operations["SpaceDocumentsController_exportMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/documents/{doc}/export/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the document as a PDF (#262 — rendered by the PDF sidecar, #794) */
+        get: operations["SpaceDocumentsController_exportPdf"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10392,6 +10409,25 @@ export interface operations {
         };
     };
     SpaceDocumentsController_exportMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_exportPdf: {
         parameters: {
             query?: never;
             header?: never;

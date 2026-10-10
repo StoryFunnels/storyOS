@@ -36,7 +36,12 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/markdown',
     reason:
-      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) and for PDF export to reuse — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+  },
+  {
+    match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/pdf',
+    reason:
+      "#262 — the response is a binary PDF, which an MCP client cannot use: a tool result is text, so a PDF handed back as base64 would only burn the model's context without ever reaching the person who wants the file. The CONTENT is already reachable as text via get_document. What an agent actually wants from a PDF is to DELIVER it — attach it to an email or a record — and that is an automation-action question (a send/attach step that renders the document itself), not a read tool; it is the follow-up the ticket's own 'automation attaching a PDF' use case names, and it is not built yet. Recorded here as the reason this route has no tool, not as a claim that the delivery need does not exist.",
   },
   {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
