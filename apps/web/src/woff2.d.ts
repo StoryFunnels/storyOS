@@ -1,5 +1,5 @@
-// Next's asset pipeline returns { src } for a static import (like images); used for the one font preload in layout.tsx (#855).
+// What a static import of a font evaluates to depends on the bundler (a URL string here, { src } elsewhere), so it is typed `unknown` and read through `assetUrl` (#855).
 declare module '*.woff2' {
-  const asset: { src: string };
+  const asset: unknown;
   export default asset;
 }

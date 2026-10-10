@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Script from 'next/script';
+import { preload } from 'react-dom';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './fonts/fonts.css';
 import figtreeLatin from './fonts/figtree-latin.woff2';
+import { assetUrl } from '@/lib/asset-url';
 import './globals.css';
 
 /*
@@ -56,10 +58,11 @@ export const metadata: Metadata = {
 export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAF7F1' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // #855 — React's own preload API: it emits ONE <link rel="preload"> in the head and dedupes repeat calls.
+  preload(assetUrl(figtreeLatin), { as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' });
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="preload" href={figtreeLatin.src} as="font" type="font/woff2" crossOrigin="anonymous" />
         {/* Resolve + apply the saved theme before paint so there's no light flash
             (#30). next/script's beforeInteractive strategy, not a raw <script> tag —
             #486: React warns "Encountered a script tag while rendering React
