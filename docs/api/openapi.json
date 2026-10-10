@@ -6322,7 +6322,36 @@
             "bearer": []
           }
         ],
-        "summary": "Download the document as Markdown (#262 — the PDF export reuses this serializer)",
+        "summary": "Download the document as Markdown (#262)",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/documents/{doc}/export/pdf": {
+      "get": {
+        "operationId": "SpaceDocumentsController_exportPdf",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the document as a PDF (#262 — rendered by the PDF sidecar, #794)",
         "tags": [
           "documents"
         ]
