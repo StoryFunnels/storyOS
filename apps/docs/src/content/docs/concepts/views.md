@@ -100,6 +100,32 @@ Manual order (table default and within-column kanban order) is stored as a fract
 record — reordering touches only the moved record. Sorted views ignore manual order and use the
 sort instead.
 
+## The row number, the ID, and the default columns
+
+A table has two different numbers on the left, and they mean different things:
+
+- **The row number** (in the narrow gutter at the far left) counts the rows **in this view, as
+  currently filtered and sorted** — row 1 is whatever is on top. It changes when you filter or
+  re-sort; it is not an identity. The gutter header shows the **total number of records** in the
+  view, and stays on screen as you scroll.
+- **The ID** is the record's **permanent number** — "issue 759", the number people say out loud and
+  cite in other records. It does not change when you filter or sort. In a table it's an ordinary
+  **ID** column: frozen at the left, visible by default, and hideable from **Hide fields** like any
+  other column.
+
+On a **list or feed** view the ID isn't a column; **Hide fields** (or the Cards picker) carries a
+**Row gutter** section with a **Show ID in the row gutter** switch instead. Board, calendar and
+gallery don't draw it, so they have no such control.
+
+**A new table starts with a short, useful set of columns** rather than every field: the ID, the
+title, and up to four others — status/select, person and relation fields first, then whatever else
+comes first. Rich text is never a table column (it isn't offered in **Hide fields** at all), and the
+system dates (created / last edited) are offered but off by default. This only applies to a *new*
+view; an existing view keeps exactly the columns it had.
+
+**Row height** (28, 32 or 40) is a control in the table toolbar and is saved on the view; the
+default is 32.
+
 ## Hiding columns
 
 **Hide fields** in the view toolbar turns any column off — including **Created at** and **Updated
