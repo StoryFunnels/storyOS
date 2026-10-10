@@ -132,20 +132,23 @@ describe('#858 — an OAuth-connected AI is classified like a PAT, never like a 
   });
 
   for (const [label, tok] of [['OAUTH', () => oauth], ['PAT', () => pat]] as const) {
-    it(`${label}: omitted visibility -> personal, source mcp (response AND stored row); shared and public -> 403`, async () => {
+    it(`${label}: source is mcp (response AND stored row), never human; members is refused and public is only a proposal`, async () => {
       const t = tok();
+      // #867: omitted visibility resolves to `shared` for an AI too (the founder's ruling); what this
+      // test pins is the CLASSIFICATION: the provenance says mcp, and the human-only tiers are refused.
       const dflt = await as(t, 'POST', `/workspaces/${wsId}/skills`, skill(`${label} default`));
       expect(dflt.statusCode, dflt.body).toBe(201);
-      expect(dflt.json().visibility).toBe('personal');
+      expect(dflt.json().visibility).toBe('shared');
       expect(dflt.json().source).toBe('mcp');
       const stored = await as(sessionTok, 'GET', `/workspaces/${wsId}/skills/${dflt.json().id}`);
-      // The owner reads their own personal skill; the stored row says mcp too.
       expect(stored.json().source).toBe('mcp');
-      expect(stored.json().visibility).toBe('personal');
-      for (const visibility of ['shared', 'public', 'members']) {
-        const res = await as(t, 'POST', `/workspaces/${wsId}/skills`, skill(`${label} ${visibility}`, { visibility }));
-        expect(res.statusCode, `${visibility}: ${res.body}`).toBe(403);
-      }
+      // `members` is refused; `public` is a proposal a person approves (#867 AC3): never public by itself.
+      const members = await as(t, 'POST', `/workspaces/${wsId}/skills`, skill(`${label} members`, { visibility: 'members' }));
+      expect(members.statusCode, members.body).toBe(403);
+      const pub = await as(t, 'POST', `/workspaces/${wsId}/skills`, skill(`${label} public`, { visibility: 'public' }));
+      expect(pub.statusCode, pub.body).toBe(201);
+      expect(pub.json().visibility).toBe('personal');
+      expect(pub.json().pending_approval?.id).toBeTruthy();
     });
   }
 

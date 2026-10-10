@@ -174,6 +174,12 @@ export class NotificationsService {
             eq(notifications.type, input.type),
             input.recordId ? eq(notifications.recordId, input.recordId) : isNull(notifications.recordId),
             input.actorId ? eq(notifications.actorId, input.actorId) : undefined,
+            // An APPROVABLE entity (`refId` = an approvals row) never shares a row with another one: the
+            // Inbox's Approve/Reject hang off this row's ref_id, so collapsing a burst left every older
+            // approval with no handle at all (ticket #867 burst finding: five `public` proposals in a
+            // minute became two rows, three approvals unreachable). Repeats of the SAME approval still
+            // collapse. Everything without a refId keeps the 60s burst-collapse unchanged.
+            input.refId ? eq(notifications.refId, input.refId) : undefined,
             isNull(notifications.readAt),
             gt(notifications.createdAt, new Date(Date.now() - 60_000)),
           ),
@@ -184,9 +190,8 @@ export class NotificationsService {
             .set({
               count: recent.count + 1,
               snippet: input.snippet ?? recent.snippet,
-              // MN-255: a collapsed burst keeps pointing at the newest
-              // approvable entity — the older one is still reachable via the
-              // approvals list, just not from this Inbox row.
+              // A row only ever collapses repeats of the SAME approvable entity (the lookup above
+              // matches `refId`), so this never re-points a row away from an approval it stands for.
               refId: input.refId ?? recent.refId,
             })
             .where(eq(notifications.id, recent.id));

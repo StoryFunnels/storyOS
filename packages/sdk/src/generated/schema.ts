@@ -2774,6 +2774,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List skills visible to the caller: their own, plus every shared one */
+        get: operations["SkillsController_list"];
+        put?: never;
+        /** Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent cannot make one public or share it with chosen people, and a workspace admin can switch agent publishing off, after which an agent-authored skill is created personal */
+        post: operations["SkillsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Starter scaffolds for the "new skill" flow (AC #2, not-from-scratch) */
+        get: operations["SkillsController_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one skill */
+        get: operations["SkillsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a skill — owner-only */
+        delete: operations["SkillsController_remove"];
+        options?: never;
+        head?: never;
+        /** Edit a skill — owner-only, even if it's shared */
+        patch: operations["SkillsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill */
+        post: operations["SkillsController_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export a skill as portable instructions (Markdown / Claude Skill SKILL.md / ChatGPT) */
+        get: operations["SkillsController_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a skill manually; returns its step log (no model invoked yet) */
+        post: operations["SkillsController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/skills/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public skill, by its link token (portable fields only) */
+        get: operations["PublicSkillsController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/portal-recipients": {
         parameters: {
             query?: never;
@@ -3767,128 +3889,6 @@ export interface paths {
         put?: never;
         /** Build a workspace from one sentence (#363) */
         post: operations["TyronThreadsController_build"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List skills visible to the caller: their own, plus every shared one */
-        get: operations["SkillsController_list"];
-        put?: never;
-        /** Create a skill — shared with the workspace by default when a person creates it; a skill authored by an agent or token is created personal and cannot be published by that credential */
-        post: operations["SkillsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Starter scaffolds for the "new skill" flow (AC #2, not-from-scratch) */
-        get: operations["SkillsController_templates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read one skill */
-        get: operations["SkillsController_get"];
-        put?: never;
-        post?: never;
-        /** Delete a skill — owner-only */
-        delete: operations["SkillsController_remove"];
-        options?: never;
-        head?: never;
-        /** Edit a skill — owner-only, even if it's shared */
-        patch: operations["SkillsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill */
-        post: operations["SkillsController_import"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Export a skill as portable instructions (Markdown / Claude Skill SKILL.md / ChatGPT) */
-        get: operations["SkillsController_export"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run a skill manually; returns its step log (no model invoked yet) */
-        post: operations["SkillsController_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/public/skills/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** A public skill, by its link token (portable fields only) */
-        get: operations["PublicSkillsController_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5515,6 +5515,52 @@ export interface components {
             /** @enum {string} */
             status?: "active" | "paused" | "error";
         };
+        CreateSkillDto: {
+            name: string;
+            description: string;
+            when_to_use: string;
+            instructions: string;
+            /** @default [] */
+            examples: {
+                input: string;
+                output: string;
+            }[];
+            allowed_tools?: unknown;
+            /** @enum {string} */
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
+            source_template?: string;
+        };
+        ImportSkillDto: {
+            content: string;
+            /** @default false */
+            create: boolean;
+            overrides?: {
+                name?: string;
+                description?: string;
+                when_to_use?: string;
+                instructions?: string;
+                version?: string;
+                /** @enum {string} */
+                visibility?: "personal" | "members" | "shared" | "public";
+            };
+        };
+        UpdateSkillDto: {
+            name?: string;
+            description?: string;
+            when_to_use?: string;
+            instructions?: string;
+            examples?: {
+                input: string;
+                output: string;
+            }[];
+            allowed_tools?: unknown;
+            /** @enum {string} */
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
+        };
         CreatePortalRecipientDto: {
             label: string;
             /** Format: email */
@@ -6246,52 +6292,6 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
-        };
-        CreateSkillDto: {
-            name: string;
-            description: string;
-            when_to_use: string;
-            instructions: string;
-            /** @default [] */
-            examples: {
-                input: string;
-                output: string;
-            }[];
-            allowed_tools?: unknown;
-            /** @enum {string} */
-            visibility?: "personal" | "members" | "shared" | "public";
-            member_ids?: string[];
-            version?: string;
-            source_template?: string;
-        };
-        ImportSkillDto: {
-            content: string;
-            /** @default false */
-            create: boolean;
-            overrides?: {
-                name?: string;
-                description?: string;
-                when_to_use?: string;
-                instructions?: string;
-                version?: string;
-                /** @enum {string} */
-                visibility?: "personal" | "members" | "shared" | "public";
-            };
-        };
-        UpdateSkillDto: {
-            name?: string;
-            description?: string;
-            when_to_use?: string;
-            instructions?: string;
-            examples?: {
-                input: string;
-                output: string;
-            }[];
-            allowed_tools?: unknown;
-            /** @enum {string} */
-            visibility?: "personal" | "members" | "shared" | "public";
-            member_ids?: string[];
-            version?: string;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -10752,6 +10752,207 @@ export interface operations {
             };
         };
     };
+    SkillsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSkillDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSkillDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportSkillDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_export: {
+        parameters: {
+            query: {
+                format: "markdown" | "claude_skill" | "chatgpt";
+            };
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicSkillsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     PortalRecipientsController_list: {
         parameters: {
             query?: never;
@@ -12180,207 +12381,6 @@ export interface operations {
         };
         responses: {
             201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSkillDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_templates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSkillDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_import: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportSkillDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_export: {
-        parameters: {
-            query: {
-                format: "markdown" | "claude_skill" | "chatgpt";
-            };
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PublicSkillsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };

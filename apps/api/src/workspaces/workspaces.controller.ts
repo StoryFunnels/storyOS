@@ -83,8 +83,9 @@ export class WorkspaceController {
   @MinRole('admin')
   @ApiOperation({ summary: 'Update workspace (admin)' })
   update(@Req() req: WorkspaceRequest, @Body() body: UpdateWorkspaceDto) {
-    // #848 — the opt-in that lets agents publish skills to the workspace is a HUMAN decision made
-    // once, in advance (ADR-0010: an agent never decides for a human). `source` is derived at the
+    // #848/#867 — the switch for whether agents may publish skills to the workspace is a HUMAN
+    // decision (ADR-0010: an agent never decides for a human). It is ON by default; this keeps an
+    // agent from turning it back ON after an admin turned it off, as much as from turning it off. `source` is derived at the
     // auth boundary and cannot be claimed, and after #858 an OAuth-connected AI is `mcp`, so this
     // refuses every token and connected AI even when it holds an admin's role. Refused when the
     // key is PRESENT, either value: an agent has no business touching the flag at all.

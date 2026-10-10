@@ -75,8 +75,9 @@ export const createSkillSchema = z.object({
   examples: z.array(skillExampleSchema).max(20).default([]),
   allowed_tools: removedField,
   /** #832: deliberately NO schema default. What an omitted visibility means depends on WHO
-   *  is writing, which only the service knows (a person's skill is `shared`, an agent's is
-   *  `personal` — ADR-0010 / #442), so a default here would decide it for everyone. */
+   *  is writing and on the workspace's AI-publishing setting, which only the service knows (a person's
+   *  skill is `shared`; an agent's is `shared` too unless an admin switched AI publishing off, then
+   *  `personal` — #867 / ADR-0010), so a default here would decide it for everyone. */
   visibility: skillVisibilitySchema.optional(),
   /** Only meaningful with `visibility: members`; the owner is always included. */
   member_ids: z.array(z.string().min(1)).max(100).optional(),
@@ -145,6 +146,9 @@ export const skillSummarySchema = z.object({
   last_run_at: z.string().nullable(),
   last_run_status: z.enum(['ok', 'error']).nullable(),
   editable: z.boolean(),
+  /** #867 AC3 — present when an AI asked for `public`: the skill is NOT public yet; a person must approve
+   * this proposal (in the app's Inbox) first. Absent otherwise. */
+  pending_approval: z.object({ id: z.uuid() }).optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });

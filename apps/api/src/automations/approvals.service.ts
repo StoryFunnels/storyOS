@@ -127,25 +127,38 @@ export interface ActionClassGateSnapshot {
   scope?: 'database_cascade';
 }
 
+/**
+ * #867 AC3 — an AI's proposal to make a skill PUBLIC (an unauthenticated link). The skill is NOT
+ * public until a person approves this in the Inbox; approval is human-sourced only (#859), so the
+ * proposing token cannot approve it. Has no database (`ctx.databaseId` is null) and no record.
+ */
+export interface SkillPublishPublicSnapshot {
+  type: 'skill_publish_public';
+  skill_id: string;
+  skill_name: string;
+  requester_source: string;
+}
+
 /** The FROZEN payload a gated action carries between "queued for approval"
  * and "approved" — `action` has every {Field}/{payload} token already
  * interpolated (actions.service.ts renders it before calling `create()`
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot;
-  ctx: { workspaceId: string; databaseId: string; recordId: string | null; actorId: string };
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot;
+  /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
+  ctx: { workspaceId: string; databaseId: string | null; recordId: string | null; actorId: string };
 }
 
 export interface CreateApprovalInput {
   workspaceId: string;
-  databaseId: string;
+  databaseId: string | null;
   ruleId: string | null;
   runId: string | null;
   recordId: string | null;
   actionIndex: number;
   /** Already rendered — see ApprovalActionSnapshot's doc. */
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | SkillPublishPublicSnapshot;
   previewText: string;
   /** The rule's run actor (or the button-presser, when there's no rule) —
    * used as the approver only when no rule (and hence no owner) exists. */
@@ -291,7 +304,7 @@ export class ApprovalsService implements OnModuleInit {
     await this.notifications
       .notify({
         workspaceId: input.workspaceId,
-        databaseId: input.databaseId,
+        databaseId: input.databaseId ?? undefined,
         recordId: input.recordId ?? undefined,
         actorId: input.requesterActorId,
         type: input.notification?.type ?? 'action_approval_requested',
@@ -353,7 +366,13 @@ export class ApprovalsService implements OnModuleInit {
       limit: 100,
     });
     const visible = await this.access.visibleDatabaseIds(membership);
-    const scoped = visible === null ? rows : rows.filter((r) => visible.has((r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId));
+    const scoped =
+      visible === null
+        ? rows
+        : rows.filter((r) => {
+            const databaseId = (r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
+            return databaseId !== null && visible.has(databaseId); // a database-less approval (a skill) is not a guest's to see
+          });
     return scoped.map(toDto);
   }
 
@@ -388,6 +407,7 @@ export class ApprovalsService implements OnModuleInit {
    */
   async visibleToMembership(membership: Membership, row: ApprovalRow): Promise<boolean> {
     const databaseId = (row.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
+    if (databaseId === null) return false;
     const database = await this.db.query.databases.findFirst({
       where: eq(databases.id, databaseId),
       columns: { id: true, spaceId: true },
