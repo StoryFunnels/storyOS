@@ -38,6 +38,12 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
+- **Sorting by a relation** — a **single-valued** relation (the "Parent" side of a one-to-many)
+  sorts by the **title of the linked record**; records with no link follow the usual empty-values
+  placement. A **multi-valued** relation (the "many" side of a one-to-many, or either side of a
+  many-to-many) can't be sorted — there is no single value to order by — and is refused with a
+  `422`, the same as a multi-person field. The same list of sortable types drives the app's sort
+  picker, so what a view can offer and what the API accepts agree.
 
 ## Writing
 
