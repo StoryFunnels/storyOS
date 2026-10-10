@@ -49,8 +49,10 @@ curl -s -X POST $API/api/v1/me/tokens \
   you cannot is refused with the same `404` as one that does not exist. A guest's token can never
   reach beyond that guest's own grants, and narrowing the guest narrows their token on the next call.
 - **A bound token behaves like a guest limited to the listed items.** It sees them in lists and
-  search, follows no relation out of them, and gets nothing derived through one (a lookup or rollup
-  over a database outside the boundary comes back empty rather than carrying the value). A space
+  search, follows no relation out of them, and is not served values read through one (a lookup or
+  rollup over a database outside the boundary comes back empty when you read a record). That is
+  about reading values back: a *filter* over such a field can still tell a match from a non-match
+  (tracked as ticket #881), so do not treat the boundary as hiding what those values are. A space
   covers every database in it, now and later.
 - **Refused in words.** Asking for anything outside the boundary returns `403` saying the token is
   bound to specific spaces or databases, **identically whether or not the thing exists**, so the
@@ -61,8 +63,11 @@ curl -s -X POST $API/api/v1/me/tokens \
   (members, settings, billing, notifications, approvals, automations, skills, exports, tokens) is
   refused to a bound token, and so is any route added later until it is deliberately opened.
 - **Fixed at mint.** There is no way to widen or edit a token's scope. To narrow one, mint a new
-  token and revoke the old; the revoked row is kept, so what a token could reach stays answerable
-  after the fact. Revoking takes effect on the very next request.
+  token and revoke the old. The revoked row is kept (and survives erasure of its owner, with the
+  person stripped from it), so the scope it carried is not lost. What is **not** built is the link
+  from a past *action* to the token that made it, and no endpoint returns a revoked token's scope,
+  so "what could the token behind this action reach" can today be answered only by reading the
+  table. Revoking takes effect on the very next request.
 - `GET /api/v1/me` shows a credential its own boundary under `auth.resource_scope` (`null` =
   unrestricted), and `GET /api/v1/me/tokens` lists each token's.
 - Tokens minted before this existed are unrestricted and keep working unchanged. Over OAuth (the
