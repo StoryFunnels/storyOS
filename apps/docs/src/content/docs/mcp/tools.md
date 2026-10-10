@@ -34,6 +34,9 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 | `upsert_record` | Match-or-create on a [unique field](/concepts/databases-and-fields/#preventing-duplicate-values) — a matching value updates that record, no match creates one. Returns `{ record, created }` so a caller can tell which branch it took; idempotent on repeat. An [automation rule's own "Create a record" action](/concepts/automations/#creating-or-upserting-a-record) can do the same thing via `upsert`. |
 | `update_record` | Merge-update (null clears); record by uuid or public number. |
 | `delete_record` | Trash a record (restorable 30 days). |
+| `update_records` / `delete_records` | Apply one patch to, or trash, up to 200 records in one call; partial failures come back per record. An update returns a `restorable` list. |
+| `undo_batch_update` | Revert an `update_records` call by passing its `restorable` list back verbatim. |
+| `enqueue_bulk_record_job` / `get_bulk_record_job` | For selections above one call's limit (up to 50,000): a durable, resumable background update/delete job, then poll its progress. See [bulk operations](/api/conventions/#bulk-operations). |
 | `link_records` | Link a record to targets through a relation field. |
 | `add_comment` | Post a comment. |
 | `run_button` | Press a button field, running its automation actions. |
