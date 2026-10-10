@@ -21,6 +21,40 @@ A view still belongs to its database, wherever you put it. Those are two differe
 to it"* is something people rearrange weekly. Moving a view around the sidebar never changes what
 it shows or who owns it, and deleting a database still takes its views with it wherever they sit.
 
+## The rail and the panel
+
+The sidebar is two parts. A narrow fixed **rail** on the far left holds StoryOS's own places —
+the workspace switcher, **Home**, **Inbox**, **My Work**, **Runs** and **Settings** — as icons with
+tooltips. It never grows, however much you build. Beside it, a resizable **panel** holds *this
+workspace's* contents: a combined search-or-ask-Tyron box, a **Collections** row (Reviews, Business
+Packs, Personal), then **Groups → Spaces → databases and views**. Resize the panel to make room; it
+cuts long names off rather than ellipsising, and widening it is the way to read them.
+
+**Group and space headers stay pinned as you scroll** — the group at the top, the space right below
+it — so in a large workspace you can always tell which group and space you're in.
+
+## Groups
+
+A **group** collects spaces under a heading in the sidebar — "Clients", "Internal". It is
+**presentational only**: putting a space in a group changes where it appears, never who can see it
+or what it contains.
+
+- **Make one** with **New group** at the top of the panel; **rename** or **delete** it from its menu.
+  Deleting a group doesn't delete its spaces — they fall back to the ungrouped list.
+- **Put a space in a group** by dragging it onto the group's header, or with **Move to group** on the
+  space's menu (the keyboard route); **Remove from group**, or drag it into the ungrouped area, to
+  take it out. An empty group still shows its header, so there is always somewhere to drop.
+- **Reorder groups** by dragging a group's header up or down; spaces keep their own order inside it.
+- Over MCP: `list_space_groups`, `create_space_group`, `update_space_group` (including `position`),
+  `delete_space_group`, and `update_space`'s `group`.
+
+## Views-only mode
+
+The database-glyph button in the panel toggles **views-only mode**: every database row is hidden
+while its views stay, so you see just the views you actually open. It is a personal setting for this
+browser, not saved on the workspace — nobody else's sidebar changes. A space with no icon of its own
+shows a coloured letter mark; one with an icon keeps its icon.
+
 ## Reordering spaces
 
 Drag a space by its row to move it up or down the sidebar's top level, the same drag-and-drop
