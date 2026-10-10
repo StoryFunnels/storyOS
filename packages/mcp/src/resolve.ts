@@ -201,3 +201,35 @@ export async function resolveSpaceGroup(client: Client, workspaceId: string, ref
     `No group matches "${ref}" in this workspace. Available: ${list.map((g) => g.name).join(', ') || '(none)'}.`,
   );
 }
+
+/**
+ * #868 — turn what an AI knows about people into the user ids `member_ids` wants. Accepts a user id
+ * (as list_members returns) or a name that matches EXACTLY ONE active member; an ambiguous or unknown
+ * reference is an error that lists who exists, never a guess (guessing a person is how a skill ends
+ * up shared with the wrong colleague). The SERVER still validates every id is an active member: this
+ * only translates, it does not decide who may see anything.
+ */
+export async function resolveMemberIds(client: Client, workspaceId: string, refs: string[]): Promise<string[]> {
+  const res = await client.GET('/api/v1/workspaces/{ws}/members', { params: { path: { ws: workspaceId } } as never });
+  const members = ((res as { data?: Array<{ user: { id: string; name: string } }> }).data ?? []).map((m) => m.user);
+  const ids: string[] = [];
+  for (const ref of refs) {
+    const byId = members.find((m) => m.id === ref);
+    if (byId) {
+      ids.push(byId.id);
+      continue;
+    }
+    const byName = members.filter((m) => m.name.trim().toLowerCase() === ref.trim().toLowerCase());
+    if (byName.length === 1) {
+      ids.push(byName[0]!.id);
+      continue;
+    }
+    if (byName.length > 1) {
+      throw new Error(`"${ref}" matches ${byName.length} members. Use the user id from list_members to say which one.`);
+    }
+    throw new Error(
+      `No member matches "${ref}". Members: ${members.map((m) => `${m.name} (${m.id})`).join(', ') || '(none)'}. Use list_members for the user ids.`,
+    );
+  }
+  return [...new Set(ids)];
+}

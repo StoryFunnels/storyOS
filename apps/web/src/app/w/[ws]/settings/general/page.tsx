@@ -171,8 +171,8 @@ export default function GeneralSettingsPage() {
             </Label>
             <p className="mt-1 text-label text-muted">
               On by default. A skill an AI creates is visible to everyone in this workspace straight
-              away, and their AI can run it. It never makes a skill public and it never shares with
-              chosen people only; those need a person. Turn it off to keep AI-written skills private
+              away, and their AI can run it. It can also share with named people only. It never makes
+              a skill public by itself: that needs a person to approve it. Turn it off to keep AI-written skills private
               to the person whose AI wrote them. Skills already shared stay shared.
             </p>
             {!isAdmin && <p className="mt-1 text-label text-faint">Only an admin can change this.</p>}

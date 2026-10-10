@@ -485,16 +485,18 @@ describe('#841 — members, public and version', () => {
     expect((await inject('GET', `/workspaces/${wsId}/grants`)).json()).toEqual(before);
   });
 
-  it('an agent credential cannot create or promote to members, nor name people; `public` is only a PROPOSAL a person approves (#867 AC3)', async () => {
+  it('an agent credential may use `members` (naming people already in the workspace, #868); `public` is only a PROPOSAL a person approves (#867 AC3)', async () => {
     const mint = await inject('POST', '/me/tokens', { name: 'tiers-test', workspace_id: wsId });
     const token = mint.json().token as string;
     const asAgent = (method: string, url: string, payload?: unknown) => inject(method, url, payload, token);
-    for (const body of [
-      { ...base('Agent members'), visibility: 'members' },
-      { ...base('Agent named'), visibility: 'members', member_ids: [bId] },
-    ]) {
-      expect((await asAgent('POST', `/workspaces/${wsId}/skills`, body)).statusCode, JSON.stringify(body)).toBe(403);
-    }
+    // `members` naming a real member works, and the set is the one named.
+    const named = await asAgent('POST', `/workspaces/${wsId}/skills`, { ...base('Agent named'), visibility: 'members', member_ids: [bId] });
+    expect(named.statusCode, named.body).toBe(201);
+    expect(named.json().visibility).toBe('members');
+    expect(named.json().member_ids).toEqual([bId]);
+    // A non-member is refused with a reason (the same 422 a person gets), nothing created.
+    const stranger = await asAgent('POST', `/workspaces/${wsId}/skills`, { ...base('Agent stranger'), visibility: 'members', member_ids: ['not-a-member'] });
+    expect(stranger.statusCode, stranger.body).toBe(422);
     // `public`: not refused, not granted: a personal skill plus a pending approval, no link.
     const proposal = await asAgent('POST', `/workspaces/${wsId}/skills`, { ...base('Agent public'), visibility: 'public' });
     expect(proposal.statusCode, proposal.body).toBe(201);
@@ -502,9 +504,6 @@ describe('#841 — members, public and version', () => {
     expect(proposal.json().pending_approval?.id).toBeTruthy();
     const mine = await asAgent('POST', `/workspaces/${wsId}/skills`, base('Agent default'));
     expect(mine.statusCode, mine.body).toBe(201);
-    for (const patch of [{ visibility: 'members' }, { member_ids: [bId] }]) {
-      expect((await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, patch)).statusCode, JSON.stringify(patch)).toBe(403);
-    }
     const toPublic = await asAgent('PATCH', `/workspaces/${wsId}/skills/${mine.json().id}`, { visibility: 'public' });
     expect(toPublic.statusCode, toPublic.body).toBe(200);
     expect(toPublic.json().visibility, 'unchanged until a person approves').toBe('shared');

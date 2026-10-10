@@ -64,8 +64,7 @@ so anyone reading a skill can see where it came from.
 - **To take a public skill back, change its visibility in the Skills library.** That revokes the
   link at once. An approval can be decided only once: rejecting it after you approved does nothing
   (the app refuses it and says so), so it is never the way to undo a public skill.
-- **Sharing with chosen people only is a person's decision.** An AI cannot do it; such a request is
-  refused.
+- **An AI can share a skill with named people.** With visibility **Members** and a list of who, only those people (and you) can find or run it; everyone else gets nothing, not even a hint it exists. It follows the same setting as sharing with the workspace: an admin who switches AI sharing off switches this off too. An AI can add or remove a person by sending the new full list.
 
 Because an AI can now share a skill without a person reading it first, treat the AI-written mark as
 the signal: a skill with it was not typed by a person.

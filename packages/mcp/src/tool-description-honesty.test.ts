@@ -74,6 +74,31 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
     expect(run).toMatch(/StoryOS executes nothing/);
   });
 
+  it('#868 AC5: create_skill / update_skill descriptions match the visibility SCHEMA exactly (every accepted tier named, no tier claimed unavailable that the schema accepts)', () => {
+    const cfgs = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
+    registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
+      client: {} as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    type Arg = { safeParse: (v: unknown) => { success: boolean } };
+    const ALL = ['personal', 'members', 'shared', 'public'];
+    for (const tool of ['create_skill', 'update_skill']) {
+      const cfg = cfgs.get(tool)!;
+      const schema = cfg.inputSchema as unknown as { shape?: Record<string, Arg> } & Record<string, Arg>;
+      const arg = (schema.shape ?? schema)['visibility']!;
+      const accepted = ALL.filter((t) => arg.safeParse(t).success);
+      // Every tier the schema accepts is named in the description (a model reads only the description).
+      for (const tier of accepted) expect(cfg.description, `${tool} names \`${tier}\``).toContain(tier);
+      // A tier the schema accepts is never described as not available.
+      if (accepted.includes('members')) {
+        expect(cfg.description, `${tool} must not say sharing with chosen people is unavailable`).not.toMatch(/chosen people (is|are) not|not available to AI|is not offered/i);
+      }
+      // And the argument that carries the people exists exactly when `members` is accepted.
+      expect(Boolean((schema.shape ?? schema)['members']), `${tool} has a members argument iff the tier is accepted`).toBe(accepted.includes('members'));
+    }
+  });
+
   it('the guard can fail: it flags the exact sentence that misled the agent', () => {
     const bad = 'the same visibility rule the in-app Skills list enforces';
     expect([...bad.matchAll(CLAIM)].map((m) => m[0])).toEqual(['in-app']);
