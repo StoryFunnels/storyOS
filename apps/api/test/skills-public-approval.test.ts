@@ -141,6 +141,28 @@ describe('#867 AC3 — an AI asking for `public` raises a proposal; nothing is p
   });
 });
 
+describe('#867 — a BURST of proposals: each one has its own actionable Inbox entry', () => {
+  it('an AI asks for `public` on five skills within a minute: five approvals, five Inbox rows, each row\'s ref_id its own approval, and deciding one leaves the others actionable', async () => {
+    const approvalIds: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill(`burst ${i}`, { visibility: 'public' }));
+      expect(made.statusCode, made.body).toBe(201);
+      approvalIds.push(made.json().pending_approval.id as string);
+    }
+    expect(new Set(approvalIds).size, 'five distinct approvals').toBe(5);
+    const inbox = (await call(admin.token, 'GET', `/workspaces/${wsId}/notifications`)).json().data as Array<{ type: string; ref_id: string | null; read_at: string | null }>;
+    const rows = inbox.filter((n) => n.type === 'action_approval_requested' && n.ref_id && approvalIds.includes(n.ref_id));
+    expect(rows.map((n) => n.ref_id).sort(), 'every proposal has an Inbox row carrying ITS approval id (none collapsed away)').toEqual([...approvalIds].sort());
+    // Decide one: the other four are still pending and each still has its row.
+    expect((await call(admin.token, 'POST', `/workspaces/${wsId}/approvals/${approvalIds[2]}/approve`)).statusCode).toBeLessThan(300);
+    await jobs.tick();
+    const pending = (await call(admin.token, 'GET', `/workspaces/${wsId}/approvals?status=pending`)).json() as Array<{ id: string }>;
+    for (const id of approvalIds.filter((_, i) => i !== 2)) {
+      expect(pending.map((p) => p.id), `still pending: ${id}`).toContain(id);
+    }
+  });
+});
+
 describe('#869 — a decided public-skill approval refuses the opposite decision, and the SKILL\'s state is asserted, not just the approval\'s', () => {
   it('Reject AFTER Approve: refused 409 with a reason; the skill is STILL public with the SAME token; the approval stays approved', async () => {
     const made = await call(pat, 'POST', `/workspaces/${wsId}/skills`, skill('regretted approval', { visibility: 'public' }));
