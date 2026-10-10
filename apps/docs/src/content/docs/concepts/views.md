@@ -333,6 +333,15 @@ saved on the view, not per session, so reopening it later shows the same mode yo
   dragging doesn't acquire a time component just because the calendar now has one. With an End
   date field set, dragging shifts start and end by the same amount, so a block keeps its length
   when it moves.
+- **An event that spans several days draws on every day it covers** — the real start time on the
+  first day, a full-height block on the days between, and the real end time on the last. (This needs
+  an End date field to know where it ends.)
+- **The drag step is configurable** — **10, 15, 30 or 60 minutes**, from a selector in the calendar's header
+  row in Week/Day mode. It sets the snap when you drag an event and the time a click on an empty slot creates a record
+  at; 15 is the default, so a view feels the same until you change it. The choice is saved on the view.
+- **Hours you don't use can be collapsed.** Tick **Collapse hours** (next to it) and pick a start and
+  end hour, and the axis shows only that window. This hides **hours, never records** — an event
+  outside the window simply isn't on screen — and the **All day** row is never affected.
 - Every mode paints a record's colour (from the view's **Color by** field) through the same shared
   colour source every other view reads, so switching modes never changes how a record looks.
 
