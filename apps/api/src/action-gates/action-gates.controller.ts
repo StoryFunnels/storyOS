@@ -6,7 +6,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { ActionGatesService } from './action-gates.service';
+import { ActionGatesService, isEnforcedPolicyClass, unsupportedClassMessage } from './action-gates.service';
 
 const createGatePolicySchema = z.object({
   action_class: z.string().min(1).max(100),
@@ -34,13 +34,18 @@ function toDto(row: {
   createdAt: Date;
   updatedAt: Date;
 }) {
+  // #878 — a row stored for a class nothing enforces (declared before unknown classes were refused)
+  // is KEPT so the admin can see it never worked, but it is never reported as enabled.
+  const enforced = isEnforcedPolicyClass(row.actionClass);
   return {
     id: row.id,
     workspace_id: row.workspaceId,
     space_id: row.spaceId,
     database_id: row.databaseId,
     action_class: row.actionClass,
-    enabled: row.enabled,
+    enabled: row.enabled && enforced,
+    enforced,
+    inert_reason: enforced ? null : unsupportedClassMessage(row.actionClass),
     approver_id: row.approverId,
     created_by: row.createdBy,
     created_at: row.createdAt,
@@ -79,7 +84,7 @@ export class ActionGatesController {
 
   @Post()
   @RequiresScope('admin')
-  @ApiOperation({ summary: 'Declare a gate over an action class (starting with delete_records), scoped to workspace/space/database' })
+  @ApiOperation({ summary: 'Declare a gate over an action class, scoped to workspace/space/database. Only classes the server enforces are accepted (422 lists them); today: delete_records' })
   async create(@Req() req: WorkspaceRequest, @Body() body: CreateGatePolicyDto) {
     this.assertAdmin(req);
     const created = await this.gates.create({
