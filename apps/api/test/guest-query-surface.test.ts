@@ -65,7 +65,7 @@ beforeAll(async () => {
   });
   expect(roll.statusCode, roll.body).toBe(201);
   const lookup = await inject(owner.token, 'POST', `/workspaces/${ws}/databases/${projects}/fields`, {
-    display_name: 'Client Worth', type: 'lookup', config: { relation_field_id: relFieldId, target_field_api_name: worthApi },
+    display_name: 'Billed', type: 'lookup', config: { relation_field_id: relFieldId, target_field_api_name: worthApi },
   });
   expect(lookup.statusCode, lookup.body).toBe(201);
   await inject(owner.token, 'POST', `/workspaces/${ws}/favorites`, { target_type: 'record', target_id: secretClient });
@@ -264,10 +264,10 @@ describe('#881 (B) a relation field names nothing about a database the caller ca
 
 describe('#881 the OTHER query paths (AC8), each checked against the response body', () => {
   it('a sort by a lookup over the hidden database is refused like an unknown field', async () => {
-    const hidden = await query(guest.token, { sorts: [{ field: 'client_worth', direction: 'desc' }], limit: 50 });
+    const hidden = await query(guest.token, { sorts: [{ field: 'billed', direction: 'desc' }], limit: 50 });
     const missing = await query(guest.token, { sorts: [{ field: 'zzqq', direction: 'desc' }], limit: 50 });
     expect(hidden.statusCode).toBe(422);
-    expect(observed(hidden)).toBe(observed(missing, ['zzqq', 'client_worth']));
+    expect(observed(hidden)).toBe(observed(missing, ['zzqq', 'billed']));
   });
 
   it('global search: neither the hidden record\'s title nor its value is findable, and a hit in scope still is', async () => {
@@ -295,5 +295,36 @@ describe('#881 the OTHER query paths (AC8), each checked against the response bo
     expect(all.body).not.toContain('Hidden Co');
     expect(all.body).not.toContain(String(SECRET));
     expect(all.body).not.toContain(secretClient);
+  });
+});
+
+describe('#881 (B2) a derived field names nothing about the far side in its config either', () => {
+  const detail = async (token: string) => {
+    const res = await inject(token, 'GET', `/workspaces/${ws}/databases/${projects}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const byType = (type: string) => res.json().fields.find((f: { type: string }) => f.type === type);
+    return { body: res.body, rollup: byType('rollup'), lookup: byType('lookup'), formula: byType('formula') };
+  };
+
+  it('CONTROL: an admin and a guest who CAN read the target database get the config unchanged', async () => {
+    for (const token of [owner.token, insider.token]) {
+      const { rollup, lookup, formula } = await detail(token);
+      expect(rollup.config.target_field_api_name).toBe('worth');
+      expect(rollup.config.op).toBe('sum');
+      expect(lookup.config.target_field_api_name).toBe('worth');
+      expect(String(formula.config.expression)).toContain('Worth');
+    }
+  });
+
+  it('a guest without access: rollup, lookup and formula still render as fields, but their config names no far-side field and no shape', async () => {
+    const { body, rollup, lookup, formula } = await detail(guest.token);
+    expect(rollup, 'the field must still be there').toBeDefined();
+    expect(rollup.config).toEqual({ relation_field_id: relFieldId });
+    expect(lookup.config).toEqual({ relation_field_id: relFieldId });
+    expect(formula.config.expression).toBeUndefined();
+    expect(formula.config.ast).toBeUndefined();
+    for (const needle of ['worth', 'Worth', 'target_field_api_name', 'Zanzibar', clients]) {
+      expect(body, `the database detail must not contain "${needle}"`).not.toContain(needle);
+    }
   });
 });
