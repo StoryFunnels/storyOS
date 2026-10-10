@@ -776,6 +776,15 @@ export const apiTokens = pgTable('api_tokens', {
    * this is only the pointer, not the authority.
    */
   agentId: uuid('agent_id'),
+  /**
+   * #543 — the spaces/databases this token is bound to, or NULL for unrestricted
+   * (every token minted before this column existed). IMMUTABLE after mint: there
+   * is no update path. Narrowing means minting a new token and revoking this
+   * one, and revoked rows are kept, so for any past action the token's reach at
+   * that time is still readable. `{ space_ids, database_ids }`. Erasing the owner
+   * ANONYMISES the row rather than deleting it: gdpr.service.ts has the column-by-column rule.
+   */
+  resourceScope: jsonb('resource_scope').$type<{ space_ids: string[]; database_ids: string[] }>(),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,

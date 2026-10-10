@@ -3,10 +3,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from './auth.guard';
 import type { AuthedRequest } from './auth.guard';
 import { enabledProviders } from './auth';
+import { ResourceScopable } from '../access/resource-scope';
 
 @ApiTags('auth')
 @Controller()
 export class MeController {
+  @ResourceScopable() // #543 — your own identity and your own boundary: a bound token may read both
   @Get('me')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
@@ -24,6 +26,9 @@ export class MeController {
       auth: {
         via: req.auth?.via ?? 'session',
         token_scope: req.auth?.tokenScope ?? null,
+        // #543 — the credential's own boundary, so an agent can know it (and say so) instead of
+        // inferring from what happens to be missing. null = unrestricted.
+        resource_scope: req.auth?.resourceScope ?? null,
         allow_run_button: req.auth?.via === 'token' ? req.auth.allowRunButton ?? true : true,
       },
     };

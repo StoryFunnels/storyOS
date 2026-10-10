@@ -2891,6 +2891,7 @@ export class RecordsService {
     recordId: string,
     min: EffectiveRole,
   ): Promise<void> {
+    await this.access.assertBoundDatabaseReach(membership, databaseId);
     // #613 — :rec only ever accepts a uuid (by-number/:number is the
     // separate public-number path). Without this, a non-uuid string reached
     // `eq(records.id, recordId)` below and the driver's own

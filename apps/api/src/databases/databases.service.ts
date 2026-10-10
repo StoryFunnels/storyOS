@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { BOUNDARY_REFUSAL } from '../access/resource-scope';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
@@ -139,8 +140,14 @@ export class DatabasesService {
         notDeleted(databases.deletedAt),
       ),
     });
-    if (!database) throw new NotFoundException('Database not found');
+    if (!database) {
+      if (membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
+      throw new NotFoundException('Database not found');
+    }
     let effective = await this.access.effectiveForDatabase(membership, database);
+    // #543 — a bound token that cannot reach this database is refused in words, the same as
+    // when the database does not exist (above), rather than told "not found".
+    if (effective === null && membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
     if (effective === null) {
       const recordScoped = await this.access.visibleRecordIds(membership, database);
       if (recordScoped && recordScoped.ids.size > 0) effective = recordScoped.bestRole;

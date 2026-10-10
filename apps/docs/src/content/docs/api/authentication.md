@@ -40,6 +40,47 @@ curl -s -X POST $API/api/v1/me/tokens \
   -d "{\"name\":\"my-script\",\"workspace_id\":\"$WS\"}" | jq
 ```
 
+## Binding a token to specific spaces or databases
+
+A token you hand to a script, an integration or a contractor's tool rarely needs everything your
+role can reach. Mint it with `resource_scope` and it reaches **only** what is listed:
+
+```bash
+curl -s -X POST $API/api/v1/me/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d "{\"name\":\"client-portal-sync\",\"workspace_id\":\"$WS\",
+       \"resource_scope\":{\"database_ids\":[\"<database id>\"],\"space_ids\":[]}}" | jq
+```
+
+- **Never wider than you.** Every listed space or database must be one you can reach yourself; one
+  you cannot is refused with the same `404` as one that does not exist. A guest's token can never
+  reach beyond that guest's own grants, and narrowing the guest narrows their token on the next call.
+- **A bound token behaves like a guest limited to the listed items.** It sees them in lists and
+  search, follows no relation out of them, and is not served values read through one (a lookup or
+  rollup over a database outside the boundary comes back empty when you read a record). That is
+  about reading values back: a *filter* over such a field can still tell a match from a non-match
+  (tracked as ticket #881), so do not treat the boundary as hiding what those values are. A space
+  covers every database in it, now and later.
+- **Refused in words.** Asking for anything outside the boundary returns `403` saying the token is
+  bound to specific spaces or databases, **identically whether or not the thing exists**, so the
+  refusal is not a way to find out what is there. An agent is told it is the boundary, not that
+  nothing exists. Through MCP, naming a database outside the boundary says the same.
+- **Only the data routes are open to it.** Records, databases, fields, relations, views, comments,
+  search and favourites, plus the two discovery calls an MCP client opens with. Everything else
+  (members, settings, billing, notifications, approvals, automations, skills, exports, tokens) is
+  refused to a bound token, and so is any route added later until it is deliberately opened.
+- **Fixed at mint.** There is no way to widen or edit a token's scope. To narrow one, mint a new
+  token and revoke the old. The revoked row is kept (and survives erasure of its owner, with the
+  person stripped from it), so the scope it carried is not lost. What is **not** built is the link
+  from a past *action* to the token that made it, and no endpoint returns a revoked token's scope,
+  so "what could the token behind this action reach" can today be answered only by reading the
+  table. Revoking takes effect on the very next request.
+- `GET /api/v1/me` shows a credential its own boundary under `auth.resource_scope` (`null` =
+  unrestricted), and `GET /api/v1/me/tokens` lists each token's.
+- Tokens minted before this existed are unrestricted and keep working unchanged. Over OAuth (the
+  claude.ai connector) there is no equivalent yet.
+- Today it is set through the API only; the web token form does not offer it yet.
+
 ## Errors and rate limits
 
 Every error uses one envelope:

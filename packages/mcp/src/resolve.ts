@@ -142,7 +142,27 @@ export async function resolveDatabase(client: Client, workspaceId: string, ref: 
   if (partial.length > 1) {
     throw new Error(`"${ref}" matches multiple databases: ${partial.map(qualify).join(', ')}. Be more specific (use space/database).`);
   }
+  // #543 — a token bound to specific spaces/databases cannot see anything outside them, and
+  // "No database matches" would teach the agent the database does not exist. Say what actually
+  // happened: the boundary, and that it says nothing about existence.
+  if (await isBoundCredential(client)) {
+    throw new Error(
+      `"${ref}" is outside the boundary this credential is bound to, so it cannot be reached with it — that says nothing about whether it exists. Reachable here: ${list.map(qualify).join(', ') || '(none)'}.`,
+    );
+  }
   throw new Error(`No database matches "${ref}" in this workspace. Available: ${list.map(qualify).join(', ') || '(none)'}.`);
+}
+
+/** #543 — is this credential bound to specific spaces/databases? Fails open (false) on any hiccup. */
+async function isBoundCredential(client: Client): Promise<boolean> {
+  try {
+    const res = (await (client as unknown as { GET: (p: string) => Promise<{ data?: unknown }> }).GET('/api/v1/me')) as {
+      data?: { auth?: { resource_scope?: unknown } };
+    };
+    return Boolean(res.data?.auth?.resource_scope);
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
@@ -29,6 +30,7 @@ class DeleteDatabaseDto extends createZodDto(deleteDatabaseSchema) {}
 @ApiTags('databases')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class DatabasesController {
   constructor(private readonly databases: DatabasesService) {}

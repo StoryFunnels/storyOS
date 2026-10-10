@@ -3,8 +3,10 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import type { TokenScope } from '@storyos/schemas';
-import { apiTokens, memberships, type ChangeSource } from '../db/schema';
+import type { ResourceScope, TokenScope } from '@storyos/schemas';
+import { apiTokens, databases, memberships, spaces, type ChangeSource } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
+import { AccessService } from '../access/access.service';
 import { resolveAgentIdentity } from '../agents/agent-identity';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -12,7 +14,10 @@ const sha256 = (value: string) => createHash('sha256').update(value).digest('hex
 /** Personal access tokens (docs/architecture/auth.md): act as their creator. */
 @Injectable()
 export class TokensService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
   async create(
     userId: string,
@@ -40,6 +45,8 @@ export class TokensService {
      * either, since that check belongs where it's actually load-bearing.
      */
     agentId?: string,
+    /** #543 — bind the token to these spaces/databases. Omitted = unrestricted, as before. */
+    resourceScope?: ResourceScope,
   ) {
     // MN-122: a token is only meaningful for a workspace you're actually in.
     // Without this you could mint one for any uuid — it would grant nothing
@@ -66,6 +73,31 @@ export class TokensService {
       }
     }
 
+    // #543 — never wider than the minter's own access, and the same 404 whether the id does
+    // not exist or merely is not theirs: a mint request must not work as an existence probe.
+    let boundTo: { space_ids: string[]; database_ids: string[] } | null = null;
+    if (resourceScope) {
+      const spaceIds = [...new Set(resourceScope.space_ids)];
+      const databaseIds = [...new Set(resourceScope.database_ids)];
+      for (const id of spaceIds) {
+        const space = await this.db.query.spaces.findFirst({
+          where: and(eq(spaces.id, id), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
+        });
+        if (!space || !(await this.access.effectiveForSpace(membership, id))) {
+          throw new NotFoundException('Space not found');
+        }
+      }
+      for (const id of databaseIds) {
+        const database = await this.db.query.databases.findFirst({
+          where: and(eq(databases.id, id), eq(databases.workspaceId, workspaceId), notDeleted(databases.deletedAt)),
+        });
+        if (!database || !(await this.access.effectiveForDatabase(membership, database))) {
+          throw new NotFoundException('Database not found');
+        }
+      }
+      boundTo = { space_ids: spaceIds, database_ids: databaseIds };
+    }
+
     const secret = randomBytes(24).toString('base64url');
     const token = `mn_pat_${secret}`;
     const [row] = await this.db
@@ -81,10 +113,18 @@ export class TokensService {
         allowRunButton: scope === 'read' ? false : allowRunButton,
         origin,
         agentId,
+        resourceScope: boundTo,
       })
       .returning();
     // Plaintext returned exactly once (E1).
-    return { id: row!.id, name: row!.name, token, token_prefix: row!.tokenPrefix, scope: row!.scope };
+    return {
+      id: row!.id,
+      name: row!.name,
+      token,
+      token_prefix: row!.tokenPrefix,
+      scope: row!.scope,
+      resource_scope: row!.resourceScope,
+    };
   }
 
   async list(userId: string) {
@@ -100,6 +140,7 @@ export class TokensService {
         workspace_id: t.workspaceId,
         scope: t.scope,
         allow_run_button: t.allowRunButton,
+        resource_scope: t.resourceScope,
         last_used_at: t.lastUsedAt,
         created_at: t.createdAt,
       })),
@@ -147,6 +188,8 @@ export class TokensService {
     origin: ChangeSource | null;
     /** #541 — the pointer only; the guard resolves and verifies the live owner. */
     agentId: string | null;
+    /** #543 — null for an unrestricted token. Read from the row on EVERY request, never cached. */
+    resourceScope: { space_ids: string[]; database_ids: string[] } | null;
   } | null> {
     const row = await this.db.query.apiTokens.findFirst({
       where: and(eq(apiTokens.tokenHash, sha256(token)), isNull(apiTokens.revokedAt)),
@@ -166,6 +209,7 @@ export class TokensService {
       allowRunButton: row.allowRunButton,
       origin: row.origin,
       agentId: row.agentId,
+      resourceScope: row.resourceScope,
     };
   }
 }

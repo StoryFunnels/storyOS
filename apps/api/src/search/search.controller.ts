@@ -1,4 +1,5 @@
 import { Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -19,6 +20,7 @@ const DENSE_TYPES = new Set(['select', 'multi_select', 'workflow', 'user', 'rela
  * databases/spaces, grant-scoped; plus per-user recents from activity.
  */
 @ApiTags('search')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws')
 export class SearchController {
