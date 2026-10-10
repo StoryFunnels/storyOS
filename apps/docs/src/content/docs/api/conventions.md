@@ -66,6 +66,25 @@ remains for the simple case (`?limit&cursor&q=` title search, default order).
 
 Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one level.
 
+## Two meanings of `id`
+
+`id` means two different things in the same round trip — the one place this API is genuinely
+inconsistent, kept deliberately:
+
+- **In a filter or sort**, the api_name `id` is the record's **permanent number** (the "issue 759"
+  people cite). `{ "field": "id", "op": "eq", "value": 759 }` finds record **number** 759.
+- **In a record payload**, the top-level `id` is the record's **UUID** (`d211835f-…`), not the number.
+
+So the record you get back from that filter has `record.id` set to a UUID, never `759`. A caller
+who assumes one meaning applies in both places will write a filter that silently matches nothing.
+
+The number's older api_name, `number`, still works in filters, sorts and formulas — it is
+deprecated, not removed, so stored views don't break — but `id` is the name to use. The UI labels it
+"ID" and never offers `number` as a field. To go from a number to a record's UUID, use
+[`by-number`](#resource-layout) (or an `id` filter); the payload field is **not** being renamed,
+because that would break every existing SDK, MCP and script caller for naming alone. This will be
+revisited only at a major version.
+
 ## Operator × type matrix
 
 | Op | text/url/email | number | date | checkbox | select | workflow | multi_select | user | relation |
