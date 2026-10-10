@@ -29,7 +29,7 @@ export interface PackPreviewCounts {
 
 export function registryVertical(slug: string): string {
   if (slug === 'agency-os' || slug === 'client-portal' || slug === 'consulting-os') return 'agency';
-  if (slug === 'content-engine') return 'marketing';
+  if (slug === 'content-engine' || slug === 'social-command-center') return 'marketing';
   if (slug === 'dev-project-os') return 'engineering';
   if (slug === 'support-inbox') return 'support';
   if (slug === 'coaching-os') return 'ops';
