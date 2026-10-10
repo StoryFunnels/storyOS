@@ -838,6 +838,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/workflow-nomination": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scan every readable database for a select that looks like its lifecycle (status) field, and say which databases already have a workflow field. Read-only. */
+        get: operations["WorkflowNominationController_scan"];
+        put?: never;
+        /** Convert chosen selects to the Workflow field type through the existing per-field conversion. DRY RUN by default (dry_run: false to apply); needs creator on each database; per-item results, one refusal does not stop the rest. */
+        post: operations["WorkflowNominationController_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records": {
         parameters: {
             query?: never;
@@ -4663,6 +4681,16 @@ export interface components {
             color_by?: string;
             fields?: string[];
         };
+        ApplyWorkflowNominationDto: {
+            nominations: {
+                /** Format: uuid */
+                database_id: string;
+                /** Format: uuid */
+                field_id: string;
+            }[];
+            /** @default true */
+            dry_run: boolean;
+        };
         CreateRecordDto: {
             /** @default {} */
             values: {
@@ -7744,6 +7772,44 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkflowNominationController_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkflowNominationController_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyWorkflowNominationDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

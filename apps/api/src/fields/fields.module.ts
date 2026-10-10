@@ -5,6 +5,8 @@ import { RecordsModule } from '../records/records.module';
 import { UsersModule } from '../users/users.module';
 import { FieldsController } from './fields.controller';
 import { FieldsService } from './fields.service';
+import { WorkflowNominationController } from './workflow-nomination.controller';
+import { WorkflowNominationService } from './workflow-nomination.service';
 import { PersonalCollectionViewController } from './personal-collection-view.controller';
 
 @Module({
@@ -13,8 +15,8 @@ import { PersonalCollectionViewController } from './personal-collection-view.con
   // UsersModule exports — same wiring reason ViewsModule imports it for
   // PersonalFilterController.
   imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule],
-  controllers: [FieldsController, PersonalCollectionViewController],
-  providers: [FieldsService],
+  controllers: [FieldsController, PersonalCollectionViewController, WorkflowNominationController],
+  providers: [FieldsService, WorkflowNominationService],
   exports: [FieldsService],
 })
 export class FieldsModule {}

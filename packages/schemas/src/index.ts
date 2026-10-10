@@ -46,3 +46,4 @@ export * from './skills';
 export * from './billing';
 export * from './column-match';
 export * from './portal';
+export * from './workflow-nomination';
