@@ -7092,7 +7092,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List action-class gate policies',
       description:
         '#542: this workspace\'s declared gate policies over an action class (currently only "delete_records") — scope (workspace/space/database), ' +
-        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only and not reachable via MCP — ' +
+        'enabled, and who approves. `enforced: false` (with an `inert_reason`) marks an old policy on a class nothing enforces: it protects NOTHING and is never reported as enabled — do not tell anyone that action is gated. Read-only: declaring, enabling/disabling or changing a gate is admin-only and not reachable via MCP — ' +
         'an agent that could change the gate meant to constrain agents would defeat the point.',
       inputSchema: {
         workspace: z.string(),

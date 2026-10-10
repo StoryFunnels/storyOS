@@ -64,7 +64,11 @@ replacement for them.
 
 ## Not built
 
-- Only the `delete_records` class can be declared as a policy. Other classes are named in the
-  code but don't have policies yet, and nothing in the product spends money, so there is no
-  spend gate.
+- Only the `delete_records` class can be declared as a policy, and the API enforces that:
+  declaring any other name (say `delete_database`) is refused with a `422` that lists the
+  supported classes, because a policy nothing checks would show as enabled and protect nothing.
+  A policy stored on an unsupported class before this was enforced is kept, listed with
+  `enforced: false` and an `inert_reason`, never reported as enabled, and can be disabled or
+  deleted but not switched on. Other classes are named in the code but don't have policies yet,
+  and nothing in the product spends money, so there is no spend gate.
 - A web page for declaring gates.

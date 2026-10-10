@@ -618,7 +618,7 @@ export interface paths {
         /** List this workspace's declared action-class gate policies */
         get: operations["ActionGatesController_list"];
         put?: never;
-        /** Declare a gate over an action class (starting with delete_records), scoped to workspace/space/database */
+        /** Declare a gate over an action class, scoped to workspace/space/database. Only classes the server enforces are accepted (422 lists them); today: delete_records */
         post: operations["ActionGatesController_create"];
         delete?: never;
         options?: never;
