@@ -156,6 +156,11 @@ export class MembersDbService {
     });
   }
 
+  /** #597 — the workspace's Members database (flagged system row), or null if not provisioned. */
+  async getMembersDatabase(workspaceId: string) {
+    return (await this.findMembersDb(workspaceId)) ?? null;
+  }
+
   /**
    * A membership object carrying just the workspace id — enough for
    * `DatabasesService.create`/`SpacesService.list`, which read only

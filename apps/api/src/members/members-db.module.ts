@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { DatabasesModule } from '../databases/databases.module';
 import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
+import { RelationsModule } from '../relations/relations.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { FieldConversionController } from './field-conversion.controller';
+import { FieldConversionService } from './field-conversion.service';
 import { MembersDbService } from './members-db.service';
 import { MembersProjectionSubscriber } from './members-projection.subscriber';
 
@@ -21,8 +24,9 @@ import { MembersProjectionSubscriber } from './members-projection.subscriber';
  * here; the subscriber just subscribes.
  */
 @Module({
-  imports: [DatabasesModule, FieldsModule, RecordsModule, WorkspacesModule],
-  providers: [MembersDbService, MembersProjectionSubscriber],
+  imports: [DatabasesModule, FieldsModule, RecordsModule, RelationsModule, WorkspacesModule],
+  controllers: [FieldConversionController],
+  providers: [MembersDbService, MembersProjectionSubscriber, FieldConversionService],
   exports: [MembersDbService],
 })
 export class MembersDbModule {}

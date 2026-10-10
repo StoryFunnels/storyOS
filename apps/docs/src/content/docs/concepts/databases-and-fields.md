@@ -137,6 +137,32 @@ each database succeeds or fails on its own (you need creator access on each). Th
 `find_workflow_candidates` and `nominate_workflows`; over the API, `GET` and `POST`
 `/api/v1/workspaces/{ws}/workflow-nomination`.
 
+## Converting a person field into a Members relation
+
+A `user` field stores a bare user id. An admin can convert one into a real **relation to the Members
+database**, so the person is a record you can link, filter and see from the person's side ("what is
+assigned to this person"). It is **guided and reversible**:
+
+- **Dry run first.** The default call changes nothing and reports how many records will link, which
+  values cannot be resolved (a user id with no Members row), the field it would create, and, for every
+  guest, whether they would see anything new.
+- **Nothing is dropped.** Applying keeps the original field (renamed "Assignee (user)", same `api_name`,
+  so saved views and automations keep working on it until you repoint them), creates the relation under
+  the original name, and leaves anything it could not resolve on the retained field. List those records with
+  *relation is empty* AND *retained field is not empty*.
+- **A hidden paired field on Members.** Like every relation it has an inverse, created hidden so it does not
+  reshuffle everyone's Members screen. A second converted field from the same database gets its own.
+- **Permission-neutral, and checked.** After the change, each guest who cannot read Members is probed through
+  the real read paths; if anything about Members shows up, the conversion is rolled back and names the guest.
+  A guest who cannot read Members sees no chip at all.
+- **Reversible.** The reverse writes the values back from the relation, restores the name, and removes the
+  relation and its Members-side field. A Members row with no user id has its name parked in a text field.
+  Lookups or rollups built on the relation are listed first and need `confirm_dependents`.
+
+Admin only; over the API it is `POST .../fields/{field}/convert-to-members-relation` and
+`.../convert-to-user` (both `dry_run` by default), over MCP `convert_user_field_to_members_relation` and
+`convert_members_relation_to_user_field`.
+
 ## The title field: free text or computed
 
 Every database's built-in title field starts as **free text** — you type it, like any other text
