@@ -91,6 +91,25 @@ rule does without reading a form top to bottom.
 - A `record_linked` trigger names its relation field and, when set, whether it fired on **link**,
   **unlink**, or either.
 
+## Editing a rule's actions on a canvas
+
+When you edit a rule, its actions can be shown as a **List** (each action's full settings, as
+always) or as a **Canvas** — the same trigger → condition → actions picture as the diagram above,
+but editable. A **List / Canvas** switch sits above the actions.
+
+- **Reorder** by dragging an action by its handle; the order you leave them in is the order they
+  run.
+- **Add action** at the bottom opens the same grouped list of action types the List view offers,
+  with the same starting defaults.
+- **Remove** is on each action (the trash icon).
+- **Edit settings** on an action switches you back to the List, focused on that action — the
+  canvas moves and adds steps; the List is still where an action's fields are filled in.
+- **It's one rule, not two.** Both views edit the same list of actions, so switching never loses
+  anything and a rule you open and save without changes is identical whichever view you last
+  looked at.
+- **Deliberately simple.** A rule is a straight line of actions with, at most, one optional
+  condition on each — there are no loops, no parallel branches and no rejoining paths.
+
 ## Creating or upserting a record
 
 A **Create a record** action can be configured to **match an existing record on a [unique
