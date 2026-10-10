@@ -12,6 +12,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
@@ -41,6 +42,7 @@ class SelectDriftReconcileDto extends createZodDto(selectDriftReconcileSchema) {
 @ApiTags('relations')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/relations')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @RequiresScope('admin')
 export class RelationsController {
@@ -166,6 +168,7 @@ export class RelationsController {
 @ApiTags('relations')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/records/:rec/links/:field')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class LinksController {
   constructor(

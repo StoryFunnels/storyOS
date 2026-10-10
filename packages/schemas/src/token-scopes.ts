@@ -26,3 +26,19 @@ export const TOKEN_SCOPE_LABELS: Record<TokenScope, string> = {
   write: 'Read & write — create, edit, delete records and run buttons; no schema changes',
   admin: 'Full access — everything this account can do, including schema',
 };
+
+/**
+ * #543 — a token may be bound to specific spaces and/or databases. NULL (absent)
+ * means unrestricted, which is every token minted before this existed. A bound
+ * token reaches ONLY what is listed (a space lists every database in it), and
+ * never more than its owner could reach on their own.
+ */
+export const resourceScopeSchema = z
+  .object({
+    space_ids: z.array(z.uuid()).max(50).default([]),
+    database_ids: z.array(z.uuid()).max(50).default([]),
+  })
+  .refine((v) => v.space_ids.length + v.database_ids.length > 0, {
+    message: 'A resource scope must list at least one space or database',
+  });
+export type ResourceScope = z.infer<typeof resourceScopeSchema>;

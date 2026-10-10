@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
@@ -39,6 +40,9 @@ import { WorkspacesService } from './workspaces.service';
 export class WorkspacesController {
   constructor(private readonly workspaces: WorkspacesService) {}
 
+  // #543 — name→id resolution is how an MCP client starts; already clamped to the token's own
+  // workspace above, and a bound token must still be able to do it.
+  @ResourceScopable()
   @Get()
   @ApiOperation({ summary: 'List workspaces I belong to' })
   list(@Req() req: AuthedRequest) {
@@ -99,6 +103,7 @@ export class WorkspaceController {
 
   // --- Spaces ---
 
+  @ResourceScopable() // #543 — narrowed by SpacesService.list(membership) like a guest
   @Get('spaces')
   @ApiOperation({ summary: 'List spaces (guests: scoped spaces only)' })
   listSpaces(@Req() req: WorkspaceRequest) {

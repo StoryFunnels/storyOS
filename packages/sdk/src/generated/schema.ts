@@ -6252,6 +6252,12 @@ export interface components {
             allow_run_button: boolean;
             /** Format: uuid */
             agent_id?: string;
+            resource_scope?: {
+                /** @default [] */
+                space_ids: string[];
+                /** @default [] */
+                database_ids: string[];
+            };
         };
         CopyRecordDto: {
             record_ids: string[];
