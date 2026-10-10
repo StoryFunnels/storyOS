@@ -60,9 +60,17 @@ state to clean up by hand.
 
 What that means in practice: a failed bulk copy is a clean do-over, not a resume. There's no
 "retry only what didn't make it" — if the batch failed, you run the whole selection again from
-scratch once you've fixed whatever caused the failure. For a very large selection, there's also no
-progress indicator while it runs and no record-count cap enforced before you start mapping — the
-copy just runs to completion or rolls back.
+scratch once you've fixed whatever caused the failure.
+
+- **A copy takes at most 200 records.** A larger selection is refused with a `422` before anything
+  is created — over the API, and over MCP too, since the tool uses the same route. Copy a bigger set
+  in batches of 200 or fewer.
+- **A blocking field says how many records it affects.** With several records selected, the reason
+  a field blocks the copy ends *"Affects N of M selected records."*, so you can tell a field that
+  blocks one record from one that blocks them all. The count and the blocking rule come from the same
+  calculation, so they can't disagree.
+- **There's no progress indicator.** Because the cap is below the size the server works in, a copy
+  is always a single pass; it either completes or rolls back.
 
 ## Duplicating within the same database
 
