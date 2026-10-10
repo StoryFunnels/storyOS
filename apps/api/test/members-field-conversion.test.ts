@@ -231,6 +231,9 @@ describe('#597 the reverse: relation -> user field, nothing dropped, no orphan o
     // and a Members row with NO user id (an invited-but-not-joined person) is linked to task three
     const orphan = (await as(owner.token, 'POST', `/workspaces/${ws}/databases/${members}/records`, { values: { name: 'Pending Pat' } })).json().id;
     await as(owner.token, 'PUT', `/workspaces/${ws}/databases/${tasks}/records/${t3}/links/${relationField.id}`, { record_ids: [orphan] });
+    // and Carol is UNASSIGNED from task two ON THE RELATION (the retained field still says she is on it)
+    const clear = await as(owner.token, 'PUT', `/workspaces/${ws}/databases/${tasks}/records/${t2}/links/${relationField.id}`, { record_ids: [] });
+    expect(clear.statusCode, clear.body).toBeLessThan(300);
   });
 
   it('dry run by default: counts, the parked member names, what would be removed', async () => {
@@ -241,6 +244,8 @@ describe('#597 the reverse: relation -> user field, nothing dropped, no orphan o
     expect(plan.mode).toBe('restore the retained user field');
     expect(plan.after.inverse_field_removed).toBe(true);
     expect(plan.counts.records_with_unlinkable_members).toBe(1);
+    // the dry run SAYS how many records will be cleared: task two, unassigned on the relation after conversion
+    expect(plan.counts.records_cleared).toBe(1);
     expect(plan.parked.sample[0].member_names).toEqual(['Pending Pat']);
     // restoring a field this feature converted is a restore, so it is neutral
     expect(plan.permission_neutrality.neutral).toBe(true);
@@ -260,11 +265,16 @@ describe('#597 the reverse: relation -> user field, nothing dropped, no orphan o
   it('applies: values come from the RELATION (the source of truth), the original name is restored, the inverse is gone', async () => {
     const res = await as(owner.token, 'POST', convertUrl(relationField.id, 'convert-to-user'), { dry_run: false, confirm_dependents: true });
     expect(res.statusCode, res.body).toBeLessThan(300);
+    expect(res.json().applied).toMatchObject({ records_cleared: 1 });
     const field = await fieldByName(owner.token, tasks, 'Assignee');
     expect(field).toMatchObject({ id: assigneeField, type: 'user', apiName: 'assignee' });
     expect(await fieldByName(owner.token, tasks, 'Assignee (user)')).toBeUndefined();
     const get = async (id: string) => (await as(owner.token, 'GET', `/workspaces/${ws}/databases/${tasks}/records/${id}`)).json().values;
     expect((await get(t1))['assignee']).toBe(aliceId);
+    // THE RELATION IS THE TRUTH: Carol was unassigned from task two there, so the user field ends EMPTY, not back on Carol
+    expect((await get(t2))['assignee'] ?? null).toBeNull();
+    // ...but an id that never resolved to a Members row was PARKED and is not stale: task three keeps it
+    expect((await get(t3))['assignee']).toBe(GHOST);
     expect((await get(t4))['assignee']).toBe(carolId); // the link made AFTER conversion survived the round trip
     // no orphan on Members: both inverse fields were removed along with their relations (the Reviewer one stays, it is a different relation)
     expect(await fieldByName(owner.token, members, 'Tasks / Assignee')).toBeUndefined();

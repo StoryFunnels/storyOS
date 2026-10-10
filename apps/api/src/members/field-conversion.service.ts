@@ -373,6 +373,28 @@ export class FieldConversionService {
       perRecord.set(l.fromRecordId, entry);
     }
     const parked = [...perRecord.entries()].filter(([, v]) => v.unlinked.length > 0);
+    // The RELATION is the source of truth after a conversion, for every person who HAS a Members row. So a record
+    // whose relation is empty ends with an EMPTY user field: the retained field's old value for that person is stale
+    // (they were unassigned on the relation). What is NOT stale is an id that never resolved to a Members row: that
+    // value was parked, not dropped, and it stays (ADR-0012: never silently dropped). Per record the end state is
+    // therefore  linked people  +  parked unresolved ids.
+    const retainedIds = new Map<string, string[]>();
+    if (retained) {
+      for (const r of await this.fieldValues(databaseId, retained.id)) {
+        const ids = this.userIdsOf(r.value);
+        if (ids.length) retainedIds.set(r.id, ids);
+      }
+    }
+    const resolvable = await this.memberRowsByUserId(members.id, userIdField, [...new Set([...retainedIds.values()].flat())]);
+    const finalValue = new Map<string, string | string[] | null>();
+    for (const id of new Set([...perRecord.keys(), ...retainedIds.keys()])) {
+      const linked = perRecord.get(id)?.userIds ?? [];
+      const keptParked = (retainedIds.get(id) ?? []).filter((u) => !resolvable.has(u));
+      const combined = [...new Set([...linked, ...keptParked])];
+      finalValue.set(id, combined.length === 0 ? null : multi ? combined : combined[0]!);
+    }
+    const toWrite = [...finalValue.entries()].filter(([, v]) => v !== null) as Array<[string, string | string[]]>;
+    const toClear = [...finalValue.entries()].filter(([id, v]) => v === null && retainedIds.has(id)).map(([id]) => id);
 
     // Neutrality of the REVERSE: a user field exposes the raw user id. Restoring a field this feature converted
     // returns to what each role saw before the forward conversion, so it is a restore; any other relation is judged
@@ -403,6 +425,8 @@ export class FieldConversionService {
         records_with_links: perRecord.size,
         links: linkRows.length,
         records_with_unlinkable_members: parked.length,
+        /** Records that hold a value on the retained field for someone who is no longer on the relation: their user field ends EMPTY. */
+        records_cleared: toClear.length,
       },
       parked: {
         meaning: 'A Members row with no user id (an invited person, an erased member) has no user to point at. Nothing is dropped: their names go into a text field on the record.',
@@ -426,12 +450,21 @@ export class FieldConversionService {
       retained ??
       (await this.fieldsService.create(databaseId, { display_name: `${baseName} (user)`, type: 'user', config: { multi } })) as FieldRow;
     // Write the user ids back from the relation (the relation is the source of truth now).
-    for (const [recordId, v] of perRecord) {
-      const value = multi ? v.userIds : (v.userIds[0] ?? null);
+    for (const [recordId, value] of toWrite) {
       await this.db
         .update(records)
         .set({ values: sql`jsonb_set(${records.values}, ${`{${target.id}}`}::text[], ${JSON.stringify(value)}::jsonb, true)` })
         .where(eq(records.id, recordId));
+    }
+    // A record whose relation is empty must not keep the retained field's STALE value: clear it.
+    let cleared = 0;
+    for (let i = 0; i < toClear.length; i += CHUNK) {
+      const gone = await this.db
+        .update(records)
+        .set({ values: sql`${records.values} - ${target.id}` })
+        .where(inArray(records.id, toClear.slice(i, i + CHUNK)))
+        .returning({ id: records.id });
+      cleared += gone.length;
     }
     let parkedFieldId: string | null = null;
     if (parked.length) {
@@ -456,7 +489,7 @@ export class FieldConversionService {
     return {
       ...plan,
       dry_run: false,
-      applied: { user_field_id: target.id, parked_text_field_id: parkedFieldId, records_written: perRecord.size },
+      applied: { user_field_id: target.id, parked_text_field_id: parkedFieldId, records_written: toWrite.length, records_cleared: cleared },
     };
   }
 }
