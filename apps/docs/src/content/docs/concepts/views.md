@@ -375,9 +375,15 @@ above the records — a quick count or sum, or a small chart, without leaving th
   than fetching every row to group client-side. Grouping by a multi-select or a date isn't available
   yet — a multi-select record can land in more than one bucket, and a date needs a bucketing rule
   (day? month? quarter?); both are real, bigger features, not oversights.
-- **Add, reorder, and remove** widgets from the strip itself; drag to reorder, and the order you
-  leave them in is what everyone who opens the view sees, since it's saved on the view like its
-  filters and sorts — not a per-viewer preference.
+- **Add widget** is in the view toolbar, next to Filter / Sort / Hide fields — not in the strip. A
+  view with **no widgets has no strip at all** (no empty row or border); the strip appears when you
+  add the first one.
+- **Each widget has Configure, Duplicate and Remove.** **Duplicate** puts the copy directly after the
+  original and opens its settings at once, because the intended use is "duplicate, then change the
+  grouping" — Count by Priority beside Count by State is the fastest way to compare two cuts.
+- **Reorder** by dragging; the order you leave them in is what everyone who opens the view sees,
+  since it's saved on the view like its filters and sorts — not a per-viewer preference. A single
+  widget keeps its natural width rather than stretching across the row.
 - Not offered on calendar, timeline, feed, or form views — there's no row grid there for a widget to
   summarise (a dashboard's own tiles/widgets already cover that shape).
 - **No dedicated MCP tool yet.** `create_view`/`update_view` don't expose a `summary_widgets`
