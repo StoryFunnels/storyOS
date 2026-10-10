@@ -40,6 +40,20 @@ or Delete field, because a system field is read-only and its position is fixed; 
 those three would do. There's also no drag handle — a system column's position can't be reordered,
 matching what the server has always enforced.
 
+## The row under a record's title
+
+A record shows a row of field chips directly under its title — the most-read space on the record
+screen. You choose which fields go there from the record itself, with **Top row**, which sits with
+the other field controls ("New field", "N hidden") rather than in a separate place.
+
+- **It's per database.** Pick a field once and every record in that database shows it in that
+  row — not just the record you were on, and not just for you. An Article might pin its publish
+  date; a Lead, its value.
+- **Add or remove any field** from the Top row menu. Clearing every field returns the row to its
+  automatic default.
+- **A database nobody has configured looks exactly as it did before** — nothing is reshuffled
+  when this ships, and a database only changes when someone picks a field.
+
 ## Preventing duplicate values
 
 A `text` or `number` field can be marked **unique** — a second record can't save with a value
