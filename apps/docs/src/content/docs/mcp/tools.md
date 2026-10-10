@@ -97,6 +97,7 @@ personal view is only reachable from here today.
 | `list_sources` / `list_youtube_channels` | The scheduled syncs feeding a database (provider, schedule, status, last sync); the channels a connected Google account owns, needed to configure a YouTube source. |
 | `get_record_description` | A record's rich-text description (the block editor under its title) — not a custom field called "description". |
 | `list_comments` | A record's comment thread, newest first, each with its id, author, and `source`. |
+| `update_comment` / `delete_comment` | Edit or delete a comment **you** wrote (admins may delete any; editing someone else's is refused). Deleting is final — a comment has no browsable trash. |
 | `list_action_gates` / `list_approvals` | Workspace-declared approval gates and the held items. Read-only by design — approving is a person's act, in the app Inbox. |
 
 ## Documents and folders
@@ -145,7 +146,7 @@ Alongside the tools above: `list_personal_views` (every personal view you own, w
 back), and `publish_view` / `move_document_to_space` (the one-way move out of Personal).
 `get_personal_filter` / `set_personal_filter` read and set **your own** extra filter on a view — "the
 team board, but just my rows"; invisible to teammates, and `clear: true` removes it. The
-`…_collection_filter` pair does the same for a record page's embedded relation collection.
+`get_personal_collection_filter` / `set_personal_collection_filter` pair does the same for a record page's embedded relation collection.
 
 ## Me: notifications and my work
 
