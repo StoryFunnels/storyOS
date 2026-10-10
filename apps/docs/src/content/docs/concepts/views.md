@@ -109,7 +109,7 @@ A table has two different numbers on the left, and they mean different things:
   re-sort; it is not an identity. The gutter header shows the **total number of records** in the
   view, and stays on screen as you scroll.
 - **The ID** is the record's **permanent number** — "issue 759", the number people say out loud and
-  cite in other records. It never changes and never gets reused. In a table it's an ordinary
+  cite in other records. It does not change when you filter or sort. In a table it's an ordinary
   **ID** column: frozen at the left, visible by default, and hideable from **Hide fields** like any
   other column.
 
