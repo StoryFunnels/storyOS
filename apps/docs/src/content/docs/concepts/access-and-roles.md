@@ -84,10 +84,27 @@ there's no such thing as a grant that's both space- and database-scoped.
 **Where more than one grant applies, the highest wins.** A record-scoped `editor` grant beats a
 database-scoped `viewer` grant on that same record, in either order you'd naturally check them.
 
-**Record-scoped grants reach only that one record's read and write** — sharing one record does not
-extend to other records it links to. Restricting what a record grant alone lets someone find
-through search or a list is a separate, not-yet-built piece; this scope answers "can they open and
-edit this specific record", not "what shows up when they search."
+**A record-scoped grant is for "this record and nothing else."** Sharing one record does not extend
+to other records it links to. A guest whose **only** access to a database is one or more record
+grants no longer gets a 404 on the whole database: they can list and query it, and **see only the
+records they were granted**. Read paths that were narrowed to match, one phase at a time (ticket
+#474):
+
+- record **list and query**, aggregates, and lookup **by record number**;
+- **relation chips, rollups and lookups** — a granted record doesn't reveal the titles of ungranted
+  records it links to;
+- **search, "my work" and recent**;
+- **backlinks** ("Mentioned in");
+- a record's **activity, version history and comments**, and its **document** (description);
+- **CSV export**;
+- **automation runs** — the runs list and detail, and re-running an action, check the grant on the
+  record the run fired on, so a guest granted record A can't re-run something that fired on its
+  sibling B.
+
+A guest who already holds a space or database grant is unaffected — they see what that grant covers,
+as before — and so is everyone who isn't a guest. The restriction is enforced by the API, not only
+hidden in the app. This describes what was built phase by phase against a read-path inventory; if you
+rely on it to keep one client's data from another's, test with a real restricted account.
 
 **Space- and database-scoped grants have a real UI: Manage Access.** Open it from a space's own
 page, or a database's `⋯` menu. It lists **Members** (workspace-wide, unconditional) separately
