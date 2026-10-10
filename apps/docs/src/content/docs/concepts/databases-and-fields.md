@@ -40,6 +40,27 @@ or Delete field, because a system field is read-only and its position is fixed; 
 those three would do. There's also no drag handle — a system column's position can't be reordered,
 matching what the server has always enforced.
 
+## The record page
+
+A record opens as one **main column** and a fixed **side panel**.
+
+- **Main column**, top to bottom: the title, a status strip (workflow status, assignee, due date and
+  who's watching), the fields in labelled groups — **Details**, **Links**, **Computed** and **System**
+  — then the **Description**, any embedded collections (sub-items and the like), and **Attachments**.
+- **Attachments appear only when they have something to show** — the database has an attachment
+  field, or this record already has files. Existing files are never hidden.
+- **The side panel** (about 344px, hidden on a narrow window) has three tabs: **Activity**,
+  **Comments** and **About**. About holds the **Watchers** list, **Mentioned in**, and a **Details**
+  block — the database, space, record number, created and updated times, and your access.
+- **Watching is a button now.** A **Watch** toggle in the record header (and in the About tab) follows
+  the record: you're notified when it changes. See [mentions and
+  notifications](/concepts/mentions-and-notifications/#watching-a-record-for-changes).
+- **One list of fields, not zones.** The old split into a top strip, a sidebar and a body no longer
+  shows; fields are one grouped area (the stored arrangement is kept, just not shown).
+- The app calls an item by its database's own noun — a row in *Tasks* is a **task** — and falls back
+  to "item". These docs say "record" for all of them.
+
+
 ## The row under a record's title
 
 A record shows a row of field chips directly under its title — the most-read space on the record
