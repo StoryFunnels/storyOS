@@ -25,7 +25,7 @@ Eleven actions, all available to buttons and rules alike.
 | **Create a record** | Creates one record in any database, optionally linked back through a relation — or [matches an existing one on a unique key instead of duplicating it](#creating-or-upserting-a-record). |
 | **Create many records** | Creates 0–200 records from one template. The count can be a number or a `{Field}` token read at run time; `{index}` (1-based) differentiates them — "Day {index}". |
 | **Add a comment** | Posts a comment on the record. |
-| **Notify a person** | An in-app notification to a person field's value, or `@me`. |
+| **Notify a person** | An in-app notification to a person field's value, `@me`, or a [specific workspace member](#notifying-a-specific-member). |
 | **Update linked records** | Sets fields on every record linked through a chosen relation. |
 | **Send a Slack message** | Posts to a channel, or the workspace's default channel. |
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
@@ -71,6 +71,20 @@ fail validation.
 - Actions: the eleven above. Each action can also carry its **own** condition, checked against
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
+
+## Notifying a specific member
+
+**Notify a person** can name one workspace member directly — useful when the record has no person
+field, such as a public careers-form submission that should alert a particular hiring lead. In the
+rule editor the recipient picker lists the workspace's members; over the API and MCP the target is
+`@member:<user id>` (ids come from `list_members`).
+
+- **Checked when you save.** The id must belong to an **active** member of this workspace; a
+  non-member, or someone who has since been removed, is rejected with a clear message rather than
+  silently accepted.
+- **A webhook-triggered rule can still only notify `@me`** — it has no triggering record to resolve
+  a person from, and the specific-member target doesn't change that.
+- Rules already using `@me` or a person field work exactly as before.
 
 ## Seeing a rule as a diagram
 
