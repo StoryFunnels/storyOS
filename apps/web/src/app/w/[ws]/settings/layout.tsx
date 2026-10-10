@@ -1,5 +1,6 @@
 'use client';
 
+import { workspaceSettingsLinks } from '@/lib/settings-nav';
 import Link from 'next/link';
 import { usePathname, useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
@@ -60,22 +61,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     { href: `${base}/notifications`, label: 'Notifications' },
     ...(referrals.data?.enabled ? [{ href: `${base}/referrals`, label: 'Referrals' }] : []),
   ];
-  const workspaceLinks = [
-    // #457 — first page the workspace itself has ever had. Everything else in
-    // this list is a subsystem (members, billing, tokens); "General" is where a
-    // property OF the workspace goes, starting with its description.
-    { href: `${base}/general`, label: 'General' },
-    ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
-    ...(isAdmin && billing.data?.enabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
-    ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
-    ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
-    ...(isAdmin ? [{ href: `${base}/export`, label: 'Export' }] : []),
-    // #618 — admin-only, matching the restore endpoints' own @MinRole('admin')
-    // gate: a non-admin gets no nav entry, not a restore button that 403s.
-    ...(isAdmin ? [{ href: `${base}/trash`, label: 'Trash' }] : []),
-    // #727 — admin-only, matching audit-log.controller.ts's own @MinRole('admin').
-    ...(isAdmin ? [{ href: `${base}/audit-log`, label: 'Audit log' }] : []),
-  ];
+  const workspaceLinks = workspaceSettingsLinks(base, { isAdmin, canEdit, billingEnabled: Boolean(billing.data?.enabled) });
   const allLinks = [...personal, ...workspaceLinks];
 
   return (
