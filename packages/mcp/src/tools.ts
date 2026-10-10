@@ -627,6 +627,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // change-type. It is a dry run unless dry_run: false is passed.
   find_workflow_candidates: 'read',
   nominate_workflows: 'admin',
+  // #597 — guided user field <-> Members relation conversion: a schema change on a shared system database plus a bulk link write.
+  convert_user_field_to_members_relation: 'admin',
+  convert_members_relation_to_user_field: 'admin',
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
@@ -4752,6 +4755,65 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           client.POST('/api/v1/workspaces/{ws}/workflow-nomination', {
             params: { path: { ws: ws.id } } as never,
             body: { nominations: items, dry_run: dry_run ?? true } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'convert_user_field_to_members_relation',
+    {
+      title: 'Convert a user field to a Members relation',
+      description:
+        'Convert a person field (assignee, owner, reviewer...) into a real relation to the Members database, so the person is a linkable record rather than a bare id. THIS IS A DRY RUN BY DEFAULT and changes nothing until you pass dry_run: false, so show the person the dry-run result first. The dry run reports how many records link, which values cannot be resolved (a user id with no Members row), the name of the field it would create, and a per-role permission check. Applying KEEPS the original field (renamed "<name> (user)", same api_name, so views and automations on it keep working until repointed), creates the relation under the original name with a hidden paired field on Members, and PARKS anything unresolvable on the retained field: nothing is dropped. The conversion is refused, naming the guest and what they would gain, if it is not permission-neutral, and is rolled back if a post-change probe finds a leak. Admin only. Undo with convert_members_relation_to_user_field.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string().describe('The user field: display name, api_name or id.'),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; dry_run?: boolean }>(async ({ workspace, database, field, dry_run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = resolveFieldId(detail, field, ['user'], 'user');
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+          body: { dry_run: dry_run ?? true } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'convert_members_relation_to_user_field',
+    {
+      title: 'Convert a Members relation back to a user field',
+      description:
+        'The reverse of convert_user_field_to_members_relation: turn a relation to the Members database back into a person field. DRY RUN BY DEFAULT. Values are written from the RELATION (it is the source of truth after a conversion), the original field name is restored, and the relation AND its hidden paired field on Members are removed, so the undo leaves nothing behind. A Members row with no user id (an invited or erased person) cannot become a user, so their names are parked in a text field "<name> (unlinked members)", not dropped. If lookups or rollups are built on the relation, the dry run lists them and applying is refused until you pass confirm_dependents: true, because removing the relation removes them. Admin only.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string().describe('The relation field pointing at Members: display name, api_name or id.'),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+        confirm_dependents: z.boolean().optional().describe('Pass true to accept removing lookup/rollup fields built on the relation.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; dry_run?: boolean; confirm_dependents?: boolean }>(
+      async ({ workspace, database, field, dry_run, confirm_dependents }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-user', {
+            params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+            body: { dry_run: dry_run ?? true, confirm_dependents: confirm_dependents ?? false } as never,
           }),
         );
         return text(res);

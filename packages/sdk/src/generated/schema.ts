@@ -644,6 +644,40 @@ export interface paths {
         patch: operations["ActionGatesController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert a user field into a relation to the Members database. DRY RUN by default: reports matched/unresolvable counts, the per-role permission-neutrality proof, and what would be created. Applying keeps the original field (renamed) and parks anything unresolvable; nothing is dropped. */
+        post: operations["FieldConversionController_toMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert a relation to the Members database back into a user field (the reverse). DRY RUN by default. Removes the relation and its Members-side inverse field; Members rows with no user id are parked in a text field. */
+        post: operations["FieldConversionController_toUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases": {
         parameters: {
             query?: never;
@@ -1425,6 +1459,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
+        get: operations["RelationsController_list"];
+        put?: never;
+        /** Create a relation — needs creator on BOTH databases */
+        post: operations["RelationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Relation config + comparable fields for the auto-link editor */
+        get: operations["RelationsController_detail"];
+        put?: never;
+        post?: never;
+        /** Delete a relation, both its fields, and all links (confirm: true) */
+        delete: operations["RelationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Set or clear a relation’s auto-link rules (MN-085) */
+        patch: operations["RelationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run auto-link now across existing records — returns a summary (MN-085) */
+        post: operations["RelationsController_runAutoLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
+        get: operations["RelationsController_selectDrift"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
+        post: operations["RelationsController_reconcileSelectDrift"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Linked records for a relation field ({id, title} chips) */
+        get: operations["LinksController_list"];
+        /** Replace all links for this record on this field */
+        put: operations["LinksController_replace"];
+        /** Add links (409 when one-to-many already linked) */
+        post: operations["LinksController_add"];
+        /** Remove specific links */
+        delete: operations["LinksController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
         parameters: {
             query?: never;
@@ -1662,114 +1804,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
-        get: operations["RelationsController_list"];
-        put?: never;
-        /** Create a relation — needs creator on BOTH databases */
-        post: operations["RelationsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Relation config + comparable fields for the auto-link editor */
-        get: operations["RelationsController_detail"];
-        put?: never;
-        post?: never;
-        /** Delete a relation, both its fields, and all links (confirm: true) */
-        delete: operations["RelationsController_remove"];
-        options?: never;
-        head?: never;
-        /** Set or clear a relation’s auto-link rules (MN-085) */
-        patch: operations["RelationsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run auto-link now across existing records — returns a summary (MN-085) */
-        post: operations["RelationsController_runAutoLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
-        get: operations["RelationsController_selectDrift"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
-        post: operations["RelationsController_reconcileSelectDrift"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Linked records for a relation field ({id, title} chips) */
-        get: operations["LinksController_list"];
-        /** Replace all links for this record on this field */
-        put: operations["LinksController_replace"];
-        /** Add links (409 when one-to-many already linked) */
-        post: operations["LinksController_add"];
-        /** Remove specific links */
-        delete: operations["LinksController_remove"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4598,6 +4632,16 @@ export interface components {
             enabled?: boolean;
             approver_id?: string;
         };
+        ToMembersDto: {
+            /** @default true */
+            dry_run: boolean;
+        };
+        ToUserDto: {
+            /** @default true */
+            dry_run: boolean;
+            /** @default false */
+            confirm_dependents: boolean;
+        };
         CreateDatabaseDto: {
             /** Format: uuid */
             space_id: string;
@@ -4912,6 +4956,40 @@ export interface components {
             sidebar?: {
                 viewsOnlyWorkspaces?: string[];
             };
+        };
+        CreateRelationDto: {
+            /** Format: uuid */
+            database_a_id: string;
+            /** Format: uuid */
+            database_b_id: string;
+            /** @enum {string} */
+            cardinality: "one_to_many" | "many_to_many";
+            field_a_name?: string;
+            field_b_name?: string;
+        };
+        UpdateRelationDto: {
+            auto_link: {
+                conditions: {
+                    field_a: string;
+                    field_b: string;
+                }[];
+                /** @default false */
+                case_sensitive: boolean;
+            } | null;
+        };
+        SelectDriftReconcileDto: {
+            /** Format: uuid */
+            record_id: string;
+        };
+        DeleteRelationDto: {
+            /** @enum {boolean} */
+            confirm: true;
+        };
+        LinkRecordsDto: {
+            record_ids: string[];
+        };
+        ReplaceLinksDto: {
+            record_ids: string[];
         };
         CreateAutomationDto: {
             name: string;
@@ -5316,40 +5394,6 @@ export interface components {
             url?: string;
             events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
             enabled?: boolean;
-        };
-        CreateRelationDto: {
-            /** Format: uuid */
-            database_a_id: string;
-            /** Format: uuid */
-            database_b_id: string;
-            /** @enum {string} */
-            cardinality: "one_to_many" | "many_to_many";
-            field_a_name?: string;
-            field_b_name?: string;
-        };
-        UpdateRelationDto: {
-            auto_link: {
-                conditions: {
-                    field_a: string;
-                    field_b: string;
-                }[];
-                /** @default false */
-                case_sensitive: boolean;
-            } | null;
-        };
-        SelectDriftReconcileDto: {
-            /** Format: uuid */
-            record_id: string;
-        };
-        DeleteRelationDto: {
-            /** @enum {boolean} */
-            confirm: true;
-        };
-        LinkRecordsDto: {
-            record_ids: string[];
-        };
-        ReplaceLinksDto: {
-            record_ids: string[];
         };
         CommentBodyDto: {
             body: ({
@@ -7414,6 +7458,54 @@ export interface operations {
             };
         };
     };
+    FieldConversionController_toMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToMembersDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FieldConversionController_toUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToUserDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     DatabasesController_list: {
         parameters: {
             query?: never;
@@ -8695,6 +8787,275 @@ export interface operations {
             };
         };
     };
+    RelationsController_list: {
+        parameters: {
+            query: {
+                space: string;
+                database: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRelationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_runAutoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_selectDrift: {
+        parameters: {
+            query: {
+                record_id: string;
+            };
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_reconcileSelectDrift: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectDriftReconcileDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLinksDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ButtonsController_press: {
         parameters: {
             query?: never;
@@ -9064,275 +9425,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_list: {
-        parameters: {
-            query: {
-                space: string;
-                database: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRelationDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_runAutoLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_selectDrift: {
-        parameters: {
-            query: {
-                record_id: string;
-            };
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_reconcileSelectDrift: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SelectDriftReconcileDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_replace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplaceLinksDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_add: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
         responses: {
             200: {
                 headers: {

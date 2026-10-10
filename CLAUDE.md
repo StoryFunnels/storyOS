@@ -109,9 +109,11 @@ The load-bearing facts:
 - **Guests get rows**; "viewer" is a grant role from ADR-0007, not a person type,
   and no grant data is projected.
 - **An assignee is still a bare user id in a `user` field** — NOT a Members
-  relation. `resolveMembersForUsers` exists but has **no production caller**, so
-  do not read the code as "Members already backs assignees". The cutover (#145)
-  should run through ADR-0012's guided conversion, not a bespoke migration.
+  relation, unless an admin converted that field (#597: `convert-to-members-relation`,
+  dry run first, reversible, original retained). `resolveMembersForUsers` is a
+  read-only seam whose one production caller is `audit-log.service.ts` (#454); do
+  not read the code as "Members already backs assignees". The full cutover (#145)
+  should run through that conversion, not a bespoke migration.
 - The ADR carries **nine OPEN questions**, including that the Members database
   has no write protection at all. Answer one there before relying on it.
 
