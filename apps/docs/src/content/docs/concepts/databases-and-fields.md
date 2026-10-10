@@ -80,6 +80,28 @@ refused, naming the existing one, rather than letting two "status" columns drift
 other. Reach for a plain `select` for any other list of choices; reach for Workflow specifically
 for the one field a view, an automation, or an agent should treat as *the* state of a record.
 
+### Finding the status columns you already have
+
+Workspaces that predate the Workflow field usually have a plain select called "Status" in several
+databases. There is no per-database hunt: **scan the whole workspace** and the answer comes back per
+database, only for databases **you can read** (the others are simply absent):
+
+- **already has a workflow field** (nothing to do),
+- **has a candidate**, with how confident the match is and why: *high* when the name ("Status",
+  "Stage", "Phase"...) and the options (To do, In progress, Done...) agree; *medium* when only the
+  options look like a lifecycle; *low* when only the name does (a red-amber-green column called
+  "Status" is the usual false friend, and it says so),
+- **ambiguous**: more than one select qualifies, and since a database holds only one workflow field,
+  a person chooses,
+- or **nothing** looks like a lifecycle.
+
+Converting is a separate step on the ones you pick. It **is a dry run by default**: it reports what
+would convert and changes nothing until you ask for the real conversion. It uses the same conversion
+as editing the field by hand, so option colours, option ids and every record's value are kept, and
+each database succeeds or fails on its own (you need creator access on each). Through MCP these are
+`find_workflow_candidates` and `nominate_workflows`; over the API, `GET` and `POST`
+`/api/v1/workspaces/{ws}/workflow-nomination`.
+
 ## The title field: free text or computed
 
 Every database's built-in title field starts as **free text** — you type it, like any other text

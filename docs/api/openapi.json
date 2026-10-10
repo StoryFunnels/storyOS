@@ -1922,6 +1922,54 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/workflow-nomination": {
+      "get": {
+        "operationId": "WorkflowNominationController_scan",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Scan every readable database for a select that looks like its lifecycle (status) field, and say which databases already have a workflow field. Read-only.",
+        "tags": [
+          "fields"
+        ]
+      },
+      "post": {
+        "operationId": "WorkflowNominationController_apply",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyWorkflowNominationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Convert chosen selects to the Workflow field type through the existing per-field conversion. DRY RUN by default (dry_run: false to apply); needs creator on each database; per-item results, one refusal does not stop the rest.",
+        "tags": [
+          "fields"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records": {
       "get": {
         "operationId": "RecordsController_list",
@@ -11326,6 +11374,42 @@
             }
           }
         }
+      },
+      "ApplyWorkflowNominationDto": {
+        "type": "object",
+        "properties": {
+          "nominations": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "database_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "field_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "database_id",
+                "field_id"
+              ]
+            }
+          },
+          "dry_run": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nominations"
+        ]
       },
       "CreateRecordDto": {
         "type": "object",

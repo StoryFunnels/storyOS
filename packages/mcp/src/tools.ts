@@ -623,6 +623,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   run_auto_link: 'admin',
   find_select_drift: 'read',
   fix_select_drift: 'admin',
+  // #598: the scan only reads; nominating converts a field's TYPE (schema), the same admin floor as
+  // change-type. It is a dry run unless dry_run: false is passed.
+  find_workflow_candidates: 'read',
+  nominate_workflows: 'admin',
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
@@ -4672,6 +4676,58 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text(res);
     }),
+  );
+
+  reg(
+    'find_workflow_candidates',
+    {
+      title: 'Find workflow (status) candidates',
+      description:
+        "Scan every database you can read for a single-select that looks like its lifecycle (a status column), and report which databases already have a workflow field. Read-only. Each candidate says HOW CONFIDENT the match is and WHY (a field called Status with To do / In progress / Done options is high; a red-amber-green column that happens to be called Status is low, and says it matched by name only). A database holds ONE workflow field, so when `ambiguous` is true more than one select qualifies and someone has to choose. Databases you cannot read are absent from the result. Use nominate_workflows to convert the ones you choose.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/workflow-nomination', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'nominate_workflows',
+    {
+      title: 'Convert selects to workflow fields',
+      description:
+        'Convert chosen single-selects to the workflow field type, one per database, through the same per-field conversion the field editor uses (option ids and every record value are preserved). THIS IS A DRY RUN BY DEFAULT: it reports what would convert and changes nothing until you pass dry_run: false, so show the person the dry-run result first. Needs creator access on each database; each item succeeds or fails on its own, with the reason. Pick candidates from find_workflow_candidates; do not nominate two fields in one database.',
+      inputSchema: {
+        workspace: z.string(),
+        nominations: z
+          .array(z.object({ database: z.string().describe('Database name or id.'), field: z.string().describe('The select field: display name, api_name or id.') }))
+          .min(1)
+          .max(50),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+      },
+    },
+    handle<{ workspace: string; nominations: Array<{ database: string; field: string }>; dry_run?: boolean }>(
+      async ({ workspace, nominations, dry_run }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const items: Array<{ database_id: string; field_id: string }> = [];
+        for (const n of nominations) {
+          const db = await resolveDatabase(client, ws.id, n.database);
+          const detail = await getDetail(ws.id, db.id);
+          items.push({ database_id: db.id, field_id: resolveFieldId(detail, n.field, ['select', 'workflow'], 'select') });
+        }
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/workflow-nomination', {
+            params: { path: { ws: ws.id } } as never,
+            body: { nominations: items, dry_run: dry_run ?? true } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
