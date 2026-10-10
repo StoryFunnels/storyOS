@@ -1,11 +1,30 @@
 ---
 title: Creating a workspace
-description: The pick-a-starting-point screen after signup — Business Packs, starting empty, and what happens once you choose.
+description: Creating a workspace after signup — describe your work and let StoryOS build it, or start from a Business Pack or empty, then invite your team.
 sidebar:
   order: 2
 ---
 
-The first screen after signing up asks for two things: a name, and a starting point.
+The first screen after signing up asks for a **workspace name** and **what you do**.
+
+## Describe your work, and it's built for you
+
+Type a sentence — *"We run a small design studio: client projects, invoices, and a content
+calendar."* One sentence is enough. StoryOS (through [Tyron](/concepts/tyron/)) sets up databases
+that fit, connects them, and adds the views worth having. You can reshape anything afterwards.
+
+- **It needs an AI model.** On a self-hosted instance without one configured (an `OPENAI_API_KEY`),
+  the build can't run. You'll see **"The build stopped."** with the server's own message and a **Try
+  again** that keeps what you typed — and **Start from a template instead** (below) always works.
+- **When you land in the new workspace**, a **Share this with your team** card appears once, above the
+  getting-started checklist: add several email addresses to invite people, copy a link for each
+  invite, then **Done** (or skip). Inviting someone ticks the checklist's "Invite a teammate" step by
+  itself.
+
+## Starting from a template instead
+
+Prefer to begin from a known shape? **Start from a template instead**, under the description box,
+shows the starting points below; **← Back** returns to the describe step.
 
 ![Create workspace screen with a name typed in and no starting point chosen yet](/images/create-workspace-empty.png)
 
@@ -14,7 +33,7 @@ The first screen after signing up asks for two things: a name, and a starting po
 **Business Pack** is the word StoryOS uses for a ready-made set of databases, views and
 automations for one kind of work. There are eight, shown as a scrolling grid of cards — every one
 of them, not a shortlist. You can change anything afterwards, or **add more later** — from inside
-an existing workspace, its home page's **Browse all templates** opens the full gallery of 23
+an existing workspace, its home page's **Start something new** link opens the full gallery of 23
 templates (this screen's eight plus the rest), each card showing a real **install count** so you
 can see which ones other workspaces actually use before adding one. A brand-new template with no
 installs yet simply shows no count, rather than a conspicuous "0."
