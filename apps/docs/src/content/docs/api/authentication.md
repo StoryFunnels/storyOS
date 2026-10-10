@@ -13,6 +13,13 @@ Two credentials work everywhere, sent as `Authorization: Bearer <token>`:
    API. A PAT acts as its creator: same role, same [guest scoping](/concepts/access-and-roles/).
    **Shown once at creation.**
 
+**A personal access token belongs to one workspace.** It is created for a single workspace (note
+the `workspace_id` in the request below) and only works there; if you work in several, make one
+token per workspace. The **API tokens** page lists the tokens of the workspace you're in; a
+checkbox, *Show tokens from my other workspaces*, adds the rest, each labelled with its workspace.
+Revoking a token that belongs to a different workspace asks you to confirm, naming both, so you
+can't revoke one by accident from the wrong place.
+
 ## Sign in and mint a PAT with curl
 
 ```bash
