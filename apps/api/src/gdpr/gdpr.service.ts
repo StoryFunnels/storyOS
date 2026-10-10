@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { MembershipEventsService } from '../events/membership-events.service';
@@ -487,9 +488,41 @@ export class GdprService {
           .where(eq(oauthApplication.userId, userId))
           .returning()
       ).length;
-      const tokens = (
-        await tx.delete(apiTokens).where(eq(apiTokens.userId, userId)).returning()
-      ).length;
+      /*
+       * #543 — ANONYMISE, do not delete. A bound token's scope row is the only record of what
+       * that credential could reach, and the attestation ("this token could reach database Y
+       * between A and B") is a statement about blast radius that needs no name on it. Erasure
+       * must not void it, so the row stays and everything about a PERSON goes. Every column,
+       * decided (the schema comment on `apiTokens` points back here):
+       *   user_id      -> `erased:<token id>`   a person (no FK; nothing resolves it)
+       *   name         -> 'Erased token'        free text; people write "Daria's laptop" in it
+       *   token_hash   -> fresh random digest   a credential; the row can never authenticate again
+       *   token_prefix -> 'erased'              first/last characters of the credential
+       *   last_used_at -> NULL                  one person's behavioural timing, not needed for scope
+       *   revoked_at   -> now() if still live   closes the window the attestation reports
+       *   KEPT: id, workspace_id, scope, allow_run_button, origin, agent_id (an Agent record, not
+       *   a person), resource_scope, created_at (opens the window); updated_at is stamped.
+       * Whether this satisfies an erasure request is a legal question, not decided here.
+       */
+      const tokenRows = await tx
+        .select({ id: apiTokens.id, revokedAt: apiTokens.revokedAt })
+        .from(apiTokens)
+        .where(eq(apiTokens.userId, userId));
+      for (const t of tokenRows) {
+        await tx
+          .update(apiTokens)
+          .set({
+            userId: `erased:${t.id}`,
+            name: 'Erased token',
+            tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+            tokenPrefix: 'erased',
+            lastUsedAt: null,
+            revokedAt: t.revokedAt ?? new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(apiTokens.id, t.id));
+      }
+      const tokens = tokenRows.length;
       const prefs = (
         await tx
           .delete(userPreferences)
@@ -554,13 +587,14 @@ export class GdprService {
         anonymized: true,
         already_anonymized: alreadyAnon,
         user_id: userId,
+        // #543 — kept with identity stripped (see the comment above), so NOT in `removed`.
+        retained_anonymized: { api_tokens: tokens },
         removed: {
           sessions,
           accounts,
           oauth_access_tokens: oauthTokens,
           oauth_consents: oauthConsents,
           oauth_applications: oauthApps,
-          api_tokens: tokens,
           user_preferences: prefs,
           memberships: 1,
           access_grants: grants,

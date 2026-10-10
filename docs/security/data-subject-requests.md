@@ -31,8 +31,13 @@ usable while the personal data is removed:
 
 - The person's identity is wiped — name becomes “Deleted user”, email is
   replaced with a non-routable placeholder, the avatar is cleared.
-- All **sessions, sign-in credentials (password/OAuth), and API tokens are
-  destroyed**, so the account can never authenticate again.
+- All **sessions and sign-in credentials (password/OAuth) are destroyed**, and every
+  API token is **revoked and anonymised**, so the account can never authenticate again.
+  A token's row is kept because it is the only record of what that credential could reach
+  (its scope and the window it was live), which says nothing about who held it: the owner id,
+  the name (people write "Daria's laptop" there), the secret digest, the visible prefix and the
+  last-used time are all cleared; scope, workspace, creation and revocation times stay. Whether
+  that satisfies a particular erasure request is a legal question this page does not answer.
 - Their **access to the workspace is removed** — membership, access grants,
   favourites, and notifications are deleted.
 - **Comments, records, and history are kept**, still linked by an opaque id that
