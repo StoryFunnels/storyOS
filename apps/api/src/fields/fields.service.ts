@@ -33,11 +33,12 @@ import {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automations, fields, records, relations, selectOptions, views } from '../db/schema';
+import { automations, fields, records, relations, selectOptions, validationRules, views } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
-import { compileFilter } from '../records/query-compiler';
+import { compileFilter, filterReferencedFields } from '../records/query-compiler';
+import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { isPickOneOp, pickOneValueType } from '../records/rollup-pick-one';
 import type { CompilerContext } from '../records/query-compiler';
 
@@ -1596,6 +1597,67 @@ export class FieldsService {
   }
 
   /**
+   * #231 — the ENABLED validation rules that depend on this field, and whether the change would leave each one unable to
+   * enforce. A rule that would still work after the change is reported with `breaks: false` and never blocks it (a
+   * select -> workflow conversion keeps a transition rule working); one that would stop enforcing is `breaks: true`.
+   * Renaming a field or an option is not a change here: rules store the api_name and the option ID, which a rename
+   * does not touch.
+   */
+  private async dependentRules(
+    databaseId: string,
+    field: Field,
+    change: { toType: CreatableFieldType } | { removeOptionId: string },
+  ): Promise<Array<{ id: string; name: string; breaks: boolean; reason: string | null }>> {
+    const rules = await this.db.query.validationRules.findMany({
+      where: and(eq(validationRules.databaseId, databaseId), eq(validationRules.enabled, true)),
+    });
+    if (rules.length === 0) return [];
+    const defs = await this.recordsService.fieldDefs(databaseId);
+    const out: Array<{ id: string; name: string; breaks: boolean; reason: string | null }> = [];
+    for (const rule of rules) {
+      const reads = filterReferencedFields(rule.condition as never).has(field.apiName) || rule.transitionFieldId === field.id;
+      if ('removeOptionId' in change) {
+        const names = rule.transitionTo === change.removeOptionId || JSON.stringify(rule.condition).includes(change.removeOptionId);
+        if (names) out.push({ id: rule.id, name: rule.name, breaks: true, reason: 'it names the option being deleted' });
+        continue;
+      }
+      if (!reads) continue;
+      // A rule that ALREADY cannot be checked (for a reason of its own) is not broken by this change and must not block
+      // it: otherwise retyping an unrelated field is refused over somebody else's problem.
+      const currentOptionIds = rule.transitionFieldId
+        ? new Set((await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, rule.transitionFieldId), columns: { id: true } })).map((o) => o.id))
+        : undefined;
+      const already = ValidationEnforcer.notCheckableReason(rule, defs, currentOptionIds);
+      if (already) {
+        out.push({ id: rule.id, name: rule.name, breaks: false, reason: `already not checkable: ${already}` });
+        continue;
+      }
+      const leavesOptions = OPTIONED_FIELD_TYPES.has(field.type) && !OPTIONED_FIELD_TYPES.has(change.toType);
+      const hypothetical = defs.map((d) => (d.id === field.id ? { ...d, type: change.toType, config: {}, option_ids: leavesOptions ? [] : d.option_ids } : d));
+      const optionIds = rule.transitionFieldId
+        ? new Set(
+            leavesOptions
+              ? []
+              : (await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, rule.transitionFieldId), columns: { id: true } })).map((o) => o.id),
+          )
+        : undefined;
+      const reason = ValidationEnforcer.notCheckableReason(rule, hypothetical as typeof defs, optionIds);
+      out.push({ id: rule.id, name: rule.name, breaks: reason !== null, reason });
+    }
+    return out;
+  }
+
+  /** The refusal naming the rules that would stop enforcing, unless the caller explicitly confirmed. */
+  private assertRulesConfirmed(dependents: Array<{ name: string; breaks: boolean; reason: string | null }>, confirmed: boolean, what: string) {
+    const breaking = dependents.filter((d) => d.breaks);
+    if (breaking.length === 0 || confirmed) return;
+    throw new ConflictException(
+      `${what} would leave ${breaking.length} validation rule(s) unable to enforce: ${breaking.map((d) => `"${d.name}" (${d.reason})`).join('; ')}. ` +
+        'A person can pass confirm_dependent_rules: true to proceed (it is not available over MCP); those rules will then be marked NOT CHECKABLE and enforce nothing until fixed.',
+    );
+  }
+
+  /**
    * Type change within the compatibility matrix. dry_run returns the lossy
    * count without applying. Conversion runs in one transaction (per-row —
    * fine at v1 scale, documented in record-storage.md).
@@ -1605,6 +1667,8 @@ export class FieldsService {
     fieldId: string,
     targetType: CreatableFieldType,
     dryRun: boolean,
+    /** #231 — see `dependentRules`; the same refuse-unless-confirmed pattern removeOption already uses for in-use options. */
+    confirmDependentRules = false,
   ) {
     const field = await this.getField(databaseId, fieldId);
     if (field.isSystem || field.type === 'title' || field.type === 'relation') {
@@ -1643,9 +1707,11 @@ export class FieldsService {
       updates.push({ id: row.id, value });
     }
 
+    const dependentRules = await this.dependentRules(databaseId, field, { toType: targetType });
     if (dryRun) {
-      return { dry_run: true, records_affected: rows.length, lossy_conversions: lossy };
+      return { dry_run: true, records_affected: rows.length, lossy_conversions: lossy, dependent_rules: dependentRules };
     }
+    this.assertRulesConfirmed(dependentRules, confirmDependentRules, `Changing "${field.apiName}" to ${targetType}`);
 
     await this.db.transaction(async (tx) => {
       for (const u of updates) {
@@ -1672,7 +1738,7 @@ export class FieldsService {
       await this.dropUniqueIndex(fieldId);
     }
 
-    return { dry_run: false, records_affected: rows.length, lossy_conversions: lossy };
+    return { dry_run: false, records_affected: rows.length, lossy_conversions: lossy, dependent_rules: dependentRules };
   }
 
   // --- Select options ---
@@ -1731,13 +1797,19 @@ export class FieldsService {
     databaseId: string,
     fieldId: string,
     optionId: string,
-    input: { confirm: boolean; reassign_to?: string },
+    input: { confirm: boolean; reassign_to?: string; confirm_dependent_rules?: boolean },
   ) {
     const field = await this.assertSelectField(databaseId, fieldId);
     const option = await this.db.query.selectOptions.findFirst({
       where: and(eq(selectOptions.id, optionId), eq(selectOptions.fieldId, fieldId)),
     });
     if (!option) throw new NotFoundException('Option not found');
+    // #231 — checked BEFORE the in-use check: an option no record uses can still be the one a rule moves to.
+    this.assertRulesConfirmed(
+      await this.dependentRules(databaseId, field, { removeOptionId: optionId }),
+      input.confirm_dependent_rules === true,
+      `Deleting the option "${option.label}"`,
+    );
 
     const usage = await this.db
       .select({ count: sql<number>`count(*)::int` })

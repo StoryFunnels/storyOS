@@ -150,6 +150,7 @@ export default defineConfig({
             { label: 'Formulas', slug: 'concepts/formulas' },
             { label: 'Views', slug: 'concepts/views' },
             { label: 'Automations & buttons', slug: 'concepts/automations' },
+            { label: 'Validation rules', slug: 'concepts/validation-rules' },
             { label: 'Access & roles', slug: 'concepts/access-and-roles' },
             { label: 'Data model reference', slug: 'concepts/data-model' },
             { label: 'Mentions and notifications', slug: 'concepts/mentions-and-notifications' },

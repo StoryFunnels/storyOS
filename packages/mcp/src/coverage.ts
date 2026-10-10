@@ -91,6 +91,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#446 — submitting a pack to the marketplace publishes this workspace's schema under its name, for review by others. An agent may build the manifest (export_pack) and read its status (list_pack_submissions); pressing submit is a human act, the same line #442 draws for publishing a shared skill (ADR-0010).",
   },
   {
+    match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/databases\/\{db\}\/validation-rules(\/\{id\})?/,
+    reason:
+      "#231 — declaring, changing, disabling or deleting a validation rule is the platform's own restraint on EVERY writer, an agent included, and it has no bypass by design: if a rule is wrong it is changed, visibly, by an admin. An agent able to edit or delete the rule that constrains it would defeat it, the same self-widening line the action gates draw. The read half is reachable (list_validation_rules, get_validation_rule_violations): an agent can see what will refuse its writes and which stored records already break a rule, it just cannot change the rule.",
+  },
+  {
     match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/action-gates(\/\{id\})?/,
     reason:
       "#542 Phase 2 — declaring, enabling/disabling or reconfiguring an action-class gate is the platform's own restraint on an agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could disable the very gate meant to constrain it — the same self-widening-blast-radius line #441 draws for grants. The read half is reachable (list_action_gates): an agent can see what applies to it, it just cannot change it.",

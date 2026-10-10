@@ -707,6 +707,12 @@ export const updateFieldSchema = z.object({
 export const changeFieldTypeSchema = z.object({
   type: creatableFieldTypeSchema,
   dry_run: z.boolean().default(false),
+  /**
+   * #231 — required when an ENABLED validation rule depends on this field and the new type would leave it unable to
+   * enforce. Without it the change is refused naming the rules; with it the change proceeds and those rules are marked
+   * NOT CHECKABLE (never left looking enabled while enforcing nothing).
+   */
+  confirm_dependent_rules: z.boolean().default(false),
 });
 
 export const createOptionSchema = z.object({
@@ -728,6 +734,8 @@ export const deleteOptionSchema = z.object({
   /** Required when records still use the option. */
   confirm: z.boolean().default(false),
   reassign_to: z.uuid().optional(),
+  /** #231 — required when an ENABLED validation rule names this option: deleting it leaves the rule unable to check. */
+  confirm_dependent_rules: z.boolean().default(false),
 });
 
 /** MN-047: automation rules — trigger + optional condition + shared actions. */

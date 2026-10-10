@@ -1567,6 +1567,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List this database's validation rules, each with how many stored records break it now */
+        get: operations["ValidationRulesController_list"];
+        put?: never;
+        /** Declare a rule that REFUSES a record write when its condition is not met. Applies to every writer, admins included; no bypass. */
+        post: operations["ValidationRulesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a rule */
+        delete: operations["ValidationRulesController_remove"];
+        options?: never;
+        head?: never;
+        /** Change a rule's name, condition, message or enabled flag (the trigger is fixed) */
+        patch: operations["ValidationRulesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}/violations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stored records that ALREADY break this rule (a rule only fires when a field it references changes, so existing violations persist; this is how they are seen) */
+        get: operations["ValidationRulesController_violations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
         parameters: {
             query?: never;
@@ -4695,6 +4748,8 @@ export interface components {
             type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
             /** @default false */
             dry_run: boolean;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         CreateOptionDto: {
             label: string;
@@ -4717,6 +4772,8 @@ export interface components {
             confirm: boolean;
             /** Format: uuid */
             reassign_to?: string;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         SetCollectionViewDto: {
             filters?: {
@@ -4990,6 +5047,53 @@ export interface components {
         };
         ReplaceLinksDto: {
             record_ids: string[];
+        };
+        CreateValidationRuleDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["CreateValidationRuleDto__schema0"][];
+        } | {
+            or: components["schemas"]["CreateValidationRuleDto__schema0"][];
+        };
+        CreateValidationRuleDto: {
+            name: string;
+            /** @enum {string} */
+            trigger: "create" | "update" | "transition";
+            transition?: {
+                field: string;
+                to: string;
+            };
+            condition: components["schemas"]["CreateValidationRuleDto__schema0"];
+            message: string;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateValidationRuleDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["UpdateValidationRuleDto__schema0"][];
+        } | {
+            or: components["schemas"]["UpdateValidationRuleDto__schema0"][];
+        };
+        UpdateValidationRuleDto: {
+            name?: string;
+            condition?: components["schemas"]["UpdateValidationRuleDto__schema0"];
+            message?: string;
+            enabled?: boolean;
         };
         CreateAutomationDto: {
             name: string;
@@ -9047,6 +9151,114 @@ export interface operations {
                 "application/json": components["schemas"]["LinkRecordsDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateValidationRuleDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateValidationRuleDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_violations: {
+        parameters: {
+            query: {
+                after: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

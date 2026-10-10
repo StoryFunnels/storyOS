@@ -660,6 +660,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // platform stops the agent, not the prompt"). Declaring/changing a gate
   // is a human act, same line #441 draws for grants — see coverage.ts.
   list_action_gates: 'read',
+  // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
+  list_validation_rules: 'read',
+  get_validation_rule_violations: 'read',
   /*
    * #439 — the inbox. Reads are `read`. Marking read/archived is a `write`
    * because it changes what a PERSON will see next time they look, even though
@@ -5510,7 +5513,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'change_field_type',
     {
       title: 'Change field type',
-      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error.',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -7164,6 +7167,49 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/action-gates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_validation_rules',
+    {
+      title: 'List validation rules',
+      description:
+        '#231: the validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message, so read these before writing if a write is being refused. Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/validation-rules', { params: { path: { ws: ws.id, db: db.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_validation_rule_violations',
+    {
+      title: 'List records that already break a validation rule',
+      description:
+        '#231: the stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). Use it to report on data quality or to find records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        rule: z.string().describe('The rule id (from list_validation_rules).'),
+        after: z.number().int().optional().describe('next_cursor from a previous page.'),
+      },
+    },
+    handle<{ workspace: string; database: string; rule: string; after?: number }>(async ({ workspace, database, rule, after }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}/violations', {
+          params: { path: { ws: ws.id, db: db.id, id: rule }, query: after ? { after } : {} },
+        } as never),
       );
       return text(res);
     }),
