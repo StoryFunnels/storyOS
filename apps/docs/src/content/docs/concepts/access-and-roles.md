@@ -96,6 +96,14 @@ records they were granted**. Read paths that were narrowed to match, one phase a
 - **search, "my work" and recent**;
 - **backlinks** ("Mentioned in");
 - a record's **activity, version history and comments**, and its **document** (description);
+- **sub-items** — a sub-item lives in the same database as its parent, but a grant on the parent
+  does **not** reach it: the parent shows no chip, id or title for it, the sub-item is a 404 by id
+  and absent from lists, and a rollup over sub-items counts only the ones the guest can see.
+  Granting one sub-item widens only that one;
+- **activity and mentions** — events that name another record (a link added or removed, a mention)
+  are left out of a record-scoped guest's activity, comment feed and mention chips when the guest
+  can't read that other record. They are dropped rather than blanked, so no "linked something" row
+  hints that it exists. Admins and members still see the full trail;
 - **CSV export**;
 - **automation runs** — the runs list and detail, and re-running an action, check the grant on the
   record the run fired on, so a guest granted record A can't re-run something that fired on its
