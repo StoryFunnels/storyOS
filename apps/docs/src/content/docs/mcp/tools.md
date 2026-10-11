@@ -107,7 +107,7 @@ plan instead of cramming prose into a record or inventing a database for one pag
 
 | Tool | What it does |
 |---|---|
-| `list_documents` / `get_document` | Titles and ids in a space; one document as Markdown, with its `version`. |
+| `list_documents` / `get_document` | Titles and ids in a space; one document as Markdown, with its `version`. Nested lists, images (`![alt](url)`), dividers (`---`) and toggles (as a bullet with the body nested under it) come through and are read back on update; a toggle's type is not kept, its content is. Files, video and audio appear as links. |
 | `create_document` | Write a page in a space (`content` is Markdown). |
 | `update_document` | Change title, icon, folder or body. `content` **replaces** the whole body, so read it first; pass the `version` you read to be told about a conflicting edit rather than overwrite it. |
 | `delete_document` | Permanent — a document has no browsable trash. |
