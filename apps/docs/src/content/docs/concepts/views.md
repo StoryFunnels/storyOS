@@ -443,6 +443,7 @@ behind it, so a planned-vs-actual gap is visible without a second view.
   the primary and baseline ends match. No baseline configured, or the record is missing one side of
   either pair, and no slippage label appears at all — a partial comparison is never rendered as a
   number.
+- **Undated records are counted, not drawn.** A notice such as *"77 records without a Due date are hidden"* gives the real number across the whole database, not just the records loaded so far. A record counts as undated when neither its start nor its baseline start is set.
 - **A record can have either pair without the other.** Primary-only draws its usual plain bar.
   Baseline-only — real actual/completion dates with no plan ever set for them — draws its own bar
   too, in the same solid style, positioned at the baseline dates; it is not left out, and not drawn
