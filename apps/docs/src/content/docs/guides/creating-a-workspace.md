@@ -38,6 +38,10 @@ templates (this screen's eight plus the rest), each card showing a real **instal
 can see which ones other workspaces actually use before adding one. A brand-new template with no
 installs yet simply shows no count, rather than a conspicuous "0."
 
+Each card's picture shows the pack's **workflow** as a row of status chips (long ones collapse the
+middle to *+N*), with marks for a pack that includes an agent or sends notifications. The pack's counts are
+one small line underneath.
+
 Two other ways out sit below the grid, and they are deliberately **outside** the scrolling area so
 you can see them without scrolling:
 

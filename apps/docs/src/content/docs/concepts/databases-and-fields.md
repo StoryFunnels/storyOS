@@ -49,6 +49,10 @@ A record opens as one **main column** and a fixed **side panel**.
   — then the **Description**, any embedded collections (sub-items and the like), and **Attachments**.
 - **Attachments appear only when they have something to show** — the database has an attachment
   field, or this record already has files. Existing files are never hidden.
+- **Empty collections hide by default.** A collection on a record (many-to-many, or the many side of a
+  one-to-many) is hidden while it has nothing in it; single references and ordinary fields keep
+  showing. A field's own menu overrides this either way: **Hide when empty** or **Always show (even
+  empty)**, and the menu shows the setting actually in force.
 - **An embedded collection's filter is yours.** Filtering, sorting, colouring or choosing columns on a
   collection like Sub-items is a **personal** setting: it applies to you only, in every record of that
   database, and a **Personal · Reset** badge appears beside the collection while it's active. Reset
