@@ -156,7 +156,7 @@ Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the 
 every record in the workspace, filterable by actor, by one entity, and by date range (default: the
 last 30 days).
 
-- **No web page for this yet** — API and MCP only.
+- **In the app: Settings → Audit log**, visible to admins only. Filter by **Actor**, by one record, and by a **From** / **To** date, and use **Load more** to page back. A non-admin who opens the address sees only "Only workspace admins can view the audit log", and the page makes no request for the data. It also reads from the same API and MCP tool above.
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
   whole page is built on.
 - **Known, stated gap: structural deletions aren't captured.** Deleting a database, a view, or a
