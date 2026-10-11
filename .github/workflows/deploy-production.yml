@@ -113,8 +113,14 @@ jobs:
       - name: Back up, then deploy
         id: deploy
         run: |
-          ssh prod "SHA=$SHA bash -s" <<'EOF'
+          # The script travels over ssh's STDIN, and bash reads it line by line.
+          # Anything inside that also reads stdin (backup.sh -> `docker compose
+          # exec -T`) would swallow the rest of the script, and bash would exit 0
+          # having deployed nothing (caught in testing on 2026-10-11). So the whole
+          # body is a function, parsed completely, then run with stdin=/dev/null.
+          ssh prod "SHA=$SHA bash -s" <<'EOF' | tee deploy.log
           set -euo pipefail
+          deploy() {
           cd ~/storyOS
 
           # Reclaim space BEFORE the backup and pull (staging's 2026-09-02 lesson:
@@ -139,7 +145,12 @@ jobs:
           docker compose pull --quiet
           docker compose up -d --remove-orphans
           docker compose ps --format '{{.Service}}\t{{.State}}\t{{.Status}}'
+          echo "DEPLOY_SCRIPT_COMPLETED"
+          }
+          deploy < /dev/null
           EOF
+          # A script cut short must not look like success.
+          grep -q '^DEPLOY_SCRIPT_COMPLETED$' deploy.log || { echo "::error::the remote deploy script did not run to the end"; exit 1; }
 
       # ── Verify from the outside, the way a user reaches it ──────────────────
       - name: Verify the new version is live
@@ -163,13 +174,17 @@ jobs:
           PREV: ${{ steps.current.outputs.prev_sha }}
         run: |
           echo "::warning::rolling prod back to $PREV"
+          # Same stdin guard as the deploy step.
           ssh prod "SHA=$PREV bash -s" <<'EOF'
           set -euo pipefail
+          rollback() {
           cd ~/storyOS
           git -c advice.detachedHead=false checkout -q --detach "$SHA"
           sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$SHA/" .env
           docker compose pull --quiet
           docker compose up -d --remove-orphans
+          }
+          rollback < /dev/null
           EOF
           for _ in $(seq 1 36); do
             live=$(curl -fsS --max-time 5 https://app.storyos.dev/api/v1/build-info | jq -r .commit_sha 2>/dev/null || true)
