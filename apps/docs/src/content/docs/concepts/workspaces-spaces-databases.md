@@ -165,6 +165,9 @@ you.
 
 ### Setting one
 
+- **A database, from the page itself** — click the description under the title to edit it in place.
+  This needs the same access as editing the database's schema (**Creator** or above), so an editor
+  doesn't see a click-to-edit they couldn't save.
 - **Database or space** — its context menu (the sidebar row's `⋯`) has **Add description** (or
   **Edit description**, once one exists), opening a small dialog.
 - **Workspace** — **Settings → General**, an inline field with its own Save. The workspace has no
