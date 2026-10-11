@@ -23,6 +23,13 @@ then:
 The authorization is still scoped to the user's [role and space grants](/concepts/access-and-roles/),
 so the connector can only touch what the user can.
 
+**There is no narrower limit than that.** A [personal access token](/api/authentication/) can be
+capped at read, write or admin power and can be bound to specific spaces or databases. A connector
+signed in through OAuth cannot: it acts with the signed-in user's full role, and the scope and
+resource limits a token carries are not applied to it. Its changes are recorded as coming from an AI
+(`mcp`), not as a person's. If you want an AI limited to read-only, or to one space or database, give
+it a personal access token instead.
+
 ## Enable it (self-host)
 
 OAuth is off unless you turn it on. It requires the OIDC tables to be migrated, then set these
