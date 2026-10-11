@@ -74,6 +74,11 @@ so anyone reading a skill can see where it came from.
   for an admin: approvals are made by people in the app, not through an API token or a connected AI.
   If an admin has switched AI sharing off, an AI cannot ask at all. When a person makes a skill
   public themselves, in the Skills library, no approval is needed.
+- **A public skill has a page a person can read.** Its link opens a plain page showing the skill's
+  name, version, description, *when to use it*, instructions and examples — no sign-in, and no Run
+  button, because a skill is text that does nothing on the page. The page is hidden from search
+  engines and linked from nowhere. A link that has been revoked, never existed or is malformed all
+  show the same "not found" page, so it never reveals which.
 - **To take a public skill back, change its visibility in the Skills library.** That revokes the
   link at once. An approval can be decided only once: rejecting it after you approved does nothing
   (the app refuses it and says so), so it is never the way to undo a public skill.

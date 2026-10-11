@@ -62,6 +62,11 @@ app, in the **Inbox**; a request made with an API token or by a connected AI is 
 and named-approver rules are unchanged — this is an extra requirement on *who is acting*, not a
 replacement for them.
 
+**A decision is final.** Repeating the same decision (a double click) is harmless and returns the
+request as it stands. The *opposite* decision — rejecting after approving, or the reverse — is refused
+with a `409` and a reason, and so is any decision on an approval that has **expired**. Nothing is
+changed. To undo what an approval allowed, change that thing directly.
+
 ## Not built
 
 - Only the `delete_records` class can be declared as a policy, and the API enforces that:

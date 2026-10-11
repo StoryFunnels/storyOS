@@ -64,7 +64,9 @@ scratch once you've fixed whatever caused the failure.
 
 - **A copy takes at most 200 records.** A larger selection is refused with a `422` before anything
   is created — over the API, and over MCP too, since the tool uses the same route. Copy a bigger set
-  in batches of 200 or fewer.
+  in batches of 200 or fewer. In the app the **Copy to** dialog says so as soon as it opens, before you
+  choose a destination: with more than 200 records selected it shows the limit and no destination
+  picker or Confirm button, and nothing is copied. It never offers to copy "just the first 200".
 - **A blocking field says how many records it affects.** With several records selected, the reason
   a field blocks the copy ends *"Affects N of M selected records."*, so you can tell a field that
   blocks one record from one that blocks them all. The count and the blocking rule come from the same

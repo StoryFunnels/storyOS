@@ -39,7 +39,7 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 
 **Search in a view (⌘F).** On a database view, ⌘F focuses a search box in the toolbar and typing
 narrows the view's records; the counts follow the search, and **Esc** clears and closes it. **Enter**
-opens the first match. The text is yours alone and for this session — it isn't saved on the view, so a
+opens the first match. **↓ and ↑ move a highlight through the matches** listed under the box (the box keeps focus, so you can keep typing); Enter opens the highlighted one. The first match is highlighted to begin with, the highlight wraps from last to first, and the list shows at most 8 matches with a *+ N more — keep typing to narrow* line when there are more. The text is yours alone and for this session — it isn't saved on the view, so a
 reload clears it and nobody else sees it. Pressing ⌘F again while the box is focused hands over to
 the browser's own find. On a nested table, a search shows matching rows flat.
 

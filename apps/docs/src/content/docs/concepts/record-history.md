@@ -75,7 +75,9 @@ subject can claim is not provenance.
 
 ## One thing to know if you use the API
 
-**An ordinary personal access token reads as `mcp`.** If you write records from your own script
+**An ordinary personal access token reads as `mcp`** — and so does an AI connected
+through OAuth (for example Claude), which is not badged `human` even though a person signed in to
+connect it. If you write records from your own script
 with a PAT, those changes are badged `mcp` — not because they came from an MCP client, but because
 an unmarked token is treated as one. The badge tells you a change came in over the API with a
 token; it does not tell you which program held it.
