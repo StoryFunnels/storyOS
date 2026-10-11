@@ -49,6 +49,18 @@ A record opens as one **main column** and a fixed **side panel**.
   — then the **Description**, any embedded collections (sub-items and the like), and **Attachments**.
 - **Attachments appear only when they have something to show** — the database has an attachment
   field, or this record already has files. Existing files are never hidden.
+- **Empty collections hide by default.** A collection on a record (many-to-many, or the many side of a
+  one-to-many) is hidden while it has nothing in it; single references and ordinary fields keep
+  showing. A field's own menu overrides this either way: **Hide when empty** or **Always show (even
+  empty)**, and the menu shows the setting actually in force.
+- **An embedded collection's filter is yours.** Filtering, sorting, colouring or choosing columns on a
+  collection like Sub-items is a **personal** setting: it applies to you only, in every record of that
+  database, and a **Personal · Reset** badge appears beside the collection while it's active. Reset
+  drops the whole override and returns you to the shared default the field is configured with.
+  Nobody else's view of the collection changes.
+- **Comments show where they came from.** Each comment carries the same source badge the activity
+  feed uses, so a comment an agent posted doesn't read as a person's. A comment from before sources
+  were recorded shows the "source not recorded" badge rather than reading as human.
 - **The side panel** (about 344px, hidden on a narrow window) has three tabs: **Activity**,
   **Comments** and **About**. About holds the **Watchers** list, **Mentioned in**, and a **Details**
   block — the database, space, record number, created and updated times, and your access.
