@@ -245,7 +245,8 @@ jobs:
 
   # Continuous delivery to the staging VPS: pin IMAGE_TAG to this exact commit,
   # pull, restart, verify from the outside. Rollback = re-run an older run of
-  # this workflow (its sha gets pinned again). Prod stays manual for now.
+  # this workflow (its sha gets pinned again). Production is NOT deployed
+  # from here: it ships on demand via deploy-production.yml (#893).
   deploy-staging:
     name: deploy staging
     runs-on: ubuntu-latest
@@ -259,7 +260,7 @@ jobs:
     # run was marked failed anyway. That noise is what makes a REAL build
     # failure invisible, which is the actual cost — not the minutes.
     # Staging is also not used for verification: agents verify on isolated
-    # local instances, and production deploys from main by hand.
+    # local instances, and production ships via deploy-production.yml (#893).
     continue-on-error: true
     permissions:
       contents: read
