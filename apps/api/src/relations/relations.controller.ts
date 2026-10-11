@@ -28,6 +28,7 @@ import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
+import { RecordsService } from '../records/records.service';
 import { RelationsService } from './relations.service';
 import { AutoLinkService } from './auto-link.service';
 import { SelectRelationDriftService } from './select-relation-drift.service';
@@ -174,7 +175,13 @@ export class LinksController {
   constructor(
     private readonly relationsService: RelationsService,
     private readonly databases: DatabasesService,
+    private readonly records: RecordsService,
   ) {}
+
+  /** #884 — every links response lists linked records by title. */
+  private async narrowed<T>(req: WorkspaceRequest, result: Promise<T>): Promise<T> {
+    return this.records.narrowTitlesDeep(req.membership, await result);
+  }
 
   private async assertDb(
     req: WorkspaceRequest,
@@ -198,7 +205,8 @@ export class LinksController {
     @Param('field') field: string,
   ) {
     await this.assertDb(req, db);
-    return this.relationsService.listLinks(db, rec, field, req.membership);
+    // #884 — a linked record's computed title can carry lookup/rollup values the caller may not read.
+    return this.records.narrowTitlesDeep(req.membership, await this.relationsService.listLinks(db, rec, field, req.membership));
   }
 
   @Post()
@@ -216,7 +224,7 @@ export class LinksController {
     @Body() body: LinkRecordsDto,
   ) {
     await this.assertDb(req, db, 'editor');
-    return this.relationsService.addLinks(
+    return this.narrowed(req, this.relationsService.addLinks(
       req.membership.workspaceId,
       db,
       rec,
@@ -225,7 +233,7 @@ export class LinksController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.membership,
-    );
+    ));
   }
 
   @Put()
@@ -243,7 +251,7 @@ export class LinksController {
     @Body() body: ReplaceLinksDto,
   ) {
     await this.assertDb(req, db, 'editor');
-    return this.relationsService.replaceLinks(
+    return this.narrowed(req, this.relationsService.replaceLinks(
       req.membership.workspaceId,
       db,
       rec,
@@ -252,7 +260,7 @@ export class LinksController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.membership,
-    );
+    ));
   }
 
   @Delete()
@@ -270,7 +278,7 @@ export class LinksController {
     @Body() body: LinkRecordsDto,
   ) {
     await this.assertDb(req, db, 'editor');
-    return this.relationsService.removeLinks(
+    return this.narrowed(req, this.relationsService.removeLinks(
       req.membership.workspaceId,
       db,
       rec,
@@ -279,6 +287,6 @@ export class LinksController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.membership,
-    );
+    ));
   }
 }

@@ -495,6 +495,16 @@ export const records = pgTable(
       .references(() => databases.id, { onDelete: 'cascade' }),
     /** Title promoted to a real column (search, pickers, activity rendering). */
     title: text('title').notNull().default(''),
+    /**
+     * #884 — the title as a caller who CANNOT read this record's cross-record inputs may see it: the same computed
+     * template with every lookup/rollup it references replaced by "—". NULL when the title is not computed, or does
+     * not reference a lookup/rollup (then `title` is already safe for everyone).
+     *
+     * `title` (the full text, hidden inputs included) is what the stored trail, an admin and anyone who can read the
+     * inputs see; THIS is what a narrowed reader sees and what `q`, filters and sorts match against for them. Two
+     * callers seeing different titles for one record is deliberate, the same as a rollup value (#824/#937).
+     */
+    titleLocal: text('title_local'),
     /** Per-database sequential public id (MN-087) — the human handle in URLs. */
     number: integer('number'),
     /** User-defined values keyed by field UUID — ADR-0002. Relations live in record_links. */

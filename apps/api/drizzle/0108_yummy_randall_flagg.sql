@@ -1,0 +1,1 @@
+ALTER TABLE "records" ADD COLUMN "title_local" text;

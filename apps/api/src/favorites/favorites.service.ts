@@ -5,6 +5,7 @@ import type { Db } from '../db/client';
 import { databases, favorites, records } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
+import { RecordsService } from '../records/records.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 export type FavoriteTarget = 'record' | 'database';
@@ -24,6 +25,7 @@ export class FavoritesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly records: RecordsService,
   ) {}
 
   /** The database behind a favorite, or null when it isn't in this workspace. */
@@ -138,6 +140,11 @@ export class FavoritesService {
         out.push({ target_type: 'database', target_id: f.targetId, title: d.name, icon: d.icon });
       }
     }
+    // #884 — a starred record's title is a record title like any other: a guest sees the local one when it carries data
+    // they cannot read.
+    const starred = out.filter((o) => o.target_type === 'record').map((o) => ({ id: o.target_id, title: o.title, ref: o }));
+    await this.records.narrowTitles(membership, starred);
+    for (const s of starred) s.ref.title = s.title || 'Untitled';
     return out;
   }
 

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { RecordsService } from '../records/records.service';
 import { MentionsService } from './mentions.service';
 
 const backlinksQuerySchema = z.object({
@@ -18,7 +19,10 @@ class BacklinksQueryDto extends createZodDto(backlinksQuerySchema) {}
 @Controller('workspaces/:ws/databases/:db/records/:rec')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class MentionsController {
-  constructor(private readonly mentions: MentionsService) {}
+  constructor(
+    private readonly mentions: MentionsService,
+    private readonly records: RecordsService,
+  ) {}
 
   @Get('backlinks')
   @ApiOperation({ summary: 'Records whose document mentions this one ("Mentioned in") — MN-205, paged (#512)' })
@@ -34,6 +38,8 @@ export class MentionsController {
     // reverse edge would be a cycle) now lives in the service itself, since
     // it needs the record to exist for the mentions query regardless.
     await this.mentions.assertBacklinksAccess(req.membership, db, rec);
-    return this.mentions.backlinks(req.membership, rec, { limit: query.limit, cursor: query.cursor });
+    // #884 — a mentioning record's computed title can carry lookup/rollup values the caller may not read.
+    const page = await this.mentions.backlinks(req.membership, rec, { limit: query.limit, cursor: query.cursor });
+    return this.records.narrowTitlesDeep(req.membership, page);
   }
 }

@@ -86,13 +86,17 @@ export class SearchController {
     // predicates below — a title containing "%" must not turn into a wildcard.
     const escaped = query.replace(/[%_]/g, '\\$&');
     const pattern = `%${escaped}%`;
+    // #884 — for a guest, the title of a record whose computed title carries data they cannot read is its LOCAL title,
+    // for the match, the ranking, the length tiebreak AND what is returned: matching the stored text would let a search
+    // for a hidden substring find the record.
+    const titleCol = (await this.recordsService.titleSqlForWorkspace(req.membership, workspaceId)) ?? sql`${records.title}`;
     const recordRows = await this.db
       .select({
         id: records.id,
         // Per-database sequential id — rendered as the faint #<number> in pickers
         // (#227/#228 record-chip style), so a #mention reads "#12 Title".
         number: records.number,
-        title: records.title,
+        title: sql<string>`${titleCol}`,
         database_id: records.databaseId,
         database_name: databases.name,
         database_icon: databases.icon,
@@ -110,7 +114,7 @@ export class SearchController {
         and(
           eq(databases.workspaceId, workspaceId),
           isNull(records.deletedAt),
-          sql`${records.title} ILIKE ${pattern}`,
+          sql`${titleCol} ILIKE ${pattern}`,
           ...(visible !== null
             ? [
                 or(
@@ -128,14 +132,14 @@ export class SearchController {
       // it first instead of burying it under whatever you touched most recently.
       .orderBy(
         sql`CASE
-              WHEN lower(${records.title}) = lower(${query}) THEN 0
-              WHEN ${records.title} ILIKE ${escaped + '%'} THEN 1
-              WHEN ${records.title} ILIKE ${'% ' + escaped + '%'} THEN 2
+              WHEN lower(${titleCol}) = lower(${query}) THEN 0
+              WHEN ${titleCol} ILIKE ${escaped + '%'} THEN 1
+              WHEN ${titleCol} ILIKE ${'% ' + escaped + '%'} THEN 2
               ELSE 3
             END`,
         // Shorter titles are the tighter match at the same tier ("Plan" over
         // "Plan the offsite roadshow") — then most-recently-updated.
-        sql`length(${records.title})`,
+        sql`length(${titleCol})`,
         desc(records.updatedAt),
       )
       .limit(15);
@@ -256,9 +260,10 @@ export class SearchController {
       groups.push({
         database: { id: database.id, name: database.name, icon: database.icon, color: database.color },
         fields: await this.denseFields(database.id),
+        // #884 — attachLinks narrowed the PROJECTED titles; this row shape reads the stored title, so use theirs.
         records: rows.map((r) => ({
           id: r.id,
-          title: r.title,
+          title: byId.get(r.id)?.title ?? r.title,
           number: r.number,
           updated_at: r.updatedAt,
           values: byId.get(r.id)?.values ?? {},
@@ -329,6 +334,8 @@ export class SearchController {
       .limit(10);
     const order = new Map(ids.map((id, i) => [id, i]));
     recent.sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99));
-    return { records: recent.slice(0, 10).map((r) => ({ ...r, type: 'record' as const })) };
+    const out = recent.slice(0, 10).map((r) => ({ ...r, type: 'record' as const }));
+    await this.recordsService.narrowTitles(req.membership, out); // #884
+    return { records: out };
   }
 }
