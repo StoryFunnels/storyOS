@@ -13,7 +13,7 @@ describe('workspace settings nav by role (ticket #875)', () => {
   });
   it('an ADMIN keeps everything, Integrations included (the door is added, nothing moves)', () => {
     expect(labels('admin', true)).toEqual([
-      'General', 'Members', 'Billing', 'Integrations', 'Connect your AI', 'API tokens', 'Export', 'Trash', 'Audit log',
+      'General', 'Members', 'Billing', 'Integrations', 'Connect your AI', 'API tokens', 'Export', 'Trash', 'Audit log', 'Governance',
     ]);
   });
   it('a GUEST sees neither Connect your AI nor API tokens nor Integrations (matches the credential they cannot mint)', () => {

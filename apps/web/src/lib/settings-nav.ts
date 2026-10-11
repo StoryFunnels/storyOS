@@ -39,5 +39,7 @@ export function workspaceSettingsLinks(base: string, flags: SettingsNavFlags): A
     ...(isAdmin ? [{ href: `${base}/trash`, label: 'Trash' }] : []),
     // #727 — admin-only, matching audit-log.controller.ts's own @MinRole('admin').
     ...(isAdmin ? [{ href: `${base}/audit-log`, label: 'Audit log' }] : []),
+    // #546 — admin-only: it lists gate policies and every agent's declared reach, both admin reads.
+    ...(isAdmin ? [{ href: `${base}/governance`, label: 'Governance' }] : []),
   ];
 }
