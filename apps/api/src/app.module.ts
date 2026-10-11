@@ -19,6 +19,7 @@ import { ViewsModule } from './views/views.module';
 import { ExportModule } from './export/export.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { DocumentsModule } from './documents/documents.module';
+import { CapabilitiesModule } from './capabilities/capabilities.module';
 import { TokensModule } from './tokens/tokens.module';
 import { CollaborationModule } from './comments/collaboration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
@@ -109,6 +110,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     ExportModule,
     WebhooksModule,
     DocumentsModule,
+    CapabilitiesModule,
     TokensModule,
     CollaborationModule,
     AttachmentsModule,

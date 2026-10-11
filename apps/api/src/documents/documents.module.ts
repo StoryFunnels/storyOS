@@ -18,6 +18,6 @@ import { PdfRenderer, pdfRendererOptionsFromEnv } from './export/pdf-renderer';
     SpaceDocumentsService,
     { provide: PdfRenderer, useFactory: () => new PdfRenderer(pdfRendererOptionsFromEnv()) },
   ],
-  exports: [DocumentsService],
+  exports: [DocumentsService, PdfRenderer],
 })
 export class DocumentsModule {}

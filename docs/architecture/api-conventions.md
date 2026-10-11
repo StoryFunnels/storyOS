@@ -78,6 +78,13 @@ Keyset cursors only — opaque base64url of `{sort_values, id}`. Response: `{ "d
 
 Stable codes: `unauthorized`, `forbidden`, `not_found`, `conflict`, `validation_failed`, `rate_limited`. Optimistic-concurrency conflicts: `409` + the current version/`updated_at` in details. Guest access to unshared spaces: `not_found` (404), never 403.
 
+Two optional additions, for refusals a client must act on rather than only display (#885):
+
+- A **specific `code`** in place of the generic one where several refusals share a status — `pdf_export_busy` and `pdf_export_not_configured` are both `503`, and a client must not have to parse the message to tell "try again" from "this will never work here".
+- A **`meta` object** carrying the figures and flags as fields: a `413` `document_too_large` has `{ "limit": 6000000, "measured": 7500000, "unit": "characters" }`. A number that only exists inside a sentence cannot be shown, compared or localised. `meta.retry_after_seconds` is also sent as a `Retry-After` header, the same as the `429`.
+
+Both are additive: an error without them is exactly the envelope above.
+
 ## Record payloads
 
 Values keyed by stable **`api_name`** in API responses/requests (field UUIDs internally). Relation fields return `{id, title}` chips. System fields read-only.
