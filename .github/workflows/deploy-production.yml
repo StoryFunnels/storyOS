@@ -1,0 +1,207 @@
+# Deploy an exact, CI-built commit of main to production (Hetzner, #893).
+#
+# Before 2026-10-11 prod lived on a Kamatera box and was deployed BY HAND:
+# `git pull && docker compose build` on the server itself. That box is powered
+# off (#890), so this workflow is now the only supported way to ship to prod.
+#
+# Manual on purpose: prod changes when a person decides, never on every merge.
+# Pick the sha of a main commit whose `Build & push images` run is green.
+# ROLLBACK = run this again with the previous sha (the run log prints it).
+#
+# Runbook: docs/cloud-runbook.md
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-char sha of a main commit whose images are in GHCR"
+        required: true
+        type: string
+
+# One prod deploy at a time, and never cancel one halfway through: a deploy cut
+# off between `pull` and `up` leaves the box in a state nobody chose.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read # check the GHCR images exist before touching the server
+
+jobs:
+  deploy:
+    name: deploy ${{ inputs.sha }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Holds PROD_HOST / PROD_SSH_KEY / PROD_KNOWN_HOSTS. The environment only
+    # releases them to runs from `main`, so a branch cannot reach the prod key.
+    environment:
+      name: production
+      url: https://app.storyos.dev
+    env:
+      SHA: ${{ inputs.sha }}
+    # Explicit `bash` turns on pipefail (the implicit default shell does not), so
+    # `ssh ... | tee` below fails when ssh fails instead of reporting tee's 0.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # ── Guards: refuse a bad request BEFORE any SSH ─────────────────────────
+      - name: The sha is a full commit id
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::'$SHA' is not a full 40-char lowercase sha"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The sha is on main
+        run: |
+          git cat-file -e "$SHA^{commit}" 2>/dev/null || { echo "::error::$SHA does not exist in this repo"; exit 1; }
+          git merge-base --is-ancestor "$SHA" origin/main || { echo "::error::$SHA is not on main — only main commits ship to prod"; exit 1; }
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # build-images.yml gives EVERY main commit all three :<sha> tags (#793), so
+      # a missing one means that commit's publish run failed — not deployable.
+      - name: All three images exist for this sha
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for svc in api web mcp; do
+            docker buildx imagetools inspect "ghcr.io/$owner/storyos-$svc:$SHA" > /dev/null \
+              || { echo "::error::ghcr.io/$owner/storyos-$svc:$SHA not found — is the Build & push images run for this commit green?"; exit 1; }
+            echo "ok: storyos-$svc:$SHA"
+          done
+
+      # ── Deploy ──────────────────────────────────────────────────────────────
+      - name: SSH setup (pinned host key)
+        env:
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_KNOWN_HOSTS: ${{ secrets.PROD_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/prod_key && printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/prod_key
+          printf '%s\n' "$PROD_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # StrictHostKeyChecking=yes: a host that does not match the pinned key
+          # is refused, never silently trusted (staging's accept-new would).
+          cat > ~/.ssh/config <<EOF
+          Host prod
+            HostName ${{ secrets.PROD_HOST }}
+            User deploy
+            IdentityFile ~/.ssh/prod_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      # Recorded in its OWN step, before anything changes: if the deploy below
+      # dies halfway, the rollback still knows where to go back to.
+      - name: Record the currently deployed version
+        id: current
+        run: |
+          prev=$(ssh prod "grep -E '^IMAGE_TAG=' ~/storyOS/.env | cut -d= -f2")
+          [[ "$prev" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not read the current IMAGE_TAG from prod (got '$prev')"; exit 1; }
+          echo "prev_sha=$prev" >> "$GITHUB_OUTPUT"
+          echo "currently deployed: $prev"
+          [ "$prev" = "$SHA" ] && echo "note: $SHA is already deployed — redeploying it" || true
+
+      - name: Back up, then deploy
+        id: deploy
+        run: |
+          # The script travels over ssh's STDIN, and bash reads it line by line.
+          # Anything inside that also reads stdin (backup.sh -> `docker compose
+          # exec -T`) would swallow the rest of the script, and bash would exit 0
+          # having deployed nothing (caught in testing on 2026-10-11). So the whole
+          # body is a function, parsed completely, then run with stdin=/dev/null.
+          ssh prod "SHA=$SHA bash -s" <<'EOF' | tee deploy.log
+          set -euo pipefail
+          deploy() {
+          cd ~/storyOS
+
+          # Reclaim space BEFORE the backup and pull (staging's 2026-09-02 lesson:
+          # a cleanup that only runs on the happy path cannot rescue the other one).
+          # Images and build cache only. NEVER volumes: the database lives in one.
+          docker image prune -af --filter "until=168h" > /dev/null || true
+          docker builder prune -af --filter "until=168h" > /dev/null || true
+          used=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "${used:-0}" -ge 90 ]; then echo "::error::prod disk ${used}% full — refusing to deploy"; exit 1; fi
+
+          # Pre-deploy recovery point — what the hand process did before every
+          # deploy. Keep the newest 10; older ones are pruned.
+          label="pre-${SHA:0:12}-$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUPS_DIR="$HOME/storyos-backups" ./scripts/backup-restore/backup.sh "$label"
+          ls -1dt "$HOME"/storyos-backups/pre-*/ 2>/dev/null | tail -n +11 | xargs -r rm -rf
+
+          # Compose files must match the images, so the checkout moves with them.
+          git fetch -q origin
+          git -c advice.detachedHead=false checkout -q --detach "$SHA"
+          sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$SHA/" .env
+
+          docker compose pull --quiet
+          docker compose up -d --remove-orphans
+          docker compose ps --format '{{.Service}}\t{{.State}}\t{{.Status}}'
+          echo "DEPLOY_SCRIPT_COMPLETED"
+          }
+          deploy < /dev/null
+          EOF
+          # A script cut short must not look like success.
+          grep -q '^DEPLOY_SCRIPT_COMPLETED$' deploy.log || { echo "::error::the remote deploy script did not run to the end"; exit 1; }
+
+      # ── Verify from the outside, the way a user reaches it ──────────────────
+      - name: Verify the new version is live
+        id: verify
+        run: |
+          for _ in $(seq 1 36); do
+            live=$(curl -fsS --max-time 5 https://app.storyos.dev/api/v1/build-info | jq -r .commit_sha 2>/dev/null || true)
+            docs=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://app.storyos.dev/api/docs || true)
+            if [ "$live" = "$SHA" ] && [ "$docs" = "200" ]; then
+              echo "prod is serving $SHA"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::after 3 min prod reports '${live:-nothing}' (api/docs=$docs), expected $SHA"
+          exit 1
+
+      # ── Roll back automatically if the new version did not come up ──────────
+      - name: Roll back to the previous version
+        if: failure() && steps.current.outputs.prev_sha != ''
+        env:
+          PREV: ${{ steps.current.outputs.prev_sha }}
+        run: |
+          echo "::warning::rolling prod back to $PREV"
+          # Same stdin guard as the deploy step.
+          ssh prod "SHA=$PREV bash -s" <<'EOF'
+          set -euo pipefail
+          rollback() {
+          cd ~/storyOS
+          git -c advice.detachedHead=false checkout -q --detach "$SHA"
+          sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$SHA/" .env
+          docker compose pull --quiet
+          docker compose up -d --remove-orphans
+          }
+          rollback < /dev/null
+          EOF
+          for _ in $(seq 1 36); do
+            live=$(curl -fsS --max-time 5 https://app.storyos.dev/api/v1/build-info | jq -r .commit_sha 2>/dev/null || true)
+            [ "$live" = "$PREV" ] && { echo "rolled back: prod is serving $PREV again"; exit 0; }
+            sleep 5
+          done
+          echo "::error::rollback did not confirm — prod reports '${live:-nothing}'. Check the box by hand NOW."
+          exit 1
+
+      - name: Summary
+        if: always()
+        env:
+          PREV: ${{ steps.current.outputs.prev_sha }}
+        run: |
+          {
+            echo "### Production deploy"
+            echo "- requested: \`$SHA\`"
+            echo "- previous: \`${PREV:-unknown}\` — re-run with this sha to roll back"
+            echo "- result: **${{ job.status }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
