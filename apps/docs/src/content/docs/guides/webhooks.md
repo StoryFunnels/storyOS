@@ -51,13 +51,12 @@ from the log rather than a guess.
 - **A write that stays uncommitted for longer than the lookback can be missed.** StoryOS looks back
   over a window (5 minutes by default; self-hosted operators set `WEBHOOK_SCAN_LOOKBACK_SECONDS`) so a
   transaction that commits late is still found. One held open **longer than that window** writes
-  events the webhook never queues. The window is a bound, not a proof. Nothing StoryOS itself does
-  holds a transaction anywhere near that long, but the limit is real: if you run long manual
-  database transactions on a self-hosted instance, keep them well under the window.
+  events the webhook never queues. The window is a bound, not a proof. The limit is real: if you run
+  long manual database transactions on a self-hosted instance, keep them well under the window.
 - **A miss is logged, not redelivered.** Self-hosted operators get a warning while a long transaction
   is open and an error naming the event after the fact (`webhook.long_transaction`,
-  `webhook.lost_events`). The error can false-alarm right after you add an event type to an existing
-  webhook, because older events of that type then look as though they were never sent.
+  `webhook.lost_events`). The error can false-alarm right after you change a webhook's database or add an
+  event type to it, because older events that now match look as though they were never sent.
 
 ## Managing one over the API or MCP
 
