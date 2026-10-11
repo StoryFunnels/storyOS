@@ -275,10 +275,9 @@ when you first create the view.
   and the same position, and an empty value leaves its slot empty rather than shifting the later
   fields left, so the fields line up down the list like columns. The title keeps a minimum width, so
   a row with many fields can't squeeze it to nothing.
-- **A calendar lists undated records under the month grid** as chips (for example *"77 — drag onto a
-  day to schedule"*), so a record with no date can be given one without leaving the calendar. It
-  appears only when the calendar is built on an editable date field and something is undated.
-  Otherwise you see the plain *"N undated records"* link to the table.
+- **A calendar lists undated records under the month grid** as chips with a count, so you can see what has no date without leaving the calendar. It appears only when the
+  calendar is built on an editable date field and something is undated. Otherwise you see the plain
+  *"N undated records"* link to the table.
 - **A feed's footer shows the date it is actually sorted by.** Sort a feed by **Due** and the footer
   reads *"Due 14 Mar"*; sort by **Updated** and it reads *"Updated 3 Mar"*. When it's sorted by
   creation date the footer is unlabelled, as before. While the feed is sorted by a real date field,
