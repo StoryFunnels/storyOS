@@ -409,6 +409,27 @@ saved on the view, not per session, so reopening it later shows the same mode yo
 - Every mode paints a record's colour (from the view's **Color by** field) through the same shared
   colour source every other view reads, so switching modes never changes how a record looks.
 
+### Choosing the date field
+
+The date picker lists every date-capable field. **Created at** and **Updated at** are shown but
+disabled, with the reason beside them (*"set automatically, so cards can't be moved"*), because a
+calendar built on one can be read but not rescheduled. A new Calendar view starts on the first
+**editable** date field; a database with none says *"This database has no editable date field. Add
+a date field to schedule records here."* instead of offering a dead calendar. The **Today** button is
+disabled while the view already shows today.
+
+## Gallery: covers
+
+A gallery card's cover comes from one field you choose in the **Cover** control:
+
+- **An attachment field** — the record's uploaded image.
+- **A URL or text field** holding an `http` or `https` address. Anything else is never loaded. A card
+  whose image fails to load falls back to the no-cover card for that card alone.
+
+A database with no field that can be a cover says so in the Cover control's place rather than hiding
+it, and a cover field that's mostly empty says how many records have one (*"Cover: Photo — 3 of 40
+records have one"*). The cover's alt text is the record's title.
+
 ## Timeline: planned vs actual dates
 
 A Timeline picks a **Start** (and optionally an **End**) date field — the primary pair every bar is
