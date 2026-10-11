@@ -24,6 +24,7 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 |---|---|
 | **⌘K** (Ctrl+K) | Search & commands |
 | **⌘J** (Ctrl+J) | Ask Tyron |
+| **⌘F** (Ctrl+F) | Search the records of the current view (instead of the browser's find) |
 | **⌘A** (Ctrl+A) | Select all loaded rows |
 | **⌘Z** (Ctrl+Z) | Undo the last delete |
 | **n** | New record (on a database) |
@@ -31,10 +32,21 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 | **⇧ + click** | Select a range |
 | **e** | Open record under cursor |
 | **Enter** | Edit the focused cell |
-| **Esc** | Clear selection / cancel edit |
+| **Esc** | Clear selection / cancel edit — and, when nothing else is open, close the open record |
 | **?** | Keyboard shortcuts |
 
 ⇧, Enter and Esc read the same on every platform — only the modifier changes.
+
+**Search in a view (⌘F).** On a database view, ⌘F focuses a search box in the toolbar and typing
+narrows the view's records; the counts follow the search, and **Esc** clears and closes it. **Enter**
+opens the first match. The text is yours alone and for this session — it isn't saved on the view, so a
+reload clears it and nobody else sees it. Pressing ⌘F again while the box is focused hands over to
+the browser's own find. On a nested table, a search shows matching rows flat.
+
+**Esc closes the open record, after everything inside it has had its turn.** A menu, popover or
+in-progress edit takes the first Esc; in a rich-text editor the first Esc leaves the editor and the
+next closes the record. In the side panel it closes only the active pane; on a full-page record it
+goes back where you came from, or to the database view.
 
 [Tyron](/concepts/tyron/) is on **⌘J**, not ⌘K, because the command palette has owned ⌘K since
 long before Tyron existed and moving it would have broken a binding people already have. The
