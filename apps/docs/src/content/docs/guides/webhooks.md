@@ -41,7 +41,8 @@ from the log rather than a guess.
 
 ## What you can rely on, and what you can't
 
-- **Each event is queued once per webhook.** A database guarantee (a unique key on webhook and
+- **Each event is queued at most once per webhook** — at most, not exactly: see the limit below
+  for the one case where an event is never queued. A database guarantee (a unique key on webhook and
   event) means your endpoint is not sent the same event twice because of a scan running again.
   Your own retries (above) can still resend an event whose delivery failed, so write the receiver to
   tolerate a repeat.
