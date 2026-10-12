@@ -30,7 +30,12 @@ run every background job twice.
    - takes a pre-deploy backup on the box (`~/storyos-backups/pre-<sha>-<time>`,
      newest 10 kept),
    - checks out the sha, sets `IMAGE_TAG`, pulls and restarts,
-   - confirms `https://app.storyos.dev/api/v1/build-info` reports the new sha.
+   - confirms `https://app.storyos.dev/api/v1/build-info` reports the new build.
+
+`build-info` shows the commit the **api image was built from**. That can be
+older than the sha you deployed: when a commit doesn't touch the api,
+`build-images` re-tags the previous api image instead of rebuilding it. The
+workflow reads the expected value from the image before it deploys (#896).
 
 There is no deploy on merge: production changes only when someone runs this.
 

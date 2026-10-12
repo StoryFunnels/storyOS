@@ -110,6 +110,29 @@ jobs:
           echo "currently deployed: $prev"
           [ "$prev" = "$SHA" ] && echo "note: $SHA is already deployed — redeploying it" || true
 
+      # #896 — build-info reports the GIT_SHA BAKED INTO the api image, which is
+      # not always the sha we deploy: build-images.yml (#793) re-tags an unchanged
+      # service onto a new commit instead of rebuilding it. Deploying 81558f90 (a
+      # workflows-only commit) served an api built at 11ee2912, so comparing
+      # build-info to the requested sha false-failed and rolled a good release
+      # back. Read what each image will actually report, before touching prod.
+      - name: Resolve the build sha each version reports
+        id: build
+        env:
+          PREV: ${{ steps.current.outputs.prev_sha }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          build_sha() {
+            docker buildx imagetools inspect "ghcr.io/$owner/storyos-api:$1" --format '{{json .Image}}' \
+              | jq -r '[.. | objects | .Env? // empty | .[]? | select(type=="string" and startswith("GIT_SHA=")) | sub("^GIT_SHA=";"")] | first // empty'
+          }
+          new=$(build_sha "$SHA"); prev=$(build_sha "$PREV")
+          [[ "$new" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not read GIT_SHA from storyos-api:$SHA (got '$new')"; exit 1; }
+          [[ "$prev" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not read GIT_SHA from storyos-api:$PREV (got '$prev')"; exit 1; }
+          echo "new=$new" >> "$GITHUB_OUTPUT"; echo "prev=$prev" >> "$GITHUB_OUTPUT"
+          echo "after deploy, build-info must report:   $new  (image tag $SHA)"
+          echo "after a rollback, build-info must report: $prev  (image tag $PREV)"
+
       - name: Back up, then deploy
         id: deploy
         run: |
@@ -155,16 +178,18 @@ jobs:
       # ── Verify from the outside, the way a user reaches it ──────────────────
       - name: Verify the new version is live
         id: verify
+        env:
+          EXPECT: ${{ steps.build.outputs.new }}
         run: |
           for _ in $(seq 1 36); do
             live=$(curl -fsS --max-time 5 https://app.storyos.dev/api/v1/build-info | jq -r .commit_sha 2>/dev/null || true)
             docs=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://app.storyos.dev/api/docs || true)
-            if [ "$live" = "$SHA" ] && [ "$docs" = "200" ]; then
-              echo "prod is serving $SHA"; exit 0
+            if [ "$live" = "$EXPECT" ] && [ "$docs" = "200" ]; then
+              echo "prod is serving image tag $SHA (api built at $EXPECT)"; exit 0
             fi
             sleep 5
           done
-          echo "::error::after 3 min prod reports '${live:-nothing}' (api/docs=$docs), expected $SHA"
+          echo "::error::after 3 min prod reports '${live:-nothing}' (api/docs=$docs), expected build $EXPECT for image tag $SHA"
           exit 1
 
       # ── Roll back automatically if the new version did not come up ──────────
@@ -172,6 +197,7 @@ jobs:
         if: failure() && steps.current.outputs.prev_sha != ''
         env:
           PREV: ${{ steps.current.outputs.prev_sha }}
+          PREV_BUILD: ${{ steps.build.outputs.prev }}
         run: |
           echo "::warning::rolling prod back to $PREV"
           # Same stdin guard as the deploy step.
@@ -188,7 +214,9 @@ jobs:
           EOF
           for _ in $(seq 1 36); do
             live=$(curl -fsS --max-time 5 https://app.storyos.dev/api/v1/build-info | jq -r .commit_sha 2>/dev/null || true)
-            [ "$live" = "$PREV" ] && { echo "rolled back: prod is serving $PREV again"; exit 0; }
+            # Same #896 rule: compare to the build sha the previous image reports
+            # (falls back to the tag itself if the build step never ran).
+            [ "$live" = "${PREV_BUILD:-$PREV}" ] && { echo "rolled back: prod is serving image tag $PREV again"; exit 0; }
             sleep 5
           done
           echo "::error::rollback did not confirm — prod reports '${live:-nothing}'. Check the box by hand NOW."
@@ -202,6 +230,7 @@ jobs:
           {
             echo "### Production deploy"
             echo "- requested: \`$SHA\`"
+            echo "- api build verified: \`${{ steps.build.outputs.new || 'not resolved' }}\` (differs from the tag when the api image was re-tagged, #896)"
             echo "- previous: \`${PREV:-unknown}\` — re-run with this sha to roll back"
             echo "- result: **${{ job.status }}**"
           } >> "$GITHUB_STEP_SUMMARY"
