@@ -1,58 +1,27 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { DM_Sans, Figtree, Inter, JetBrains_Mono, Playfair_Display, Source_Sans_3, Source_Serif_4 } from 'next/font/google';
 import Script from 'next/script';
+import { preload } from 'react-dom';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
+import './fonts/fonts.css';
+import figtreeLatin from './fonts/figtree-latin.woff2';
+import { assetUrl } from '@/lib/asset-url';
 import './globals.css';
 
-const figtree = Figtree({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-figtree',
-});
-
-/**
- * #720 — the embed font control's other six families (`figtree` above covers
- * the seventh — the app's own default reused, not reloaded). Each is
- * build-time self-hosted the same way Figtree already is; see
- * embed-fonts.ts's own comment for why this file is the only place these
- * loaders are instantiated, and docs/design/form-embed-theming-spec.md §4 for
- * why that self-hosting is what makes this privacy-safe. Three weights
- * (regular/medium/semibold) — a form's own type scale never asks these for
- * bold, and a fourth weight per family is exactly the "a few more won't hurt"
- * bundle creep AC4 warns against.
+/*
+ * #797 — fonts are SELF-HOSTED (./fonts/fonts.css, see its README.md): no
+ * `next/font/google`, so the build makes no third-party network call. The old
+ * loaders declared Figtree plus the six embed families (#720); fonts.css declares the
+ * same seven under the same CSS variable names, so nothing downstream changed.
+ *
+ * #855 — `next/font` used to emit a <link rel="preload"> for Figtree's Latin file and plain
+ * @font-face does not, so on a cold load the browser met the font only when layout needed it
+ * and showed the fallback face for one round trip (measured on the ticket: ~120 ms at 100 ms RTT,
+ * 4-11 ms on localhost). The preload below restores it for ONLY that one file: not the family,
+ * not the other six embed families, not the other subsets. It is imported (not hand-typed) so its
+ * URL is the same content-hashed file the @font-face rule fetches, which makes it one request.
  */
-const embedInter = Inter({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-embed-inter' });
-const embedSourceSans3 = Source_Sans_3({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-embed-source-sans-3',
-});
-const embedDmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-embed-dm-sans' });
-const embedSourceSerif4 = Source_Serif_4({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-embed-source-serif-4',
-});
-const embedPlayfairDisplay = Playfair_Display({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-embed-playfair-display',
-});
-const embedJetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-embed-jetbrains-mono',
-});
-const embedFontVariables = [
-  embedInter.variable,
-  embedSourceSans3.variable,
-  embedDmSans.variable,
-  embedSourceSerif4.variable,
-  embedPlayfairDisplay.variable,
-  embedJetbrainsMono.variable,
-].join(' ');
 
 export const metadata: Metadata = {
   // #566 — unset before this meant Next fell back to 'http://localhost:3000'
@@ -89,8 +58,10 @@ export const metadata: Metadata = {
 export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAF7F1' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // #855 — React's own preload API: it emits ONE <link rel="preload"> in the head and dedupes repeat calls.
+  preload(assetUrl(figtreeLatin), { as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' });
   return (
-    <html lang="en" className={`${figtree.variable} ${embedFontVariables}`} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Resolve + apply the saved theme before paint so there's no light flash
             (#30). next/script's beforeInteractive strategy, not a raw <script> tag —

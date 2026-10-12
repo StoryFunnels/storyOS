@@ -15,6 +15,34 @@ type PolicyRow = typeof actionGatePolicies.$inferSelect;
 export const DELETE_RECORDS_ACTION_CLASS = 'delete_records';
 
 /**
+ * #878 — THE registry of action classes an admin can declare a gate policy over, and the only
+ * one. A class name cannot enforce anything without code behind it, so the declarable set is
+ * exactly the set `check()`/`wouldGate()` can be called with: both take `EnforcedPolicyClass`,
+ * which is `keyof` this object, so a call site for an unregistered class does not compile and a
+ * class can only be declarable by being registered here. The create/enable routes read THIS
+ * object for their allowlist; there is no second list.
+ *
+ * The remaining drift is a class registered here with no real enforcement behind it. That is
+ * closed in `test/action-gates-unknown-class.test.ts`: its per-class proof table (declare, perform
+ * the action as an agent, assert it is held) must have EXACTLY the registry's keys, asserted at
+ * run time. (Not by the type checker: the API's `tsc` covers `src` only, which a mutation showed.)
+ *
+ * Not here on purpose: `source_push` and `publish_externally` are held by their own mechanisms
+ * (a per-source flag, an automation action's class rules), not by a declared policy row.
+ */
+export const ENFORCED_POLICY_CLASSES = {
+  [DELETE_RECORDS_ACTION_CLASS]: 'Records deleted by an agent, automation or MCP client are held for approval',
+} as const;
+export type EnforcedPolicyClass = keyof typeof ENFORCED_POLICY_CLASSES;
+export const isEnforcedPolicyClass = (actionClass: string): actionClass is EnforcedPolicyClass =>
+  Object.hasOwn(ENFORCED_POLICY_CLASSES, actionClass);
+
+/** The 422 an admin sees at the moment they type a class nothing enforces. */
+export function unsupportedClassMessage(actionClass: string): string {
+  return `"${actionClass}" is not an action class a gate can enforce, so a policy on it would be listed as enabled and protect nothing. Supported classes: ${Object.keys(ENFORCED_POLICY_CLASSES).join(', ')}.`;
+}
+
+/**
  * #781 Phase 3 — the first "publish externally" action class, naming #282's
  * existing write-back push. Deliberately NOT routed through this service's
  * own `check()`/`resolvePolicy()` — #282's hold decision stays driven by its
@@ -31,7 +59,7 @@ export const SOURCE_PUSH_ACTION_CLASS = 'source_push';
 export interface CheckGateInput {
   workspaceId: string;
   databaseId: string;
-  actionClass: string;
+  actionClass: EnforcedPolicyClass;
   /** A person at the keyboard is never gated — see `check()`'s own doc. */
   source: ChangeSource;
   requesterActorId: string;
@@ -80,7 +108,7 @@ export class ActionGatesService {
   /** Database-scoped row beats space-scoped beats workspace-scoped — the
    * most specific declared policy wins, matching `access_grants`' own
    * scope-resolution precedent. */
-  private async resolvePolicy(workspaceId: string, databaseId: string, actionClass: string): Promise<PolicyRow | null> {
+  private async resolvePolicy(workspaceId: string, databaseId: string, actionClass: EnforcedPolicyClass): Promise<PolicyRow | null> {
     const database = await this.db.query.databases.findFirst({ where: eq(databases.id, databaseId) });
     const spaceId = database?.spaceId;
 
@@ -168,7 +196,7 @@ export class ActionGatesService {
    * database while quietly deleting the others (a partial delete would be
    * worse than a refusal here, per this ticket's "never partial" rule).
    */
-  async wouldGate(workspaceId: string, databaseId: string, actionClass: string, source: ChangeSource): Promise<boolean> {
+  async wouldGate(workspaceId: string, databaseId: string, actionClass: EnforcedPolicyClass, source: ChangeSource): Promise<boolean> {
     if (source === 'human') return false;
     const policy = await this.resolvePolicy(workspaceId, databaseId, actionClass);
     return Boolean(policy?.enabled);
@@ -205,6 +233,9 @@ export class ActionGatesService {
     approverId: string;
     createdBy: string;
   }): Promise<PolicyRow> {
+    if (!isEnforcedPolicyClass(input.actionClass)) {
+      throw new UnprocessableEntityException(unsupportedClassMessage(input.actionClass));
+    }
     await this.assertResolvableApprover(input.workspaceId, input.approverId);
     const [created] = await this.db
       .insert(actionGatePolicies)
@@ -232,6 +263,11 @@ export class ActionGatesService {
 
     const nextApproverId = patch.approverId ?? existing.approverId;
     const nextEnabled = patch.enabled ?? existing.enabled;
+    // #878 — a stored policy on a class nothing enforces (declared before this check existed) may
+    // be disabled or deleted, never switched ON: enabling it would restore the false guarantee.
+    if (patch.enabled === true && !isEnforcedPolicyClass(existing.actionClass)) {
+      throw new UnprocessableEntityException(unsupportedClassMessage(existing.actionClass));
+    }
     if (nextEnabled) await this.assertResolvableApprover(workspaceId, nextApproverId);
 
     const [updated] = await this.db

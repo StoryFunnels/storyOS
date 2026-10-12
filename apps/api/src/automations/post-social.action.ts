@@ -142,7 +142,7 @@ export class PostSocialActionService implements OnModuleInit {
       }
     }
 
-    const media = action.media_field_id && ctx.recordId ? await this.loadMedia(ctx.recordId, action.media_field_id) : null;
+    const media = action.media_field_id && ctx.recordId ? await this.loadMedia(ctx.databaseId, ctx.recordId, action.media_field_id) : null;
 
     const { provider, auth } = await helpers.connectionAuth(action.connection_id);
     const result =
@@ -180,15 +180,38 @@ export class PostSocialActionService implements OnModuleInit {
     return typeof value === 'string' && value.trim().length > 0;
   }
 
-  /** The media field's first attachment (#42 doesn't ask for multi-image
-   * posts), fetched into memory — attachments are already capped by
-   * ATTACHMENT_MAX_BYTES on upload, so this never buffers more than one
-   * upload's worth. */
-  private async loadMedia(recordId: string, mediaFieldId: string): Promise<MediaAsset | null> {
-    const attachment = await this.db.query.attachments.findFirst({
+  /**
+   * Which attachment goes out: the media field's FIRST attachment IN THE ORDER THE FIELD HOLDS THEM.
+   *
+   * An attachment field's value is an ordered list of attachment ids that a person can reorder
+   * (assertOwnedAttachments allows reordering), so "first" is what the cell shows first, and it is
+   * the SAME rule the approval preview uses to show the approver the image that will be posted
+   * (ticket #826). This used to pick the NEWEST upload (`createdAt desc`) while its own doc comment
+   * said "first": with two attachments the approver approved one image and a different one was
+   * published. An id on the field that no longer resolves is skipped; a field whose value is empty
+   * falls back to the oldest upload (the order `loadAttachmentChips` shows when nothing is stored).
+   */
+  private async pickMediaAttachment(databaseId: string, recordId: string, mediaFieldId: string) {
+    const row = await this.records.getRow(databaseId, recordId);
+    const stored = (row.values as Record<string, unknown> | null)?.[mediaFieldId];
+    const ids = Array.isArray(stored)
+      ? stored.map((v) => (typeof v === 'string' ? v : (v as { id?: unknown } | null)?.id)).filter((v): v is string => typeof v === 'string')
+      : [];
+    const onField = await this.db.query.attachments.findMany({
       where: and(eq(attachments.recordId, recordId), eq(attachments.fieldId, mediaFieldId)),
-      orderBy: (a, { desc: descOrder }) => [descOrder(a.createdAt)],
+      orderBy: (a, { asc: ascOrder }) => [ascOrder(a.createdAt)],
     });
+    for (const id of ids) {
+      const hit = onField.find((a) => a.id === id);
+      if (hit) return hit;
+    }
+    return onField[0] ?? null;
+  }
+
+  /** The chosen attachment, fetched into memory — attachments are already capped by
+   * ATTACHMENT_MAX_BYTES on upload, so this never buffers more than one upload's worth. */
+  private async loadMedia(databaseId: string, recordId: string, mediaFieldId: string): Promise<MediaAsset | null> {
+    const attachment = await this.pickMediaAttachment(databaseId, recordId, mediaFieldId);
     if (!attachment) return null;
     const stream = await getStorage().getStream(attachment.storageKey);
     const buffer = await streamToBuffer(stream);

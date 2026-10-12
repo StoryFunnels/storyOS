@@ -9,7 +9,8 @@ import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { scopeSatisfies, type TokenScope } from '@storyos/schemas';
+import { scopeSatisfies, type ResourceScope, type TokenScope } from '@storyos/schemas';
+import { RESOURCE_SCOPABLE_KEY } from '../access/resource-scope';
 import type { ChangeSource } from '../db/schema';
 import { AUTH } from './auth.tokens';
 import type { Auth } from './auth';
@@ -40,6 +41,8 @@ export interface AuthContext {
   tokenScope?: TokenScope;
   /** Only set for `via: 'token'` — whether run_button is allowed within write scope. */
   allowRunButton?: boolean;
+  /** #543 — only set for a token bound to specific spaces/databases. */
+  resourceScope?: { space_ids: string[]; database_ids: string[] };
   /**
    * #357 — what wrote this, for the change log's `source` badge.
    *
@@ -121,6 +124,24 @@ export class AuthGuard implements CanActivate {
     }
   }
 
+  /**
+   * #543 — DENY BY DEFAULT for a token bound to specific spaces/databases: only routes marked
+   * @ResourceScopable() are reachable. The refusal names the boundary and is the same whether
+   * or not the thing asked about exists.
+   */
+  private enforceResourceBinding(context: ExecutionContext, bound: ResourceScope | null): void {
+    if (!bound) return;
+    const allowed = this.reflector.getAllAndOverride<boolean>(RESOURCE_SCOPABLE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!allowed) {
+      throw new ForbiddenException(
+        'This token is bound to specific spaces or databases; this route is outside that boundary',
+      );
+    }
+  }
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
 
@@ -149,6 +170,7 @@ export class AuthGuard implements CanActivate {
       const account = await this.db.query.user.findFirst({ where: eq(user.id, effectiveUserId) });
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
       this.enforceTokenScope(context, resolved);
+      this.enforceResourceBinding(context, resolved.resourceScope);
 
       /**
        * MN-122: a PAT is minted FOR a workspace, so it must only work there.
@@ -177,6 +199,7 @@ export class AuthGuard implements CanActivate {
         workspaceId: resolved.workspaceId,
         tokenScope: resolved.scope,
         allowRunButton: resolved.allowRunButton,
+        ...(resolved.resourceScope ? { resourceScope: resolved.resourceScope } : {}),
         // Unset origin = an ordinary PAT = `mcp`, exactly the pre-#357 behaviour.
         source: resolved.origin ?? 'mcp',
         // #541 — undefined (not present) for every non-agent-scoped token, so
@@ -230,7 +253,12 @@ export class AuthGuard implements CanActivate {
             image: account.image,
             emailVerified: account.emailVerified,
           };
-          (request as AuthedRequest).auth = { via: 'oauth', source: 'human' };
+          // #858 — `mcp`, NOT `human`. The comment above says every token this server mints is an
+          // MCP token by construction; the provenance has to say the same. `human` here meant an
+          // AI connected through claude.ai skipped every gate meant for agents (ADR-0010's
+          // publish rule, action gates, ungating an approval) and was badged as a person. A PAT
+          // is `mcp`; this is the same kind of caller. Pinned by test/oauth-source.test.ts.
+          (request as AuthedRequest).auth = { via: 'oauth', source: 'mcp' };
           return true;
         }
       }

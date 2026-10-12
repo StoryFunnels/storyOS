@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { isTypingTarget } from '@/lib/shortcuts';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -222,8 +223,7 @@ function MyWorkInner() {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       // Never hijack the arrows while someone is typing — in a panel field, a
       // filter box, or any editable surface.
-      const el = e.target as HTMLElement | null;
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (isTypingTarget(e.target)) return;
       const queue = queueRef.current;
       const i = queue.findIndex((q) => q.record.id === activeId);
       if (i === -1) return;

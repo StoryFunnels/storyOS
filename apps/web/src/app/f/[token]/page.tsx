@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
 import { embedThemeStyle } from '@/lib/embed-theme';
+import { EMBED_FORM } from '@/lib/embed-form-type';
 import { FileInput } from '@/components/ui/file-input';
 import { Textarea } from '@/components/ui/textarea';
 import type { SelectOption } from '@/components/table-view/use-table-data';
@@ -193,10 +194,10 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
 
   return (
     <div className={wrap} style={themeStyle}>
-      <form onSubmit={submit} className={`mx-auto flex max-w-xl flex-col gap-5 ${card}`}>
+      <form onSubmit={submit} className={`mx-auto max-w-xl ${EMBED_FORM.form} ${card}`}>
         <div>
-          <h1 className="text-xl font-semibold text-ink">{def!.title}</h1>
-          {def!.description && <p className="mt-1 text-sm text-muted">{def!.description}</p>}
+          <h1 className={EMBED_FORM.title}>{def!.title}</h1>
+          {def!.description && <p className={EMBED_FORM.description}>{def!.description}</p>}
         </div>
         {visibleFormFields(def!.fields, values).map((f) => {
           // #500 — `required` alone is no longer the full story: `required_when`
@@ -219,7 +220,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
               />
             );
           const labelText = (
-            <span className="text-body font-medium text-ink-secondary">
+            <span className={EMBED_FORM.label}>
               {f.label}
               {requiredNow && <span className="ml-0.5 text-error">*</span>}
             </span>
@@ -230,20 +231,20 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           // The help text stays beneath the whole row rather than joining it.
           if (f.type === 'checkbox') {
             return (
-              <label key={f.field_id} className="flex flex-col gap-1.5">
+              <label key={f.field_id} className={EMBED_FORM.field}>
                 <span className="flex items-center gap-2">
                   {control}
                   {labelText}
                 </span>
-                {f.help && <span className="text-label text-muted">{f.help}</span>}
+                {f.help && <span className={EMBED_FORM.help}>{f.help}</span>}
               </label>
             );
           }
           return (
-            <label key={f.field_id} className="flex flex-col gap-1.5">
+            <label key={f.field_id} className={EMBED_FORM.field}>
               {labelText}
               {control}
-              {f.help && <span className="text-label text-muted">{f.help}</span>}
+              {f.help && <span className={EMBED_FORM.help}>{f.help}</span>}
             </label>
           );
         })}
@@ -261,7 +262,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
         <button
           type="submit"
           disabled={submitting}
-          className="mt-1 rounded-[var(--radius-control)] bg-primary px-4 py-2.5 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+          className={EMBED_FORM.submit}
         >
           {submitting ? 'Submitting…' : def!.submit_text}
         </button>
@@ -322,8 +323,7 @@ function Input({
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
-  const base =
-    'rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none focus:border-accent';
+  const base = EMBED_FORM.control;
   const t = field.type;
   if (t === 'checkbox') {
     return (

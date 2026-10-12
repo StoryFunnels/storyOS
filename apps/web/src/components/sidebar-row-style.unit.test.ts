@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { SIDEBAR_INDENT_PX, markInitials, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
+import { CARET_HIT_AREA, SIDEBAR_INDENT_PX, markInitials, sidebarRowIndent, sidebarRowStateClass } from './sidebar-row-style';
 
 /**
  * #380 / #742 — this geometry has regressed twice under the OLD margin-scale
@@ -171,5 +171,29 @@ describe('markInitials (#805)', () => {
     expect(markInitials('X')).toBe('X');
     expect(markInitials('')).toBe('?');
     expect(markInitials('///')).toBe('?');
+  });
+});
+
+describe('CARET_HIT_AREA (#799)', () => {
+  it('grows leftward and vertically, never rightward — the right edge stays flush with the glyph', () => {
+    expect(CARET_HIT_AREA).toContain('before:-left-3');
+    expect(CARET_HIT_AREA).toContain('before:right-0');
+    expect(CARET_HIT_AREA).not.toMatch(/before:-right-/);
+  });
+  it('adds up to 24x24 around a 12px glyph: 12 left + 12 glyph, 6 up + 12 + 6 down', () => {
+    // -left-3 = 12px, -inset-y-1.5 = 6px each. If either is edited, the target
+    // drops below WCAG 2.2 SC 2.5.8's 24px minimum and this must fail.
+    const glyph = 12;
+    const left = 12;
+    const vertical = 6;
+    expect(glyph + left).toBeGreaterThanOrEqual(24);
+    expect(glyph + 2 * vertical).toBeGreaterThanOrEqual(24);
+    expect(CARET_HIT_AREA).toContain('before:-inset-y-1.5');
+  });
+  it('is applied by every caret button in sidebar.tsx, so the three sites cannot drift', () => {
+    const src = readFileSync(fileURLToPath(new URL('./sidebar.tsx', import.meta.url)), 'utf8');
+    const buttons = src.match(/aria-expanded=\{[^}]+\}/g) ?? [];
+    expect(buttons.length).toBe(3);
+    expect((src.match(/CARET_HIT_AREA\)/g) ?? []).length).toBe(3);
   });
 });

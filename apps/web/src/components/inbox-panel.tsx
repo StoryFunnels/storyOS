@@ -1,5 +1,7 @@
 'use client';
 
+import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -107,6 +109,7 @@ export function useResolveRun(ws: string, onSettled: () => void) {
  * takes an optional reason, matching POST …/approvals/:id/reject's body.
  */
 export function useResolveApproval(ws: string, onSettled: () => void) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
       approvalId,
@@ -127,6 +130,9 @@ export function useResolveApproval(ws: string, onSettled: () => void) {
       toast.success(vars.verdict === 'approve' ? 'Approved' : 'Rejected');
       onSettled();
     },
+    // Win or lose, the approval's state may have changed (a 409 means someone else decided it), so the
+    // Inbox re-reads it and swaps the controls for the decided state.
+    onSettled: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('approvals') }),
     onError: (err) => toast.error(apiErrorMessage(err, 'Could not resolve — it may already be settled or expired')),
   });
 }
@@ -413,6 +419,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
                       {VERBS[n.type]}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
+                      {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                     </span>
                     {n.record && (
                       <span
@@ -432,6 +439,10 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       </span>
                     )}
                     {n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>}
+                    {/* #826 — a post_social approval shows what will actually be published: full text, account, image. */}
+                    {n.type === 'action_approval_requested' && n.ref_id && n.record && (
+                      <PostApprovalPreview ws={ws} approvalId={n.ref_id} db={n.record.database_id} rec={n.record.id} />
+                    )}
                     {/* The killer mobile flow (mobile-responsive-plan.md): approve or
                         reject a gated agent action in one tap, right from the Inbox.
                         min-h-11 (44px) keeps both a comfortable thumb target. */}
@@ -460,6 +471,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                         not record.id), and Reject opens an inline reason box
                         instead of firing immediately. */}
                     {n.type === 'action_approval_requested' && n.ref_id && (
+                      <ApprovalGate ws={ws} approvalId={n.ref_id}>
                       <span onClick={(e) => e.stopPropagation()}>
                         {rejecting?.notificationId === n.id ? (
                           <span className="mt-2 flex flex-col gap-1.5">
@@ -518,6 +530,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                           </span>
                         )}
                       </span>
+                      </ApprovalGate>
                     )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">

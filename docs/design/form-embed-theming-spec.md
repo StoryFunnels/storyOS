@@ -215,6 +215,16 @@ cost is that an embedder cannot use a font we do not carry.
 > Left uncorrected, this section would have told the next reader that the font
 > control is procurement work. It is an afternoon's UI work plus a deliberate
 > choice of families. See #720.
+>
+> **UPDATE (ticket #797): the mechanism changed, the privacy property did not.**
+> `next/font/google` fetched every family from Google's CDN on **every build**,
+> which made the build non-deterministic (a different family failed each time, on
+> PRs that touched no font, and it ejected a PR from the merge queue). The seven
+> families are now **vendored** under `apps/web/src/app/fonts/` (provenance and the
+> SIL OFL licence note are in its README) and declared with plain `@font-face`.
+> What this section cares about is unchanged and still verified: the fonts are served
+> from **our own origin** and no visitor request reaches Google. The build now makes
+> no font request at all. Read "`next/font/google`" above as "self-hosted woff2".
 
 Proposed set — chosen to span the shapes a brand actually needs, not to be
 comprehensive:

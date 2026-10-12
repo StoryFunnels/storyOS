@@ -11,6 +11,7 @@ import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
+import { copySelectionProblem } from '@/lib/copy-limit';
 
 interface FieldPlan {
   sourceKey: string;
@@ -150,7 +151,7 @@ export function CopyToDialog({
   useEffect(() => {
     // Only when the destination changes — a skip toggle re-runs explicitly via
     // toggleSkip, always starting a new destination with a clean skip set.
-    if (target) void runDry(target, new Set());
+    if (target && !copySelectionProblem(recordIds.length)) void runDry(target, new Set());
   }, [target]);
 
   function toggleSkip(sourceKey: string) {
@@ -191,6 +192,9 @@ export function CopyToDialog({
 
   const blocking = preview?.blocking ?? [];
   const single = recordIds.length === 1;
+  // #823 — over the server's cap: say so HERE, before a destination exists, so
+  // the person never spends the mapping effort on a copy that is guaranteed to 422.
+  const overLimit = copySelectionProblem(recordIds.length);
 
   return (
     <Dialog
@@ -210,7 +214,14 @@ export function CopyToDialog({
               </div>
             )}
 
-            {!result && (
+            {overLimit && (
+              <div role="alert" className="rounded-[var(--radius-card)] border border-error/40 bg-error/5 p-3 text-body">
+                <p className="font-medium text-error">Too many records to copy at once</p>
+                <p className="mt-1 text-ink-secondary">{overLimit.message}</p>
+              </div>
+            )}
+
+            {!result && !overLimit && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-label font-medium text-ink-secondary">Copy into</label>
                 <Select
@@ -310,7 +321,7 @@ export function CopyToDialog({
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               {result ? 'Close' : 'Cancel'}
             </Button>
-            {!result && (
+            {!result && !overLimit && (
               <Button
                 type="button"
                 disabled={!target || !preview || busy || blocking.length > 0}

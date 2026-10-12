@@ -18,8 +18,7 @@ import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
-import { blockPlainText } from './entity-field-utils';
-import { formatActivityValue } from './activity-format';
+import { blockLines, formatActivityValue, resolveBlockChanges } from './activity-format';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 
 type Segment =
@@ -242,7 +241,7 @@ function CommentBlockNoteBody({ ws, doc }: { ws: string; doc: unknown[] }) {
     initialContent: doc.length > 0 ? (doc as never) : undefined,
   });
   return (
-    <div className="text-[13px] leading-relaxed text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
+    <div className="text-reading text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
       <MentionScope ws={ws}>
         <BlockNoteView editor={editor} editable={false} theme={theme} />
       </MentionScope>
@@ -351,7 +350,7 @@ export function CommentsPanel({
           {isBlocknoteBody(comment.body) ? (
             <CommentBlockNoteBody ws={ws} doc={comment.body.doc} />
           ) : (
-            <p className="text-[13px] leading-relaxed text-ink-secondary">
+            <p className="text-reading text-ink-secondary">
               {comment.body.map((segment, i) =>
                 segment.type === 'text' ? (
                   <span key={i}>{segment.text}</span>
@@ -489,34 +488,43 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
                   <span key={i}>
                     {i > 0 && '; '}
                     <span className="font-medium">{change.field}</span>:{' '}
-                    {change.blocks ? (
-                      // #796 — a rich_text field's `from`/`to` are raw BlockNote
-                      // blocks, not the scalar values `fmt()` resolves — hence
-                      // "[object Object]". `diffBlocks(prev, next)` (this is
-                      // the FORWARD direction, unlike record-history.tsx's
-                      // restore-preview reading of the same shape): 'added' is
-                      // new content, 'removed' is content that's gone,
-                      // 'changed' is before → after, same as every other field
-                      // change on this line.
-                      change.blocks.map((b, j) => (
+                    {(() => {
+                      // #829 — a rich_text change is shown as a block diff whether or not the
+                      // row carries `blocks`: rows written before #796 hold only the raw
+                      // from/to, which are still the full block arrays, so the diff is
+                      // recomputed (`resolveBlockChanges`) instead of falling to the scalar
+                      // formatter, which printed "[object Object]" for each block.
+                      const blocks = resolveBlockChanges(change, typeByName.get(change.field));
+                      if (!blocks) {
+                        return (
+                          <>
+                            {fmtFor(change.field)(change.from)} → {fmtFor(change.field)(change.to)}
+                          </>
+                        );
+                      }
+                      const lines = blockLines(blocks);
+                      if (lines.length === 0) return <span className="text-muted">(rich text edited, no visible change)</span>;
+                      // FORWARD direction (diffBlocks(prev, next)), the mirror of
+                      // record-history.tsx's restore preview: 'added' is new content,
+                      // 'removed' is gone, 'changed' is before → after.
+                      return lines.map((l, j) => (
                         <span key={j}>
                           {j > 0 && ', '}
-                          {b.kind === 'added' && <>+ {blockPlainText(b.to)}</>}
-                          {b.kind === 'removed' && (
-                            <span className="text-muted line-through">− {blockPlainText(b.from)}</span>
-                          )}
-                          {b.kind === 'changed' && (
+                          {l.kind === 'added' && <>+ {l.text}</>}
+                          {l.kind === 'removed' && <span className="text-muted line-through">− {l.text}</span>}
+                          {l.kind === 'changed' && (
                             <>
-                              {blockPlainText(b.from)} → {blockPlainText(b.to)}
+                              {l.from} → {l.to}
                             </>
                           )}
+                          {l.kind === 'formatting' && (
+                            <span className="text-muted">
+                              formatting changed in {l.count} block{l.count === 1 ? '' : 's'}
+                            </span>
+                          )}
                         </span>
-                      ))
-                    ) : (
-                      <>
-                        {fmtFor(change.field)(change.from)} → {fmtFor(change.field)(change.to)}
-                      </>
-                    )}
+                      ));
+                    })()}
                   </span>
                 ))}
               </>

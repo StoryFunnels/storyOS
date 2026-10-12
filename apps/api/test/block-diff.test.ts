@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffBlocks } from '@storyos/schemas/block-diff';
+import { canonicalJson, diffBlocks, jsonEqual } from '@storyos/schemas/block-diff';
 
 const p = (id: string, text: string) => ({
   id,
@@ -88,5 +88,93 @@ describe('diffBlocks (#595)', () => {
     expect(changes).toContainEqual({ kind: 'removed', blockId: 'b2', from: p('b2', 'Remove me') });
     expect(changes).toContainEqual({ kind: 'changed', blockId: 'b3', from: p('b3', 'Edit me'), to: p('b3', 'Edited') });
     expect(changes).toContainEqual({ kind: 'added', blockId: 'b4', to: p('b4', 'New') });
+  });
+});
+
+/**
+ * #840 — "formatting changed in 5 blocks" for a one-line edit.
+ *
+ * Reproduced against the real API before the fix: a rich_text field written
+ * through the API (blocks with no id, the caller's own key order), edited on ONE
+ * line, stored all five blocks as `changed`. The cause is not the missing id —
+ * id-less blocks were already matched by position and compared — it is that the
+ * comparison was JSON.stringify, i.e. KEY ORDER: the stored side comes back from
+ * a jsonb column (keys re-sorted shortest-first), the new side arrives in the
+ * writer's order, so two identical blocks differed byte-for-byte.
+ */
+const para = (text: string, order: 'caller' | 'jsonb', id?: string) => {
+  const props =
+    order === 'caller'
+      ? { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' }
+      : { textColor: 'default', textAlignment: 'left', backgroundColor: 'default' }; // jsonb's order
+  const item = order === 'caller' ? { type: 'text', text, styles: {} } : { text, type: 'text', styles: {} };
+  return { ...(id ? { id } : {}), type: 'paragraph', props, content: [item], children: [] };
+};
+
+describe('key order is not content (#840)', () => {
+  it('canonicalJson sorts object keys at every depth but keeps array order', () => {
+    expect(canonicalJson({ b: 1, a: { d: 2, c: 3 } })).toBe(canonicalJson({ a: { c: 3, d: 2 }, b: 1 }));
+    expect(canonicalJson([1, 2])).not.toBe(canonicalJson([2, 1]));
+    expect(jsonEqual({ a: undefined, b: 1 }, { b: 1 })).toBe(true);
+  });
+
+  it('five id-less API-written blocks, one edited line: ONE change, not five — the reproduced bug', () => {
+    const lines = ['Intro', 'Second', 'Third', 'Fourth', 'Fifth'];
+    const stored = lines.map((t) => para(t, 'jsonb')); // as read back from jsonb
+    const incoming = lines.map((t, i) => para(i === 2 ? 'Third EDITED' : t, 'caller')); // as the API caller wrote it
+    const changes = diffBlocks(stored, incoming);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.kind).toBe('changed');
+  });
+
+  it('identical content in a different key order reports NOTHING', () => {
+    expect(diffBlocks([para('Same', 'jsonb')], [para('Same', 'caller')])).toEqual([]);
+  });
+
+  it('a real formatting-only change (same text, different styling) is STILL reported', () => {
+    const plain = para('Bold me', 'caller');
+    const bold = { ...plain, content: [{ type: 'text', text: 'Bold me', styles: { bold: true } }] };
+    const changes = diffBlocks([plain], [bold]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.kind).toBe('changed');
+  });
+});
+
+describe('id-less content: the matching rule (#840)', () => {
+  const lines = ['Alpha', 'Beta', 'Gamma'];
+
+  it('old blocks WITH ids, new blocks WITHOUT: identical content matches, only the edit is reported', () => {
+    // Borderlands Jobs #3's shape: the editor wrote ids, the pipeline rewrote without them.
+    const before = lines.map((t, i) => para(t, 'jsonb', `id${i}`));
+    const after = lines.map((t, i) => para(i === 1 ? 'Beta EDITED' : t, 'caller'));
+    const changes = diffBlocks(before, after);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ kind: 'changed', blockId: 'id1' });
+  });
+
+  it('dropping every id from unchanged content reports nothing (a missing id never implies a change)', () => {
+    const before = lines.map((t, i) => para(t, 'jsonb', `id${i}`));
+    expect(diffBlocks(before, lines.map((t) => para(t, 'caller')))).toEqual([]);
+  });
+
+  it('an inserted id-less line shifts nothing after it: only the addition is reported', () => {
+    const before = lines.map((t) => para(t, 'jsonb'));
+    const after = [para('Alpha', 'caller'), para('New line', 'caller'), para('Beta', 'caller'), para('Gamma', 'caller')];
+    const changes = diffBlocks(before, after);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ kind: 'added' });
+  });
+
+  it('two DIFFERENT ids are never merged on content: that is a removal and an addition', () => {
+    const changes = diffBlocks([para('Same', 'caller', 'a')], [para('Same', 'caller', 'b')]);
+    expect(changes.map((c) => c.kind).sort()).toEqual(['added', 'removed']);
+  });
+
+  it('never emits a NUL byte or an undefined id for any pairing', () => {
+    const changes = diffBlocks([para('x', 'caller'), para('y', 'caller', 'k')], [para('z', 'caller'), para('w', 'caller')]);
+    for (const c of changes) {
+      expect(typeof c.blockId).toBe('string');
+      expect(c.blockId).not.toContain('\0');
+    }
   });
 });

@@ -38,6 +38,36 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
+- **Sorting by a relation** — a **single-valued** relation (the "Parent" side of a one-to-many)
+  sorts by the **title of the linked record**; records with no link follow the usual empty-values
+  placement. A **multi-valued** relation (the "many" side of a one-to-many, or either side of a
+  many-to-many) can't be sorted — there is no single value to order by — and is refused with a
+  `422`, the same as a multi-person field. The same list of sortable types drives the app's sort
+  picker, so what a view can offer and what the API accepts agree.
+
+## Counting and aggregating
+
+Don't count by paging `records/query` and tallying — it is paginated, so a client-side count is the
+size of one page. Ask the database:
+
+- **`POST .../records/aggregate`** — one number: `{ op, field?, filter?, q? }`, where `op` is
+  `count` (default), `sum`, `avg`, `min` or `max` (the last four need a number `field`). Takes the
+  same filter AST as a query.
+- **`POST .../records/aggregate/grouped`** — one number **per group**, in one query: the same body
+  plus `group_by` (a field api_name) and, for a date field, `group_by_granularity` (`week`, `month`,
+  `quarter`, `year`; each group's key is that bucket's start date). Returns
+  `{ op, field, group_by, groups: [{ key, label?, value }], filtered, exact: true }`. This is what a
+  board column's true size comes from.
+- **Groupable fields:** select, workflow, multi-select, checkbox, a single-person user field, a date
+  (with granularity), a number with configured bins (key is the bin index, `label` its name), the
+  single side of a one-to-many relation, text, and lookup.
+- **Keys are raw** — a select's option **id**, not its label. A record with no value is in the
+  `null` group.
+- **A multi-select counts a record in every option it has**, so group totals can add up to more than
+  the number of records; a checkbox's keys are `"true"` and `"false"`.
+- **Access applies to totals too:** a guest's counts cover only what they can see, the same as a list.
+
+Over MCP these are `count_records` and `count_records_grouped`.
 
 ## Writing
 

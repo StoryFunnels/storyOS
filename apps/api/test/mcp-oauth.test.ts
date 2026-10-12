@@ -142,6 +142,21 @@ describe('#331 hosted-MCP OAuth scope discovery', () => {
     });
     expect(me.statusCode, 'a valid token from the MCP authorization server authenticates').toBe(200);
     expect(me.json().auth.via).toBe('oauth');
+
+    // #858 — and it is classified as the AI it is. `/me` does not expose `source`, so read it
+    // where it is stamped: the provenance of something this token writes. This line pinned
+    // `human` by omission for a long time (the suite asserted `via` and never `source`).
+    const wsId = (
+      await app.inject({ method: 'POST', url: '/api/v1/workspaces', headers: authed(session), payload: { name: 'oauth src' } })
+    ).json().id as string;
+    const written = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/skills`,
+      headers: { authorization: `Bearer ${token!.access_token}` },
+      payload: { name: 's', description: 'd', when_to_use: 'w', instructions: 'i' },
+    });
+    expect(written.statusCode, written.body).toBe(201);
+    expect(written.json().source, 'an OAuth-connected AI writes as mcp, not human').toBe('mcp');
   });
 
   it('an OAuth token WITHOUT storyos.mcp is still accepted — the real-world case (#331)', async () => {

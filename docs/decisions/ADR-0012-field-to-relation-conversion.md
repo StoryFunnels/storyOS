@@ -1,6 +1,6 @@
 # ADR-0012: Converting a text/select field into a relation — a guided, dry-run migration
 
-- **Status:** accepted (design; implementation is a follow-up)
+- **Status:** accepted. **Implemented for one case only (#597):** a `user` field <-> a relation to the Members database, in both directions. The general text/select -> relation conversion described below is still design-only. See "Implementation notes (#597)" at the end.
 - **Date:** 2026-07-17
 - **Source:** #87 (MN — "Change field type → relation"). The ticket requires a written design before implementation; this is it.
 
@@ -91,3 +91,27 @@ recoverable: unlink, restore the parked column.
   fixes the design so that work isn't relitigated mid-build.
 - **Rejected — a silent cast** (match by title, drop the rest): loses data,
   can't express ambiguity or cardinality, and violates "never silently dropped."
+
+## Implementation notes (#597)
+
+The first implementation covers a `user` field <-> a relation to the Members database
+(`apps/api/src/members/field-conversion.service.ts`). What it keeps from this ADR and what it decides:
+
+- **Dry run is the default**, and applying is a second, explicit call.
+- **Matching is exact** (a user field stores user ids, Members rows carry the user id), so there is no
+  ambiguous bucket. The buckets are *matched* and *unresolvable*.
+- **Unmatched is Park, never dropped.** Forward: the original user field is RETAINED, renamed
+  `<name> (user)`, and a value that resolves to no Members row stays on it; the records can be listed with
+  `relation is_empty AND retained not_empty`. Reverse: a Members row with no user id (invited, erased) cannot
+  become a user, so its name goes into a text field `<name> (unlinked members)`.
+- **The original keeps its `api_name`; the relation gets a new one.** Views, automations and API clients address
+  a field by api_name, so moving the name would silently repoint them at a field of a different type.
+- **Reversible.** The reverse writes values from the relation (the source of truth after a conversion), restores
+  the name, and removes the relation AND its paired field on Members, so an undo leaves no orphan.
+- **The inverse field on Members is created hidden** (`entity_hidden`, and hidden in Members' views); a second
+  conversion from the same database creates a second relation and a second inverse (`<database> / <field>`).
+- **A conversion must be permission-neutral.** The dry run reports, per guest, whether they can read Members and
+  whether they would see chips. Applying then PROBES every guest who cannot read Members through the real
+  database-detail and record-list paths and rolls the conversion back if anything about the Members side shows up.
+  That probe exists because the first version predicted "no gains" from the access rules alone and a test showed a
+  guest still read the far database's name off the relation field; a prediction is not accepted as proof.

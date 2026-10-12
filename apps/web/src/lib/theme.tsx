@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { embedModeFromSearch } from './embed-mode';
 
 /** Appearance preference (#30). 'system' follows the OS; the other two pin it.
  * Appearance is per-browser (localStorage), not stored on the account. */
@@ -33,8 +34,14 @@ export function isEmbeddedForm(pathname: string, search: string): boolean {
 
 /** The pre-paint script (see layout.tsx) sets <html data-theme> before React hydrates,
  * so there's no flash. Keep this logic in sync with that inline script — and with
- * `isEmbeddedForm` above, whose logic the first two statements mirror. */
-export const THEME_INIT_SCRIPT = `(function(){try{if(/^\\/f\\//.test(location.pathname)&&new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.setAttribute('data-theme','light');document.documentElement.setAttribute('data-embed','1');return;}var t=localStorage.getItem('${THEME_STORAGE_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var r=(t==='dark'||(t==='system'&&m))?'dark':'light';document.documentElement.setAttribute('data-theme',r);}catch(e){}})();`;
+ * `isEmbeddedForm` above, whose logic the first two statements mirror.
+ *
+ * #721 — an embed's `theme` param (light | dark, see embed-mode.ts) is read HERE,
+ * pre-paint, because it is the only place that can apply it without a flash.
+ * Anything else, or no param, is light: today's behaviour for every existing embed.
+ * `embed-mode.unit.test.ts` EXECUTES this string against `embedModeFromSearch`, so
+ * the two cannot drift apart unnoticed. */
+export const THEME_INIT_SCRIPT = `(function(){try{if(/^\\/f\\//.test(location.pathname)&&new URLSearchParams(location.search).get('embed')==='1'){document.documentElement.setAttribute('data-theme',new URLSearchParams(location.search).get('theme')==='dark'?'dark':'light');document.documentElement.setAttribute('data-embed','1');return;}var t=localStorage.getItem('${THEME_STORAGE_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var r=(t==='dark'||(t==='system'&&m))?'dark':'light';document.documentElement.setAttribute('data-theme',r);}catch(e){}})();`;
 
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -62,7 +69,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // mount effect below re-applies the visitor's own preference to the SAME
     // attribute, so the form would paint light and then flip to dark.
     const embedded = isEmbeddedForm(window.location.pathname, window.location.search);
-    const r = embedded ? 'light' : resolve(pref);
+    // #721 — an embed follows its OWN `theme` param (light unless the host pinned
+    // dark), never the visitor's stored preference and never their device.
+    const r = embedded ? embedModeFromSearch(window.location.search) : resolve(pref);
     document.documentElement.setAttribute('data-theme', r);
     // Paired with the theme pin: globals.css keys the transparent body off this,
     // and `body` cannot be reached from the page component because it is an
@@ -97,7 +106,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [apply],
   );
 
-  // When following the system and it flips, re-resolve live.
+  // When following the system and it flips, re-resolve live. An embed never does
+  // (apply() ignores the device for it): it is pinned by its own param.
   useEffect(() => {
     if (preference !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');

@@ -13,14 +13,15 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { createSkillSchema, skillExportFormatSchema, updateSkillSchema } from '@storyos/schemas';
+import { createSkillSchema, importSkillSchema, skillExportFormatSchema, updateSkillSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { SkillsService } from './skills.service';
+import { SkillsService, publicSkill } from './skills.service';
 
 class CreateSkillDto extends createZodDto(createSkillSchema) {}
 class UpdateSkillDto extends createZodDto(updateSkillSchema) {}
+class ImportSkillDto extends createZodDto(importSkillSchema) {}
 
 /**
  * #40 — the Skills framework. Any active member can list/read/run/export a
@@ -37,8 +38,9 @@ export class SkillsController {
 
   @Get()
   @ApiOperation({ summary: 'List skills visible to the caller: their own, plus every shared one' })
-  list(@Req() req: WorkspaceRequest) {
-    return this.skills.list(req.membership, req.user.id);
+  async list(@Req() req: WorkspaceRequest) {
+    const { data } = await this.skills.list(req.membership, req.user.id);
+    return { data: data.map(publicSkill) };
   }
 
   /**
@@ -54,25 +56,45 @@ export class SkillsController {
   @Get(':id')
   @ApiParam({ name: 'id', description: 'The skill record id' })
   @ApiOperation({ summary: 'Read one skill' })
-  get(@Req() req: WorkspaceRequest, @Param('id') id: string) {
-    return this.skills.get(req.membership, req.user.id, id);
+  async get(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+    return publicSkill(await this.skills.get(req.membership, req.user.id, id));
   }
 
   @Post()
   @MinRole('member')
-  @ApiOperation({ summary: 'Create a skill — personal by default; pass visibility: "shared" to publish it to the workspace' })
-  create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
+  @ApiOperation({ summary: 'Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent can also share it with named workspace members; making one public only raises an approval a person must give. A workspace admin can switch agent publishing off, after which an agent-authored skill is created personal' })
+  async create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
     // #442: authorship comes from the AUTH context, never the body — a caller
     // must not be able to describe itself as a human.
-    return this.skills.create(req.membership, req.user.id, body, req.auth.source);
+    return publicSkill(await this.skills.create(req.membership, req.user.id, body, req.auth.source));
+  }
+
+  /**
+   * #841 — import a SKILL.md. Declared before the `:id` routes. Preview by default (the
+   * KEPT/DROPPED report, nothing written); `create: true` writes it. Authorship comes from
+   * the auth context exactly as on create, and the same publish gate applies.
+   */
+  @Post('import')
+  @MinRole('member')
+  @ApiOperation({
+    summary: 'Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill',
+  })
+  async import(@Req() req: WorkspaceRequest, @Body() body: ImportSkillDto) {
+    const result = await this.skills.importSkill(
+      req.membership,
+      req.user.id,
+      { content: body.content, create: body.create, overrides: body.overrides },
+      req.auth.source,
+    );
+    return { ...result, created: result.created ? publicSkill(result.created) : null };
   }
 
   @Patch(':id')
   @MinRole('member')
   @ApiParam({ name: 'id', description: 'The skill record id' })
   @ApiOperation({ summary: "Edit a skill — owner-only, even if it's shared" })
-  update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateSkillDto) {
-    return this.skills.update(req.membership, req.user.id, id, body, req.auth.source);
+  async update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateSkillDto) {
+    return publicSkill(await this.skills.update(req.membership, req.user.id, id, body, req.auth.source));
   }
 
   @Delete(':id')
@@ -100,9 +122,10 @@ export class SkillsController {
   }
 
   /**
-   * Manual run (AC #3). The chat composer's Skills menu / slash command
-   * (#39) doesn't exist yet — this endpoint IS the current agent-invocation
-   * surface for a skill, mirroring AgentsController's `POST :agent/run`.
+   * Manual run (AC #3). There is no in-app Skills list, Run button or chat
+   * slash command — this endpoint IS the agent-invocation surface for a skill
+   * (the MCP `run_skill` tool calls it), mirroring AgentsController's
+   * `POST :agent/run`.
    */
   @Post(':id/run')
   @ApiParam({ name: 'id', description: 'The skill record id' })

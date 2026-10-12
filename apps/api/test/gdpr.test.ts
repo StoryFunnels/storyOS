@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
+import { DB } from '../src/db/db.module';
 import { authed, signUpUser } from './helpers/users';
 import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 
@@ -91,11 +92,35 @@ describe('GDPR data-subject tooling (MN-233)', () => {
   });
 
   it('anonymize tombstones identity, kills the session, removes access, keeps history', async () => {
+    // #543 — a bound token with a personal name; erasure must keep the scope record and strip the person.
+    const minted = await as(member.token, 'POST', '/me/tokens', {
+      name: "Daria's laptop", workspace_id: wsId, resource_scope: { database_ids: [db] },
+    });
+    expect(minted.statusCode, minted.body).toBe(201);
+    const mintedToken = minted.json().token as string;
+    const mintedId = minted.json().id as string;
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/members/${memberMembership}/gdpr/anonymize`);
     expect(res.statusCode, res.body).toBe(200);
     const out = res.json();
     expect(out.anonymized).toBe(true);
     expect(out.removed.memberships).toBe(1);
+    expect(out.retained_anonymized.api_tokens).toBeGreaterThanOrEqual(1);
+
+    // #543 — the token row SURVIVES with its scope and window, and carries nothing about the person.
+    const pool = (app.get(DB) as unknown as { $client: { query: (q: string, p: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> } }).$client;
+    const kept = (await pool.query('select * from api_tokens where id = $1', [mintedId])).rows[0]!;
+    expect(kept.resource_scope).toEqual({ space_ids: [], database_ids: [db] });
+    expect(kept.scope).toBeTruthy();
+    expect(kept.workspace_id).toBe(wsId);
+    expect(kept.revoked_at).not.toBeNull();
+    expect(kept.last_used_at).toBeNull();
+    expect(kept.name).toBe('Erased token');
+    expect(kept.token_prefix).toBe('erased');
+    expect(String(kept.user_id)).toBe(`erased:${mintedId}`);
+    expect(JSON.stringify(kept)).not.toContain('Daria');
+    expect(JSON.stringify(kept)).not.toContain(memberId);
+    // …and it can never authenticate again.
+    expect((await as(mintedToken, 'GET', '/me')).statusCode).toBe(401);
 
     // membership gone
     const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();

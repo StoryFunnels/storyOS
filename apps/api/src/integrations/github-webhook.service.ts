@@ -293,6 +293,9 @@ export class GithubWebhookService {
     // from repos outside it. An empty set means "not narrowed" → watch all, which
     // keeps the pre-#247 manual-secret behaviour (and its tests) unchanged.
     if ((config.repos?.length ?? 0) > 0 && !config.repos!.includes(repo)) {
+      // #828: the skip is right, the silence was the defect. Record it where the
+      // integration settings can show it; the answer stays a plain 200 either way.
+      await this.github.recordIgnoredDelivery(workspaceId, repo, event);
       return { ok: true, event, skipped: 'repo_not_selected' };
     }
 

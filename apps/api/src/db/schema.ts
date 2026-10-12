@@ -7,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -775,6 +776,15 @@ export const apiTokens = pgTable('api_tokens', {
    * this is only the pointer, not the authority.
    */
   agentId: uuid('agent_id'),
+  /**
+   * #543 — the spaces/databases this token is bound to, or NULL for unrestricted
+   * (every token minted before this column existed). IMMUTABLE after mint: there
+   * is no update path. Narrowing means minting a new token and revoking this
+   * one, and revoked rows are kept, so for any past action the token's reach at
+   * that time is still readable. `{ space_ids, database_ids }`. Erasing the owner
+   * ANONYMISES the row rather than deleting it: gdpr.service.ts has the column-by-column rule.
+   */
+  resourceScope: jsonb('resource_scope').$type<{ space_ids: string[]; database_ids: string[] }>(),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -1994,12 +2004,53 @@ export const actionGatePolicies = pgTable(
   ],
 );
 
-/** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its
- * owner, 'shared' to every active member of the workspace. There is no
- * separate teams table yet, so "team-shared" today means "workspace-shared" —
- * the same granularity `connections`/`automations` already use for
- * workspace-wide config. */
-export const skillVisibility = pgEnum('skill_visibility', ['personal', 'shared']);
+/**
+ * #231 — validation rules: a write that would leave a record invalid is REFUSED, inside the write's own
+ * transaction. See `packages/schemas/src/validation-rules.ts` for the semantics. The condition is stored as the
+ * filter AST (field api_names), so it is evaluated by the same compiler saved views use; a rule whose field was
+ * later deleted is skipped and reported as dangling rather than refusing every write to the database.
+ *
+ * Applies to EVERY writer, admins and people in the web app included, and has NO bypass: a rule that is wrong
+ * is changed (visible, recorded), never skipped (invisible). That is the difference from an action gate, which
+ * is about AUTHORITY and exempts a person; validity cannot be exempted because the data does not know who wrote it.
+ */
+export const validationRuleTrigger = pgEnum('validation_rule_trigger', ['create', 'update', 'transition']);
+export const validationRules = pgTable(
+  'validation_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    trigger: validationRuleTrigger('trigger').notNull(),
+    /** transition only: the select/workflow field and the option id it must move TO. */
+    transitionFieldId: uuid('transition_field_id'),
+    transitionTo: text('transition_to'),
+    condition: jsonb('condition').notNull().$type<Record<string, unknown>>(),
+    message: text('message').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    createdBy: text('created_by').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('validation_rules_database_idx').on(t.databaseId)],
+);
+
+/**
+ * Who can see a skill (#40 AC #1, widened by #841 to four Drive-shaped tiers):
+ *   personal — "Only me": its owner, and workspace admins (admins read everything).
+ *   members  — the owner plus the people named in `skill_members`.
+ *   shared   — every active member of the workspace ("Workspace"; the default for a skill
+ *              a PERSON creates).
+ *   public   — everyone with the unauthenticated link `public_token`, and every member.
+ * The first and third are the original two values, unchanged in meaning: existing rows keep
+ * exactly who could see them. NOTE the API never calls `personal` "private":
+ * docs/architecture/personal-space.md uses that word for private-FROM-admins.
+ */
+export const skillVisibility = pgEnum('skill_visibility', ['personal', 'members', 'shared', 'public']);
 
 /**
  * #40 — the Skills framework: named, reusable instruction+workflow bundles for
@@ -2022,7 +2073,10 @@ export const skills = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     /** The author — always set, regardless of visibility (better-auth id, text). */
     ownerId: text('owner_id').notNull(),
-    visibility: skillVisibility('visibility').notNull().default('personal'),
+    // #832: `shared` by default (everything visible to every member until that proves a
+    // problem). `personal` stays in the enum — per-skill privacy is wanted later, and removing
+    // a value is a migration while changing a default is not. Existing rows keep their value.
+    visibility: skillVisibility('visibility').notNull().default('shared'),
     name: text('name').notNull(),
     description: text('description').notNull(),
     whenToUse: text('when_to_use').notNull(),
@@ -2035,6 +2089,19 @@ export const skills = pgTable(
     /** Which SKILL_TEMPLATES scaffold this was authored from, `'chat'` once #39
      * lands, or null for a from-scratch skill. Provenance only. */
     sourceTemplate: text('source_template'),
+    /**
+     * #841 — semver, travels with the skill and appears in exported SKILL.md frontmatter.
+     * Without it an import is lossy by construction: every incoming file's version would be
+     * discarded. Existing rows take the default; the value is the author's to change.
+     */
+    version: text('version').notNull().default('1.0.0'),
+    /**
+     * #841 — the credential for the `public` tier, mirroring a form's `public_token`:
+     * server-minted (never client-supplied), unauthenticated read, and CLEARED the moment the
+     * skill leaves `public`, so revoking is effective immediately. Null whenever the skill is
+     * not public.
+     */
+    publicToken: text('public_token'),
     /**
      * #442 — WHO authored this: a person typing, or an agent writing over MCP.
      *
@@ -2059,7 +2126,31 @@ export const skills = pgTable(
   (t) => [
     index('skills_workspace_visibility_idx').on(t.workspaceId, t.visibility),
     index('skills_owner_idx').on(t.workspaceId, t.ownerId),
+    uniqueIndex('skills_public_token_uq').on(t.publicToken).where(sql`${t.publicToken} IS NOT NULL`),
   ],
+);
+
+/**
+ * #841 — who a `members`-tier skill is shared with. A plain membership join: `(skill_id,
+ * user_id)`, NO roles, NO precedence, NO billing semantics, NO hierarchy. Visibility itself
+ * lives on the skill; this only enumerates WHO for one tier.
+ *
+ * Deliberately NOT a fourth scope on `access_grants` (Otto's ruling on #841): that table
+ * encodes a containment hierarchy (space > database > record), carries roles, and is the
+ * billing boundary, and a skill is outside all three. The mitigation for "who can see this"
+ * having two homes is a rule, not a hope: no grant consumer ever reads this table, and the
+ * skill resolver (SkillsService.canSee / visibleWhere) never reads `access_grants`.
+ */
+export const skillMembers = pgTable(
+  'skill_members',
+  {
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.skillId, t.userId] }), index('skill_members_user_idx').on(t.userId)],
 );
 
 /** What kind of live object a `pack_install_items` row tracks (MN-219 / #161). */

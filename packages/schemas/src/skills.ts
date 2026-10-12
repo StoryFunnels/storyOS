@@ -10,7 +10,8 @@ import { z } from 'zod';
  *   NOT FROM SCRATCH — a skill is authored against a fixed schema (name,
  *   description, when-to-use, instructions, examples, allowed tools) and
  *   SKILL_TEMPLATES gives every author a starting scaffold rather than a blank
- *   box. "Save this chat as a skill" (#39) is a second on-ramp into the same
+ *   box. "Save this chat as a skill" (not built; the old #39 reference was Version
+ *   history, not a Skills menu) is a second on-ramp into the same
  *   schema — not built here (no chat composer exists yet), but nothing about
  *   this shape blocks it: it would just be another producer of
  *   `createSkillSchema` input, with `source_template: 'chat'`.
@@ -26,7 +27,8 @@ import { z } from 'zod';
  * the run endpoint is additive, not a rework.
  */
 
-export const skillVisibilitySchema = z.enum(['personal', 'shared']);
+/** personal = "Only me" · members = named people · shared = "Workspace" · public = anyone with the link. */
+export const skillVisibilitySchema = z.enum(['personal', 'members', 'shared', 'public']);
 export type SkillVisibility = z.infer<typeof skillVisibilitySchema>;
 
 /** One example the author gives future callers (and, on export, the reader). */
@@ -36,14 +38,34 @@ export const skillExampleSchema = z.object({
 });
 export type SkillExample = z.infer<typeof skillExampleSchema>;
 
+/** Semver (`1.2.3`, optionally `-pre` / `+build`) — what a SKILL.md frontmatter `version` carries. */
+export const skillVersionSchema = z
+  .string()
+  .trim()
+  .max(64)
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/, 'version must be semver, e.g. 1.2.0');
+
 const nameSchema = z.string().min(1).max(100);
 const descriptionSchema = z.string().min(1).max(500);
 const whenToUseSchema = z.string().min(1).max(1000);
 const instructionsSchema = z.string().min(1).max(20_000);
-const allowedToolSchema = z.string().min(1).max(100);
+/**
+ * #841 — `allowed_tools` is RETIRED from the surface. It was stored, returned and printed
+ * into every export, and enforced by nothing — and cannot be, because the model that follows
+ * a skill is always the reader's own. An unenforceable permission control reads as a
+ * guarantee, which is worse than none. The column stays (nothing breaks); it is no longer
+ * authored, returned or exported. A caller that still sends it gets a clear 422 instead of
+ * a silent discard, so a stale client learns it rather than believing it was honoured.
+ */
+const removedField = z
+  .never({
+    error:
+      '`allowed_tools` is no longer accepted. Nothing enforced it: the model that follows a skill is always the reader\'s own.',
+  })
+  .optional();
 
 /** POST body — create a skill. `source_template` is provenance only (which
- * scaffold it started from, or `chat` once #39 lands); it changes nothing
+ * scaffold it started from, or `chat` if a chat on-ramp is ever built); it changes nothing
  * about validation. */
 export const createSkillSchema = z.object({
   name: nameSchema,
@@ -51,11 +73,38 @@ export const createSkillSchema = z.object({
   when_to_use: whenToUseSchema,
   instructions: instructionsSchema,
   examples: z.array(skillExampleSchema).max(20).default([]),
-  allowed_tools: z.array(allowedToolSchema).max(50).default([]),
-  visibility: skillVisibilitySchema.default('personal'),
+  allowed_tools: removedField,
+  /** #832: deliberately NO schema default. What an omitted visibility means depends on WHO
+   *  is writing and on the workspace's AI-publishing setting, which only the service knows (a person's
+   *  skill is `shared`; an agent's is `shared` too unless an admin switched AI publishing off, then
+   *  `personal` — #867 / ADR-0010), so a default here would decide it for everyone. */
+  visibility: skillVisibilitySchema.optional(),
+  /** Only meaningful with `visibility: members`; the owner is always included. */
+  member_ids: z.array(z.string().min(1)).max(100).optional(),
+  version: skillVersionSchema.optional(),
   source_template: z.string().max(100).optional(),
 });
 export type CreateSkillInput = z.infer<typeof createSkillSchema>;
+
+/** POST body — import a SKILL.md. PREVIEW by default: the response is the KEPT/DROPPED report
+ * with nothing created; `create: true` writes the skill, and the report is still computed
+ * first. `overrides` supplies what the file lacks (a skill needs a `when_to_use`, and the
+ * importer never invents one). */
+export const importSkillSchema = z.object({
+  content: z.string().min(1).max(200_000),
+  create: z.boolean().default(false),
+  overrides: z
+    .object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      when_to_use: z.string().optional(),
+      instructions: z.string().optional(),
+      version: skillVersionSchema.optional(),
+      visibility: skillVisibilitySchema.optional(),
+    })
+    .optional(),
+});
+export type ImportSkillInput = z.infer<typeof importSkillSchema>;
 
 /** PATCH body — every field optional, same validation per-field as create. */
 export const updateSkillSchema = z.object({
@@ -64,8 +113,11 @@ export const updateSkillSchema = z.object({
   when_to_use: whenToUseSchema.optional(),
   instructions: instructionsSchema.optional(),
   examples: z.array(skillExampleSchema).max(20).optional(),
-  allowed_tools: z.array(allowedToolSchema).max(50).optional(),
+  allowed_tools: removedField,
   visibility: skillVisibilitySchema.optional(),
+  /** Replaces the whole set. Only valid while the skill is (or is becoming) `members`. */
+  member_ids: z.array(z.string().min(1)).max(100).optional(),
+  version: skillVersionSchema.optional(),
 });
 export type UpdateSkillInput = z.infer<typeof updateSkillSchema>;
 
@@ -81,7 +133,11 @@ export const skillSummarySchema = z.object({
   when_to_use: whenToUseSchema,
   instructions: instructionsSchema,
   examples: z.array(skillExampleSchema),
-  allowed_tools: z.array(allowedToolSchema),
+  version: z.string(),
+  /** The people a `members` skill is shared with. Present only for the owner and workspace admins. */
+  member_ids: z.array(z.string()).optional(),
+  /** The unauthenticated link credential of a `public` skill. Present only for the owner and workspace admins. */
+  public_token: z.string().nullable().optional(),
   source_template: z.string().nullable(),
   /** #442 — who authored it: `human` when a person typed it, `mcp`/`agent`
    * when it was written over the API. Derived from the request's auth, so it
@@ -90,6 +146,9 @@ export const skillSummarySchema = z.object({
   last_run_at: z.string().nullable(),
   last_run_status: z.enum(['ok', 'error']).nullable(),
   editable: z.boolean(),
+  /** #867 AC3 — present when an AI asked for `public`: the skill is NOT public yet; a person must approve
+   * this proposal (in the app's Inbox) first. Absent otherwise. */
+  pending_approval: z.object({ id: z.uuid() }).optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -106,7 +165,6 @@ export const skillTemplateSchema = z.object({
   when_to_use: z.string(),
   instructions: z.string(),
   examples: z.array(skillExampleSchema),
-  allowed_tools: z.array(z.string()),
 });
 export type SkillTemplate = z.infer<typeof skillTemplateSchema>;
 
@@ -176,7 +234,6 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
           'one-pager first if that is easier to share internally.',
       },
     ],
-    allowed_tools: ['records.read'],
   },
   {
     id: 'weekly-digest',
@@ -191,7 +248,6 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
       '3. Keep the whole digest under 200 words — this is a skim, not a report.\n' +
       '4. End with the single most overdue item, named explicitly.',
     examples: [],
-    allowed_tools: ['records.read', 'databases.read'],
   },
   {
     id: 'support-reply-drafter',
@@ -207,7 +263,6 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
       '3. If it does not, draft a reply asking the one clarifying question that would unblock it.\n' +
       '4. Keep the tone calm and specific; never promise a fix timeline.',
     examples: [],
-    allowed_tools: ['records.read', 'comments.read'],
   },
   {
     id: 'blank',
@@ -216,6 +271,5 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
     when_to_use: '',
     instructions: '',
     examples: [],
-    allowed_tools: [],
   },
 ];

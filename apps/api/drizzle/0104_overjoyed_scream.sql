@@ -1,0 +1,1 @@
+ALTER TABLE "skills" ALTER COLUMN "visibility" SET DEFAULT 'shared';

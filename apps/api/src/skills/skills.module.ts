@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PublicSkillsController } from './public-skills.controller';
 import { SkillsController } from './skills.controller';
 import { SkillsService } from './skills.service';
 
@@ -12,7 +13,7 @@ import { SkillsService } from './skills.service';
  * today.
  */
 @Module({
-  controllers: [SkillsController],
+  controllers: [SkillsController, PublicSkillsController],
   providers: [SkillsService],
   exports: [SkillsService],
 })

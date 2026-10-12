@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, Library, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -42,7 +42,7 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, markInitials } from '@/components/sidebar-row-style';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
@@ -715,6 +715,7 @@ function SidebarRail({
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
   const isRuns = pathname === `/w/${ws}/runs` || pathname?.startsWith(`/w/${ws}/runs/`);
+  const isSkills = pathname === `/w/${ws}/skills` || pathname?.startsWith(`/w/${ws}/skills/`);
 
   return (
     <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border-default bg-hover/40 py-2">
@@ -733,6 +734,12 @@ function SidebarRail({
       </RailButton>
       <RailLink href={`/w/${ws}/me`} title="My Work" active={isMyWork}>
         <UserRound className="h-[17px] w-[17px]" />
+      </RailLink>
+      {/* #833 — Skills is a rail entry, not a Settings page: it is the thing the
+          product sells (your process, stored here, run by someone else's AI), and
+          a cornerstone does not live behind a gear icon. */}
+      <RailLink href={`/w/${ws}/skills`} title="Skills" active={!!isSkills}>
+        <Library className="h-[17px] w-[17px]" />
       </RailLink>
       <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
       <RailLink href={`/w/${ws}/runs`} title="Runs" active={isRuns}>
@@ -801,14 +808,41 @@ function RailButton({
   );
 }
 
-/** #742 phase 6 — the rail's own workspace avatar/switcher; shares the same
- * ['workspaces'] query as the panel header's `WorkspaceSwitcher` (react-query
- * dedupes identical keys, so this is one network call, not two). The panel
- * header keeps its own full switcher too — the artifact's decision was to
- * keep BOTH, not have the rail avatar replace it. */
-function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+/** #844 — the ONE workspace menu. It existed twice, verbatim: the rail mark
+ * and the panel header each carried their own copy of this list, so an item
+ * added to one and not the other would have been invisible until somebody
+ * noticed. Both triggers render this.
+ *
+ * The query deliberately stays in the TRIGGERS, not in here. Radix only mounts
+ * menu content once the menu opens, so a useQuery inside this component would
+ * quietly turn an eager fetch into a lazy one and show an empty list on the
+ * first open. Both triggers use the same ['workspaces'] key, so react-query
+ * still dedupes it to one network call however many are mounted. */
+function WorkspaceMenuContent({
+  ws,
+  workspaces,
+}: {
+  ws: string;
+  workspaces: Array<{ id: string; name: string }>;
+}) {
   const router = useRouter();
-  const workspaces = useQuery({
+  return (
+    <DropdownMenuContent align="start" className="w-52">
+      {workspaces.map((w) => (
+        <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
+          {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
+        <Plus className="h-3.5 w-3.5" /> New workspace
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  );
+}
+
+function useWorkspaceList() {
+  return useQuery({
     queryKey: ['workspaces'],
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces');
@@ -816,6 +850,25 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
       return data as unknown as Array<{ id: string; name: string }>;
     },
   });
+}
+
+/** #742 phase 6, amended by #844 — the rail's workspace mark, and THE ONLY
+ * place the workspace mark is drawn.
+ *
+ * #742 kept a second 20x20 mark in the panel header on the reasoning that the
+ * rail and the panel are independent surfaces. THAT REASONING WAS WRONG and is
+ * why #844 exists: `SidebarRail` renders inside `Sidebar`, and the layout hides
+ * the whole Sidebar wrapper with `collapsed && 'md:hidden'` — the rail included.
+ * So the two were never in a state where only one was visible; they were simply
+ * the same mark twice, 34px apart, at two different radii.
+ *
+ * The header keeps its own TRIGGER (the workspace name plus a chevron, which
+ * reads as a control on its own). What it no longer keeps is a second copy of
+ * the mark. If the rail is ever made to survive panel collapse, this trigger
+ * becomes the only switcher while collapsed — so do not delete it on the
+ * assumption it is redundant. */
+function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
+  const workspaces = useWorkspaceList();
 
   return (
     <DropdownMenu>
@@ -829,57 +882,28 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
           </button>
         </DropdownMenuTrigger>
       </Tooltip>
-      <DropdownMenuContent align="start" className="w-52">
-        {(workspaces.data ?? []).map((w) => (
-          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
-            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
-          <Plus className="h-3.5 w-3.5" /> New workspace
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <WorkspaceMenuContent ws={ws} workspaces={workspaces.data ?? []} />
     </DropdownMenu>
   );
 }
 
-/** Workspace name is the switcher — lists every workspace plus creation (the old "Switch workspace" link only ever led back to the first one). */
+/** Workspace name is the switcher — lists every workspace plus creation (the old
+ * "Switch workspace" link only ever led back to the first one). Carries NO mark:
+ * the rail draws it 34px to the left, see #844. */
 function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: string }) {
-  const router = useRouter();
-  const workspaces = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces');
-      if (error) throw error;
-      return data as unknown as Array<{ id: string; name: string }>;
-    },
-  });
+  const workspaces = useWorkspaceList();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-meta font-bold text-[var(--text-on-dark)]">
-            {currentName?.[0]?.toUpperCase() ?? 'S'}
-          </div>
           <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
-        {(workspaces.data ?? []).map((w) => (
-          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{w.name}</span>
-            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
-          <Plus className="h-3.5 w-3.5" /> New workspace
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <WorkspaceMenuContent ws={ws} workspaces={workspaces.data ?? []} />
     </DropdownMenu>
   );
 }
@@ -1678,7 +1702,7 @@ function SpaceSection({
             <Tooltip label={collapsed ? 'Expand' : 'Collapse'} side="right">
               <button
                 type="button"
-                className="text-faint hover:text-muted"
+                className={cn('text-faint hover:text-muted', CARET_HIT_AREA)}
                 onClick={toggleCollapsed}
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
@@ -2361,7 +2385,7 @@ function FolderSection({
             onClick={toggle}
             aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
             aria-expanded={!collapsed}
-            className="text-faint hover:text-muted"
+            className={cn('text-faint hover:text-muted', CARET_HIT_AREA)}
           >
             <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
           </button>
@@ -2740,7 +2764,7 @@ function DatabaseRow({
                 e.stopPropagation();
                 onToggle?.();
               }}
-              className="rounded text-faint hover:text-ink"
+              className={cn('rounded text-faint hover:text-ink', CARET_HIT_AREA)}
             >
               <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
             </button>

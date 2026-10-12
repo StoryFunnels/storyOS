@@ -66,3 +66,22 @@ export function markInitials(name: string): string {
   return (out || '?').toUpperCase();
 }
 
+
+/**
+ * #799 — the caret's activation area, WITHOUT taking layout space.
+ *
+ * The caret glyph is 12px in a 12px gutter (`SidebarRow`), so the button is
+ * exactly 12x12: a quarter of WCAG 2.2 SC 2.5.8's 24x24 minimum, on the only
+ * control that expands a space or folder. Widening the gutter would move every
+ * label and undo #779, so the target grows by an invisible pseudo-element:
+ * 12px LEFTWARD (toward the row's own edge) and 6px up and down — a 24x24 box
+ * whose right edge stays flush with the glyph. It never grows rightward, where
+ * the row's navigation link lives (#449: expanding and opening are different
+ * intents and must not share a target).
+ *
+ * One constant, applied by every caret button, so the three sites cannot drift
+ * apart the way the glyph sizes nearly did. `relative` is part of it because
+ * the pseudo-element positions against the button.
+ */
+export const CARET_HIT_AREA =
+  "relative before:absolute before:-inset-y-1.5 before:-left-3 before:right-0 before:content-['']";

@@ -100,6 +100,53 @@ Manual order (table default and within-column kanban order) is stored as a fract
 record — reordering touches only the moved record. Sorted views ignore manual order and use the
 sort instead.
 
+## The row number, the ID, and the default columns
+
+A table has two different numbers on the left, and they mean different things:
+
+- **The row number** (in the narrow gutter at the far left) counts the rows **in this view, as
+  currently filtered and sorted** — row 1 is whatever is on top. It changes when you filter or
+  re-sort; it is not an identity. The gutter header shows the **total number of records** in the
+  view, and stays on screen as you scroll.
+- **The ID** is the record's **permanent number** — "issue 759", the number people say out loud and
+  cite in other records. It does not change when you filter or sort. In a table it's an ordinary
+  **ID** column: frozen at the left, visible by default, and hideable from **Hide fields** like any
+  other column.
+
+On a **list or feed** view the ID isn't a column; **Hide fields** (or the Cards picker) carries a
+**Row gutter** section with a **Show ID in the row gutter** switch instead. Board, calendar and
+gallery don't draw it, so they have no such control.
+
+**A new table starts with a short, useful set of columns** rather than every field: the ID, the
+title, and up to four others — status/select, person and relation fields first, then whatever else
+comes first. Rich text is never a table column (it isn't offered in **Hide fields** at all), and the
+system dates (created / last edited) are offered but off by default. This only applies to a *new*
+view; an existing view keeps exactly the columns it had.
+
+**Row height** (28, 32 or 40) is a control in the table toolbar and is saved on the view; the
+default is 32.
+
+## Nesting rows under their parent
+
+A **table** can show a hierarchy in place. When a database has a **self-referencing one-to-many
+relation** — Tasks with a *Parent* task, Epics holding Stories — the table toolbar's **Nest by**
+picker offers it; choose it and rows with children get an expand caret, and expanding one reveals its
+children indented beneath it, in the same table, without leaving the page. **Flat** turns it back off
+and restores the ordinary table exactly.
+
+- **Only the "parent" side is offered** — the single-valued reference, identified by its structure,
+  never by its name. A database can have more than one self-relation, and each shows up on its own.
+- **Any depth.** Children can have children; the caret appears only on a row that actually has some.
+- **Children load when you open a parent**, not all at once, so a large tree opens quickly. For the
+  same reason **Expand all** opens every row *currently known* to have children — click again to open
+  the level that just appeared.
+- **Your view's filter and sort apply at every level** — to the top-level rows and to each parent's
+  children. Top-level rows are the ones with no parent, so a child only appears under a parent that
+  itself passes the filter.
+- **Which rows are expanded is remembered for the browser session**, per view — it survives a reload
+  but isn't saved on the view for other people.
+- Selection and arrow-key navigation move through the nested rows as one list.
+
 ## Hiding columns
 
 **Hide fields** in the view toolbar turns any column off — including **Created at** and **Updated
@@ -235,9 +282,26 @@ explicit allowlist of which fields travel. Nothing is exposed by default:
   recipient](/concepts/portal-recipients/) and only that recipient's rows come back. This isn't in
   the Share… dialog yet — a direct API call, same as the recipient itself.
 
-**Table views only.** A board's group-by column or a dashboard's tiles and widgets have no single
-set of records to allowlist the way a table's rows do, so **Share…** doesn't appear on the tab
-menu for anything but a table view.
+**Tables, boards and dashboards can be shared.** **Share…** is on the tab menu for those three; other
+view types don't offer it.
+
+- **A shared board renders as columns**, grouped by the same field as in the app, with the view's
+  own column order and empty-group settings. The grouping field must be on the allowlist — publishing
+  is refused (`422`, naming the field) if it isn't, so a board can't expose a column you didn't name.
+- **A shared dashboard shows its tiles**, computed on the server. Each tile's field, filter fields
+  and database go through the same allowlist and are checked when you publish; a tile that points at
+  another database is rejected. **Charts and grouped tables are not published yet** — the Share dialog
+  says how many a dashboard has that won't appear.
+- **A board's column count is "N loaded" until everything has loaded.** The public page loads in
+  pages, so a bare number would understate; once the whole set is in, it's a plain count. "Hide empty
+  groups" likewise applies only after loading finishes, so a column that simply hasn't filled yet isn't
+  mistaken for an empty one.
+- **If the owner later hides or deletes the grouping field**, the board renders as one unlabelled
+  column rather than failing; a dashboard drops just the affected tile.
+- **A tile with nothing to aggregate reads "—", never 0** — a real zero is shown as a real zero. A
+  tile's comparison is plain text, not a link.
+- **Read-only, completely:** no dragging, no per-column or per-tile menus, and no click-through from a
+  card or tile — absent, not greyed out.
 
 **A personal view can never be published — not even by its own owner.** Personal space's whole
 premise is invisibility to everyone else, including admins; a public, anonymous URL is a
@@ -333,8 +397,38 @@ saved on the view, not per session, so reopening it later shows the same mode yo
   dragging doesn't acquire a time component just because the calendar now has one. With an End
   date field set, dragging shifts start and end by the same amount, so a block keeps its length
   when it moves.
+- **An event that spans several days draws on every day it covers** — the real start time on the
+  first day, a full-height block on the days between, and the real end time on the last. (This needs
+  an End date field to know where it ends.)
+- **The drag step is configurable** — **10, 15, 30 or 60 minutes**, from a selector in the calendar's header
+  row in Week/Day mode. It sets the snap when you drag an event and the time a click on an empty slot creates a record
+  at; 15 is the default, so a view feels the same until you change it. The choice is saved on the view.
+- **Hours you don't use can be collapsed.** Tick **Collapse hours** (next to it) and pick a start and
+  end hour, and the axis shows only that window. This hides **hours, never records** — an event
+  outside the window simply isn't on screen — and the **All day** row is never affected.
 - Every mode paints a record's colour (from the view's **Color by** field) through the same shared
   colour source every other view reads, so switching modes never changes how a record looks.
+
+### Choosing the date field
+
+The date picker lists every date-capable field. **Created at** and **Updated at** are shown but
+disabled, with the reason beside them (*"set automatically, so cards can't be moved"*), because a
+calendar built on one can be read but not rescheduled. A new Calendar view starts on the first
+**editable** date field; a database with none says *"This database has no editable date field. Add
+a date field to schedule records here."* instead of offering a dead calendar. The **Today** button is
+disabled while the view already shows today.
+
+## Gallery: covers
+
+A gallery card's cover comes from one field you choose in the **Cover** control:
+
+- **An attachment field** — the record's uploaded image.
+- **A URL or text field** holding an `http` or `https` address. Anything else is never loaded. A card
+  whose image fails to load falls back to the no-cover card for that card alone.
+
+A database with no field that can be a cover says so in the Cover control's place rather than hiding
+it, and a cover field that's mostly empty says how many records have one (*"Cover: Photo — 3 of 40
+records have one"*). The cover's alt text is the record's title.
 
 ## Timeline: planned vs actual dates
 
@@ -349,6 +443,7 @@ behind it, so a planned-vs-actual gap is visible without a second view.
   the primary and baseline ends match. No baseline configured, or the record is missing one side of
   either pair, and no slippage label appears at all — a partial comparison is never rendered as a
   number.
+- **Undated records are counted, not drawn.** A notice such as *"77 records without a Due date are hidden"* gives the real number across the whole database, not just the records loaded so far. A record counts as undated when neither its start nor its baseline start is set.
 - **A record can have either pair without the other.** Primary-only draws its usual plain bar.
   Baseline-only — real actual/completion dates with no plan ever set for them — draws its own bar
   too, in the same solid style, positioned at the baseline dates; it is not left out, and not drawn
@@ -375,9 +470,15 @@ above the records — a quick count or sum, or a small chart, without leaving th
   than fetching every row to group client-side. Grouping by a multi-select or a date isn't available
   yet — a multi-select record can land in more than one bucket, and a date needs a bucketing rule
   (day? month? quarter?); both are real, bigger features, not oversights.
-- **Add, reorder, and remove** widgets from the strip itself; drag to reorder, and the order you
-  leave them in is what everyone who opens the view sees, since it's saved on the view like its
-  filters and sorts — not a per-viewer preference.
+- **Add widget** is in the view toolbar, next to Filter / Sort / Hide fields — not in the strip. A
+  view with **no widgets has no strip at all** (no empty row or border); the strip appears when you
+  add the first one.
+- **Each widget has Configure, Duplicate and Remove.** **Duplicate** puts the copy directly after the
+  original and opens its settings at once, because the intended use is "duplicate, then change the
+  grouping" — Count by Priority beside Count by State is the fastest way to compare two cuts.
+- **Reorder** by dragging; the order you leave them in is what everyone who opens the view sees,
+  since it's saved on the view like its filters and sorts — not a per-viewer preference. A single
+  widget keeps its natural width rather than stretching across the row.
 - Not offered on calendar, timeline, feed, or form views — there's no row grid there for a widget to
   summarise (a dashboard's own tiles/widgets already cover that shape).
 - **No dedicated MCP tool yet.** `create_view`/`update_view` don't expose a `summary_widgets`

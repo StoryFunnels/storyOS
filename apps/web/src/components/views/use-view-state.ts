@@ -115,6 +115,10 @@ export interface ViewConfig {
         | 'source-serif-4'
         | 'playfair-display'
         | 'jetbrains-mono';
+      /** #721 — the light/dark the builder's embed snippet requests (`?theme=dark`).
+       *  Absent = light. Mirrors packages/schemas' `theme.mode`; never read by the
+       *  public page for painting (that would flash — the URL param is read pre-paint). */
+      mode?: 'light' | 'dark';
     };
   };
   /**
@@ -522,10 +526,18 @@ export function sortsBodyFromConfig(config: ViewConfig): Record<string, unknown>
  * nesting #258 and calendar-view.tsx's own date-window filter use — so a personal
  * override narrows the shared view's results, never replaces or widens them.
  */
-export function queryBodyFromConfig(config: ViewConfig, personalFilter?: FilterNode): Record<string, unknown> {
+export function queryBodyFromConfig(
+  config: ViewConfig,
+  personalFilter?: FilterNode,
+  /** #835 — the transient find-in-view text. Server-side, so it reaches rows
+   * that have not been paged in; ANDed with the filters by the API, never
+   * stored anywhere. Already normalised by `normalizeSearch`. */
+  q?: string,
+): Record<string, unknown> {
   const body: Record<string, unknown> = { limit: 100 };
   const filter = andFilterNodes(activeFilterNode(config.filters), personalFilter);
   if (filter) body.filter = filter;
+  if (q) body.q = q;
   Object.assign(body, sortsBodyFromConfig(config));
   return body;
 }

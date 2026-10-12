@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
@@ -8,10 +9,10 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { SpaceDocumentsService } from './space-documents.service';
 
-/** Mirrors export/csv.ts's csvFilename — same slug shape, `.md` instead. */
-function markdownFilename(title: string): string {
+/** Mirrors export/csv.ts's csvFilename — same slug shape, other extensions. */
+function exportFilename(title: string, ext: 'md' | 'pdf'): string {
   const slug = title.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'document';
-  return `${slug}.md`;
+  return `${slug}.${ext}`;
 }
 
 // #283: max(16) was too small even for existing `set:<name>` refs (e.g.
@@ -64,18 +65,41 @@ export class SpaceDocumentsController {
   }
 
   /**
-   * #262 — phase 1 of PDF export: the same "whole document" Markdown, on its
-   * own, since PDF rendering will reuse this serializer rather than write a
-   * second one directly against BlockNote (Ievgen's own sequencing note on
-   * the ticket: MD export ships first, PDF reuses it).
+   * #262 — phase 1: the "whole document" Markdown, as a download. This is the
+   * ONE Markdown definition of a document (`@storyos/schemas/markdown`); the PDF
+   * route below does not write Markdown at all — the renderer is a browser, so it
+   * is fed HTML built from the blocks (documents/export/blocks-to-html.ts), a
+   * different output format, not a second Markdown serializer.
    */
   @Get('documents/:doc/export/markdown')
-  @ApiOperation({ summary: 'Download the document as Markdown (#262 — the PDF export reuses this serializer)' })
+  @ApiOperation({ summary: 'Download the document as Markdown (#262)' })
   async exportMarkdown(@Req() req: WorkspaceRequest, @Param('doc') doc: string, @Res() reply: FastifyReply) {
     const { title, markdown } = await this.docs.exportMarkdown(req.membership, doc);
     reply.header('content-type', 'text/markdown; charset=utf-8');
-    reply.header('content-disposition', `attachment; filename="${markdownFilename(title)}"`);
+    reply.header('content-disposition', `attachment; filename="${exportFilename(title, 'md')}"`);
     return reply.send(markdown);
+  }
+
+  /**
+   * #262 phase 2 — the document as a PDF, rendered by the sidecar chosen in #794.
+   * Rate-limited: a render is the most expensive thing this controller does, and
+   * the renderer itself serialises them (one at a time) on a small host.
+   *
+   * `x-storyos-export-skipped-images` is the honest signal for an image that could
+   * not be inlined (an external URL, another workspace's file, over budget): it is
+   * drawn as a visible placeholder in the PDF AND counted here, so a caller never
+   * has to open the file to learn something was left out. Absent when zero.
+   */
+  @Get('documents/:doc/export/pdf')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Download the document as a PDF (#262 — rendered by the PDF sidecar, #794)' })
+  async exportPdf(@Req() req: WorkspaceRequest, @Param('doc') doc: string, @Res() reply: FastifyReply) {
+    const { title, pdf, skippedImages } = await this.docs.exportPdf(req.membership, doc);
+    reply.header('content-type', 'application/pdf');
+    reply.header('content-disposition', `attachment; filename="${exportFilename(title, 'pdf')}"`);
+    reply.header('cache-control', 'private, no-store');
+    if (skippedImages > 0) reply.header('x-storyos-export-skipped-images', String(skippedImages));
+    return reply.send(pdf);
   }
 
   @Patch('documents/:doc')

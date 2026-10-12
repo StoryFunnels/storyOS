@@ -181,3 +181,25 @@ describe('resolveConnectionsMasterKey', () => {
     });
   });
 });
+
+describe('envSchema PDF renderer (#262 / #794)', () => {
+  it('is OFF by default: no renderer URL means "not configured", never a guessed address', () => {
+    const e = envSchema.parse({});
+    expect(e.PDF_RENDERER_URL).toBeUndefined();
+    expect(e.PDF_RENDER_TIMEOUT_MS).toBe(30_000);
+    expect(e.PDF_RENDER_MAX_PENDING).toBe(4);
+  });
+
+  it('coerces the numeric knobs from the environment strings', () => {
+    const e = envSchema.parse({ PDF_RENDER_TIMEOUT_MS: '45000', PDF_RENDER_MAX_PENDING: '2' });
+    expect(e.PDF_RENDER_TIMEOUT_MS).toBe(45_000);
+    expect(e.PDF_RENDER_MAX_PENDING).toBe(2);
+  });
+
+  it('refuses a timeout that would hang a request, or a queue that is unbounded', () => {
+    expect(() => envSchema.parse({ PDF_RENDER_TIMEOUT_MS: '200' })).toThrow();
+    expect(() => envSchema.parse({ PDF_RENDER_TIMEOUT_MS: '9999999' })).toThrow();
+    expect(() => envSchema.parse({ PDF_RENDER_MAX_PENDING: '0' })).toThrow();
+    expect(() => envSchema.parse({ PDF_RENDER_MAX_PENDING: '5000' })).toThrow();
+  });
+});

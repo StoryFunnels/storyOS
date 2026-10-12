@@ -20,7 +20,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useDatabase, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useGroupedAggregate, useRecordsInfinite } from '../table-view/use-table-data';
+import { activeFilterNode } from './filter-config';
 import type { FilterGroup, FilterNode, ViewConfig } from './use-view-state';
 import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
 import { FiltersSection } from './view-toolbar';
@@ -29,6 +30,7 @@ import type { TileOp } from './dashboard-tiles';
 import {
   CHART_WIDGET_TYPES,
   computeChartSeries,
+  seriesFromGroups,
   measureNeedsField,
   type ChartWidgetType,
   type SeriesPoint,
@@ -204,15 +206,57 @@ export function DashboardWidgetCard({
   const sourceDatabase = useDatabase(ws, sourceDb ?? '');
   const fields = useMemo(() => sourceDatabase.data?.fields ?? [], [sourceDatabase.data]);
 
-  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody);
+  const groupField = useMemo(
+    () => fields.find((f) => f.apiName === widget.group_by_field_api_name),
+    [fields, widget.group_by_field_api_name],
+  );
+
+  /**
+   * #795 — the series comes from ONE `POST /records/aggregate/grouped`, not from paging
+   * the whole matching dataset into the browser and reducing it here (six
+   * `/records/query` calls before a bar rendered, on a 560-record database). Same
+   * grant-scoped filter AST a tile sends (#759): the view's own active filter ANDed
+   * with the viewer's personal override and the widget's own scope, and for a
+   * CROSS-DATABASE widget only its own filter.
+   *
+   * ONE exception, deliberately kept on the old path: grouping by a DATE. The endpoint
+   * buckets by week/month/quarter/year; this widget buckets by calendar DAY, and there
+   * is no day granularity to ask for. Swapping it would silently turn a daily series
+   * into a monthly one, so a date-grouped widget still pages until the endpoint grows
+   * one (requested on the ticket).
+   */
+  // A measure still missing its number field (a sum with nothing picked yet) is
+  // UNCONFIGURED, not an error: the server rejects it, and "rejected" would read as
+  // "no access", so it stays on the client path, which charts it as before.
+  const measureReady = !measureNeedsField(widget.measure.op) || Boolean(widget.measure.field_api_name);
+  const grouped = Boolean(groupField) && groupField!.type !== 'date' && measureReady;
+  const aggregateFilter = useMemo(
+    () => (crossDatabase ? widget.filter : andFilterNodes(activeFilterNode(config.filters), scoped)),
+    [crossDatabase, config.filters, scoped, widget.filter],
+  );
+  const aggregate = useGroupedAggregate(
+    ws,
+    sourceDb ?? '',
+    {
+      op: widget.measure.op,
+      field: widget.measure.field_api_name,
+      group_by: widget.group_by_field_api_name ?? '',
+      filter: aggregateFilter,
+    },
+    !unconfigured && grouped && Boolean(widget.group_by_field_api_name),
+  );
+
+  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody, !unconfigured && !grouped);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
-  // Aggregate over the whole matching set, not just page 1.
+  // Date-grouped only: aggregate over the whole matching set, not just page 1.
   useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+    if (!grouped && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [grouped, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
-  const loading = !unconfigured && (records.isLoading || hasNextPage || isFetchingNextPage);
+  const loading =
+    !unconfigured &&
+    (grouped ? aggregate.isLoading : records.isLoading || hasNextPage || isFetchingNextPage);
   const sourceName = (id: string) => sourceOptions.find((o) => o.id === id)?.name ?? 'the previous database';
 
   const groupableFields = useMemo(
@@ -220,11 +264,6 @@ export function DashboardWidgetCard({
     [fields],
   );
   const numberFields = useMemo(() => fields.filter((f) => f.type === 'number'), [fields]);
-
-  const groupField = useMemo(
-    () => fields.find((f) => f.apiName === widget.group_by_field_api_name),
-    [fields, widget.group_by_field_api_name],
-  );
 
   // Resolve raw group keys to human labels: select/multi_select values are
   // option ids → option labels; checkbox true/false → Yes/No; otherwise the key.
@@ -238,6 +277,7 @@ export function DashboardWidgetCard({
 
   const series = useMemo<SeriesPoint[]>(() => {
     if (loading || !groupField) return [];
+    if (grouped) return seriesFromGroups(aggregate.data ?? [], widget.measure.op, labelFor);
     return computeChartSeries(
       rows,
       widget.group_by_field_api_name,
@@ -245,7 +285,7 @@ export function DashboardWidgetCard({
       widget.measure,
       labelFor,
     );
-  }, [loading, groupField, rows, widget.group_by_field_api_name, widget.measure, labelFor]);
+  }, [loading, groupField, grouped, aggregate.data, rows, widget.group_by_field_api_name, widget.measure, labelFor]);
 
   /**
    * #387 — a chart's default title has the same defect a tile's did: derived from
@@ -310,7 +350,7 @@ export function DashboardWidgetCard({
            * chart here would be a lie: "no access" and "nothing to chart" look
            * identical, and only one of them is true.
            */
-          noAccess={records.isError}
+          noAccess={grouped ? aggregate.isError : records.isError}
           loading={loading}
           groupConfigured={!!groupField}
           series={series}

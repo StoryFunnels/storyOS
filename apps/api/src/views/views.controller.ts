@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -31,6 +32,7 @@ class ShareViewDto extends createZodDto(shareViewSchema) {}
 @ApiTags('views')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/views')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @RequiresScope('admin')
 export class ViewsController {

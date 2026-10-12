@@ -5,11 +5,27 @@ import { useEffect, useSyncExternalStore } from 'react';
 type Handler = (e: KeyboardEvent) => void;
 const registry = new Map<string, Handler>();
 
-function isTyping(target: EventTarget | null): boolean {
+/**
+ * #837 — THE one answer to "is focus somewhere a global shortcut must not
+ * intercept": a text input, textarea, select, or a contenteditable (a rich-text
+ * editor). Every shortcut and every Esc handler asks THIS, so the next shortcut
+ * author finds one predicate rather than writing a fifth copy.
+ *
+ * It had been written four times (this file, escape-layers.ts, the ⌘F handler,
+ * and the My Work arrow-key handler). `shortcuts-guard.unit.test.ts` fails if a
+ * fifth appears.
+ *
+ * The OVERLAY half of the question is deliberately two predicates, not one,
+ * because they answer different questions and merging them would change
+ * behaviour: `isModalOpen` below stops EVERY app shortcut behind a dialog, while
+ * `hasOpenLayer` (escape-layers.ts) additionally counts menus, listboxes and
+ * popovers because Esc is what closes those.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
-  if (!el) return false;
+  if (!el || !el.tagName) return false; // window / document targets are not typing
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el.isContentEditable);
 }
 
 /**
@@ -36,7 +52,7 @@ function ensureListener() {
     // mod-combo) may act on the page behind it.
     if (isModalOpen()) return;
     // Plain-letter shortcuts never fire while typing; mod-combos always may.
-    if (!mod && isTyping(e.target)) return;
+    if (!mod && isTypingTarget(e.target)) return;
     handler(e);
   });
 }
@@ -108,9 +124,12 @@ export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'select-row', keys: 'x', label: 'Select row under cursor' },
   { id: 'select-range', keys: '⇧ + click', label: 'Select a range' },
   { id: 'select-all', keys: 'mod+A', label: 'Select all loaded rows' },
+  { id: 'find', keys: 'mod+F', label: 'Find in this view (Enter opens the first match)' },
   { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
   { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
   { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },
+  // #834 — the next layer out. Listed separately so the sheet says both things Esc does.
+  { id: 'close-record', keys: 'Esc', label: 'Close the open record (after any menu or edit)' },
   // #265: registered here so the overlay lists it. #322's lesson — a feature
   // nobody can discover is the same as a missing feature — and the founder
   // reported "no undo" while the product already had one.

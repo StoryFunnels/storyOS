@@ -2,7 +2,7 @@ import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Req, Us
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { tokenScopeSchema } from '@storyos/schemas';
+import { resourceScopeSchema, tokenScopeSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { TokensService } from './tokens.service';
@@ -19,6 +19,8 @@ const createTokenSchema = z.object({
    * carry a real agent identity rather than only the coarse `origin` flavor.
    * Only the agent's own owner or a workspace admin may set this. */
   agent_id: z.uuid().optional(),
+  /** #543 — bind the token to these spaces/databases; omit for an unrestricted token. */
+  resource_scope: resourceScopeSchema.optional(),
 });
 class CreateTokenDto extends createZodDto(createTokenSchema) {}
 
@@ -62,6 +64,7 @@ export class TokensController {
       // ordinary personal-token path) stays exactly as it was.
       body.agent_id ? 'agent' : undefined,
       body.agent_id,
+      body.resource_scope,
     );
   }
 

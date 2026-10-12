@@ -37,7 +37,7 @@ interface PendingApprovalResult {
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
-import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveMemberIds, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
 import {
@@ -623,6 +623,13 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   run_auto_link: 'admin',
   find_select_drift: 'read',
   fix_select_drift: 'admin',
+  // #598: the scan only reads; nominating converts a field's TYPE (schema), the same admin floor as
+  // change-type. It is a dry run unless dry_run: false is passed.
+  find_workflow_candidates: 'read',
+  nominate_workflows: 'admin',
+  // #597 — guided user field <-> Members relation conversion: a schema change on a shared system database plus a bulk link write.
+  convert_user_field_to_members_relation: 'admin',
+  convert_members_relation_to_user_field: 'admin',
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
@@ -638,6 +645,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_skill: 'read',
   list_skill_templates: 'read',
   export_skill: 'read',
+  // Previews by default and creates only with `create: true`; an agent-created skill is
+  // personal and cannot be published, same as create_skill, so `write` is the right floor.
+  import_skill: 'write',
   create_skill: 'write',
   update_skill: 'write',
   delete_skill: 'write',
@@ -650,6 +660,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // platform stops the agent, not the prompt"). Declaring/changing a gate
   // is a human act, same line #441 draws for grants — see coverage.ts.
   list_action_gates: 'read',
+  // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
+  list_validation_rules: 'read',
+  get_validation_rule_violations: 'read',
   /*
    * #439 — the inbox. Reads are `read`. Marking read/archived is a `write`
    * because it changes what a PERSON will see next time they look, even though
@@ -897,6 +910,35 @@ function scopeExclusions(effective: EffectiveScope): string {
  * Register the tool catalog (MN-076), trimmed to what the credential can do (MN-134).
  * `effective` comes from GET /me; a session/OAuth login (or a /me hiccup) is full admin.
  */
+/** The tiers a tool may ask for, ALL FOUR (#868). `public` is only a PROPOSAL a person approves (#867);
+ *  `members` needs the `members` argument. The descriptions below are checked against this enum by
+ *  tool-description-honesty.test.ts, so they cannot name a tier the schema does not accept. */
+const skillTierArg = z
+  .enum(['personal', 'members', 'shared', 'public'])
+  .optional()
+  .describe(
+    'Who can see it: `shared` (the whole workspace; the default), `personal` (only the token owner), `members` (only the people in `members`, plus you), or `public` (anyone with a link). `public` is NOT applied by this call: it raises an approval that a PERSON must give in the app Inbox; until then the skill stays as it was.',
+  );
+
+const skillMembersArg = z
+  .array(z.string())
+  .optional()
+  .describe(
+    'With visibility `members`: who can see it, as user ids from list_members or exact names. On update this REPLACES the whole set, so get_skill first and send the full new list to add or remove someone. Everyone not named gets nothing, not even a hint the skill exists.',
+  );
+
+function skillVisibilityNote(visibility: string, pendingApprovalId?: string): string {
+  if (pendingApprovalId) {
+    return `NOT public yet: a person must approve this in the StoryOS app (Inbox, approval ${pendingApprovalId}). It stays ${visibility} until they do, and you cannot approve it: approvals are made by people only.`;
+  }
+  if (visibility === 'members') {
+    return 'Shared with the named people only (plus you), recorded as agent-authored. Everyone else gets nothing, not even a hint it exists. Change the set with update_skill `members`, which replaces the whole list.';
+  }
+  return visibility === 'shared'
+    ? "Shared with the whole workspace and recorded as agent-authored: every member's AI can find it with list_skills and may run it. Pass visibility \"personal\" (create_skill / update_skill) to keep one private."
+    : 'Personal to you and recorded as agent-authored. Teammates cannot see it (an admin switched AI publishing off, or you asked for personal).';
+}
+
 export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveScope = { scope: 'admin', allowRunButton: true }) {
   const { client } = ctx;
 
@@ -4672,6 +4714,117 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'find_workflow_candidates',
+    {
+      title: 'Find workflow (status) candidates',
+      description:
+        "Scan every database you can read for a single-select that looks like its lifecycle (a status column), and report which databases already have a workflow field. Read-only. Each candidate says HOW CONFIDENT the match is and WHY (a field called Status with To do / In progress / Done options is high; a red-amber-green column that happens to be called Status is low, and says it matched by name only). A database holds ONE workflow field, so when `ambiguous` is true more than one select qualifies and someone has to choose. Databases you cannot read are absent from the result. Use nominate_workflows to convert the ones you choose.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/workflow-nomination', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'nominate_workflows',
+    {
+      title: 'Convert selects to workflow fields',
+      description:
+        'Convert chosen single-selects to the workflow field type, one per database, through the same per-field conversion the field editor uses (option ids and every record value are preserved). THIS IS A DRY RUN BY DEFAULT: it reports what would convert and changes nothing until you pass dry_run: false, so show the person the dry-run result first. Needs creator access on each database; each item succeeds or fails on its own, with the reason. Pick candidates from find_workflow_candidates; do not nominate two fields in one database.',
+      inputSchema: {
+        workspace: z.string(),
+        nominations: z
+          .array(z.object({ database: z.string().describe('Database name or id.'), field: z.string().describe('The select field: display name, api_name or id.') }))
+          .min(1)
+          .max(50),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+      },
+    },
+    handle<{ workspace: string; nominations: Array<{ database: string; field: string }>; dry_run?: boolean }>(
+      async ({ workspace, nominations, dry_run }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const items: Array<{ database_id: string; field_id: string }> = [];
+        for (const n of nominations) {
+          const db = await resolveDatabase(client, ws.id, n.database);
+          const detail = await getDetail(ws.id, db.id);
+          items.push({ database_id: db.id, field_id: resolveFieldId(detail, n.field, ['select', 'workflow'], 'select') });
+        }
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/workflow-nomination', {
+            params: { path: { ws: ws.id } } as never,
+            body: { nominations: items, dry_run: dry_run ?? true } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'convert_user_field_to_members_relation',
+    {
+      title: 'Convert a user field to a Members relation',
+      description:
+        'Convert a person field (assignee, owner, reviewer...) into a real relation to the Members database, so the person is a linkable record rather than a bare id. THIS IS A DRY RUN BY DEFAULT and changes nothing until you pass dry_run: false, so show the person the dry-run result first. The dry run reports how many records link, which values cannot be resolved (a user id with no Members row), the name of the field it would create, and a per-role permission check. Applying KEEPS the original field (renamed "<name> (user)", same api_name, so views and automations on it keep working until repointed), creates the relation under the original name with a hidden paired field on Members, and PARKS anything unresolvable on the retained field: nothing is dropped. The conversion is refused, naming the guest and what they would gain, if it is not permission-neutral, and is rolled back if a post-change probe finds a leak. Admin only. Undo with convert_members_relation_to_user_field.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string().describe('The user field: display name, api_name or id.'),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; dry_run?: boolean }>(async ({ workspace, database, field, dry_run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = resolveFieldId(detail, field, ['user'], 'user');
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+          body: { dry_run: dry_run ?? true } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'convert_members_relation_to_user_field',
+    {
+      title: 'Convert a Members relation back to a user field',
+      description:
+        'The reverse of convert_user_field_to_members_relation: turn a relation to the Members database back into a person field. DRY RUN BY DEFAULT. Values are written from the RELATION (it is the source of truth after a conversion), the original field name is restored, and the relation AND its hidden paired field on Members are removed, so the undo leaves nothing behind. A Members row with no user id (an invited or erased person) cannot become a user, so their names are parked in a text field "<name> (unlinked members)", not dropped. If lookups or rollups are built on the relation, the dry run lists them and applying is refused until you pass confirm_dependents: true, because removing the relation removes them. Admin only.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string().describe('The relation field pointing at Members: display name, api_name or id.'),
+        dry_run: z.boolean().optional().describe('Default true. Pass false to actually convert.'),
+        confirm_dependents: z.boolean().optional().describe('Pass true to accept removing lookup/rollup fields built on the relation.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; dry_run?: boolean; confirm_dependents?: boolean }>(
+      async ({ workspace, database, field, dry_run, confirm_dependents }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, field, ['relation'], 'relation');
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-user', {
+            params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+            body: { dry_run: dry_run ?? true, confirm_dependents: confirm_dependents ?? false } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
     'find_select_drift',
     {
       title: 'Find select↔relation drift',
@@ -5185,6 +5338,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
        * CAPABILITY is reachable, not that every field of every schema is —
        * this is a deliberate exclusion, recorded here rather than left silent.
        *
+       * Nor `agents_may_publish_skills` (#848), for a sharper reason: the server REFUSES it from
+       * any non-human source (a token or a connected AI, #858), because a flag an agent can turn
+       * on to let agents publish is decorative. A tool for it could only ever 403, so it is not
+       * offered; a person changes it in Settings > General.
+       *
        * `branding` (#539) is the opposite call: cosmetic client-portal
        * configuration, not a security posture, so it's exposed like rename/
        * description above rather than excluded like private_attachments.
@@ -5355,7 +5513,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'change_field_type',
     {
       title: 'Change field type',
-      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error.',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5442,18 +5600,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   // ============ Skills (#41): discover + run a workspace's saved skills ============
-  // Both tools ride the exact GET/POST the in-app Skills UI uses (SkillsController),
-  // so visibility (personal vs shared) and the run/last-run bookkeeping are never
-  // reimplemented here — see resolve.ts's listSkills/resolveSkill.
+  // Both tools call the SkillsController endpoints (there is NO in-app Skills list or
+  // Run button — that was #832), so visibility (personal vs shared) and the
+  // run/last-run bookkeeping are never reimplemented here — see resolve.ts's
+  // listSkills/resolveSkill.
 
   reg(
     'list_skills',
     {
       title: 'List skills',
       description:
-        "List the skills visible to the caller in a workspace: their own personal skills, plus every " +
-        'shared one (the same visibility rule the in-app Skills list enforces — this never widens it). ' +
-        'Each entry carries when_to_use and allowed_tools so you can pick the right one, then call ' +
+        "List the skills visible to the caller in a workspace: the caller's own, every skill shared with the " +
+        'workspace, every public one, and any `members` skill that names the caller. `visibility` says which tier ' +
+        'each is: personal ("Only me"), members (named people), shared (the workspace), public (anyone with the link). ' +
+        "A teammate's personal skill is never listed to you (workspace admins see all of them). " +
+        'Each entry carries when_to_use so you can pick the right one, then call ' +
         'run_skill with its name or id.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
     },
@@ -5467,7 +5628,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           description: s.description,
           when_to_use: s.when_to_use,
           visibility: s.visibility,
-          allowed_tools: s.allowed_tools,
+          version: s.version,
           editable: s.editable,
         })),
       );
@@ -5503,6 +5664,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     updated_at: string;
     last_run_at: string | null;
     last_run_status: 'ok' | 'error' | null;
+    /** #867 AC3: present when `public` was asked for: a person still has to approve it. */
+    pending_approval?: { id: string };
+    /** Present to the owner and admins on a `members` skill: the people it is shared with. */
+    member_ids?: string[];
   }
 
   /** One shape for a skill however you touched it, same reasoning as #343's
@@ -5515,7 +5680,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     when_to_use: s.when_to_use,
     instructions: s.instructions,
     examples: s.examples,
-    allowed_tools: s.allowed_tools,
+    version: s.version,
     visibility: s.visibility,
     // Surfaced on every skill read: the only way a reader can tell an
     // agent-written instruction from a human-written one WITHOUT trusting the
@@ -5526,6 +5691,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     editable: s.editable,
     last_run_at: s.last_run_at ?? null,
     last_run_status: s.last_run_status ?? null,
+    ...(s.pending_approval ? { pending_approval: s.pending_approval } : {}),
+    ...(s.member_ids ? { members: s.member_ids } : {}),
   });
 
   reg(
@@ -5551,7 +5718,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List skill templates',
       description:
-        'The starter scaffolds a skill can be authored from — each a complete, worked example of the six fields (name, description, when_to_use, instructions, examples, allowed_tools). Read one before create_skill: a skill written from a blank box tends to be a title and a vague sentence, and these show the level of detail that actually makes a skill re-runnable. Pass the one you started from as create_skill\'s `from_template`.',
+        'The starter scaffolds a skill can be authored from — each a complete, worked example of the five fields (name, description, when_to_use, instructions, examples). Read one before create_skill: a skill written from a blank box tends to be a title and a vague sentence, and these show the level of detail that actually makes a skill re-runnable. Pass the one you started from as create_skill\'s `from_template`.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5569,7 +5736,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create skill',
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
-        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and it is created PERSONAL to the token owner. Sharing it with the workspace is a human decision made in-app, so `visibility` is not an argument here.',
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. You can also pass `visibility: "members"` with `members` to share with only the named people.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
@@ -5588,11 +5755,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .array(z.object({ input: z.string(), output: z.string() }))
           .optional()
           .describe('Worked input→output pairs. One good example does more than a paragraph of clarification. Max 20.'),
-        allowed_tools: z
-          .array(z.string())
-          .optional()
-          .describe('Tool names this skill should stick to when run, e.g. ["query_records","create_record"]. Max 50.'),
+        version: z.string().optional().describe('Semver, e.g. "1.0.0". Default 1.0.0.'),
         from_template: z.string().optional().describe('Template id from list_skill_templates, recorded as provenance.'),
+        visibility: skillTierArg,
+        members: skillMembersArg,
       },
     },
     handle<{
@@ -5602,10 +5768,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use: string;
       instructions: string;
       examples?: Array<{ input: string; output: string }>;
-      allowed_tools?: string[];
+      version?: string;
       from_template?: string;
-    }>(async ({ workspace, name, description, when_to_use, instructions, examples, allowed_tools, from_template }) => {
+      visibility?: 'personal' | 'members' | 'shared' | 'public';
+      members?: string[];
+    }>(async ({ workspace, name, description, when_to_use, instructions, examples, version, from_template, visibility, members }) => {
       const ws = await resolveWorkspace(client, workspace);
+      // `members` only means something with visibility `members`; saying so beats a 422 from the server.
+      if (members !== undefined && visibility !== 'members') {
+        throw new Error('`members` only applies with visibility "members". Pass visibility: "members", or drop `members`.');
+      }
+      const memberIds = members !== undefined ? await resolveMemberIds(client, ws.id, members) : undefined;
       const created = await unwrap<SkillFull>(
         client.POST('/api/v1/workspaces/{ws}/skills', {
           // `as never` because the skills routes declare `parameters: []` in the
@@ -5619,18 +5792,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             when_to_use,
             instructions,
             examples: examples ?? [],
-            allowed_tools: allowed_tools ?? [],
-            // Never sent as `shared`: the API refuses it for a non-human author
-            // anyway, and a tool that offers an argument the server rejects is
-            // a tool that teaches the wrong thing.
-            visibility: 'personal',
+            version,
+            // `visibility` is sent ONLY when the caller chose one (personal or shared). When omitted,
+            // SkillsService.create is the one place that decides what it means (#867: shared, unless
+            // an admin switched AI publishing off), so this tool does not restate the default.
+            ...(visibility ? { visibility } : {}),
+            ...(memberIds ? { member_ids: memberIds } : {}),
             source_template: from_template,
           } as never,
         }),
       );
       return text({
         skill: serializeSkill(created),
-        note: 'Personal to you and recorded as agent-authored. A person can read it in-app and promote it to shared.',
+        note: skillVisibilityNote(created.visibility, created.pending_approval?.id),
       });
     }),
   );
@@ -5640,7 +5814,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       description:
-        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused, and this cannot publish a skill to the workspace (see create_skill).',
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal`, `members` (only the people in `members`; that list REPLACES the whole set, so get_skill first to add or remove one person), `shared` (the whole workspace; refused only if an admin switched AI publishing off), and `public` (only raises an approval a person must give in the app Inbox; see create_skill).',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
@@ -5649,7 +5823,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         when_to_use: z.string().optional(),
         instructions: z.string().optional().describe('Replaces the whole procedure — get_skill first.'),
         examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
-        allowed_tools: z.array(z.string()).optional(),
+        version: z.string().optional().describe('Semver, e.g. "1.1.0". Bump it when you change the procedure.'),
+        visibility: skillTierArg,
+        members: skillMembersArg,
       },
     },
     handle<{
@@ -5660,11 +5836,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       when_to_use?: string;
       instructions?: string;
       examples?: Array<{ input: string; output: string }>;
-      allowed_tools?: string[];
-    }>(async ({ workspace, skill, ...patch }) => {
-      const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-      if (Object.keys(given).length === 0) throw new Error('Nothing to change — pass at least one field to update.');
+      version?: string;
+      visibility?: 'personal' | 'members' | 'shared' | 'public';
+      members?: string[];
+    }>(async ({ workspace, skill, members, ...patch }) => {
+      const given: Record<string, unknown> = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      if (Object.keys(given).length === 0 && members === undefined) throw new Error('Nothing to change — pass at least one field to update.');
       const ws = await resolveWorkspace(client, workspace);
+      if (members !== undefined) given.member_ids = await resolveMemberIds(client, ws.id, members);
       const ref = await resolveSkill(client, ws.id, skill);
       const updated = await unwrap<SkillFull>(
         client.PATCH('/api/v1/workspaces/{ws}/skills/{id}', {
@@ -5672,7 +5851,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body: given as never,
         }),
       );
-      return text(serializeSkill(updated));
+      return text({
+        ...serializeSkill(updated),
+        ...(updated.pending_approval ? { note: skillVisibilityNote(updated.visibility, updated.pending_approval.id) } : {}),
+      });
     }),
   );
 
@@ -5736,16 +5918,68 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'import_skill',
+    {
+      title: 'Import skill',
+      description:
+        'Bring a SKILL.md (or a Markdown export from StoryOS) in as a skill. It ALWAYS returns a KEPT/DROPPED report first, ' +
+        'and by default creates nothing: `kept` lists what landed in which StoryOS field, `dropped` lists every part of the file ' +
+        'StoryOS has no field for (with the reason — e.g. `allowed-tools`, `license`, `compatibility`, `version`), and `missing` ' +
+        'lists required fields the file did not supply. StoryOS never invents a missing field: pass it in `overrides` ' +
+        '(a skill needs a `when_to_use`, which most SKILL.md files lack). Show the person the `dropped` list before you pass ' +
+        '`create: true`. The skill is recorded as agent-authored and created SHARED with the whole workspace (personal if an admin switched AI publishing off in Settings > General); this tool cannot make it public or share it with named people (use create_skill or update_skill afterwards for that).',
+      inputSchema: {
+        workspace: z.string(),
+        content: z.string().describe('The full text of the SKILL.md, including any frontmatter.'),
+        create: z.boolean().optional().describe('Default false = preview only. true = write the skill after reporting.'),
+        overrides: z
+          .object({
+            name: z.string().optional(),
+            description: z.string().optional(),
+            when_to_use: z.string().optional(),
+            instructions: z.string().optional(),
+          })
+          .strict()
+          .optional()
+          .describe('Fields to supply or replace — use this for what the report lists under `missing`.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      content: string;
+      create?: boolean;
+      overrides?: { name?: string; description?: string; when_to_use?: string; instructions?: string };
+    }>(async ({ workspace, content, create, overrides }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ report: unknown; importable: boolean; created: Parameters<typeof serializeSkill>[0] | null }>(
+        client.POST('/api/v1/workspaces/{ws}/skills/import', {
+          params: { path: { ws: ws.id } } as never,
+          body: { content, create: create ?? false, overrides } as never,
+        }),
+      );
+      return text({
+        report: res.report,
+        importable: res.importable,
+        created: res.created ? serializeSkill(res.created) : null,
+        note: res.created
+          ? res.created.visibility === 'shared'
+            ? 'Created and shared with the whole workspace, recorded as agent-authored. Teammates\' AI can find and run it.'
+            : 'Created personal to you and recorded as agent-authored (an admin switched AI publishing off). Teammates cannot see it.'
+          : 'Nothing was created. Review `dropped` and `missing`, then call again with create: true.',
+      });
+    }),
+  );
+
+  reg(
     'run_skill',
     {
       title: 'Run skill',
       description:
         'Run a saved skill by name or id (from list_skills). StoryOS has no managed AI runtime yet ' +
-        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use/allowed_tools and " +
-        'records the run (same bookkeeping as pressing "Run" in-app: last_run_at/last_run_status), but ' +
-        'YOU are the model that actually carries out `instructions` against `inputs`. `inputs` is free-form ' +
-        'and is only echoed back for you to act on — there is no server-side execution to send it to yet. ' +
-        'If the skill declares allowed_tools, prefer those tools while following it.',
+        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use and " +
+        'records the run (last_run_at/last_run_status), but ' +
+        'YOU are the model that actually carries out `instructions` against `inputs`; StoryOS executes nothing. `inputs` is free-form ' +
+        'and is only echoed back for you to act on — there is no server-side execution to send it to yet.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         name: z.string().describe('Skill name or id (from list_skills).'),
@@ -5762,10 +5996,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.POST('/api/v1/workspaces/{ws}/skills/{id}/run', { params: { path: { ws: ws.id, id: skill.id } } } as never),
       );
       return text({
-        skill: { id: skill.id, name: skill.name, when_to_use: skill.when_to_use, allowed_tools: skill.allowed_tools },
+        skill: { id: skill.id, name: skill.name, when_to_use: skill.when_to_use },
         instructions: skill.instructions,
         inputs: inputs ?? {},
-        note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, preferring tools named in allowed_tools when the skill declares any.',
+        note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, with your own tools and the permissions of the credential you are connected with.',
         run_log: run,
       });
     }),
@@ -6366,7 +6600,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set my personal filter on an embedded collection',
       description:
-        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — same all-or-nothing reset the "Reset" button in the UI does). ' +
+        'Narrow a record page\'s embedded relation collection for YOURSELF only, leaving what teammates see untouched — same idea as set_personal_filter but for a field\'s collection widget rather than a saved view. Pass clear:true to remove your ENTIRE personal override (filter, sort, color, and column choices together — an all-or-nothing reset, not a per-field undo). ' +
         "It writes for the identity this token belongs to and cannot filter anyone else's screen. Filter syntax is identical to query_records, applied against the collection's TARGET database (the one the relation links to), not this one. " +
         'Only the filter is settable here — sort order, color-by, and inline columns are display preferences with no query semantics, not exposed to agents individually.',
       inputSchema: {
@@ -6923,7 +7157,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List action-class gate policies',
       description:
         '#542: this workspace\'s declared gate policies over an action class (currently only "delete_records") — scope (workspace/space/database), ' +
-        'enabled, and who approves. Read-only: declaring, enabling/disabling or changing a gate is admin-only in the app, not reachable via MCP — ' +
+        'enabled, and who approves. `enforced: false` (with an `inert_reason`) marks an old policy on a class nothing enforces: it protects NOTHING and is never reported as enabled — do not tell anyone that action is gated. Read-only: declaring, enabling/disabling or changing a gate is admin-only and not reachable via MCP — ' +
         'an agent that could change the gate meant to constrain agents would defeat the point.',
       inputSchema: {
         workspace: z.string(),
@@ -6933,6 +7167,49 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/action-gates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_validation_rules',
+    {
+      title: 'List validation rules',
+      description:
+        '#231: the validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message, so read these before writing if a write is being refused. Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/validation-rules', { params: { path: { ws: ws.id, db: db.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_validation_rule_violations',
+    {
+      title: 'List records that already break a validation rule',
+      description:
+        '#231: the stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). Use it to report on data quality or to find records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        rule: z.string().describe('The rule id (from list_validation_rules).'),
+        after: z.number().int().optional().describe('next_cursor from a previous page.'),
+      },
+    },
+    handle<{ workspace: string; database: string; rule: string; after?: number }>(async ({ workspace, database, rule, after }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}/violations', {
+          params: { path: { ws: ws.id, db: db.id, id: rule }, query: after ? { after } : {} },
+        } as never),
       );
       return text(res);
     }),

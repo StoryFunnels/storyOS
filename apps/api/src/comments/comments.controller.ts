@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -47,6 +48,7 @@ class CommentBodyDto extends createZodDto(commentBodySchema) {}
 @ApiTags('comments')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/records/:rec/comments')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class CommentsController {
   constructor(

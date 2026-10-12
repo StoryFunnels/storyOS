@@ -300,7 +300,7 @@ export type AggregateOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
 export function useRecordAggregate(
   ws: string,
   db: string,
-  input: { op: AggregateOp; field?: string; filter?: unknown },
+  input: { op: AggregateOp; field?: string; filter?: unknown; /** #835 — find-in-view text */ q?: string },
   enabled = true,
 ) {
   return useQuery({
@@ -312,6 +312,7 @@ export function useRecordAggregate(
           op: input.op,
           ...(input.field ? { field: input.field } : {}),
           ...(input.filter ? { filter: input.filter } : {}),
+          ...(input.q ? { q: input.q } : {}),
         } as never,
       });
       if (error) throw error;
@@ -329,8 +330,8 @@ export function useRecordAggregate(
  * so this coerces the shared hook's `number | null` back to the `number`
  * every existing caller already expects — a narrowing, not a behavior change.
  */
-export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true) {
-  const query = useRecordAggregate(ws, db, { op: 'count', filter }, enabled);
+export function useRecordCount(ws: string, db: string, filter?: unknown, enabled = true, q?: string) {
+  const query = useRecordAggregate(ws, db, { op: 'count', filter, q }, enabled);
   return { ...query, data: query.data ?? undefined };
 }
 
@@ -350,7 +351,7 @@ export function useRecordCount(ws: string, db: string, filter?: unknown, enabled
 export function useGroupedRecordCount(
   ws: string,
   db: string,
-  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown },
+  input: { group_by: string; group_by_granularity?: 'week' | 'month' | 'quarter' | 'year'; filter?: unknown; q?: string },
   enabled = true,
 ) {
   return useQuery({
@@ -361,6 +362,52 @@ export function useGroupedRecordCount(
         body: {
           op: 'count',
           group_by: input.group_by,
+          ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
+          ...(input.filter ? { filter: input.filter } : {}),
+          ...(input.q ? { q: input.q } : {}),
+        } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { groups: Array<{ key: string | null; value: number | null }> }).groups;
+    },
+    enabled: Boolean(ws && db) && enabled,
+  });
+}
+
+/**
+ * #795 — a chart/grouped-table widget's series in ONE request: the measure
+ * (`count`/`sum`/`avg`/`min`/`max`) per group, computed by the server over the same
+ * grant-scoped filter `/query` uses. Replaces paging the whole matching dataset
+ * into the browser (six `/records/query` calls before a bar rendered, on a
+ * 560-record database).
+ *
+ * Returns the server's RAW groups: `key` is an option id for select/multi_select, the
+ * strings "true"/"false" for a checkbox, and `null` for the empty bucket; labels are
+ * the caller's job (it owns the option lists). A multi_select record counts in EVERY
+ * one of its options, so group counts can add up to MORE than the record total — that
+ * is the correct reading, not a bug to normalise away.
+ */
+export function useGroupedAggregate(
+  ws: string,
+  db: string,
+  input: {
+    op: AggregateOp;
+    field?: string;
+    group_by: string;
+    group_by_granularity?: 'week' | 'month' | 'quarter' | 'year';
+    filter?: unknown;
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...recordCountKey(ws, db), 'grouped-aggregate', input],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', {
+        params: { path: { ws, db } },
+        body: {
+          op: input.op,
+          group_by: input.group_by,
+          ...(input.field ? { field: input.field } : {}),
           ...(input.group_by_granularity ? { group_by_granularity: input.group_by_granularity } : {}),
           ...(input.filter ? { filter: input.filter } : {}),
         } as never,

@@ -7,6 +7,7 @@ import { describeDraft } from '@/lib/description-draft';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useSidebarMutations, useWorkspace } from '@/lib/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -100,6 +101,22 @@ export default function GeneralSettingsPage() {
     );
   };
 
+  /**
+   * #848/#867 — the ONE place a person switches AI publishing. It is ON by default (the founder's
+   * ruling): only an explicit `false` turns it off, so an untouched workspace reads as on. It lives in
+   * the web app on purpose: the API refuses this setting from any token or connected AI, either
+   * way (a switch an agent can flip is decorative), so a person at a browser is the only path.
+   */
+  const agentsMayPublish = workspace.data?.settings?.agents_may_publish_skills !== false;
+  const toggleAgentsMayPublish = (next: boolean) =>
+    updateWorkspace.mutate(
+      { agents_may_publish_skills: next },
+      {
+        onSuccess: () => toast.success(next ? 'AI can share skills with the workspace' : 'AI-written skills now stay private'),
+        onError: (e) => toast.error(apiErrorMessage(e, 'Could not save — try again')),
+      },
+    );
+
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">General</h1>
@@ -138,6 +155,34 @@ export default function GeneralSettingsPage() {
           {!isAdmin && (
             <p className="text-label text-faint">Only an admin can change the workspace description.</p>
           )}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-1 text-sm font-medium text-ink">Skills written by AI</h2>
+        <p className="mb-3 text-body text-muted">
+          A skill is instructions that other people&apos;s AI will follow. Skills an AI writes are
+          always marked as written by an AI, so anyone reading one can see where it came from.
+        </p>
+        <div className="flex max-w-xl items-start justify-between gap-4 rounded-md border border-border-default bg-card p-4">
+          <div>
+            <Label htmlFor="agents-may-publish" className="text-sm text-ink">
+              Let AI share skills with the whole workspace
+            </Label>
+            <p className="mt-1 text-label text-muted">
+              On by default. A skill an AI creates is visible to everyone in this workspace straight
+              away, and their AI can run it. It can also share with named people only. It never makes
+              a skill public by itself: that needs a person to approve it. Turn it off to keep AI-written skills private
+              to the person whose AI wrote them. Skills already shared stay shared.
+            </p>
+            {!isAdmin && <p className="mt-1 text-label text-faint">Only an admin can change this.</p>}
+          </div>
+          <Switch
+            checked={agentsMayPublish}
+            onCheckedChange={toggleAgentsMayPublish}
+            disabled={!isAdmin || workspace.isLoading || updateWorkspace.isPending}
+            aria-label="Let AI share skills with the whole workspace"
+          />
         </div>
       </section>
 

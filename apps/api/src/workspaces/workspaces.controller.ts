@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -9,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
@@ -38,6 +40,9 @@ import { WorkspacesService } from './workspaces.service';
 export class WorkspacesController {
   constructor(private readonly workspaces: WorkspacesService) {}
 
+  // #543 — name→id resolution is how an MCP client starts; already clamped to the token's own
+  // workspace above, and a bound token must still be able to do it.
+  @ResourceScopable()
   @Get()
   @ApiOperation({ summary: 'List workspaces I belong to' })
   list(@Req() req: AuthedRequest) {
@@ -82,11 +87,23 @@ export class WorkspaceController {
   @MinRole('admin')
   @ApiOperation({ summary: 'Update workspace (admin)' })
   update(@Req() req: WorkspaceRequest, @Body() body: UpdateWorkspaceDto) {
+    // #848/#867 — the switch for whether agents may publish skills to the workspace is a HUMAN
+    // decision (ADR-0010: an agent never decides for a human). It is ON by default; this keeps an
+    // agent from turning it back ON after an admin turned it off, as much as from turning it off. `source` is derived at the
+    // auth boundary and cannot be claimed, and after #858 an OAuth-connected AI is `mcp`, so this
+    // refuses every token and connected AI even when it holds an admin's role. Refused when the
+    // key is PRESENT, either value: an agent has no business touching the flag at all.
+    if (body.agents_may_publish_skills !== undefined && (req.auth?.source ?? 'human') !== 'human') {
+      throw new ForbiddenException(
+        'Whether agents may publish skills to the workspace is decided by a person: it cannot be changed through an API token or a connected AI, even one acting for an admin. Change it in Settings > General.',
+      );
+    }
     return this.workspaces.update(req.membership.workspaceId, body);
   }
 
   // --- Spaces ---
 
+  @ResourceScopable() // #543 — narrowed by SpacesService.list(membership) like a guest
   @Get('spaces')
   @ApiOperation({ summary: 'List spaces (guests: scoped spaces only)' })
   listSpaces(@Req() req: WorkspaceRequest) {

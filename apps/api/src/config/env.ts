@@ -324,6 +324,17 @@ export const envSchema = z.object({
    * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.
    * Price ids come from `pnpm --filter @storyos/api billing:seed` (test mode).
    */
+  /**
+   * #850 — how far BEHIND a webhook subscription's cursor the dispatcher still looks for events
+   * it has not queued yet. `activity_events.created_at` is the transaction START time, not the
+   * commit time, so a transaction that begins before a scan and commits after it writes rows
+   * stamped behind the cursor; re-reading this window (and skipping what is already queued)
+   * is what picks them up. It is a BOUND, not a proof: a transaction that stays open longer
+   * than this can still lose its events. Keep it above the longest transaction you permit
+   * (statement_timeout / idle_in_transaction_session_timeout), at the cost of a wider re-read
+   * on every scan.
+   */
+  WEBHOOK_SCAN_LOOKBACK_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_PRO: z.string().optional(),
@@ -384,6 +395,17 @@ export const envSchema = z.object({
    * ADR — when this is unreachable Tyron says so rather than pretending to act.
    */
   TYRON_MCP_URL: z.string().default('http://mcp:3002/mcp'),
+  /**
+   * #262 / #794 — base URL of the PDF sidecar (Gotenberg, a headless Chromium in
+   * its own container with no internet egress). Unset means PDF export answers 503
+   * "not configured" rather than failing mysteriously — self-hosters opt in by
+   * running the sidecar (compose profile) and setting this.
+   */
+  PDF_RENDERER_URL: z.string().optional(),
+  /** Hard ceiling on one render. Past it the request fails 504 instead of hanging. */
+  PDF_RENDER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
+  /** Renders accepted at once, running + queued. Renders run one at a time (#794). */
+  PDF_RENDER_MAX_PENDING: z.coerce.number().int().min(1).max(50).default(4),
 });
 
 export type Env = Omit<

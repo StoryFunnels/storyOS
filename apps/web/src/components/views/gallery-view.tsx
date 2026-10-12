@@ -10,6 +10,7 @@ import { isCoverField } from './cover-fields';
 import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 
 /** Gallery view (MN-090): records as a responsive grid of cards — a board with no
@@ -33,7 +34,8 @@ export function GalleryView({
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
   const { createRecord } = useRecordMutations(ws, db);
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
+  const search = useViewSearch(db);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
   const addRecord = () =>
@@ -86,8 +88,8 @@ export function GalleryView({
     const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, { field: cover.field.apiName, op: 'is_empty' }] };
   }, [cover, queryBody.filter]);
-  const coverEmptyCount = useRecordCount(ws, db, coverEmptyFilter, Boolean(cover));
-  const totalCount = useRecordCount(ws, db, queryBody.filter, Boolean(cover));
+  const coverEmptyCount = useRecordCount(ws, db, coverEmptyFilter, Boolean(cover), search);
+  const totalCount = useRecordCount(ws, db, queryBody.filter, Boolean(cover), search);
   const coverFillRate =
     cover && coverEmptyCount.data !== undefined && totalCount.data !== undefined
       ? { filled: totalCount.data - coverEmptyCount.data, total: totalCount.data }

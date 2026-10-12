@@ -14,7 +14,15 @@ import type { Db } from '../db/client';
 import { memberships } from '../db/schema';
 import type { AuthedRequest } from '../auth/auth.guard';
 
-export type Membership = typeof memberships.$inferSelect;
+export type Membership = typeof memberships.$inferSelect & {
+  /**
+   * #543 — present only when the request authenticated with a token bound to specific spaces
+   * or databases. `role` is then DOWNGRADED to 'guest' (so every guest narrowing already in the
+   * codebase applies) and the caller's real role is kept here, because AccessService derives
+   * the synthetic grants from it. Never set from anything but the token row.
+   */
+  bound?: { spaceIds: string[]; databaseIds: string[]; realRole: 'admin' | 'member' | 'guest' };
+};
 export type WorkspaceRequest = AuthedRequest & { membership: Membership };
 
 const MIN_ROLE_KEY = 'storyos:minRole';
@@ -54,17 +62,34 @@ export class WorkspaceAccessGuard implements CanActivate {
     });
     if (!membership) throw new NotFoundException('Workspace not found');
 
+    const ceiling = (request as AuthedRequest).auth?.resourceScope;
+    const effective: Membership = ceiling
+      ? {
+          ...membership,
+          role: 'guest',
+          bound: {
+            spaceIds: ceiling.space_ids,
+            databaseIds: ceiling.database_ids,
+            realRole: membership.role,
+          },
+        }
+      : membership;
+
     const minRole =
       this.reflector.getAllAndOverride<Role>(MIN_ROLE_KEY, [
         context.getHandler(),
         context.getClass(),
       ]) ?? 'guest';
 
-    if (ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
-      throw new ForbiddenException(`Requires ${minRole} role`);
+    if (ROLE_RANK[effective.role] < ROLE_RANK[minRole]) {
+      throw new ForbiddenException(
+        ceiling
+          ? 'This token is bound to specific spaces or databases; this route is outside that boundary'
+          : `Requires ${minRole} role`,
+      );
     }
 
-    (request as WorkspaceRequest).membership = membership;
+    (request as WorkspaceRequest).membership = effective;
     return true;
   }
 }

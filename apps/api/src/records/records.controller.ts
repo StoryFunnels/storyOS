@@ -12,6 +12,7 @@ import {
   UseGuards,
   HttpCode,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -60,6 +61,7 @@ class ListRecordsQueryDto extends createZodDto(listQuerySchema) {}
 @ApiTags('records')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/records')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class RecordsController {
   constructor(

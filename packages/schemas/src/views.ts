@@ -500,6 +500,19 @@ export const viewConfigSchema = z.object({
           /** #720 — closed set, self-hosted. Absent = today's own Figtree,
            *  same "emit nothing" rule as the colours above. */
           font: embedFontFamilySchema.optional(),
+          /**
+           * #721 — which light/dark the BUILDER'S EMBED SNIPPET requests
+           * (`?theme=dark`). Stored only so the builder shows the same choice
+           * next time and a re-copied snippet does not silently change.
+           *
+           * NEVER READ BY THE PUBLIC PAGE FOR PAINTING: this arrives with the
+           * fetched form definition, after first paint, and applying it would
+           * flash — the pre-paint script reads the URL param instead. Absent =
+           * light = today's behaviour; the builder clears it rather than storing
+           * 'light', so an untouched theme stays byte-identical (spec §2).
+           * `light | dark` only: the HOST decides, never the visitor's device.
+           */
+          mode: z.enum(['light', 'dark']).optional(),
         })
         .optional(),
     })

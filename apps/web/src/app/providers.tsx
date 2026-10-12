@@ -9,6 +9,7 @@ import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { registerServiceWorker } from '@/lib/service-worker';
 import { captureReferralCode } from '@/lib/referral';
+import { authEventFromSearch, captureFirstTouch, firstTouchProperties, readFirstTouch, stripAuthEvent } from '@/lib/funnel';
 import { useSession } from '@/lib/auth-client';
 import { isIdentityChange } from '@/lib/identity-change';
 import type { SeenIdentity } from '@/lib/identity-change';
@@ -61,6 +62,34 @@ function IdentitySync() {
   return null;
 }
 
+/**
+ * #818 — the Google half of the sign-up funnel. A Google account is created by the OAuth
+ * callback, not by a form we control, so the only moment the app learns "that was a NEW
+ * account" is the redirect it lands on (`newUserCallbackURL`). Fire from there, once the
+ * session is real, then strip the marker so a reload cannot count it twice.
+ */
+function AuthEventBeacon() {
+  const { data: session, isPending } = useSession();
+  const fired = useRef(false);
+  useEffect(() => {
+    if (fired.current || isPending) return;
+    const found = authEventFromSearch(window.location.search);
+    if (!found) return;
+    fired.current = true;
+    // A marker with no session behind it is a hand-typed URL, not an authentication.
+    if (session?.user) {
+      posthog.capture(
+        found.event,
+        found.event === 'user_signed_up'
+          ? { method: found.method, ...firstTouchProperties(readFirstTouch(window.sessionStorage)) }
+          : { method: found.method },
+      );
+    }
+    window.history.replaceState(null, '', `${window.location.pathname}${stripAuthEvent(window.location.search)}${window.location.hash}`);
+  }, [isPending, session?.user?.id]);
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -71,6 +100,7 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     registerServiceWorker();
     captureReferralCode();
+    captureFirstTouch(window.location.search, window.sessionStorage);
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
@@ -78,6 +108,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <ConfirmProvider>
           <TooltipProvider>
             <IdentitySync />
+            <AuthEventBeacon />
             {children}
           </TooltipProvider>
         </ConfirmProvider>

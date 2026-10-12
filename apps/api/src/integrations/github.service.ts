@@ -66,6 +66,30 @@ export const DEFAULT_STATE_AUTOMATION: GithubStateAutomation = {
   pushed: null,
 };
 
+/** Drop tally entries for repos that are now selected; undefined when nothing is left. */
+function withoutSelected(
+  tally: IgnoredDeliveries | undefined,
+  selected: string[] | undefined,
+): IgnoredDeliveries | undefined {
+  if (!tally) return undefined;
+  if (!selected || selected.length === 0) return tally;
+  const kept = Object.fromEntries(Object.entries(tally).filter(([repo]) => !selected.includes(repo)));
+  return Object.keys(kept).length > 0 ? (kept as IgnoredDeliveries) : undefined;
+}
+
+/** Client shape: newest first, with the overflow bucket reported separately. */
+function presentIgnored(tally: IgnoredDeliveries | undefined) {
+  const entries = Object.entries(tally ?? {}).filter(([repo]) => repo !== '_overflow') as Array<
+    [string, IgnoredDelivery]
+  >;
+  return {
+    repos: entries
+      .map(([repo, v]) => ({ repo, ...v }))
+      .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at)),
+    other_count: tally?._overflow?.count ?? 0,
+  };
+}
+
 export interface GithubConfig {
   /** PAT. Optional: only the checks lookup (AC 3) needs it — the webhook does not. */
   token?: string;
@@ -89,7 +113,28 @@ export interface GithubConfig {
   state_automation?: GithubStateAutomation;
   /** Code & reviews settings (#43) — account-level, not a secret. */
   reviews_settings?: GithubReviewSettings;
+  /**
+   * #828: deliveries that authenticated as this workspace but were skipped because
+   * their repository is not in `repos`. Keyed by full name. Bounded: at most
+   * MAX_IGNORED_REPOS keys, the rest only counted in `_overflow` (see
+   * recordIgnoredDelivery). Not a secret; reset by disconnect, and an entry is
+   * dropped the moment its repo is selected.
+   */
+  ignored_deliveries?: IgnoredDeliveries;
 }
+
+export interface IgnoredDelivery {
+  count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_event: string;
+}
+export type IgnoredDeliveries = Record<string, IgnoredDelivery> & {
+  _overflow?: { count: number; last_seen_at: string };
+};
+
+/** Distinct unselected repos remembered per workspace. A GitHub org rarely has more. */
+export const MAX_IGNORED_REPOS = 50;
 
 /** Code & reviews settings (#43 AC 5). Workspace-wide, stored alongside the rest
  *  of the GitHub config — no secret in here, so it round-trips through the client
@@ -322,12 +367,59 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
         config.link_database_id !== undefined ? config.link_database_id : existing.link_database_id,
       state_automation:
         config.state_automation !== undefined ? config.state_automation : existing.state_automation,
+      // #828: the tally is not an input, so a save must not wipe it — but a repo
+      // that has just been selected is no longer ignored, so its entry goes.
+      ignored_deliveries: withoutSelected(existing.ignored_deliveries, config.repos),
     };
     await this.db
       .update(workspaces)
       .set({ settings: { ...settings, github } })
       .where(eq(workspaces.id, workspaceId));
     return this.present(github);
+  }
+
+  /**
+   * #828: remember that a delivery for `repo` was skipped as not-selected, so the
+   * integration settings can say so instead of looking healthy. Called from the
+   * webhook skip branch, which must answer 200 regardless — so this swallows its
+   * own failure (logged) and never changes the outcome.
+   *
+   * Bounded: one entry per distinct repo, at most MAX_IGNORED_REPOS of them; further
+   * repos only bump `_overflow.count`. Repo names come from deliveries that already
+   * passed HMAC authentication, so an outsider cannot mint keys. Writes go through
+   * a single jsonb_set under a row lock, so concurrent deliveries cannot lose each
+   * other's counts and no other part of `settings` is rewritten.
+   */
+  async recordIgnoredDelivery(workspaceId: string, repo: string, event: string): Promise<void> {
+    try {
+      await this.db.transaction(async (tx) => {
+        const rows = await tx
+          .select({ settings: workspaces.settings })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .for('update');
+        const settings = (rows[0]?.settings ?? {}) as Record<string, unknown>;
+        const github = settings.github as GithubConfig | undefined;
+        if (!github) return;
+        const now = new Date().toISOString();
+        const next: IgnoredDeliveries = { ...(github.ignored_deliveries ?? {}) };
+        const prior = next[repo];
+        if (prior) {
+          next[repo] = { ...prior, count: prior.count + 1, last_seen_at: now, last_event: event };
+        } else if (Object.keys(next).filter((k) => k !== '_overflow').length < MAX_IGNORED_REPOS) {
+          next[repo] = { count: 1, first_seen_at: now, last_seen_at: now, last_event: event };
+        } else {
+          next._overflow = { count: (next._overflow?.count ?? 0) + 1, last_seen_at: now };
+        }
+        await tx.execute(
+          sql`UPDATE workspaces
+              SET settings = jsonb_set(settings, '{github,ignored_deliveries}', ${JSON.stringify(next)}::jsonb, true)
+              WHERE id = ${workspaceId}`,
+        );
+      });
+    } catch (err) {
+      this.logger.warn(`github webhook: could not record ignored delivery for ${repo}: ${String(err)}`);
+    }
   }
 
   async getConfig(workspaceId: string) {
@@ -425,6 +517,8 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       // "Connected as installation N, M repos" without exposing anything secret.
       connected: github.installation_id !== undefined && github.installation_id !== null,
       installation_id: github.installation_id ?? null,
+      // #828: deliveries we received and discarded because the repo is not selected.
+      ignored_deliveries: presentIgnored(github.ignored_deliveries),
     };
   }
 

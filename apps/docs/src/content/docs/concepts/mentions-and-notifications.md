@@ -99,11 +99,10 @@ Mentions aren't the only thing that notifies. **Watching** a record gets you an 
 in-app notification) whenever any of its fields change — not just when someone mentions or
 comments on it.
 
-There is no button for this in the app today — no bell, no "Watch" menu item anywhere on a
-record. `watch_record`, `unwatch_record`, and `list_watchers` exist only as [MCP tools](/mcp/tools/)
-and raw API calls, so right now watching is something an agent does on your behalf, not something
-you click. `watch_record` only subscribes the calling identity — an agent can't watch a record on
-someone else's behalf.
+There's a **Watch** toggle in the record's header (and in the **About** tab's Watchers list, which
+shows who else is watching). It subscribes the calling identity only — you can't watch a record on
+someone else's behalf. `watch_record`, `unwatch_record` and `list_watchers` do the same over
+[MCP](/mcp/tools/) and the API, so an agent can watch for you too.
 
 When a watched record changes, the notification's body is a compact summary of exactly what
 changed — `Status: To Do → In Progress · Owner: (empty) → Lena` — capped at five fields, with

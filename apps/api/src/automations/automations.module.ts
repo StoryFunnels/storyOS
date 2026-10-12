@@ -8,6 +8,8 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
+import { SkillsModule } from '../skills/skills.module';
+import { SkillPublishGateService } from './skill-publish-gate.service';
 import { AutomationActionsService } from './actions.service';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
@@ -32,6 +34,9 @@ import { SendEmailActionService } from './send-email.action';
     IntegrationsModule,
     BillingModule,
     ConnectionsModule,
+    // #867: one-way (SkillsModule is standalone); the gate service below hands SkillsService its
+    // public-approval path at boot.
+    SkillsModule,
   ],
   controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController],
   providers: [
@@ -40,6 +45,8 @@ import { SendEmailActionService } from './send-email.action';
     HookRateLimiterService,
     JobRunnerService,
     ApprovalsService,
+    // #867 AC3: proposes/applies the person-approved `public` skill change; registers at boot.
+    SkillPublishGateService,
     SendEmailActionService,
     // MN-263: registers the 'http_request' executor with JobRunnerService at
     // boot (onModuleInit) — never referenced directly outside this module

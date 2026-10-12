@@ -1,9 +1,10 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, lt, type SQL } from 'drizzle-orm';
+import { and, desc, eq, exists, getTableColumns, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, fields, recordLinks, records, relations, user } from '../db/schema';
 import { buildRenderContext, renderValue } from './render-values';
+import { cursorTimestampSql, decodeKeysetCursor, encodeKeysetCursor, keysetBefore } from './keyset-cursor';
 import { extractText } from '../documents/documents.service';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -30,19 +31,94 @@ export class ActivityService {
     private readonly access: AccessService,
   ) {}
 
-  async listForRecord(databaseId: string, recordId: string, limit: number, cursor?: string) {
+  /**
+   * #845 — the id of ANOTHER record an event names in its payload, as a SQL expression: relation
+   * events store `other: { id, title }` (the title frozen at write time) and a mention stores
+   * `target_record_id`. Null for every other event type.
+   */
+  private referencedRecordIdSql(): SQL<string | null> {
+    return sql<string | null>`CASE
+      WHEN ${activityEvents.type} IN ('relation.linked', 'relation.unlinked') THEN ${activityEvents.payload} -> 'other' ->> 'id'
+      WHEN ${activityEvents.type} = 'reference.created' THEN ${activityEvents.payload} ->> 'target_record_id'
+    END`;
+  }
+
+  /**
+   * #845 — the predicate that keeps a guest's trail free of records they cannot read, pushed
+   * INTO THE QUERY rather than applied to the page afterwards.
+   *
+   * That placement is the point, not an optimisation. Dropping rows after the page is cut
+   * leaves a page short or empty while `has_more` is still true, and a cursor taken from the
+   * filtered page (or, worse, from a hidden row — the cursor is a plain base64 timestamp)
+   * either strands the guest or hands them the exact time of an event they may not see. You
+   * cannot paginate correctly over a set you filter after the fact. With the predicate in
+   * the WHERE, every fetched row is readable, so every page is full and every cursor is a
+   * readable row's.
+   *
+   * An event that names a record the caller cannot read is ABSENT, count included (not
+   * blanked). Admins and members get null: no condition, no query, behaviour unchanged.
+   */
+  private async hiddenReferenceExclusion(membership: Membership): Promise<SQL | null> {
+    const scope = await this.access.guestScopeIds(membership);
+    if (!scope) return null;
+    const ref = this.referencedRecordIdSql();
+    const reachable = [
+      scope.recordIds.length ? inArray(records.id, scope.recordIds) : undefined,
+      scope.databaseIds.length ? inArray(records.databaseId, scope.databaseIds) : undefined,
+      scope.spaceIds.length ? inArray(databases.spaceId, scope.spaceIds) : undefined,
+    ].filter((c): c is SQL => c !== undefined);
+    if (reachable.length === 0) return or(isNull(ref), sql`false`) as SQL;
+    const readable = this.db
+      .select({ one: sql`1` })
+      .from(records)
+      .innerJoin(databases, eq(databases.id, records.databaseId))
+      .where(and(sql`${records.id}::text = ${ref}`, isNull(records.deletedAt), or(...reachable)));
+    return or(isNull(ref), exists(readable)) as SQL;
+  }
+
+  /** The `(created_at, id)` cursor of a row, from the exact timestamp text Postgres produced. */
+  private cursorFor(row: { cursorTs: string; id: string }): string {
+    return encodeKeysetCursor({ t: row.cursorTs, id: row.id });
+  }
+
+  /**
+   * Resume strictly after a cursor. A cursor minted before #849 is a bare timestamp: it still
+   * works (old `<` semantics, for that one request) so a client paging across a deploy is not
+   * broken; an unparseable one is ignored, as it always was.
+   */
+  private pushCursor(conditions: SQL[], cursor: string | undefined): void {
+    if (!cursor) return;
+    const decoded = decodeKeysetCursor(cursor);
+    if (decoded?.kind === 'keyset') conditions.push(keysetBefore(activityEvents.createdAt, activityEvents.id, decoded.cursor));
+    else if (decoded?.kind === 'legacy') conditions.push(lt(activityEvents.createdAt, decoded.at));
+  }
+
+  async listForRecord(
+    membership: Membership,
+    databaseId: string,
+    recordId: string,
+    limit: number,
+    cursor?: string,
+  ) {
     const conditions = [eq(activityEvents.recordId, recordId)];
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
-    }
-    const rows = await this.db.query.activityEvents.findMany({
-      where: and(...conditions),
-      orderBy: [desc(activityEvents.createdAt)],
-      limit: limit + 1,
-    });
+    // #845 — read-time narrowing, IN the query (see hiddenReferenceExclusion). The stored
+    // trail is the real history and stays whole; admins and members get no condition.
+    const exclusion = await this.hiddenReferenceExclusion(membership);
+    if (exclusion) conditions.push(exclusion);
+    this.pushCursor(conditions, cursor);
+    // The plain select builder (not db.query): the exclusion's subquery names the table as
+    // `activity_events`, and the relational API aliases it as "activityEvents".
+    const rows = await this.db
+      .select({ ...getTableColumns(activityEvents), cursorTs: cursorTimestampSql(activityEvents.createdAt) })
+      .from(activityEvents)
+      .where(and(...conditions))
+      // (created_at, id): created_at alone is NOT unique — every event of one transaction
+      // shares it — so a page boundary inside such a group dropped the rest of it (#849).
+      .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
+    const nextCursor = hasMore && page.length > 0 ? this.cursorFor(page[page.length - 1]!) : null;
 
     // Resolution context: fields (INCLUDING soft-deleted, for old diffs), options, actors.
     // Shared with listFieldChanges since #335 — the two read the SAME diff, and
@@ -89,10 +165,7 @@ export class ActivityService {
           source: event.source,
         };
       }),
-      next_cursor:
-        hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
-          : null,
+      next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
@@ -118,12 +191,25 @@ export class ActivityService {
    * smaller, already-decided acceptance criterion ("a feed of comments/
    * references on a database"), not the hierarchy traversal.
    */
-  async listCommentsForDatabase(databaseId: string, limit: number, cursor?: string) {
+  async listCommentsForDatabase(membership: Membership, databaseId: string, limit: number, cursor?: string) {
+    // #845 — the controller's gate (`assertAccess`) lets a guest with ONLY a record-scoped
+    // grant through the door; without this they were handed every record's comments in the
+    // database. Narrowed in SQL (not by dropping rows after the page is cut), so a guest's
+    // pages stay full and `has_more` stays honest. null = admin/member or a broader grant.
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    const scoped = database ? await this.access.visibleRecordIds(membership, database) : null;
+    if (scoped && scoped.ids.size === 0) return { data: [], next_cursor: null, has_more: false };
     return this.buildFeed(
-      inArray(
-        activityEvents.recordId,
-        this.db.select({ id: records.id }).from(records).where(eq(records.databaseId, databaseId)),
-      ),
+      membership,
+      scoped
+        ? inArray(activityEvents.recordId, [...scoped.ids])
+        : inArray(
+            activityEvents.recordId,
+            this.db.select({ id: records.id }).from(records).where(eq(records.databaseId, databaseId)),
+          ),
       limit,
       cursor,
     );
@@ -137,9 +223,9 @@ export class ActivityService {
    * looks and behaves identically whether it came from one database or a
    * whole walked hierarchy.
    */
-  private async listActivityForRecordIds(recordIds: string[], limit: number, cursor?: string) {
+  private async listActivityForRecordIds(membership: Membership, recordIds: string[], limit: number, cursor?: string) {
     if (recordIds.length === 0) return { data: [], next_cursor: null, has_more: false };
-    return this.buildFeed(inArray(activityEvents.recordId, recordIds), limit, cursor);
+    return this.buildFeed(membership, inArray(activityEvents.recordId, recordIds), limit, cursor);
   }
 
   /**
@@ -149,19 +235,28 @@ export class ActivityService {
    * (type filtering, comment/reference resolution, actor/record chip
    * batching, cursor pagination) is scope-agnostic.
    */
-  private async buildFeed(recordIdCondition: SQL, limit: number, cursor?: string) {
+  private async buildFeed(membership: Membership, recordIdCondition: SQL, limit: number, cursor?: string) {
     const conditions = [inArray(activityEvents.type, ['comment.created', 'reference.created']), recordIdCondition];
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(activityEvents.createdAt, created));
-    }
-    const rows = await this.db.query.activityEvents.findMany({
-      where: and(...conditions),
-      orderBy: [desc(activityEvents.createdAt)],
-      limit: limit + 1,
-    });
+    // #845 — `recordIdCondition` narrows which records' events are read, but a reference's
+    // TARGET is a different record it says nothing about (it used to be resolved to a titled
+    // chip unconditionally). Excluded IN the query, not after the page is cut, so these feeds
+    // paginate correctly too and their cursor is never a hidden event's timestamp.
+    const exclusion = await this.hiddenReferenceExclusion(membership);
+    if (exclusion) conditions.push(exclusion);
+    this.pushCursor(conditions, cursor);
+    // The plain select builder (not db.query): the exclusion's subquery names the table as
+    // `activity_events`, and the relational API aliases it as "activityEvents".
+    const rows = await this.db
+      .select({ ...getTableColumns(activityEvents), cursorTs: cursorTimestampSql(activityEvents.createdAt) })
+      .from(activityEvents)
+      .where(and(...conditions))
+      // (created_at, id): created_at alone is NOT unique — every event of one transaction
+      // shares it — so a page boundary inside such a group dropped the rest of it (#849).
+      .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
+    const nextCursor = hasMore && page.length > 0 ? this.cursorFor(page[page.length - 1]!) : null;
 
     const commentIds = page
       .filter((e) => e.type === 'comment.created')
@@ -209,7 +304,10 @@ export class ActivityService {
         .filter((e) => {
           const payload = e.payload as Record<string, unknown>;
           if (e.type === 'comment.created') return commentById.has(payload.comment_id as string);
-          if (e.type === 'reference.created') return recordById.has(payload.target_record_id as string);
+          if (e.type === 'reference.created') {
+            const target = payload.target_record_id as string;
+            return recordById.has(target);
+          }
           return false;
         })
         .map((event) => {
@@ -238,10 +336,7 @@ export class ActivityService {
             source: event.source,
           };
         }),
-      next_cursor:
-        hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
-          : null,
+      next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
@@ -303,7 +398,7 @@ export class ActivityService {
     if (!roles.get(root.id)) throw new NotFoundException('Record not found');
     const visibleIds = allRecords.filter((r) => roles.get(r.id)).map((r) => r.id);
 
-    return this.listActivityForRecordIds(visibleIds, limit, cursor);
+    return this.listActivityForRecordIds(membership, visibleIds, limit, cursor);
   }
 
   /**

@@ -11,6 +11,8 @@ import type { Db } from '../db/client';
 import { accessGrants, databases, memberships, records, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { BOUNDARY_REFUSAL } from './resource-scope';
+import { forgetForRequest, memoizeForRequest } from './request-memo';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
 export type EffectiveRole =
@@ -57,7 +59,19 @@ export interface GrantInput {
 export class AccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  private async guestGrants(membership: Membership) {
+  /**
+   * #861 — read once per REQUEST (see `request-memo.ts`: the memo cannot outlive the request, and
+   * `createGrant`/`deleteGrant` drop it). Never cache this any wider: MN-125.
+   */
+  private guestGrants(membership: Membership) {
+    const ceiling = membership.bound;
+    return memoizeForRequest(
+      `grants:${membership.workspaceId}:${membership.userId}${ceiling ? ':bound' : ''}`,
+      () => (ceiling ? this.boundTokenGrants(membership, ceiling) : this.realGuestGrants(membership)),
+    );
+  }
+
+  private realGuestGrants(membership: Membership) {
     return this.db.query.accessGrants.findMany({
       where: and(
         eq(accessGrants.workspaceId, membership.workspaceId),
@@ -66,6 +80,100 @@ export class AccessService {
     });
   }
 
+  /**
+   * #543 — the grants a token bound to specific spaces/databases acts with: ONE grant per listed
+   * entry, at the rank its owner really holds there, so a bound token is by construction never
+   * wider than its owner and every guest narrowing already in this file applies to it unchanged.
+   *
+   *   admin / member owner → 'creator' on each listed entry (admin is capped to creator: a bound
+   *                          token never gets workspace-admin rank, which is least privilege)
+   *   guest owner          → the owner's own best grant on that entry; an entry they cannot
+   *                          reach drops out, so narrowing the owner narrows the token live.
+   *
+   * Computed per request from the live rows, never snapshotted: deleting a listed space or
+   * database, or revoking the owner's grant, takes effect on the next call. Another member's
+   * personal space is dropped even if listed (#291).
+   */
+  private async boundTokenGrants(
+    membership: Membership,
+    ceiling: NonNullable<Membership['bound']>,
+  ): Promise<Array<typeof accessGrants.$inferSelect>> {
+    const [spaceRows, databaseRows] = await Promise.all([
+      ceiling.spaceIds.length
+        ? this.db.query.spaces.findMany({
+            where: and(
+              inArray(spaces.id, ceiling.spaceIds),
+              eq(spaces.workspaceId, membership.workspaceId),
+              notDeleted(spaces.deletedAt),
+            ),
+          })
+        : [],
+      ceiling.databaseIds.length
+        ? this.db.query.databases.findMany({
+            where: and(
+              inArray(databases.id, ceiling.databaseIds),
+              eq(databases.workspaceId, membership.workspaceId),
+              notDeleted(databases.deletedAt),
+            ),
+          })
+        : [],
+    ]);
+    const visibleSpaces = spaceRows.filter((s) => this.canSeePersonal(membership, s));
+    const ownerGrants = ceiling.realRole === 'guest' ? await this.realGuestGrants(membership) : [];
+    const rank = (r: GrantRole | null) => (r ? ACCESS_RANK[r] : -1);
+    const bestOf = (matches: (g: (typeof ownerGrants)[number]) => boolean): GrantRole | null => {
+      let best: GrantRole | null = null;
+      for (const g of ownerGrants) if (matches(g) && rank(g.role) > rank(best)) best = g.role;
+      return best;
+    };
+    const now = new Date();
+    const grant = (scope: { spaceId?: string; databaseId?: string }, role: GrantRole) =>
+      ({
+        id: `bound:${scope.spaceId ?? scope.databaseId}`,
+        workspaceId: membership.workspaceId,
+        userId: membership.userId,
+        spaceId: scope.spaceId ?? null,
+        databaseId: scope.databaseId ?? null,
+        recordId: null,
+        role,
+        createdBy: null,
+        createdAt: now,
+        updatedAt: now,
+      }) as typeof accessGrants.$inferSelect;
+    const out: Array<typeof accessGrants.$inferSelect> = [];
+    for (const space of visibleSpaces) {
+      const role = ceiling.realRole === 'guest' ? bestOf((g) => g.spaceId === space.id) : 'creator';
+      if (role) out.push(grant({ spaceId: space.id }, role));
+    }
+    for (const database of databaseRows) {
+      const role =
+        ceiling.realRole === 'guest'
+          ? bestOf((g) => g.databaseId === database.id || g.spaceId === database.spaceId)
+          : 'creator';
+      if (role) out.push(grant({ databaseId: database.id }, role));
+    }
+    return out;
+  }
+
+  /**
+   * #845 — a guest's grants reduced to the three id sets a record can be matched against
+   * (a record is readable if its id, its database, or its space is in the matching set —
+   * the same three-way max `effectiveForRecords` computes in memory, expressed as data so a
+   * caller can push it into SQL). null for admin/member: no narrowing applies.
+   */
+  async guestScopeIds(
+    membership: Membership,
+  ): Promise<{ spaceIds: string[]; databaseIds: string[]; recordIds: string[] } | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    const ids = (pick: (g: (typeof grants)[number]) => string | null) =>
+      [...new Set(grants.map(pick).filter((id): id is string => Boolean(id)))];
+    return {
+      spaceIds: ids((g) => g.spaceId),
+      databaseIds: ids((g) => g.databaseId),
+      recordIds: ids((g) => g.recordId),
+    };
+  }
 
   /**
    * #291 — is this personal space readable by this member?
@@ -294,6 +402,26 @@ export class AccessService {
     return best;
   }
 
+  /**
+   * #543 — the gate EVERY by-id path for a bound token must pass first: if the database named in
+   * the URL is not reachable, refuse in words BEFORE looking up the record / view / comment under
+   * it, so the answer is the same whether or not that child exists. A no-op for everyone else.
+   */
+  async assertBoundDatabaseReach(membership: Membership, databaseId: string): Promise<void> {
+    if (!membership.bound) return;
+    const database = await this.db.query.databases.findFirst({
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database || (await this.effectiveForDatabase(membership, database)) === null) {
+      throw new ForbiddenException(BOUNDARY_REFUSAL);
+    }
+  }
+
   /** Asserts a space role, 404-ing rather than leaking existence (MN-124). */
   async assertSpace(membership: Membership, spaceId: string, min: EffectiveRole) {
     const space = await this.db.query.spaces.findFirst({
@@ -303,8 +431,12 @@ export class AccessService {
         notDeleted(spaces.deletedAt),
       ),
     });
-    if (!space) throw new NotFoundException('Space not found');
+    if (!space) {
+      if (membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
+      throw new NotFoundException('Space not found');
+    }
     const effective = await this.effectiveForSpace(membership, spaceId);
+    if (effective === null && membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
     this.assertRank(effective, min, 'Space');
     return space;
   }
@@ -532,6 +664,7 @@ export class AccessService {
       : input.database_id
         ? sql`${accessGrants.databaseId} IS NOT NULL`
         : sql`${accessGrants.recordId} IS NOT NULL`;
+    forgetForRequest('grants:');
     const [row] = await this.db
       .insert(accessGrants)
       .values({
@@ -575,6 +708,7 @@ export class AccessService {
       : grant.databaseId
         ? eq(accessGrants.databaseId, grant.databaseId)
         : eq(accessGrants.recordId, grant.recordId!);
+    forgetForRequest('grants:');
     const gone = await this.db
       .delete(accessGrants)
       .where(

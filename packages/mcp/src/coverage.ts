@@ -36,7 +36,12 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/markdown',
     reason:
-      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) and for PDF export to reuse — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+  },
+  {
+    match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/pdf',
+    reason:
+      "#262 — the response is a binary PDF, which an MCP client cannot use: a tool result is text, so a PDF handed back as base64 would only burn the model's context without ever reaching the person who wants the file. The CONTENT is already reachable as text via get_document. What an agent actually wants from a PDF is to DELIVER it — attach it to an email or a record — and that is an automation-action question (a send/attach step that renders the document itself), not a read tool; it is the follow-up the ticket's own 'automation attaching a PDF' use case names, and it is not built yet. Recorded here as the reason this route has no tool, not as a claim that the delivery need does not exist.",
   },
   {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
@@ -84,6 +89,11 @@ export const EXCLUDED: CoverageRule[] = [
        * to the publishing act itself.
        */
       "#446 — submitting a pack to the marketplace publishes this workspace's schema under its name, for review by others. An agent may build the manifest (export_pack) and read its status (list_pack_submissions); pressing submit is a human act, the same line #442 draws for publishing a shared skill (ADR-0010).",
+  },
+  {
+    match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/databases\/\{db\}\/validation-rules(\/\{id\})?/,
+    reason:
+      "#231 — declaring, changing, disabling or deleting a validation rule is the platform's own restraint on EVERY writer, an agent included, and it has no bypass by design: if a rule is wrong it is changed, visibly, by an admin. An agent able to edit or delete the rule that constrains it would defeat it, the same self-widening line the action gates draw. The read half is reachable (list_validation_rules, get_validation_rule_violations): an agent can see what will refuse its writes and which stored records already break a rule, it just cannot change the rule.",
   },
   {
     match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/action-gates(\/\{id\})?/,

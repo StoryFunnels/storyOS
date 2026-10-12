@@ -7,6 +7,7 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { JobRunnerService } from '../automations/job-runner.service';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
 export interface RunsListFilters {
   kind?: 'rule' | 'source';
@@ -20,24 +21,6 @@ export interface RunsListFilters {
   cursor?: string;
 }
 
-interface RunCursor {
-  createdAt: string;
-  id: string;
-}
-
-function encodeCursor(cursor: RunCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
-}
-
-function decodeCursor(raw: string): RunCursor | null {
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString()) as Partial<RunCursor>;
-    if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') return null;
-    return { createdAt: parsed.createdAt, id: parsed.id };
-  } catch {
-    return null;
-  }
-}
 
 const KNOWN_STATUSES = new Set(['ok', 'error', 'skipped', 'skipped_quota', 'running']);
 
@@ -108,13 +91,11 @@ export class RunsService {
     if (filters.to) conditions.push(lte(automationRuns.createdAt, new Date(filters.to)));
     if (filters.q) conditions.push(sql`${records.title} ILIKE ${'%' + filters.q + '%'}`);
 
-    const cursor = filters.cursor ? decodeCursor(filters.cursor) : null;
-    if (cursor) {
-      const created = new Date(cursor.createdAt);
-      conditions.push(
-        sql`(${automationRuns.createdAt}, ${automationRuns.id}) < (${created.toISOString()}::timestamptz, ${cursor.id}::uuid)`,
-      );
-    }
+    // #852 — the cursor carries the EXACT microsecond timestamp text, not a millisecond Date: a
+    // cursor floored to the millisecond sat before same-millisecond rows that belong on the next
+    // page and silently skipped them (the tuple was already correct for ties).
+    const after = keysetCondition(automationRuns.createdAt, automationRuns.id, filters.cursor);
+    if (after) conditions.push(after);
 
     const rows = await this.db
       .select({
@@ -125,6 +106,7 @@ export class RunsService {
         depth: automationRuns.depth,
         durationMs: automationRuns.durationMs,
         createdAt: automationRuns.createdAt,
+        cursorTs: cursorTimestampSql(automationRuns.createdAt),
         triggerRecordId: automationRuns.triggerRecordId,
         selectionRank: automationRuns.selectionRank,
         ruleName: automations.name,
@@ -191,10 +173,7 @@ export class RunsService {
       })),
       next_cursor:
         hasMore && page.length > 0
-          ? encodeCursor({
-              createdAt: page[page.length - 1]!.createdAt.toISOString(),
-              id: page[page.length - 1]!.id,
-            })
+          ? encodeKeysetCursor({ t: page[page.length - 1]!.cursorTs, id: page[page.length - 1]!.id })
           : null,
       has_more: hasMore,
     };

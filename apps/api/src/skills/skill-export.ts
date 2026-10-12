@@ -26,11 +26,6 @@ function examplesSection(skill: SkillSummary): string {
   return `\n\n## Examples\n\n${body}`;
 }
 
-function toolsSection(skill: SkillSummary): string {
-  if (skill.allowed_tools.length === 0) return '';
-  return `\n\n## Allowed tools\n\n${skill.allowed_tools.map((t) => `- ${t}`).join('\n')}`;
-}
-
 /** Plain Markdown — a standalone doc a person can read, or paste as a
  * system-prompt block into anything that accepts free text. */
 function toMarkdown(skill: SkillSummary): SkillExport {
@@ -38,7 +33,6 @@ function toMarkdown(skill: SkillSummary): SkillExport {
     `# ${skill.name}\n\n${skill.description}\n\n## When to use\n\n${skill.when_to_use}\n\n` +
     `## Instructions\n\n${skill.instructions}` +
     examplesSection(skill) +
-    toolsSection(skill) +
     '\n';
   return { format: 'markdown', filename: `${slugify(skill.name)}.md`, content };
 }
@@ -47,18 +41,24 @@ function toMarkdown(skill: SkillSummary): SkillExport {
  * The emerging Agent Skills on-disk convention: a `SKILL.md` whose YAML
  * frontmatter is exactly the two fields a skill picker matches a request
  * against (`name`, `description`) and whose body is everything else in plain
- * prose. Keeping frontmatter to those two fields — rather than inventing
- * `allowed_tools:`/`when_to_use:` keys with no agreed meaning outside this
- * repo — is what keeps the file interoperable rather than StoryOS-specific.
+ * prose. Keeping frontmatter to those fields — rather than inventing
+ * `when_to_use:` keys with no agreed meaning outside this repo — is what keeps
+ * the file interoperable rather than StoryOS-specific. (#841: there is no
+ * `allowed-tools` either; the model that follows a skill is the reader's own,
+ * so nothing could enforce it.)
  */
 function toClaudeSkill(skill: SkillSummary): SkillExport {
-  const frontmatter = ['---', `name: ${slugify(skill.name)}`, `description: ${skill.description}`, '---'].join(
-    '\n',
-  );
+  const frontmatter = [
+    '---',
+    `name: ${slugify(skill.name)}`,
+    `description: ${skill.description}`,
+    // #841: the version travels with the skill, so an export/import round trip keeps it.
+    `version: ${skill.version}`,
+    '---',
+  ].join('\n');
   const content =
     `${frontmatter}\n\n## When to use\n\n${skill.when_to_use}\n\n## Instructions\n\n${skill.instructions}` +
     examplesSection(skill) +
-    toolsSection(skill) +
     '\n';
   return { format: 'claude_skill', filename: 'SKILL.md', content };
 }

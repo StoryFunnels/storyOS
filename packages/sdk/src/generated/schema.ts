@@ -618,7 +618,7 @@ export interface paths {
         /** List this workspace's declared action-class gate policies */
         get: operations["ActionGatesController_list"];
         put?: never;
-        /** Declare a gate over an action class (starting with delete_records), scoped to workspace/space/database */
+        /** Declare a gate over an action class, scoped to workspace/space/database. Only classes the server enforces are accepted (422 lists them); today: delete_records */
         post: operations["ActionGatesController_create"];
         delete?: never;
         options?: never;
@@ -642,6 +642,40 @@ export interface paths {
         head?: never;
         /** Enable/disable a gate policy, or change its approver */
         patch: operations["ActionGatesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert a user field into a relation to the Members database. DRY RUN by default: reports matched/unresolvable counts, the per-role permission-neutrality proof, and what would be created. Applying keeps the original field (renamed) and parks anything unresolvable; nothing is dropped. */
+        post: operations["FieldConversionController_toMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert a relation to the Members database back into a user field (the reverse). DRY RUN by default. Removes the relation and its Members-side inverse field; Members rows with no user id are parked in a text field. */
+        post: operations["FieldConversionController_toUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/databases": {
@@ -833,6 +867,24 @@ export interface paths {
         post?: never;
         /** Clear my personal override for this embedded collection (falls back to the shared default) */
         delete: operations["PersonalCollectionViewController_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/workflow-nomination": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scan every readable database for a select that looks like its lifecycle (status) field, and say which databases already have a workflow field. Read-only. */
+        get: operations["WorkflowNominationController_scan"];
+        put?: never;
+        /** Convert chosen selects to the Workflow field type through the existing per-field conversion. DRY RUN by default (dry_run: false to apply); needs creator on each database; per-item results, one refusal does not stop the rest. */
+        post: operations["WorkflowNominationController_apply"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1407,6 +1459,167 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
+        get: operations["RelationsController_list"];
+        put?: never;
+        /** Create a relation — needs creator on BOTH databases */
+        post: operations["RelationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Relation config + comparable fields for the auto-link editor */
+        get: operations["RelationsController_detail"];
+        put?: never;
+        post?: never;
+        /** Delete a relation, both its fields, and all links (confirm: true) */
+        delete: operations["RelationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Set or clear a relation’s auto-link rules (MN-085) */
+        patch: operations["RelationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run auto-link now across existing records — returns a summary (MN-085) */
+        post: operations["RelationsController_runAutoLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
+        get: operations["RelationsController_selectDrift"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
+        post: operations["RelationsController_reconcileSelectDrift"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Linked records for a relation field ({id, title} chips) */
+        get: operations["LinksController_list"];
+        /** Replace all links for this record on this field */
+        put: operations["LinksController_replace"];
+        /** Add links (409 when one-to-many already linked) */
+        post: operations["LinksController_add"];
+        /** Remove specific links */
+        delete: operations["LinksController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List this database's validation rules, each with how many stored records break it now */
+        get: operations["ValidationRulesController_list"];
+        put?: never;
+        /** Declare a rule that REFUSES a record write when its condition is not met. Applies to every writer, admins included; no bypass. */
+        post: operations["ValidationRulesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a rule */
+        delete: operations["ValidationRulesController_remove"];
+        options?: never;
+        head?: never;
+        /** Change a rule's name, condition, message or enabled flag (the trigger is fixed) */
+        patch: operations["ValidationRulesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}/violations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stored records that ALREADY break this rule (a rule only fires when a field it references changes, so existing violations persist; this is how they are seen) */
+        get: operations["ValidationRulesController_violations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
         parameters: {
             query?: never;
@@ -1644,114 +1857,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
-        get: operations["RelationsController_list"];
-        put?: never;
-        /** Create a relation — needs creator on BOTH databases */
-        post: operations["RelationsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Relation config + comparable fields for the auto-link editor */
-        get: operations["RelationsController_detail"];
-        put?: never;
-        post?: never;
-        /** Delete a relation, both its fields, and all links (confirm: true) */
-        delete: operations["RelationsController_remove"];
-        options?: never;
-        head?: never;
-        /** Set or clear a relation’s auto-link rules (MN-085) */
-        patch: operations["RelationsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run auto-link now across existing records — returns a summary (MN-085) */
-        post: operations["RelationsController_runAutoLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
-        get: operations["RelationsController_selectDrift"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
-        post: operations["RelationsController_reconcileSelectDrift"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Linked records for a relation field ({id, title} chips) */
-        get: operations["LinksController_list"];
-        /** Replace all links for this record on this field */
-        put: operations["LinksController_replace"];
-        /** Add links (409 when one-to-many already linked) */
-        post: operations["LinksController_add"];
-        /** Remove specific links */
-        delete: operations["LinksController_remove"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2472,8 +2577,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the document as Markdown (#262 — the PDF export reuses this serializer) */
+        /** Download the document as Markdown (#262) */
         get: operations["SpaceDocumentsController_exportMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/documents/{doc}/export/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the document as a PDF (#262 — rendered by the PDF sidecar, #794) */
+        get: operations["SpaceDocumentsController_exportPdf"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2766,6 +2888,128 @@ export interface paths {
         };
         /** Recent sync runs for one source (fetched/created/updated/errors) */
         get: operations["SourcesController_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List skills visible to the caller: their own, plus every shared one */
+        get: operations["SkillsController_list"];
+        put?: never;
+        /** Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent can also share it with named workspace members; making one public only raises an approval a person must give. A workspace admin can switch agent publishing off, after which an agent-authored skill is created personal */
+        post: operations["SkillsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Starter scaffolds for the "new skill" flow (AC #2, not-from-scratch) */
+        get: operations["SkillsController_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one skill */
+        get: operations["SkillsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a skill — owner-only */
+        delete: operations["SkillsController_remove"];
+        options?: never;
+        head?: never;
+        /** Edit a skill — owner-only, even if it's shared */
+        patch: operations["SkillsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill */
+        post: operations["SkillsController_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export a skill as portable instructions (Markdown / Claude Skill SKILL.md / ChatGPT) */
+        get: operations["SkillsController_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/skills/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a skill manually; returns its step log (no model invoked yet) */
+        post: operations["SkillsController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/skills/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public skill, by its link token (portable fields only) */
+        get: operations["PublicSkillsController_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3773,94 +4017,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{ws}/skills": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List skills visible to the caller: their own, plus every shared one */
-        get: operations["SkillsController_list"];
-        put?: never;
-        /** Create a skill — personal by default; pass visibility: "shared" to publish it to the workspace */
-        post: operations["SkillsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Starter scaffolds for the "new skill" flow (AC #2, not-from-scratch) */
-        get: operations["SkillsController_templates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read one skill */
-        get: operations["SkillsController_get"];
-        put?: never;
-        post?: never;
-        /** Delete a skill — owner-only */
-        delete: operations["SkillsController_remove"];
-        options?: never;
-        head?: never;
-        /** Edit a skill — owner-only, even if it's shared */
-        patch: operations["SkillsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Export a skill as portable instructions (Markdown / Claude Skill SKILL.md / ChatGPT) */
-        get: operations["SkillsController_export"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/skills/{id}/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run a skill manually; returns its step log (no model invoked yet) */
-        post: operations["SkillsController_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -4422,6 +4578,7 @@ export interface components {
         UpdateWorkspaceDto: {
             name?: string;
             private_attachments?: boolean;
+            agents_may_publish_skills?: boolean;
             description?: string | null;
             branding?: {
                 logo_url?: string | null;
@@ -4528,6 +4685,16 @@ export interface components {
             enabled?: boolean;
             approver_id?: string;
         };
+        ToMembersDto: {
+            /** @default true */
+            dry_run: boolean;
+        };
+        ToUserDto: {
+            /** @default true */
+            dry_run: boolean;
+            /** @default false */
+            confirm_dependents: boolean;
+        };
         CreateDatabaseDto: {
             /** Format: uuid */
             space_id: string;
@@ -4581,6 +4748,8 @@ export interface components {
             type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
             /** @default false */
             dry_run: boolean;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         CreateOptionDto: {
             label: string;
@@ -4603,6 +4772,8 @@ export interface components {
             confirm: boolean;
             /** Format: uuid */
             reassign_to?: string;
+            /** @default false */
+            confirm_dependent_rules: boolean;
         };
         SetCollectionViewDto: {
             filters?: {
@@ -4627,6 +4798,16 @@ export interface components {
             sorts_nulls?: "first" | "last";
             color_by?: string;
             fields?: string[];
+        };
+        ApplyWorkflowNominationDto: {
+            nominations: {
+                /** Format: uuid */
+                database_id: string;
+                /** Format: uuid */
+                field_id: string;
+            }[];
+            /** @default true */
+            dry_run: boolean;
         };
         CreateRecordDto: {
             /** @default {} */
@@ -4832,6 +5013,87 @@ export interface components {
             sidebar?: {
                 viewsOnlyWorkspaces?: string[];
             };
+        };
+        CreateRelationDto: {
+            /** Format: uuid */
+            database_a_id: string;
+            /** Format: uuid */
+            database_b_id: string;
+            /** @enum {string} */
+            cardinality: "one_to_many" | "many_to_many";
+            field_a_name?: string;
+            field_b_name?: string;
+        };
+        UpdateRelationDto: {
+            auto_link: {
+                conditions: {
+                    field_a: string;
+                    field_b: string;
+                }[];
+                /** @default false */
+                case_sensitive: boolean;
+            } | null;
+        };
+        SelectDriftReconcileDto: {
+            /** Format: uuid */
+            record_id: string;
+        };
+        DeleteRelationDto: {
+            /** @enum {boolean} */
+            confirm: true;
+        };
+        LinkRecordsDto: {
+            record_ids: string[];
+        };
+        ReplaceLinksDto: {
+            record_ids: string[];
+        };
+        CreateValidationRuleDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["CreateValidationRuleDto__schema0"][];
+        } | {
+            or: components["schemas"]["CreateValidationRuleDto__schema0"][];
+        };
+        CreateValidationRuleDto: {
+            name: string;
+            /** @enum {string} */
+            trigger: "create" | "update" | "transition";
+            transition?: {
+                field: string;
+                to: string;
+            };
+            condition: components["schemas"]["CreateValidationRuleDto__schema0"];
+            message: string;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateValidationRuleDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["UpdateValidationRuleDto__schema0"][];
+        } | {
+            or: components["schemas"]["UpdateValidationRuleDto__schema0"][];
+        };
+        UpdateValidationRuleDto: {
+            name?: string;
+            condition?: components["schemas"]["UpdateValidationRuleDto__schema0"];
+            message?: string;
+            enabled?: boolean;
         };
         CreateAutomationDto: {
             name: string;
@@ -5237,40 +5499,6 @@ export interface components {
             events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
             enabled?: boolean;
         };
-        CreateRelationDto: {
-            /** Format: uuid */
-            database_a_id: string;
-            /** Format: uuid */
-            database_b_id: string;
-            /** @enum {string} */
-            cardinality: "one_to_many" | "many_to_many";
-            field_a_name?: string;
-            field_b_name?: string;
-        };
-        UpdateRelationDto: {
-            auto_link: {
-                conditions: {
-                    field_a: string;
-                    field_b: string;
-                }[];
-                /** @default false */
-                case_sensitive: boolean;
-            } | null;
-        };
-        SelectDriftReconcileDto: {
-            /** Format: uuid */
-            record_id: string;
-        };
-        DeleteRelationDto: {
-            /** @enum {boolean} */
-            confirm: true;
-        };
-        LinkRecordsDto: {
-            record_ids: string[];
-        };
-        ReplaceLinksDto: {
-            record_ids: string[];
-        };
         CommentBodyDto: {
             body: ({
                 /** @enum {string} */
@@ -5480,6 +5708,52 @@ export interface components {
             /** @enum {string} */
             status?: "active" | "paused" | "error";
         };
+        CreateSkillDto: {
+            name: string;
+            description: string;
+            when_to_use: string;
+            instructions: string;
+            /** @default [] */
+            examples: {
+                input: string;
+                output: string;
+            }[];
+            allowed_tools?: unknown;
+            /** @enum {string} */
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
+            source_template?: string;
+        };
+        ImportSkillDto: {
+            content: string;
+            /** @default false */
+            create: boolean;
+            overrides?: {
+                name?: string;
+                description?: string;
+                when_to_use?: string;
+                instructions?: string;
+                version?: string;
+                /** @enum {string} */
+                visibility?: "personal" | "members" | "shared" | "public";
+            };
+        };
+        UpdateSkillDto: {
+            name?: string;
+            description?: string;
+            when_to_use?: string;
+            instructions?: string;
+            examples?: {
+                input: string;
+                output: string;
+            }[];
+            allowed_tools?: unknown;
+            /** @enum {string} */
+            visibility?: "personal" | "members" | "shared" | "public";
+            member_ids?: string[];
+            version?: string;
+        };
         CreatePortalRecipientDto: {
             label: string;
             /** Format: email */
@@ -5671,6 +5945,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {
@@ -5872,6 +6148,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {
@@ -6069,6 +6347,8 @@ export interface components {
                         radius?: number;
                         /** @enum {string} */
                         font?: "inter" | "figtree" | "source-sans-3" | "dm-sans" | "source-serif-4" | "playfair-display" | "jetbrains-mono";
+                        /** @enum {string} */
+                        mode?: "light" | "dark";
                     };
                 };
                 share?: {
@@ -6137,6 +6417,12 @@ export interface components {
             allow_run_button: boolean;
             /** Format: uuid */
             agent_id?: string;
+            resource_scope?: {
+                /** @default [] */
+                space_ids: string[];
+                /** @default [] */
+                database_ids: string[];
+            };
         };
         CopyRecordDto: {
             record_ids: string[];
@@ -6205,38 +6491,6 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
-        };
-        CreateSkillDto: {
-            name: string;
-            description: string;
-            when_to_use: string;
-            instructions: string;
-            /** @default [] */
-            examples: {
-                input: string;
-                output: string;
-            }[];
-            /** @default [] */
-            allowed_tools: string[];
-            /**
-             * @default personal
-             * @enum {string}
-             */
-            visibility: "personal" | "shared";
-            source_template?: string;
-        };
-        UpdateSkillDto: {
-            name?: string;
-            description?: string;
-            when_to_use?: string;
-            instructions?: string;
-            examples?: {
-                input: string;
-                output: string;
-            }[];
-            allowed_tools?: string[];
-            /** @enum {string} */
-            visibility?: "personal" | "shared";
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -7308,6 +7562,54 @@ export interface operations {
             };
         };
     };
+    FieldConversionController_toMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToMembersDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FieldConversionController_toUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToUserDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     DatabasesController_list: {
         parameters: {
             query?: never;
@@ -7689,6 +7991,44 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkflowNominationController_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkflowNominationController_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyWorkflowNominationDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8551,6 +8891,383 @@ export interface operations {
             };
         };
     };
+    RelationsController_list: {
+        parameters: {
+            query: {
+                space: string;
+                database: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRelationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_runAutoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_selectDrift: {
+        parameters: {
+            query: {
+                record_id: string;
+            };
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_reconcileSelectDrift: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectDriftReconcileDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLinksDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateValidationRuleDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateValidationRuleDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidationRulesController_violations: {
+        parameters: {
+            query: {
+                after: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ButtonsController_press: {
         parameters: {
             query?: never;
@@ -8920,275 +9637,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_list: {
-        parameters: {
-            query: {
-                space: string;
-                database: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRelationDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_runAutoLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_selectDrift: {
-        parameters: {
-            query: {
-                record_id: string;
-            };
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_reconcileSelectDrift: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SelectDriftReconcileDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_replace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplaceLinksDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_add: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
         responses: {
             200: {
                 headers: {
@@ -10289,6 +10737,25 @@ export interface operations {
             };
         };
     };
+    SpaceDocumentsController_exportPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     SpaceDocumentsController_move: {
         parameters: {
             query?: never;
@@ -10684,6 +11151,207 @@ export interface operations {
             path: {
                 db: string;
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSkillDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSkillDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportSkillDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_export: {
+        parameters: {
+            query: {
+                format: "markdown" | "claude_skill" | "chatgpt";
+            };
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SkillsController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill record id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicSkillsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
             };
             cookie?: never;
         };
@@ -12123,167 +12791,6 @@ export interface operations {
                 "application/json": components["schemas"]["BuildDto"];
             };
         };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSkillDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_templates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSkillDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_export: {
-        parameters: {
-            query: {
-                format: "markdown" | "claude_skill" | "chatgpt";
-            };
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SkillsController_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The skill record id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             201: {
                 headers: {

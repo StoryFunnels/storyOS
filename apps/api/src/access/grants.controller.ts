@@ -16,6 +16,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AccessService } from './access.service';
+import { RECORD_SHARE_NOTICE } from './mention-narrowing';
 
 class CreateGrantDto extends createZodDto(createGrantSchema) {}
 
@@ -36,8 +37,10 @@ export class GrantsController {
 
   @Post()
   @ApiOperation({ summary: 'Grant a role on a space or database (upserts per scope)' })
-  create(@Req() req: WorkspaceRequest, @Body() body: CreateGrantDto) {
-    return this.access.createGrant(req.membership.workspaceId, body, req.user.id);
+  async create(@Req() req: WorkspaceRequest, @Body() body: CreateGrantDto) {
+    const grant = await this.access.createGrant(req.membership.workspaceId, body, req.user.id);
+    // #857: sharing one record is where a redaction first becomes possible; say so here.
+    return body.record_id ? { ...grant, notice: RECORD_SHARE_NOTICE } : grant;
   }
 
   @Delete(':grant')

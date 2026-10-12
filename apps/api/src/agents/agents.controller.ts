@@ -3,6 +3,7 @@ import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
+import { assertHumanSource } from '../auth/assert-human-source';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AgentsService } from './agents.service';
@@ -114,6 +115,7 @@ export class AgentsController {
   @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
   @ApiOperation({ summary: 'Approve a run waiting for approval: apply the staged action' })
   approveRun(@Req() req: WorkspaceRequest, @Param('run') run: string) {
+    assertHumanSource(req); // #859
     return this.agents.approveRun(req.membership, run);
   }
 
@@ -127,6 +129,7 @@ export class AgentsController {
   @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
   @ApiOperation({ summary: 'Reject a run waiting for approval: apply nothing, cancel it' })
   rejectRun(@Req() req: WorkspaceRequest, @Param('run') run: string, @Body() body: RejectRunDto) {
+    assertHumanSource(req); // #859
     return this.agents.rejectRun(req.membership, run, body.reason);
   }
 

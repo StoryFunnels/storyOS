@@ -136,6 +136,8 @@ function makeService(db: Db) {
     // #542 Phase 2: these unit tests never exercise a delete path, so the
     // action-class gate is never consulted.
     { check: vi.fn().mockResolvedValue({ held: false }) } as never,
+    // #231: these unit tests never define a validation rule.
+    { enforce: vi.fn().mockResolvedValue(undefined) } as never,
   );
 }
 

@@ -5,7 +5,8 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns } from 'drizzle-orm';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import { diffBlocks } from '@storyos/schemas/block-diff';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -160,15 +161,15 @@ export class DocumentsService {
   /** #677 (Gap 2) — version history, newest first (cursor-paginated), same shape RecordsService.listVersions uses. */
   async listVersions(recordId: string, limit: number, cursor?: string) {
     const conditions = [eq(documentVersions.recordId, recordId)];
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(documentVersions.createdAt, created));
-    }
-    const rows = await this.db.query.documentVersions.findMany({
-      where: and(...conditions),
-      orderBy: [desc(documentVersions.createdAt)],
-      limit: limit + 1,
-    });
+    // #851 — (created_at, id), not created_at alone (see activity/keyset-cursor.ts).
+    const after = keysetCondition(documentVersions.createdAt, documentVersions.id, cursor);
+    if (after) conditions.push(after);
+    const rows = await this.db
+      .select({ ...getTableColumns(documentVersions), cursorTs: cursorTimestampSql(documentVersions.createdAt) })
+      .from(documentVersions)
+      .where(and(...conditions))
+      .orderBy(desc(documentVersions.createdAt), desc(documentVersions.id))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
     return {
@@ -183,7 +184,7 @@ export class DocumentsService {
       })),
       next_cursor:
         hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
+          ? encodeKeysetCursor({ t: page[page.length - 1]!.cursorTs, id: page[page.length - 1]!.id })
           : null,
       has_more: hasMore,
     };

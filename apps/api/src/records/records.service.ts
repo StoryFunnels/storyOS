@@ -6,7 +6,8 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
+import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import {
   activeFilter,
   applyFieldDefaults,
@@ -49,7 +50,7 @@ import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
 import { diffSnapshots } from './record-diff';
-import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
+import { diffBlocks, jsonEqual, type BlockChange } from '@storyos/schemas/block-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
 import { isPickOneOp, pickOneRow, pickOneSortKey, rollupFieldValue } from './rollup-pick-one';
@@ -64,6 +65,7 @@ import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
 // runtime dependency on CommentsService, so this can't create the module
@@ -158,6 +160,9 @@ export class RecordsService {
      *  notably AgentsService.applyProposedAction's record_delete branch,
      *  which calls these methods directly and bypasses RecordsController. */
     private readonly actionGates: ActionGatesService,
+    /** #231 — validation rules, evaluated INSIDE the write's own transaction (createBatch, update,
+     *  restoreVersion) so a failing rule aborts it and every writer is covered by construction. */
+    private readonly validation: ValidationEnforcer,
   ) {}
 
   /**
@@ -2819,6 +2824,20 @@ export class RecordsService {
             if (linked.length) linkedRelationsByIndex.set(i, linked);
           }
         }
+        // #231 — validation rules, against each row as the write has left it (links included), inside the
+        // transaction: a failing rule aborts the WHOLE batch, so nothing here is persisted.
+        for (const row of inserted) {
+          await this.validation.enforce(tx as unknown as Db, {
+            databaseId,
+            recordId: row.id,
+            defs,
+            event: 'create',
+            before: null,
+            after: row.values as Record<string, unknown>,
+            changedFieldIds: new Set<string>(),
+            actorId,
+          });
+        }
         return inserted;
       });
     } catch (err) {
@@ -2890,6 +2909,7 @@ export class RecordsService {
     recordId: string,
     min: EffectiveRole,
   ): Promise<void> {
+    await this.access.assertBoundDatabaseReach(membership, databaseId);
     // #613 — :rec only ever accepts a uuid (by-number/:number is the
     // separate public-number path). Without this, a non-uuid string reached
     // `eq(records.id, recordId)` below and the driver's own
@@ -3062,7 +3082,10 @@ export class RecordsService {
 
     for (const [fieldId, value] of Object.entries(validated.values)) {
       const previous = before[fieldId] ?? null;
-      if (JSON.stringify(previous) === JSON.stringify(value)) continue;
+      // #840 — key-order-insensitive: `previous` was read back from jsonb (keys
+      // re-sorted) and `value` is in the caller's order, so a plain
+      // JSON.stringify comparison called an unchanged field changed.
+      if (jsonEqual(previous, value)) continue;
       diff[fieldId] = { from: previous, to: value };
       if (richTextFieldIds.has(fieldId)) diff[fieldId]!.blocks = diffBlocks(previous, value);
       if (value === null) delete merged[fieldId];
@@ -3199,6 +3222,25 @@ export class RecordsService {
             source,
           );
         }
+        // #231 — validation rules, inside the transaction, against the row as it now stands. A rule fires only if a
+        // field it REFERENCES changed (a stored value, a written relation, or the title), so an unrelated edit to a
+        // record that already breaks a rule is never blocked by it.
+        const changedFieldIds = new Set<string>(Object.keys(diff).filter((k) => k !== 'title'));
+        for (const plan of linkPlans) changedFieldIds.add(plan.fieldId);
+        if (diff['title'] !== undefined) {
+          const titleField = defs.find((d) => d.type === 'title');
+          if (titleField) changedFieldIds.add(titleField.id);
+        }
+        await this.validation.enforce(tx as unknown as Db, {
+          databaseId,
+          recordId,
+          defs,
+          event: 'update',
+          before,
+          after: next!.values as Record<string, unknown>,
+          changedFieldIds,
+          actorId,
+        });
         return next!;
       });
     } catch (err) {
@@ -3508,15 +3550,15 @@ export class RecordsService {
   /** MN-231: version history, newest first (cursor-paginated like ActivityService.listForRecord). */
   async listVersions(recordId: string, limit: number, cursor?: string) {
     const conditions = [eq(recordVersions.recordId, recordId)];
-    if (cursor) {
-      const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(recordVersions.createdAt, created));
-    }
-    const rows = await this.db.query.recordVersions.findMany({
-      where: and(...conditions),
-      orderBy: [desc(recordVersions.createdAt)],
-      limit: limit + 1,
-    });
+    // #851 — (created_at, id), not created_at alone (see activity/keyset-cursor.ts).
+    const after = keysetCondition(recordVersions.createdAt, recordVersions.id, cursor);
+    if (after) conditions.push(after);
+    const rows = await this.db
+      .select({ ...getTableColumns(recordVersions), cursorTs: cursorTimestampSql(recordVersions.createdAt) })
+      .from(recordVersions)
+      .where(and(...conditions))
+      .orderBy(desc(recordVersions.createdAt), desc(recordVersions.id))
+      .limit(limit + 1);
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
     return {
@@ -3534,7 +3576,7 @@ export class RecordsService {
       })),
       next_cursor:
         hasMore && page.length > 0
-          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
+          ? encodeKeysetCursor({ t: page[page.length - 1]!.cursorTs, id: page[page.length - 1]!.id })
           : null,
       has_more: hasMore,
     };
@@ -3745,6 +3787,22 @@ export class RecordsService {
         source,
         agentId,
         agentName,
+      });
+      // #231 — restoring an old snapshot is a write like any other: it must not be a way around a rule.
+      const restoredChanged = new Set<string>(Object.keys(diff).filter((k) => k !== 'title'));
+      if (diff['title'] !== undefined) {
+        const titleField = defs.find((d) => d.type === 'title');
+        if (titleField) restoredChanged.add(titleField.id);
+      }
+      await this.validation.enforce(tx as unknown as Db, {
+        databaseId,
+        recordId,
+        defs,
+        event: 'update',
+        before: row.values as Record<string, unknown>,
+        after: next!.values as Record<string, unknown>,
+        changedFieldIds: restoredChanged,
+        actorId,
       });
       return next!;
     });
@@ -4376,12 +4434,13 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
       conditions.push(
-        compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }),
+        compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }),
       );
     }
     // #474 — the same narrowing list/query apply. Without this, a count/sum
@@ -4413,7 +4472,7 @@ export class RecordsService {
     // values are keyed by field UUID (ADR-0002), and formulas/rollups live
     // in computed_values. A non-numeric value is SKIPPED, not zero — zero
     // would drag an average down and report a total that is quietly wrong.
-    const expr = await this.buildAggExpr(input.op, input.field, byApiName);
+    const expr = await this.buildAggExpr(input.op, input.field, surface.strictDefs);
 
     const [row] = await this.db
       .select({ value: sql<string | null>`${expr}` })
@@ -4493,8 +4552,9 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
 
-    const groupDef = byApiName.get(input.group_by);
+    const groupDef = surface.strictDefs.get(input.group_by);
     if (!groupDef) throw new UnprocessableEntityException(`unknown field "${input.group_by}"`);
 
     const numberBins = (groupDef.config?.['bins'] as Array<{ label: string; min: number | null; max: number | null }> | undefined) ?? [];
@@ -4536,7 +4596,7 @@ export class RecordsService {
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+      conditions.push(compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }));
     }
     // #474 — same narrowing the single-value aggregate() applies; a grouped
     // count is still a count, and must not leak rows (or whole GROUPS) a
@@ -4606,7 +4666,7 @@ export class RecordsService {
       keyExpr = sql`(${records.values}->>${groupDef.id})`;
     }
 
-    const aggExpr = await this.buildAggExpr(input.op, input.field, byApiName);
+    const aggExpr = await this.buildAggExpr(input.op, input.field, surface.strictDefs);
 
     // `.as(alias)` is what actually gives the SELECT list a real output
     // column name — passing a bare `sql` fragment as an object value gives
@@ -4740,6 +4800,102 @@ export class RecordsService {
     return inArray(records.id, [...scoped.ids]);
   }
 
+  /**
+   * #881 — narrowing was applied to what a RESPONSE contains and never to what a QUERY can ask, so
+   * a rollup whose value a guest was correctly shown as 0 still filtered and sorted on its true
+   * value (a binary search recovered it), and `has [id]` on a relation confirmed a link to a record
+   * the guest cannot read. This is the query-side counterpart of `attachLinks`' narrowing.
+   *
+   * For a NARROWED caller (a guest, which includes a token bound to specific spaces or databases):
+   *  - a rollup, lookup or formula derived from a relation whose target the caller cannot read in
+   *    full is REMOVED from the set of fields a query may name. It then goes down the very same
+   *    "unknown field" path as a field that does not exist, so the refusal is not an oracle: the
+   *    messages are identical down to the "Available fields" list, which cannot name it either.
+   *  - a relation field is kept for filtering but evaluated over ONLY the links the caller can
+   *    read (`linkScope`), so `has [hidden id]` answers exactly what `has [id that does not exist]`
+   *    answers. It is removed from the sort / group-by / aggregate set, which would order or
+   *    bucket by the far side's titles.
+   * Everyone else (admin, member, a guest with a space or database grant on the target) gets the
+   * maps back unchanged: ordinary filtering and sorting are not touched.
+   */
+  private async narrowedQuerySurface(
+    membership: Membership | undefined,
+    defs: FieldDef[],
+    byApiName: Map<string, FieldDef>,
+  ): Promise<{
+    filterDefs: Map<string, FieldDef>;
+    strictDefs: Map<string, FieldDef>;
+    linkScope: Map<string, 'none' | string[]> | undefined;
+  }> {
+    if (!membership || membership.role !== 'guest') {
+      return { filterDefs: byApiName, strictDefs: byApiName, linkScope: undefined };
+    }
+    // Per relation field: 'full' (the caller reads the whole target), or what they may see of it.
+    const reach = new Map<string, 'full' | 'none' | string[]>();
+    for (const def of defs) {
+      if (def.type !== 'relation') continue;
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, def.config['relation_id'] as string),
+      });
+      if (!relation) {
+        reach.set(def.id, 'none'); // dangling: no links to see
+        continue;
+      }
+      const targetId = def.config['side'] === 'a' ? relation.databaseBId : relation.databaseAId;
+      const target = await this.db.query.databases.findFirst({
+        where: eq(databases.id, targetId),
+        columns: { id: true, spaceId: true },
+      });
+      if (!target) {
+        reach.set(def.id, 'none');
+      } else if ((await this.access.effectiveForDatabase(membership, target)) !== null) {
+        reach.set(def.id, 'full');
+      } else {
+        const scoped = await this.access.visibleRecordIds(membership, target);
+        reach.set(def.id, scoped && scoped.ids.size > 0 ? [...scoped.ids] : 'none');
+      }
+    }
+    const isFull = (fieldId: string) => reach.get(fieldId) === 'full';
+
+    const taintedMemo = new Map<string, boolean>();
+    const tainted = (def: FieldDef): boolean => {
+      const known = taintedMemo.get(def.id);
+      if (known !== undefined) return known;
+      taintedMemo.set(def.id, false); // cycle guard: a cycle adds nothing new
+      let result = false;
+      if (def.type === 'rollup' || def.type === 'lookup') {
+        const via = defs.find((d) => d.id === def.config['relation_field_id']);
+        result = !!via && via.type === 'relation' && !isFull(via.id);
+      } else if (def.type === 'formula') {
+        const ast = def.config['ast'] as FormulaNode | undefined;
+        for (const apiName of ast ? formulaRefs(ast) : []) {
+          const target = byApiName.get(apiName);
+          if (!target) continue;
+          if (target.type === 'relation' ? !isFull(target.id) : tainted(target)) {
+            result = true;
+            break;
+          }
+        }
+      }
+      taintedMemo.set(def.id, result);
+      return result;
+    };
+
+    const filterDefs = new Map(byApiName);
+    const strictDefs = new Map(byApiName);
+    for (const def of defs) {
+      if (def.type === 'relation') {
+        if (!isFull(def.id)) strictDefs.delete(def.api_name);
+      } else if (tainted(def)) {
+        filterDefs.delete(def.api_name);
+        strictDefs.delete(def.api_name);
+      }
+    }
+    const linkScope = new Map<string, 'none' | string[]>();
+    for (const [fieldId, r] of reach) if (r !== 'full') linkScope.set(fieldId, r);
+    return { filterDefs, strictDefs, linkScope: linkScope.size ? linkScope : undefined };
+  }
+
   async query(
     databaseId: string,
     input: QueryRecordsInput,
@@ -4753,13 +4909,14 @@ export class RecordsService {
     // api_names — ADDITIVELY, so a real user/stored field of the same name (e.g. a
     // database with its own `number` field) always wins and is never shadowed.
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName);
     const nullsFirst = input.nulls === 'first';
-    const sorts: SortSpec[] = validateSorts(input.sorts, byApiName);
+    const sorts: SortSpec[] = validateSorts(input.sorts, surface.strictDefs);
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter, { defs: byApiName, currentUserId }));
+      conditions.push(compileFilter(input.filter, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }));
     }
     const visibility = await this.recordVisibilityCondition(membership, databaseId);
     if (visibility) conditions.push(visibility);

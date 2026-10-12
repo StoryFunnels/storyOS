@@ -5,6 +5,7 @@ import {
   dateDayKey,
   groupKeysForRecord,
   measureNeedsField,
+  seriesFromGroups,
 } from './dashboard-charts';
 
 const rec = (values: Record<string, unknown>) => ({ values });
@@ -141,5 +142,77 @@ describe('computeChartSeries', () => {
     const series = computeChartSeries(rows, 'closed', 'date', { op: 'count' });
     expect(series.map((p) => p.key)).toEqual(['2026-01-01', '2026-02-01', '2026-03-01']);
     expect(series[0]!.value).toBe(2);
+  });
+});
+
+/**
+ * #795 — the widget moves from reducing records in the browser to reading the server's
+ * per-group measure. The claim is that nothing a person sees changes, so this does not
+ * restate expectations: it feeds the SAME records to the old reducer and, key for key,
+ * to a stand-in for the endpoint (group by `groupKeysForRecord`, then measure), and
+ * requires the two series to match. Marek's API tests do the other half of that
+ * comparison against the real endpoint.
+ */
+describe('seriesFromGroups parity with computeChartSeries (#795)', () => {
+  const serverGroups = (
+    records: Array<{ values: Record<string, unknown> }>,
+    field: string,
+    type: string,
+    sumField?: string,
+  ) => {
+    const buckets = new Map<string | null, number[]>();
+    for (const r of records) {
+      for (const k of groupKeysForRecord(r.values[field], type)) {
+        const list = buckets.get(k) ?? [];
+        if (sumField) list.push(Number(r.values[sumField] ?? 0));
+        else list.push(1);
+        buckets.set(k, list);
+      }
+    }
+    return [...buckets].map(([key, nums]) => ({ key, value: nums.reduce((a, b) => a + b, 0) }));
+  };
+  const labelFor = (k: string) => ({ a: 'Alpha', b: 'Beta', c: 'Gamma', true: 'Yes', false: 'No' })[k] ?? k;
+  const view = (pts: Array<{ key: string | null; label: string; value: number | null }>) =>
+    pts.map((p) => [p.key, p.label, p.value]);
+
+  it('multi_select: a record counts in each option, so the groups sum to more than the records', () => {
+    const records = [
+      rec({ tags: ['a', 'b'], amount: 5 }),
+      rec({ tags: ['a'], amount: 2 }),
+      rec({ tags: ['a', 'b', 'c'], amount: 7 }),
+      rec({ tags: [], amount: 1 }),
+      rec({ amount: 4 }),
+    ];
+    const old = computeChartSeries(records, 'tags', 'multi_select', { op: 'count' }, labelFor);
+    const next = seriesFromGroups(serverGroups(records, 'tags', 'multi_select'), 'count', labelFor);
+    expect(view(next)).toEqual(view(old));
+    expect(next.reduce((n, p) => n + (p.value ?? 0), 0)).toBeGreaterThan(records.length);
+    expect(next.at(-1)?.key).toBeNull(); // the empty bucket stays last
+  });
+
+  it('checkbox: Yes / No / empty, with the empty bucket last', () => {
+    const records = [rec({ done: true }), rec({ done: true }), rec({ done: false }), rec({})];
+    const old = computeChartSeries(records, 'done', 'checkbox', { op: 'count' }, labelFor);
+    const next = seriesFromGroups(serverGroups(records, 'done', 'checkbox'), 'count', labelFor);
+    expect(view(next)).toEqual(view(old));
+    expect(next.map((p) => p.label)).toEqual(['Yes', 'No', EMPTY_GROUP_LABEL]);
+  });
+
+  it('a sum measure orders by value and keeps the empty bucket last', () => {
+    const records = [rec({ s: 'a', amount: 3 }), rec({ s: 'b', amount: 9 }), rec({ s: 'a', amount: 4 }), rec({ amount: 100 })];
+    const old = computeChartSeries(records, 's', 'select', { op: 'sum', field_api_name: 'amount' }, labelFor);
+    const next = seriesFromGroups(serverGroups(records, 's', 'select', 'amount'), 'sum', labelFor);
+    expect(view(next)).toEqual(view(old));
+    expect(next.map((p) => p.key)).toEqual(['b', 'a', null]);
+  });
+
+  it('an empty result is an empty series, not a crash', () => {
+    expect(seriesFromGroups([], 'count', labelFor)).toEqual([]);
+  });
+
+  // The one deliberate difference, pinned: the server returns no per-group record count.
+  it('count is the measure only for the count op', () => {
+    expect(seriesFromGroups([{ key: 'a', value: 7 }], 'count')[0]?.count).toBe(7);
+    expect(seriesFromGroups([{ key: 'a', value: 7 }], 'sum')[0]?.count).toBe(0);
   });
 });

@@ -107,13 +107,14 @@ export class WorkspacesService {
     patch: {
       name?: string;
       private_attachments?: boolean;
+      agents_may_publish_skills?: boolean;
       description?: string | null;
       /** #539 — merged over the existing value; a key omitted here is left
        * alone, one explicitly `null` clears just that key. */
       branding?: WorkspaceBranding;
     },
   ) {
-    const { private_attachments, description, branding, ...rest } = patch;
+    const { private_attachments, agents_may_publish_skills, description, branding, ...rest } = patch;
     const set: { name?: string; settings?: Record<string, unknown>; description?: string | null } = {
       ...rest,
       // #400: normalized here, not in the zod schema — templates and the
@@ -124,12 +125,13 @@ export class WorkspacesService {
     // Same read-modify-write as the integration settings blobs (slack/github/linear
     // services): `settings` is a shared jsonb bag, so a flag write must merge over
     // the current value rather than clobber it.
-    if (private_attachments !== undefined || branding !== undefined) {
+    if (private_attachments !== undefined || agents_may_publish_skills !== undefined || branding !== undefined) {
       const current = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, id) });
       const currentSettings = (current?.settings as Record<string, unknown>) ?? {};
       set.settings = {
         ...currentSettings,
         ...(private_attachments !== undefined ? { private_attachments } : {}),
+        ...(agents_may_publish_skills !== undefined ? { agents_may_publish_skills } : {}),
         // #539 — a SUB-merge, not a replace: patching just `accent_color`
         // must not clear an already-set `logo_url`, the same "field omitted =
         // untouched" rule the outer patch itself follows.

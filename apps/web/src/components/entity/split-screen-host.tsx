@@ -15,7 +15,9 @@ import {
   ratioFromPointer,
   useSplitRatio,
 } from '@/lib/split-pane-ratio';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEscapeToClose } from '@/lib/escape-layers';
+import { canGoBackInApp, useTrackAppNavigation } from '@/lib/nav-trail';
 import { RecordDetail, useRecordQuery } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
@@ -153,6 +155,27 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
 
   const view = selectSplitView(state);
   const showStack = isDesktop && state.panels.length > 0;
+
+  /*
+   * #834 — Esc closes the open record, innermost first. Two cases, one listener:
+   *   - a split panel is active: close THAT one (and only that one) — exactly what its X
+   *     dispatches. With several panels open it is the active pane, never the whole stack.
+   *   - nothing is open beside the record page: Esc leaves the page, back to the view the
+   *     record was opened from, or to the database's own view when the URL was opened
+   *     directly and there is no in-app history to go back to.
+   * Layering (popover / picker / dialog / inline edit first) lives in `useEscapeToClose`.
+   */
+  const router = useRouter();
+  useTrackAppNavigation();
+  const recordRoute = /^\/w\/[^/]+\/d\/([^/]+)\/r\/[^/]+/.exec(pathname ?? '');
+  useEscapeToClose(() => {
+    if (showStack && view.activePanel) {
+      dispatch({ type: 'close', id: view.activePanel.id });
+    } else if (recordRoute) {
+      if (canGoBackInApp()) router.back();
+      else router.push(`/w/${ws}/d/${recordRoute[1]}`);
+    }
+  });
 
   // #208's pane ratio lives in `SplitArea`, with the divider it drives.
 

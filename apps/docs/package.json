@@ -10,7 +10,8 @@
     "start": "npm run sync:openapi && astro dev",
     "build": "npm run sync:openapi && astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",

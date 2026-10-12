@@ -205,7 +205,7 @@ function GuideText({ markdown }: { markdown: string }) {
           );
         }
         return (
-          <p key={i} className="text-[13px] leading-relaxed text-ink-secondary">
+          <p key={i} className="text-reading text-ink-secondary">
             {inline(block)}
           </p>
         );

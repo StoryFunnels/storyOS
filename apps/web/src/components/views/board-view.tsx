@@ -47,6 +47,7 @@ import {
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 import { boardGroupIsReadOnly } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
@@ -111,7 +112,8 @@ export function BoardView({
     : 'month';
   const hasSorts = config.sorts.length > 0;
 
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
+  const search = useViewSearch(db);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
   const { createRecord } = useRecordMutations(ws, db);
 
@@ -302,6 +304,7 @@ export function BoardView({
       group_by: groupField?.apiName ?? '',
       ...(groupField?.type === 'date' ? { group_by_granularity: granularity } : {}),
       ...(queryBody.filter ? { filter: queryBody.filter } : {}),
+      ...(search ? { q: search } : {}),
     },
     Boolean(groupField),
   );

@@ -17,6 +17,17 @@ import { recordLinks, records, user } from '../db/schema';
 export interface CompilerContext {
   defs: Map<string, FieldDef>; // by api_name
   currentUserId: string;
+  /**
+   * #881 — for a NARROWED caller (a guest, which includes a token bound to specific spaces or
+   * databases): per relation FIELD id, which linked records a filter may see. 'none' = the caller
+   * can read nothing on the far side, so a filter behaves as though the field had no links at all;
+   * a list = only links to those records exist for the purpose of this query. Absent = the caller
+   * sees every link (admin, member, a guest with a database grant on the target).
+   *
+   * The point is that `has [id]` must not confirm or deny a link to a record the caller cannot
+   * read: against a hidden id it must answer exactly what it answers for an id that does not exist.
+   */
+  linkScope?: Map<string, 'none' | string[]>;
 }
 
 const err = (message: string) => new UnprocessableEntityException(message);
@@ -208,7 +219,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     );
   }
 
-  if (def.type === 'relation') return compileRelation(def, op, value);
+  if (def.type === 'relation') return compileRelation(def, op, value, ctx);
 
   if (op === 'is_empty') return sql`NOT ${presentExpr(def)}`;
   if (op === 'not_empty') return presentExpr(def);
@@ -493,13 +504,27 @@ function compileIdSet(
 }
 
 /** Relation filters compile to EXISTS over record_links (ADR-0002). */
-function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
+function compileRelation(def: FieldDef, op: FilterOp, value: unknown, ctx: CompilerContext): SQL {
   const relationId = def.config['relation_id'] as string;
   const side = def.config['side'] as 'a' | 'b';
   const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
   const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
-  const anyLink = sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id})`;
+  // #881 — a narrowed caller only "sees" links to records they can read. The op and value are
+  // validated BELOW exactly as for everyone else, so a malformed request fails identically and the
+  // only difference is which links the (otherwise identical) predicate can match.
+  const scope = ctx.linkScope?.get(def.id);
+  const visibleOnly =
+    scope === undefined || scope === 'none'
+      ? sql``
+      : scope.length === 0
+        ? sql` AND FALSE`
+        : sql` AND ${otherCol} IN (${sql.join(scope.map((id) => sql`${id}`), sql`, `)})`;
+  const hidden = scope === 'none';
+
+  const anyLink = hidden
+    ? sql`FALSE`
+    : sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id}${visibleOnly})`;
 
   if (op === 'is_empty') return sql`(NOT ${anyLink})`;
   if (op === 'not_empty') return sql`(${anyLink})`;
@@ -512,7 +537,9 @@ function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
     (value as string[]).map((id) => sql`${id}`),
     sql`, `,
   );
-  const match = sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id} AND ${otherCol} IN (${list}))`;
+  const match = hidden
+    ? sql`FALSE`
+    : sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id} AND ${otherCol} IN (${list})${visibleOnly})`;
   return op === 'has' ? sql`(${match})` : sql`(NOT ${match})`;
 }
 

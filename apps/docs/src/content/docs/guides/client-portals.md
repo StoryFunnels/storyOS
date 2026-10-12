@@ -42,6 +42,10 @@ Only the fields you add to the form are accepted. Anything else a caller tries t
 so a public form can never write to columns you didn't expose.
 :::
 
+A text field set to **multiline** renders as a real multi-line box on the form (a paragraph, not a
+single line), on the public page and in the builder alike. A form view doesn't offer **Filter** or
+**Sort** — a form has no rows to narrow, so those controls would do nothing.
+
 ### Showing or requiring a field only when an earlier one matches
 
 Expand a field in the builder and it carries two independent rule rows:
@@ -75,6 +79,63 @@ visitor types into and what a submission is allowed to name — a crafted reques
 record's id directly is refused, not just hidden from the picker's own search. Leave no filter set
 and the picker behaves exactly as it always has: an unfiltered search across the whole target
 database.
+
+### Collecting a file
+
+A form can take an **attachment** field, so a client can send a brief, a screenshot or a signed PDF
+along with the answers. Add it in the builder like any other field; the public page then shows a
+file picker and uploads the file with the submission.
+
+- **One attachment field per form, and one file per submission.** The builder refuses a second
+  attachment field (the button explains why). Anything beyond one file is rejected with a `422`
+  — *"only one file may be submitted"* — rather than silently keeping the first.
+- **The usual size cap applies** — the same limit as an upload inside the app (20 MB unless your
+  self-hosted instance sets `ATTACHMENT_MAX_BYTES`); a bigger file is a `422`, not a partial save.
+- **Required means required.** A required attachment field with no file is a `422` naming the
+  field, same as any other required answer.
+- **Over the API**, a form with an attachment field accepts `multipart/form-data`: a `payload`
+  part holding the same JSON body as always (`{ values, … }`) plus at most one file part. A form
+  without an attachment field is still JSON-only, and a file sent to it is refused.
+
+### Stamping a fixed value the visitor never sees
+
+A field can be **hidden** and carry a fixed **value** that's written onto every record the form
+creates — a job or tenant id, a lead-source tag, a UTM campaign — so one form per job or channel
+tells you where each submission came from without asking the visitor.
+
+- **It comes from the saved form, never the request.** A visitor who posts their own value for a
+  hidden field is ignored; the stored one is stamped regardless.
+- **Supported for relation, text, select and workflow fields.** The value is validated when the
+  form is saved — a select's value must be a real option id (not its label), a relation's must
+  name a record that exists in the target database.
+- **Hidden means never shown to anyone**, so it can't be combined with **Show only when**; the API
+  rejects the pair as a config error. **Required** on a hidden field never blocks a submission.
+- **No toggle in the form builder yet** — set `hidden` and `value` on a field through the API, or
+  with `create_view` / `update_view` over MCP (`form_fields`).
+
+### Matching your site when you embed a form
+
+An embedded form can take on your brand. In the form's **Configure & share** section, **Match your
+site** has a few controls and a live preview of the form:
+
+- **Embedded form mode** — **Light** (the default: always light, whatever device the visitor uses) or
+  **Dark** (always dark, for a dark site).
+- **Accent** (button, links, focus ring), **Surface** (input backgrounds), **Text** (headings and
+  labels), a **Corner radius**, and a **Font** from a short list of self-hosted faces — Inter,
+  Figtree, Source Sans 3, DM Sans, Source Serif 4, Playfair Display, JetBrains Mono. The font is a
+  *closest match*, not your exact brand font.
+- **The theme is stored on the form, not in the iframe link.** Change a colour once and **every
+  existing embed updates** — nobody re-pastes anything.
+- **Four colours, not a stylesheet.** The rest is derived from them, so the form's text hierarchy
+  holds together; the submit button's label picks white or near-black, whichever reads better on your
+  accent, and error colours stay semantic rather than brand-coloured.
+- **Contrast is protected.** The form keeps text legible whatever you pick. The panel also warns
+  when Text and Surface are uncomfortably close (below 7:1) and **Fix for me** nudges a colour toward
+  the opposite end while **keeping its hue**.
+- **Hex colours only** (alpha isn't accepted — a translucent colour would blend with whatever is behind
+  your iframe, which the form can't see) and a whole-number radius.
+- **Reset to default** removes the theme entirely; an untouched form emits no theme at all, and the
+  standalone link page is never themed.
 
 ## 2. Give the client a scoped space
 

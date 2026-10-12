@@ -1,4 +1,4 @@
-import { diffBlocks, type BlockChange } from '@storyos/schemas/block-diff';
+import { diffBlocks, jsonEqual, type BlockChange } from '@storyos/schemas/block-diff';
 
 /**
  * A single field's before/after value, keyed by field id ("title" for the
@@ -42,7 +42,7 @@ export function diffSnapshots(
   for (const fieldId of fieldIds) {
     const prev = before.values[fieldId] ?? null;
     const next = after.values[fieldId] ?? null;
-    if (JSON.stringify(prev) === JSON.stringify(next)) continue;
+    if (jsonEqual(prev, next)) continue; // #840: key order is not content
     diff[fieldId] = { from: prev, to: next };
     if (richTextFieldIds?.has(fieldId)) {
       diff[fieldId]!.blocks = diffBlocks(prev, next);

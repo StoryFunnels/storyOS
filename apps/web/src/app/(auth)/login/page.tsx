@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { GoogleIcon } from '@/components/ui/google-icon';
+import { GOOGLE_NEW_USER_CALLBACK, GOOGLE_RETURNING_CALLBACK } from '@/lib/funnel';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -80,8 +81,14 @@ function LoginForm() {
             variant="secondary"
             className="h-11"
             onClick={() => {
-              posthog.capture('user_logged_in', { method: 'google' });
-              authClient.signIn.social({ provider: 'google', callbackURL: '/' });
+              // #818 — NOT captured here: a click is not a login (the visitor can abandon
+              // the consent screen). The event fires on the redirect back, in AuthEventBeacon,
+              // as user_logged_in for a returning account and user_signed_up for a new one.
+              authClient.signIn.social({
+                provider: 'google',
+                callbackURL: GOOGLE_RETURNING_CALLBACK,
+                newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK,
+              });
             }}
           >
             <GoogleIcon className="h-[18px] w-[18px]" />

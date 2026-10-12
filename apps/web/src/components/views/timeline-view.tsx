@@ -14,6 +14,7 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import { activeFilterNode, andFilterNodes } from './filter-config';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { useViewSearch } from './view-search';
 import type { DragKind } from './timeline-math';
 import {
   applyDrag,
@@ -172,9 +173,10 @@ export function TimelineView({
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
   const { updateRecord } = useRecordMutations(ws, db);
+  const search = useViewSearch(db);
   const queryBody = useMemo(
-    () => ({ ...queryBodyFromConfig(config, personalFilter), limit: 200 }),
-    [config, personalFilter],
+    () => ({ ...queryBodyFromConfig(config, personalFilter, search), limit: 200 }),
+    [config, personalFilter, search],
   );
   const records = useRecordsInfinite(ws, db, queryBody);
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
@@ -303,7 +305,7 @@ export function TimelineView({
     if (baselineStartField) clauses.push({ field: baselineStartField.apiName, op: 'is_empty' });
     return { and: clauses };
   }, [startField, baselineStartField, config.filters, personalFilter]);
-  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(startField));
+  const undatedCountQuery = useRecordCount(ws, db, undatedFilter, Boolean(startField), search);
   const undated = startField ? (undatedCountQuery.data ?? 0) : 0;
 
   const today = Math.floor(Date.now() / DAY);

@@ -75,7 +75,9 @@ subject can claim is not provenance.
 
 ## One thing to know if you use the API
 
-**An ordinary personal access token reads as `mcp`.** If you write records from your own script
+**An ordinary personal access token reads as `mcp`** — and so does an AI connected
+through OAuth (for example Claude), which is not badged `human` even though a person signed in to
+connect it. If you write records from your own script
 with a PAT, those changes are badged `mcp` — not because they came from an MCP client, but because
 an unmarked token is treated as one. The badge tells you a change came in over the API with a
 token; it does not tell you which program held it.
@@ -103,10 +105,49 @@ either.
 whole point of a change log, and a row that renders as a bare uuid because its column was removed
 is exactly the moment you start doubting the history.
 
-## Restoring
+## Finding it: the History dialog
 
-A previous version can be restored (`POST …/versions/{version}/restore`). The restore is itself a
-change and appears in the log like any other, badged by whatever made it.
+A record's **⋯ menu → History** opens a dialog with three tabs:
+
+- **Changes** — the field-by-field log above: who, what made it, and the before and after of each
+  field. A field that has since changed again offers **Revert this field**, which writes the old
+  value back as an ordinary edit (so the revert shows up in the log too).
+- **Versions** — whole-record snapshots. Each shows who made it and what made it — a **person** or
+  an **agent** badge, readable at a glance without decoding an id.
+- **Document** — the record's rich-text description, which has its own history (below).
+
+## Restoring a whole record
+
+Pick a version and **Restore** shows a **diff preview first** — exactly what would change from the
+record as it is now — before you confirm. The restore is itself a change: it appears in the log
+like any other, badged by whatever made it, and can be undone the same way. Over the API a version
+restores with `POST …/versions/{version}/restore`, and a read-only preview is
+`GET …/versions/{version}`.
+
+## The description has a history too
+
+A record's rich-text description keeps its own versions, separate from its fields. Each time the
+description is saved after the first, the previous content is kept; the **Document** tab lists
+them (newest first, with the same person/agent badge), previews any one as a block-level diff
+against the current text, and restores it. Restoring a description version is reversible too — the
+text you restored over is saved first.
+
+- **This is not the editing-conflict counter.** A save that was based on a stale copy of the
+  description is still refused with a `409`, exactly as before; history is a separate record of
+  past content.
+- **The same retention rule as the field log** (below) — one policy, not two.
+- Over MCP: `get_history` with `kind: "document_versions"` lists them, and
+  `restore_document_version` restores one. There is no preview tool — an agent lists, restores,
+  and can undo.
+
+## How long it's kept
+
+History is **plan-gated** and capture only runs while it's on: **Free keeps none** (nothing is
+captured, so there is nothing to restore), **Pro keeps 1 day**, **Business 7 days**, **Enterprise
+30 days**. The History dialog states the policy in general terms rather than showing your exact
+number, since the figure lives on the billing side that only admins can read. This is **record
+history, not a workspace backup** — it won't bring back a deleted database; see
+[trash and restore](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space) for that.
 
 ## Workspace-wide: the admin audit log
 
@@ -115,7 +156,7 @@ Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the 
 every record in the workspace, filterable by actor, by one entity, and by date range (default: the
 last 30 days).
 
-- **No web page for this yet** — API and MCP only.
+- **In the app: Settings → Audit log**, visible to admins only. Filter by **Actor**, by one record, and by a **From** / **To** date, and use **Load more** to page back. A non-admin who opens the address sees only "Only workspace admins can view the audit log", and the page makes no request for the data. It also reads from the same API and MCP tool above.
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
   whole page is built on.
 - **Known, stated gap: structural deletions aren't captured.** Deleting a database, a view, or a

@@ -112,8 +112,17 @@ function run({ sid = 'sess-1', state, env = {}, optIn = true, stdin } = {}) {
     ...(optIn ? { STORYOS_QUEUE_HOOK: 'drain' } : {}),
     ...env,
   };
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn('bash', [SCRIPT], { env: base });
+    // #854 — the hook is INERT unless the session opted in, so in that case bash exits at once
+    // without reading stdin. If it wins the race against our write, Node raises `write EPIPE` on
+    // child.stdin and, with no listener, that was an uncaught exception that failed the whole file
+    // and ejected unrelated PRs from the merge queue. The child exiting before it reads is the
+    // behaviour under test SUCCEEDING, so EPIPE is ignored here; ANY OTHER stdin error is a real
+    // harness fault and rejects. The listener MUST be attached before the write below.
+    child.stdin.on('error', (e) => {
+      if (e && e.code !== 'EPIPE') reject(e);
+    });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => (out += d));
@@ -129,6 +138,17 @@ function run({ sid = 'sess-1', state, env = {}, optIn = true, stdin } = {}) {
 
 const newState = () => mkdtempSync(join(tmpdir(), 'qhook-'));
 const blocked = (r) => r.json?.decision === 'block';
+
+test('the harness survives a hook that exits before reading a LARGE stdin (the #854 race, forced rather than waited for)', async () => {
+  reset();
+  // 8 MB cannot fit in the pipe buffer, so the write is still in flight when the inert hook exits:
+  // the losing side of the race, every time instead of once in a few hundred CI runs. Without the
+  // EPIPE listener in run() this raises an uncaught `write EPIPE` and fails the whole file.
+  const r = await run({ state: newState(), optIn: false, stdin: 'x'.repeat(8_000_000) });
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), '');
+  assert.equal(hits, 0, 'and it still never touches the network');
+});
 
 test('inert unless the session opted in — and then it never touches the network', async () => {
   reset();

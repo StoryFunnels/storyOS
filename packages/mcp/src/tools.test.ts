@@ -1146,7 +1146,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'Every Friday.',
       instructions: 'List records changed this week.',
       examples: [],
-      allowed_tools: ['records.read'],
       visibility: 'shared',
       editable: false,
       source_template: 'weekly-digest',
@@ -1158,7 +1157,6 @@ describe('list_skills / run_skill (#41)', () => {
       when_to_use: 'A new lead lands.',
       instructions: 'Draft a friendly reply.',
       examples: [],
-      allowed_tools: [],
       visibility: 'personal',
       editable: true,
       source_template: null,
@@ -1205,7 +1203,8 @@ describe('list_skills / run_skill (#41)', () => {
     const res = await callTool(handlers, 'list_skills', { workspace: 'JCM Agency' });
     expect(res).toHaveLength(2);
     expect(res.map((s: { name: string }) => s.name)).toEqual(['Weekly Status Digest', 'Lead Triage Reply']);
-    expect(res[0].allowed_tools).toEqual(['records.read']);
+    // #841: the retired field is not returned to an agent at all.
+    expect(res[0]).not.toHaveProperty('allowed_tools');
   });
 
   it('run_skill resolves a skill by name (not just id), posts the run, and echoes instructions + inputs back', async () => {
@@ -2833,7 +2832,6 @@ describe('#442 — skill authoring tools', () => {
       when_to_use: 'w',
       instructions: 'full steps here',
       examples: [],
-      allowed_tools: ['query_records'],
       visibility: 'personal',
       editable: true,
       source_template: null,
@@ -2843,12 +2841,18 @@ describe('#442 — skill authoring tools', () => {
       sent.push({ method, path, body: o?.body as Record<string, unknown> });
       if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
       if (path === '/api/v1/workspaces/{ws}/skills') return method === 'GET' ? { data: { data: [skill] } } : { data: skill };
+      if (path === '/api/v1/workspaces/{ws}/skills/import') {
+        const create = (o?.body as { create?: boolean } | undefined)?.create;
+        return { data: { report: { kept: [], dropped: [{ item: 'frontmatter `license`', reason: 'no field' }], missing: [], problems: [] }, importable: true, created: create ? skill : null } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/members') return { data: [{ role: 'member', user: { id: 'u-bea', name: 'Bea Ray' } }, { role: 'member', user: { id: 'u-cy', name: 'Cy Dunn' } }, { role: 'member', user: { id: 'u-cy2', name: 'cy dunn' } }] };
       if (path === '/api/v1/workspaces/{ws}/skills/templates') return { data: { data: [{ id: 'blank', name: 'Blank' }] } };
       if (path === '/api/v1/workspaces/{ws}/skills/{id}/export') return { data: { filename: 'SKILL.md', content: '# Weekly digest' } };
       if (path === '/api/v1/workspaces/{ws}/skills/{id}') return { data: skill };
       return { data: {} };
     };
-    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+    const configs = new Map<string, { inputSchema?: Record<string, { safeParse: (v: unknown) => { success: boolean } }> }>();
+    registerTools({ registerTool: (n: string, c: never, h: never) => (configs.set(n, c), handlers.set(n, h as never)) } as never, {
       client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
       baseUrl: 'http://test',
       token: 'tok',
@@ -2859,32 +2863,75 @@ describe('#442 — skill authoring tools', () => {
       if (r.isError) throw new Error(r.content[0]!.text);
       return JSON.parse(r.content[0]!.text);
     };
-    return { call, sent, handlers };
+    return { call, sent, handlers, configs };
   }
 
-  it('create_skill never sends visibility:"shared" — the argument does not exist', async () => {
-    // Offering an argument the server refuses teaches the model the wrong thing.
-    const { call, sent, handlers } = harness();
-    await call('create_skill', {
-      workspace: 'Eng',
-      name: 'n',
-      description: 'd',
-      when_to_use: 'w',
-      instructions: 'i',
-    });
+  it('create_skill sends NO visibility unless asked (the server decides the default) and offers all four tiers, `public` being only a proposal (#868)', async () => {
+    const { call, sent, configs } = harness();
+    await call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i' });
     const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
-    expect(post.body!.visibility).toBe('personal');
+    // No pin and no restated default: SkillsService.create is the one place that decides it (#867).
+    expect(post.body!).not.toHaveProperty('visibility');
+    expect(post.body!).not.toHaveProperty('member_ids');
 
-    const res = await handlers.get('create_skill')!({
-      workspace: 'Eng',
-      name: 'n',
-      description: 'd',
-      when_to_use: 'w',
-      instructions: 'i',
-      visibility: 'shared',
-    });
-    expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain('"visibility"');
+    // An explicit choice of a tier is forwarded.
+    sent.length = 0;
+    await call('create_skill', { workspace: 'Eng', name: 'n2', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'personal' });
+    expect(sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!.body!.visibility).toBe('personal');
+
+    for (const tool of ['create_skill', 'update_skill']) {
+      type Arg = { safeParse: (v: unknown) => { success: boolean } };
+      const schema = configs.get(tool)!.inputSchema as unknown as { shape?: Record<string, Arg> } & Record<string, Arg>;
+      const arg = (schema.shape ?? schema)['visibility']!;
+      for (const tier of ['personal', 'members', 'shared', 'public']) expect(arg.safeParse(tier).success, `${tool} ${tier}`).toBe(true);
+      expect(arg.safeParse('everyone').success, `${tool} everyone`).toBe(false);
+    }
+  });
+
+  it('create_skill members: resolves user ids and EXACT names to ids, refuses ambiguity and strangers, and needs visibility members (#868)', async () => {
+    const { call, sent, handlers } = harness();
+    await call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'members', members: ['Bea Ray', 'u-cy'] });
+    const body = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!.body!;
+    expect(body.visibility).toBe('members');
+    expect(body.member_ids, 'a name and an id both resolve to ids').toEqual(['u-bea', 'u-cy']);
+    // Ambiguous name (two members differ only by case): an error naming the way out, never a guess.
+    await expect(call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'members', members: ['Cy Dunn'] })).rejects.toThrow(/matches 2 members/);
+    await expect(call('create_skill', { workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i', visibility: 'members', members: ['Nobody'] })).rejects.toThrow(/No member matches "Nobody"/);
+    // `members` without visibility members is refused before anything is sent.
+    sent.length = 0;
+    const bad = await handlers.get('create_skill')!({ workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i', members: ['u-bea'] });
+    expect(bad.isError).toBe(true);
+    expect(sent.some((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')).toBe(false);
+  });
+
+  it('update_skill members REPLACES the set (add or remove a person), forwarded as member_ids, with the set readable back', async () => {
+    const { call, sent } = harness();
+    await call('update_skill', { workspace: 'Eng', skill: 'sk-1', members: ['u-bea'] });
+    expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ member_ids: ['u-bea'] });
+  });
+
+  it('update_skill can promote to shared or demote to personal (an owner promoting through MCP), and cannot ask for public', async () => {
+    const { call, sent } = harness();
+    await call('update_skill', { workspace: 'Eng', skill: 'sk-1', visibility: 'shared' });
+    expect(sent.find((s) => s.method === 'PATCH')!.body).toMatchObject({ visibility: 'shared' });
+  });
+
+  it('import_skill previews by default (create:false), surfaces the dropped list, and never offers visibility', async () => {
+    const { call, sent, handlers } = harness();
+    const preview = await call('import_skill', { workspace: 'Eng', content: '---\nname: x\n---\nbody' });
+    const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills/import')!;
+    expect(post.body).toMatchObject({ create: false });
+    expect(post.body).not.toHaveProperty('overrides.visibility');
+    expect(preview.created).toBeNull();
+    expect(preview.report.dropped[0].item).toContain('license');
+    expect(preview.note).toMatch(/Nothing was created/);
+
+    const made = await call('import_skill', { workspace: 'Eng', content: 'x', create: true });
+    expect(made.created.id).toBe('sk-1');
+    expect(made.note).toMatch(/Teammates cannot see it/);
+
+    const refused = await handlers.get('import_skill')!({ workspace: 'Eng', content: 'x', visibility: 'shared' });
+    expect(refused.isError).toBe(true); // the argument does not exist, same as create_skill
   });
 
   it('every skill read reports who authored it', async () => {

@@ -167,7 +167,9 @@ export function TableView({
   // already composes its own date-window filter, never by touching
   // queryBodyFromConfig (shared by every other view type/widget).
   const rootQueryBody = useMemo(() => {
-    if (!hierarchyField) return queryBody;
+    // #835 — a search is FLAT: restricting to roots would hide a matching child
+    // whose parent does not match, i.e. a confident wrong "no results".
+    if (!hierarchyField || queryBody?.['q']) return queryBody;
     const filter = andFilterNodes(queryBody?.['filter'], { field: hierarchyField.apiName, op: 'is_empty' });
     return { ...(queryBody ?? {}), ...(filter ? { filter } : {}) };
   }, [queryBody, hierarchyField]);
@@ -178,7 +180,7 @@ export function TableView({
   // index alone can't give without scrolling to the end. Same filter as the
   // grid's own query (root-only when nested), so it always matches what's on
   // screen at the top level.
-  const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter']);
+  const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter'], true, rootQueryBody?.['q'] as string | undefined);
 
   // #739 — the permanent record number as an ORDINARY column, "ID" in the UI,
   // `number` in code (T6). Computed via the SAME shared registry helper
@@ -770,6 +772,9 @@ export function TableView({
     else if (e.key === 'Tab') move(0, 1, false);
     else if (e.key === 'ArrowLeft') move(0, -1, e.shiftKey);
     else if (e.key === 'Escape' && (selected.size > 0 || rangeEnd)) {
+      // #834 — claim it: a selection is a layer above the open record, so the record's
+      // own Esc must not also fire on the same keystroke.
+      e.preventDefault();
       setSelected(new Set());
       setRangeEnd(null);
     } else if (e.key.toLowerCase() === 'x' && cursor && !readOnly) {

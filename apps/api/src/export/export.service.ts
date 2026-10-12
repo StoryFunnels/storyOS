@@ -6,6 +6,7 @@ import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
 import { PreferencesService } from '../users/preferences.service';
+import { MentionNarrowingService } from '../access/mention-narrowing.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import {
   csvHeaderLine,
@@ -48,6 +49,7 @@ export class ExportService {
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
     private readonly preferences: PreferencesService,
+    private readonly narrowing: MentionNarrowingService,
   ) {}
 
   /** Resolve the database, optional view config, columns and label maps. */
@@ -108,6 +110,9 @@ export class ExportService {
     const cols = exportColumns(exportFields);
     const query = this.records.query.bind(this.records);
     const labelize = (v: Record<string, unknown>) => this.labelizeValues(v, labels);
+    // #857: the CSV body is a stream the JSON interceptor never sees, so a guest's rich-text
+    // cells are narrowed here, through the same service, before they are rendered to markdown.
+    const narrow = this.narrowing.narrow.bind(this.narrowing);
 
     return {
       databaseName: database.name,
@@ -133,8 +138,9 @@ export class ExportService {
             membership,
           );
           if (page.data.length === 0) break;
+          const rows = await narrow(membership, page.data);
           let chunk = '';
-          for (const record of page.data) {
+          for (const record of rows) {
             chunk += `${csvRecordLine(cols, { number: record.number, title: record.title, values: labelize(record.values) }, userNames)}\r\n`;
           }
           yield chunk;

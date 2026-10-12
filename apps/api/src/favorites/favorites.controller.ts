@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -17,6 +18,7 @@ class FavoriteDto extends createZodDto(
 
 /** Favorites (MN-075) — per-user stars on records/databases. Any member can star. */
 @ApiTags('favorites')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/favorites')
 export class FavoritesController {

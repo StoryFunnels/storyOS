@@ -1,5 +1,7 @@
 'use client';
 
+import { PostSocialEditor, defaultPostSocial, type PostSocialAction } from '@/components/social/post-social-editor';
+import { useSocialConnections } from '@/components/social/use-social';
 import { useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Check, Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
@@ -61,6 +63,8 @@ export type ButtonAction = ({ condition?: ActionCondition } & (
     }
   // MN-263: call any API and (optionally) capture the response back onto
   // fields. `headers` is write-only the same way send_webhook's is (#249).
+  // Ticket #42 / #826: publish to LinkedIn or X. Gated by default; `require_approval: false` is admin-only server-side.
+  | PostSocialAction
   | {
       type: 'http_request';
       method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -95,6 +99,7 @@ export const ACTION_TYPE_GROUPS: Array<{ label: string; options: Array<{ value: 
       { value: 'notify_user', label: 'Notify a person' },
       { value: 'send_slack_message', label: 'Send a Slack message' },
       { value: 'send_email', label: 'Send an email' },
+      { value: 'post_social', label: 'Post to LinkedIn or X' },
     ],
   },
   {
@@ -113,7 +118,13 @@ export const ACTION_TYPE_GROUPS: Array<{ label: string; options: Array<{ value: 
  * extracted for, applied to the OTHER half of the same switch. */
 export function defaultActionFor(
   type: string,
-  ctx: { db: string; relationFields: Field[]; mailConnectionId?: string; restrictToWebhookSafe?: boolean },
+  ctx: {
+    db: string;
+    relationFields: Field[];
+    mailConnectionId?: string;
+    socialConnection?: { id: string; provider: string };
+    restrictToWebhookSafe?: boolean;
+  },
 ): ButtonAction {
   if (type === 'set_values') return { type: 'set_values', values: {} };
   if (type === 'create_record') {
@@ -138,6 +149,7 @@ export function defaultActionFor(
       body_markdown: '',
     };
   }
+  if (type === 'post_social') return defaultPostSocial(ctx.socialConnection);
   if (type === 'http_request') return { type: 'http_request', method: 'GET', url: '' };
   return { type: 'add_comment', body_template: '' };
 }
@@ -170,6 +182,7 @@ export function ButtonActionsEditor({
 }) {
   const databases = useDatabases(ws);
   const mailConnections = useMailConnections(ws);
+  const socialConnections = useSocialConnections(ws);
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   // #729 — kept restrictive: the http_request capture-response editor below
@@ -223,6 +236,7 @@ export function ButtonActionsEditor({
                     db,
                     relationFields,
                     mailConnectionId: mailConnections.data?.[0]?.id,
+                    socialConnection: socialConnections.data?.[0],
                     restrictToWebhookSafe,
                   }),
                 )
@@ -403,6 +417,10 @@ export function ButtonActionsEditor({
               action={action}
               onChange={(next) => patch(i, next)}
             />
+          )}
+
+          {action.type === 'post_social' && (
+            <PostSocialEditor ws={ws} fields={dbFields} action={action} onChange={(next) => patch(i, next)} />
           )}
 
           {action.type === 'http_request' && (

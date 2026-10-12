@@ -24,6 +24,32 @@ workspace, and nothing crosses between two of them. If you are wondering whether
 workspace, the test is whether the *people* differ — separate workspaces are for separate groups,
 not for separate projects.
 
+### The workspace home
+
+The page a workspace opens to changes as the workspace matures. A **new** workspace gets the setup
+helpers — the getting-started checklist, a sample-data banner, a prompt to create a first database.
+An **established** one gets three blocks of live work instead:
+
+- **Needs a decision** — approvals waiting on anyone in the workspace, not only you. Your own
+  [Inbox](/concepts/approval-gates/) shows what is routed *to you*; this is where you notice the
+  one waiting on a colleague who is away. It shows only what you can see.
+- **Agent runs** — recent runs, **failures first**, so a failed run isn't buried behind twenty green
+  ones.
+- **Where to go** — your favourites and databases.
+
+A block with nothing in it drops its "see all" link rather than send you to an empty page. For
+everyone, new or established, the old wall of template cards is a single **Start something new**
+link; the template gallery is one click behind it.
+
+**"Established" is deliberately conservative:** the getting-started checklist is *complete* (merely
+dismissing it doesn't count), there are **no sample records** left, and the workspace has **at least
+six databases** — more than any single template creates. If any is false you see the new-workspace
+version; the cost of that is one extra glance, where the opposite mistake would show a fresh user
+three empty boxes. There is no setting to switch it.
+
+**This is not a workspace activity feed.** The audit log is admin-only, and nothing workspace-wide
+exists that every member may read, so none is shown here.
+
 ### Taking everything out
 
 **Settings → Export**, admin only. Downloads a single `.zip` with every space, database, field
@@ -70,9 +96,12 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   `+` per axis: axis placement is balance-only and carries no direction, so four buttons that all
   do the identical thing would imply a choice the diagram doesn't actually offer.
 
-  **Known limitation:** on a space with many related databases, the diagram can overflow its own
-  card below roughly 870px of viewport width, rather than reflowing — a narrow browser window, not
-  only a phone. Give it a wide window (or a small space) if you're capturing it.
+  **On a narrow space it stacks into one column.** Below about 640px of the *diagram's own* width
+  the four axes give way to a single column — the centre database first, then every related group
+  beneath it, in the same order, with the axis lines not drawn. Nothing is missing: every chip is
+  still there. It follows the diagram's width, not the browser's, so collapsing the sidebar can
+  flip it back to the cross at the same window size. Axis placement carries no meaning in either
+  form, so stacking loses nothing.
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
   without it.
 
@@ -136,6 +165,9 @@ you.
 
 ### Setting one
 
+- **A database, from the page itself** — click the description under the title to edit it in place.
+  This needs the same access as editing the database's schema (**Creator** or above), so an editor
+  doesn't see a click-to-edit they couldn't save.
 - **Database or space** — its context menu (the sidebar row's `⋯`) has **Add description** (or
   **Edit description**, once one exists), opening a small dialog.
 - **Workspace** — **Settings → General**, an inline field with its own Save. The workspace has no

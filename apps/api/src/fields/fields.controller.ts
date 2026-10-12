@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
@@ -36,6 +37,7 @@ class DeleteOptionDto extends createZodDto(deleteOptionSchema) {}
 @ApiTags('fields')
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/fields')
+@ResourceScopable()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @RequiresScope('admin')
 export class FieldsController {
@@ -108,6 +110,7 @@ export class FieldsController {
       fieldId,
       body.type,
       body.dry_run,
+      body.confirm_dependent_rules,
     );
   }
 

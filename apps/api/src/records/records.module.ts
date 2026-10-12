@@ -4,6 +4,7 @@ import { ActionGatesModule } from '../action-gates/action-gates.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
+import { ValidationEnforcerModule } from '../validation-rules/validation-enforcer.module';
 import { MentionsModule } from '../mentions/mentions.module';
 import { UsersModule } from '../users/users.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
@@ -24,6 +25,7 @@ import { BulkRecordJobsService } from './bulk-record-jobs.service';
   imports: [
     WorkspacesModule,
     DatabasesModule,
+    ValidationEnforcerModule,
     MentionsModule,
     AbuseModule,
     BillingModule,

@@ -40,6 +40,6 @@ export class DatabaseActivityController {
     @Query() query: ActivityQueryDto,
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    return this.activityService.listCommentsForDatabase(databaseId, query.limit, query.cursor);
+    return this.activityService.listCommentsForDatabase(req.membership, databaseId, query.limit, query.cursor);
   }
 }

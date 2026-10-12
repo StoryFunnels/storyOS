@@ -25,8 +25,10 @@ Eleven actions, all available to buttons and rules alike.
 | **Create a record** | Creates one record in any database, optionally linked back through a relation — or [matches an existing one on a unique key instead of duplicating it](#creating-or-upserting-a-record). |
 | **Create many records** | Creates 0–200 records from one template. The count can be a number or a `{Field}` token read at run time; `{index}` (1-based) differentiates them — "Day {index}". |
 | **Add a comment** | Posts a comment on the record. |
-| **Notify a person** | An in-app notification to a person field's value, or `@me`. |
+| **Notify a person** | An in-app notification to a person field's value, `@me`, or a [specific workspace member](#notifying-a-specific-member). |
 | **Update linked records** | Sets fields on every record linked through a chosen relation. |
+
+**What a "field to set" can be.** For both of the actions above the picker offers the record's **title** (a plain text box) and **relation** fields (a record search, to choose which records to link), as well as ordinary fields. Lookups, rollups, buttons, rich text and the automatic fields (created at, updated at, created by) are not offered, because they can't be set by hand.
 | **Send a Slack message** | Posts to a channel, or the workspace's default channel. |
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
 | **Send an email** | A templated 1:1 email through a Resend or SMTP connection. See below. |
@@ -72,6 +74,20 @@ fail validation.
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
 
+## Notifying a specific member
+
+**Notify a person** can name one workspace member directly — useful when the record has no person
+field, such as a public careers-form submission that should alert a particular hiring lead. In the
+rule editor the recipient picker lists the workspace's members; over the API and MCP the target is
+`@member:<user id>` (ids come from `list_members`).
+
+- **Checked when you save.** The id must belong to an **active** member of this workspace; a
+  non-member, or someone who has since been removed, is rejected with a clear message rather than
+  silently accepted.
+- **A webhook-triggered rule can still only notify `@me`** — it has no triggering record to resolve
+  a person from, and the specific-member target doesn't change that.
+- Rules already using `@me` or a person field work exactly as before.
+
 ## Seeing a rule as a diagram
 
 Every rule row has a **Diagram** toggle, next to Runs and Delete — it expands the exact anatomy
@@ -90,6 +106,25 @@ rule does without reading a form top to bottom.
   rule the diagram can't fully draw is still a rule you can read and still one you can edit.
 - A `record_linked` trigger names its relation field and, when set, whether it fired on **link**,
   **unlink**, or either.
+
+## Editing a rule's actions on a canvas
+
+When you edit a rule, its actions can be shown as a **List** (each action's full settings, as
+always) or as a **Canvas** — the same trigger → condition → actions picture as the diagram above,
+but editable. A **List / Canvas** switch sits above the actions.
+
+- **Reorder** by dragging an action by its handle; the order you leave them in is the order they
+  run.
+- **Add action** at the bottom opens the same grouped list of action types the List view offers,
+  with the same starting defaults.
+- **Remove** is on each action (the trash icon).
+- **Edit settings** on an action switches you back to the List, focused on that action — the
+  canvas moves and adds steps; the List is still where an action's fields are filled in.
+- **It's one rule, not two.** Both views edit the same list of actions, so switching never loses
+  anything and a rule you open and save without changes is identical whichever view you last
+  looked at.
+- **Deliberately simple.** A rule is a straight line of actions with, at most, one optional
+  condition on each — there are no loops, no parallel branches and no rejoining paths.
 
 ## Creating or upserting a record
 

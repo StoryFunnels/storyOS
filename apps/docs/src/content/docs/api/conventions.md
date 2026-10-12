@@ -66,6 +66,25 @@ remains for the simple case (`?limit&cursor&q=` title search, default order).
 
 Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one level.
 
+## Two meanings of `id`
+
+`id` means two different things in the same round trip — the one place this API is genuinely
+inconsistent, kept deliberately:
+
+- **In a filter or sort**, the api_name `id` is the record's **permanent number** (the "issue 759"
+  people cite). `{ "field": "id", "op": "eq", "value": 759 }` finds record **number** 759.
+- **In a record payload**, the top-level `id` is the record's **UUID** (`d211835f-…`), not the number.
+
+So the record you get back from that filter has `record.id` set to a UUID, never `759`. A caller
+who assumes one meaning applies in both places will write a filter that silently matches nothing.
+
+The number's older api_name, `number`, still works in filters, sorts and formulas — it is
+deprecated, not removed, so stored views don't break — but `id` is the name to use. The UI labels it
+"ID" and never offers `number` as a field. To go from a number to a record's UUID, use
+[`by-number`](#resource-layout) (or an `id` filter); the payload field is **not** being renamed,
+because that would break every existing SDK, MCP and script caller for naming alone. This will be
+revisited only at a major version.
+
 ## Operator × type matrix
 
 | Op | text/url/email | number | date | checkbox | select | workflow | multi_select | user | relation |
@@ -90,6 +109,32 @@ labels; the MCP tools resolve a label to its id for you, the raw API always want
 easy to miss precisely because it's identical to `select` rather than its own thing — see the
 [MCP tools](/mcp/tools/) page for how `describe_database` and `query_records`/`count_records`
 make this discoverable and filterable by label over MCP.
+
+## Bulk operations
+
+Three tiers, by how many records you're touching:
+
+| Selection | Use | Behaviour |
+|---|---|---|
+| up to **5,000** | `POST .../records/batch` (one patch, many records) · `POST .../records/batch-delete` · `POST .../records/batch-restore` | Answers in one call. Processed in chunks of 200 server-side; a failure on one record is **reported per record**, not a failed call. |
+| up to **50,000** | `POST .../records/batch-jobs` with `{ op: "update" \| "delete", record_ids, values? }` | A durable background job. Returns a job id at once; poll `GET .../records/batch-jobs/:id`. |
+| any update | `POST .../records/batch-update-undo` | Reverts a bulk **field edit** using the `restorable` list its response carried. |
+
+- **An update's response carries `restorable`** — one `{ record_id, version_id }` pair per record
+  actually changed. Pass that array back, verbatim, to `batch-update-undo` to restore each record
+  to its exact pre-edit snapshot. Use the list from the call you want to undo; a stale list from an
+  earlier call restores to the wrong point in time.
+- **A job survives a restart.** It advances one chunk at a time and records its position only once
+  a chunk is saved, so a crash resumes where it stopped rather than starting over or double-counting.
+- **Polling a job** returns `status` (`queued`, `running`, `succeeded`, or `partially_failed`),
+  `total` / `processed` / `succeeded`, a `failed` list of `{ record_id, message }`, and — for an
+  update — the same `restorable` list, which feeds `batch-update-undo`. A job is never silently
+  partial: per-record failures are listed, not dropped.
+- **`values` is required for an update job** and omitted for a delete.
+
+Over MCP: `update_records` and `delete_records` take up to **200** ids per call (the REST
+endpoints above take 5,000), `undo_batch_update` takes the `restorable` list, and
+`enqueue_bulk_record_job` / `get_bulk_record_job` are the large-selection pair.
 
 ## Pagination
 

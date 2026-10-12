@@ -65,8 +65,18 @@ if (SELF === null && REF.startsWith('gh-readonly-queue/')) {
     SELF = Number(m[1]);
   }
 }
-/** The PR description, where an intentional overlap is declared. */
-const BODY = process.env.PR_BODY ?? '';
+/**
+ * The PR description, where an intentional overlap is declared.
+ *
+ * #839: this is NOT read from `github.event.pull_request.body`. That is the webhook
+ * payload frozen at the instant the run was TRIGGERED; a rerun reuses it, and the
+ * workflow does not trigger on `edited`, so "fix the Overlaps-With line and rerun"
+ * could never go green — the check kept answering about a body that no longer
+ * existed, and nothing in the failure said so. It is fetched from the API when the
+ * job runs (see liveBody), which also covers an edit made while a run is in flight.
+ * `PR_BODY` survives only as the answer when there is no PR to ask about (a local
+ * run before one is open), never as a fallback for a failed lookup.
+ */
 
 function die(why, hint) {
   console.error(`\n  COLLISION CHECK COULD NOT RUN: ${why}`);
@@ -186,6 +196,21 @@ if (SELF === null) {
   }
 }
 
+/**
+ * The description as it is NOW. With a PR to ask about, a failed lookup is a
+ * "cannot tell" and dies — falling back to the frozen payload would reintroduce
+ * exactly the stale verdict this exists to remove (#839, #745).
+ */
+function liveBody() {
+  if (SELF === null) return process.env.PR_BODY ?? '';
+  const out = sh('gh', ['pr', 'view', String(SELF), '--json', 'body', '--jq', '.body // ""']);
+  if (typeof out !== 'string') {
+    die(`could not read the description of PR #${SELF} from GitHub`,
+        'The description is read live when this job runs. Not authenticated, offline, or rate-limited is NOT the same as "no declaration".');
+  }
+  return out;
+}
+
 const hits = [];
 for (const pr of prs) {
   if (SELF !== null && pr.number === SELF) continue;
@@ -214,7 +239,7 @@ if (hits.length === 0) {
    every overlap outright would be routed around within a week; a declaration
    leaves a record that `--no-verify` never does. */
 const declared = new Set(
-  [...BODY.matchAll(/^\s*Overlaps-With:\s*#(\d+)/gim)].map((m) => Number(m[1])),
+  [...liveBody().matchAll(/^\s*Overlaps-With:\s*#(\d+)/gim)].map((m) => Number(m[1])),
 );
 
 let undeclared = 0;
@@ -233,4 +258,7 @@ console.error(`\n  ${undeclared} undeclared overlap(s).`);
 console.error('  Coordinate with the other author, or declare it in the PR description');
 console.error('  so the next reader can see it was a choice:\n');
 console.error('      Overlaps-With: #NNN — why this is safe\n');
+console.error('  The line goes at the START of a line, as `#NNN` (not `PR #NNN`).');
+console.error('  This job reads the description when it RUNS, so after editing it,');
+console.error('  re-running the job is enough — no push or close+reopen needed.\n');
 process.exit(1);
