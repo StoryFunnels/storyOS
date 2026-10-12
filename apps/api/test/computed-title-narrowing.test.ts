@@ -334,3 +334,31 @@ describe('#884 backfillLocalTitles repairs rows that predate title_local', () =>
     expect((await app.get(RecordsService).backfillLocalTitles()).records, 'idempotent: nothing left to do').toBe(0);
   });
 });
+
+describe('#884 notifications name their record by title: narrowed for a guest, in full for a reader of the inputs', () => {
+  it('assigned and commented notifications carry "Invoice to —" for the guest and the full title for the insider', async () => {
+    const ownerField = (await owned('POST', `${iUrl()}/fields`, { display_name: 'Assignee', type: 'user' })).json();
+    const guestId = (await inject(guest.token, 'GET', '/me')).json().id;
+    const insiderId = (await inject(insider.token, 'GET', '/me')).json().id;
+    // both are assigned (assignment notifies the added user) and both comment, so the owner's next comment notifies both
+    for (const [id, token] of [[guestId, guest.token], [insiderId, insider.token]] as const) {
+      const res = await owned('PATCH', `${iUrl()}/records/${invoiceId}`, { values: { [ownerField.apiName]: id } });
+      expect(res.statusCode, res.body).toBe(200);
+      const c = await inject(token, 'POST', `${iUrl()}/records/${invoiceId}/comments`, { body: [{ type: 'text', text: 'ping' }] });
+      expect(c.statusCode, c.body).toBeLessThan(300);
+    }
+    await owned('POST', `${iUrl()}/records/${invoiceId}/comments`, { body: [{ type: 'text', text: 'pong' }] });
+    const titles = async (token: string) => {
+      const res = await inject(token, 'GET', `/workspaces/${ws}/notifications`);
+      expect(res.statusCode, res.body).toBe(200);
+      return { body: res.body, rows: (res.json().data as Array<{ type: string; record: { id: string; title: string } | null }>).filter((n) => n.record?.id === invoiceId) };
+    };
+    const g = await titles(guest.token);
+    expect(g.rows.map((n) => n.type), 'the guest was notified (else this proves nothing)').toEqual(expect.arrayContaining(['assigned']));
+    for (const n of g.rows) expect(n.record!.title).toBe('Invoice to —');
+    noSecret(g.body, 'guest notifications');
+    const i = await titles(insider.token);
+    expect(i.rows.length).toBeGreaterThan(0);
+    for (const n of i.rows) expect(n.record!.title).toBe(`Invoice to ${SECRET}`);
+  });
+});

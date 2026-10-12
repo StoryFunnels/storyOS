@@ -3,6 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { RecordsService } from '../records/records.service';
 import { NotificationsService } from './notifications.service';
 import type { NotificationType } from './notifications.service';
 
@@ -10,11 +11,14 @@ import type { NotificationType } from './notifications.service';
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/notifications')
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(
+    private readonly notifications: NotificationsService,
+    private readonly records: RecordsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'My notifications, newest first (filter by type; archived view)' })
-  list(
+  async list(
     @Req() req: WorkspaceRequest,
     @Query('unread_only') unreadOnly?: string,
     @Query('cursor') cursor?: string,
@@ -39,10 +43,13 @@ export class NotificationsController {
       // MN-262: a source's own monthly run cap was reached, also never opt-out-able.
       'source_run_cap_reached',
     ]);
-    return this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
+    const page = await this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,
       archived: archived === 'true',
     });
+    // #884 — every notification type names its record by title, and a computed title can carry lookup/rollup values a
+    // guest may not read (found on `assigned`). One narrowing here covers every type, not one per emitter.
+    return this.records.narrowTitlesDeep(req.membership, page);
   }
 
   @Get('unread-count')
