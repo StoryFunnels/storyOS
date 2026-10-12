@@ -98,7 +98,9 @@ export class RecordsController {
     @Body() body: CreateRecordDto,
   ) {
     await this.assertDb(req, databaseId, 'contributor');
-    return this.recordsService.create(
+    return this.recordsService.narrowTitlesDeep(
+      req.membership,
+      await this.recordsService.create(
       req.membership.workspaceId,
       databaseId,
       body.values,
@@ -107,6 +109,7 @@ export class RecordsController {
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
+      ),
     );
   }
 
@@ -124,7 +127,9 @@ export class RecordsController {
     @Body() body: UpsertRecordDto,
   ) {
     await this.assertDb(req, databaseId, 'contributor');
-    return this.recordsService.upsert(
+    return this.recordsService.narrowTitlesDeep(
+      req.membership,
+      await this.recordsService.upsert(
       req.membership.workspaceId,
       databaseId,
       body.key_field,
@@ -133,6 +138,7 @@ export class RecordsController {
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
+      ),
     );
   }
 
@@ -204,7 +210,7 @@ export class RecordsController {
       0,
       { source: req.auth?.source ?? 'human' },
     );
-    return { data: created };
+    return { data: await this.recordsService.narrowTitlesDeep(req.membership, created) };
   }
 
   @Patch('batch')
@@ -318,7 +324,7 @@ export class RecordsController {
   @ApiOperation({ summary: 'Soft-deleted records (30-day retention)' })
   async trash(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     await this.assertDb(req, databaseId, 'editor');
-    return { data: await this.recordsService.listTrash(databaseId) };
+    return { data: await this.recordsService.narrowTitlesDeep(req.membership, await this.recordsService.listTrash(databaseId)) };
   }
 
   @Get('by-number/:number')
@@ -354,7 +360,7 @@ export class RecordsController {
     @Body() body: UpdateRecordDto,
   ) {
     await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'contributor');
-    return this.recordsService.update(
+    const updated = await this.recordsService.update(
       req.membership.workspaceId,
       databaseId,
       recordId,
@@ -382,6 +388,8 @@ export class RecordsController {
       req.auth?.agentId,
       req.auth?.agentName,
     );
+    // #884 — the writer may be a guest: serve them their own narrowed title, not the stored full one.
+    return this.recordsService.narrowTitlesDeep(req.membership, updated);
   }
 
   @Delete(':rec')
@@ -410,12 +418,15 @@ export class RecordsController {
     @Param('rec') recordId: string,
   ) {
     await this.assertDb(req, databaseId, 'creator');
-    return this.recordsService.duplicate(
+    return this.recordsService.narrowTitlesDeep(
+      req.membership,
+      await this.recordsService.duplicate(
       req.membership.workspaceId,
       databaseId,
       recordId,
       req.user.id,
       req.auth?.source ?? 'human',
+      ),
     );
   }
 
@@ -449,13 +460,16 @@ export class RecordsController {
     @Body() body: MoveRecordDto,
   ) {
     await this.assertDb(req, databaseId, 'contributor');
-    return this.recordsService.move(
+    return this.recordsService.narrowTitlesDeep(
+      req.membership,
+      await this.recordsService.move(
       req.membership.workspaceId,
       databaseId,
       recordId,
       body,
       req.user.id,
       req.auth?.source ?? 'human',
+      ),
     );
   }
 
@@ -467,12 +481,15 @@ export class RecordsController {
     @Param('rec') recordId: string,
   ) {
     await this.assertDb(req, databaseId, 'editor');
-    return this.recordsService.restore(
+    return this.recordsService.narrowTitlesDeep(
+      req.membership,
+      await this.recordsService.restore(
       req.membership.workspaceId,
       databaseId,
       recordId,
       req.user.id,
       req.auth?.source ?? 'human',
+      ),
     );
   }
 }

@@ -65,6 +65,7 @@ import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { memoizeForRequest } from '../access/request-memo';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -294,6 +295,27 @@ export class RecordsService {
    * fix point, not three.
    */
   async attachLinks(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+    membership?: Membership,
+  ): Promise<ProjectedRecord[]> {
+    const out = await this.attachLinksUnnarrowed(projected, defs, membership);
+    // #884 — the exit for the record's own title AND for every relation chip it carries.
+    if (membership?.role === 'guest') {
+      const items: Array<{ id: string; title: string }> = [...out];
+      for (const def of defs) {
+        if (def.type !== 'relation') continue;
+        for (const rec of out) {
+          const chips = rec.values[def.api_name];
+          if (Array.isArray(chips)) for (const c of chips) if (c && typeof c === 'object' && 'id' in c && 'title' in c) items.push(c as { id: string; title: string });
+        }
+      }
+      await this.narrowTitles(membership, items);
+    }
+    return out;
+  }
+
+  private async attachLinksUnnarrowed(
     projected: ProjectedRecord[],
     defs: FieldDef[],
     membership?: Membership,
@@ -1257,6 +1279,28 @@ export class RecordsService {
   }
 
   /**
+   * #884 — `computeTitle`, twice: the FULL title (what is stored in `title`) and the LOCAL one a narrowed reader sees
+   * (`titleLocal`): the same template with every lookup/rollup it references shown as "—", because those are exactly the
+   * inputs that carry another database's data, which the reader may not be allowed to read. `titleLocal` is null when
+   * the template references no lookup/rollup (then the full title already contains nothing cross-record).
+   * Own-record inputs stay in the local title: if the record is readable, its own fields are.
+   */
+  private computeTitlePair(
+    titleDef: FieldDef,
+    defs: FieldDef[],
+    valuesById: Record<string, unknown>,
+    number: number | null,
+    labelByOption: Map<string, string>,
+    crossRecordByApiName?: Map<string, unknown>,
+  ): { title: string; titleLocal: string | null } {
+    const title = this.computeTitle(titleDef, defs, valuesById, number, labelByOption, crossRecordByApiName);
+    if (!this.titleReferencesCrossRecord(titleDef, defs)) return { title, titleLocal: null };
+    const redacted = new Map<string, unknown>();
+    for (const d of defs) if (d.type === 'lookup' || d.type === 'rollup') redacted.set(d.api_name, '—');
+    return { title, titleLocal: this.computeTitle(titleDef, defs, valuesById, number, labelByOption, redacted) };
+  }
+
+  /**
    * MN-130: recompute every record's title for a database whose title field just
    * switched to (or changed its) computed-name template. Chunked to bound memory
    * on large databases; skips rows whose title is already correct. A no-op when
@@ -1280,15 +1324,15 @@ export class RecordsService {
       if (chunk.length === 0) break;
       await this.db.transaction(async (tx) => {
         for (const row of chunk) {
-          const title = this.computeTitle(
+          const { title, titleLocal } = this.computeTitlePair(
             titleDef,
             defs,
             row.values as Record<string, unknown>,
             row.number,
             labelByOption,
           );
-          if (title !== row.title) {
-            await tx.update(records).set({ title }).where(eq(records.id, row.id));
+          if (title !== row.title || titleLocal !== row.titleLocal) {
+            await tx.update(records).set({ title, titleLocal }).where(eq(records.id, row.id));
           }
         }
       });
@@ -1309,6 +1353,37 @@ export class RecordsService {
       const target = byApi.get(ref);
       return !!target && (target.type === 'lookup' || target.type === 'rollup');
     });
+  }
+
+  /**
+   * #884 — one-off catch-up for rows written before `title_local` existed: every record of a database whose computed
+   * title references a lookup/rollup and whose local title is still NULL gets it computed (through the same recompute the
+   * reactive path uses, so the full title is refreshed alongside). Until a row is reached, a narrowed reader sees
+   * `#<number>` for it, never the full title. Idempotent; safe to re-run.
+   */
+  async backfillLocalTitles(): Promise<{ databases: number; records: number }> {
+    const computed = await this.db
+      .select({ databaseId: fields.databaseId })
+      .from(fields)
+      .where(and(eq(fields.type, 'title'), isNull(fields.deletedAt), sql`${fields.config}->>'name_mode' = 'computed'`));
+    let touched = 0;
+    let dbCount = 0;
+    for (const { databaseId } of computed) {
+      const defs = await this.fieldDefs(databaseId);
+      const titleDef = this.computedTitleDef(defs);
+      if (!titleDef || !this.titleReferencesCrossRecord(titleDef, defs)) continue;
+      const ids = (
+        await this.db
+          .select({ id: records.id })
+          .from(records)
+          .where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt), isNull(records.titleLocal)))
+      ).map((r) => r.id);
+      if (ids.length === 0) continue;
+      await this.recomputeTitlesForRecords(databaseId, ids);
+      dbCount += 1;
+      touched += ids.length;
+    }
+    return { databases: dbCount, records: touched };
   }
 
   /**
@@ -1358,7 +1433,7 @@ export class RecordsService {
           const crossRecord = new Map<string, unknown>();
           for (const def of crossRecordDefs)
             crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
-          const title = this.computeTitle(
+          const { title, titleLocal } = this.computeTitlePair(
             titleDef,
             defs,
             row.values as Record<string, unknown>,
@@ -1366,8 +1441,8 @@ export class RecordsService {
             labelByOption,
             crossRecord,
           );
-          if (title !== row.title) {
-            await tx.update(records).set({ title }).where(eq(records.id, row.id));
+          if (title !== row.title || titleLocal !== row.titleLocal) {
+            await tx.update(records).set({ title, titleLocal }).where(eq(records.id, row.id));
           }
         }
       });
@@ -2782,13 +2857,14 @@ export class RecordsService {
               const values = stripNulls(v.values);
               // #id-post-allocation: firstNumber+i is this record's public number,
               // already allocated above, so a `{Number}`/#id template resolves.
-              const title = titleDef
-                ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
-                : (v.title ?? '');
+              const pair = titleDef
+                ? this.computeTitlePair(titleDef, defs, values, firstNumber + i, labelByOption)
+                : { title: v.title ?? '', titleLocal: null };
               return {
                 databaseId,
                 number: firstNumber + i,
-                title,
+                title: pair.title,
+                titleLocal: pair.titleLocal,
                 values,
                 position: positions[i]!,
                 createdBy: actorId,
@@ -3097,10 +3173,13 @@ export class RecordsService {
     // moved, so the title can't have changed either (skip the recompute).
     const titleDef = this.computedTitleDef(defs);
     let nextTitle = row.title;
+    let nextTitleLocal: string | null = row.titleLocal;
     if (titleDef) {
       if (Object.keys(diff).length > 0) {
         const labelByOption = await this.loadSelectLabels(defs);
-        nextTitle = this.computeTitle(titleDef, defs, merged, row.number, labelByOption);
+        const pair = this.computeTitlePair(titleDef, defs, merged, row.number, labelByOption);
+        nextTitle = pair.title;
+        nextTitleLocal = pair.titleLocal;
         if (nextTitle !== row.title) diff['title'] = { from: row.title, to: nextTitle };
       }
     } else {
@@ -3136,7 +3215,7 @@ export class RecordsService {
       updated = await this.db.transaction(async (tx) => {
         const [next] = await tx
           .update(records)
-          .set({ values: merged, title: nextTitle, updatedBy: actorId })
+          .set({ values: merged, title: nextTitle, titleLocal: nextTitleLocal, updatedBy: actorId })
           .where(eq(records.id, recordId))
           .returning();
         if (Object.keys(diff).length > 0) {
@@ -3548,7 +3627,8 @@ export class RecordsService {
   }
 
   /** MN-231: version history, newest first (cursor-paginated like ActivityService.listForRecord). */
-  async listVersions(recordId: string, limit: number, cursor?: string) {
+  async listVersions(recordId: string, limit: number, cursor?: string, viewer?: { membership: Membership; databaseId: string }) {
+    const redact = viewer ? await this.titleHistoryRedacted(viewer.membership, viewer.databaseId) : false; // #884
     const conditions = [eq(recordVersions.recordId, recordId)];
     // #851 — (created_at, id), not created_at alone (see activity/keyset-cursor.ts).
     const after = keysetCondition(recordVersions.createdAt, recordVersions.id, cursor);
@@ -3564,7 +3644,7 @@ export class RecordsService {
     return {
       data: page.map((v) => ({
         id: v.id,
-        title: v.title,
+        title: redact ? '—' : v.title,
         actor_id: v.actorId,
         // #677 — visible-at-a-glance human/agent attribution, same shape
         // record_field_changes already exposes (source) plus the display
@@ -3591,7 +3671,8 @@ export class RecordsService {
    * the client needing its own diffing logic. Read-only — computing a
    * preview never writes a row.
    */
-  async getVersion(databaseId: string, recordId: string, versionId: string) {
+  async getVersion(databaseId: string, recordId: string, versionId: string, membership?: Membership) {
+    const redact = await this.titleHistoryRedacted(membership, databaseId); // #884
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });
@@ -3617,8 +3698,9 @@ export class RecordsService {
         // #39 — named from the CURRENT record's perspective, matching the
         // restore action's own framing ("this field will go from X to Y"),
         // the reverse of diffSnapshots' (before=version, after=current) args.
-        current_display: renderTypedValue(to, fieldType, ctx),
-        restored_display: renderTypedValue(from, fieldType, ctx),
+        // #884 — a computed title: the past one is shown as "—", the current one as this caller's live local title.
+        current_display: isTitle && redact ? (row.titleLocal ?? (row.number != null ? `#${row.number}` : '—')) : renderTypedValue(to, fieldType, ctx),
+        restored_display: isTitle && redact ? '—' : renderTypedValue(from, fieldType, ctx),
       };
     });
 
@@ -3642,7 +3724,8 @@ export class RecordsService {
    * DELETED field still renders as something a human can read instead of a bare
    * uuid — the history of a field outliving the field is the whole point.
    */
-  async listFieldChanges(databaseId: string, recordId: string, limit: number, cursor?: string) {
+  async listFieldChanges(databaseId: string, recordId: string, limit: number, cursor?: string, membership?: Membership) {
+    const redact = await this.titleHistoryRedacted(membership, databaseId); // #884
     const conditions = [eq(recordFieldChanges.recordId, recordId)];
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
@@ -3684,14 +3767,15 @@ export class RecordsService {
         field_type: c.fieldId ? (ctx.fieldType.get(c.fieldId) ?? null) : 'title',
         actor_id: c.actorUserId,
         source: c.source,
-        old_value: c.oldValue,
-        new_value: c.newValue,
-        old_display: renderTypedValue(
+        // #884 — a change to the computed TITLE (field_id null) carries the full title, hidden inputs included.
+        old_value: redact && !c.fieldId ? '—' : c.oldValue,
+        new_value: redact && !c.fieldId ? '—' : c.newValue,
+        old_display: redact && !c.fieldId ? '—' : renderTypedValue(
           c.oldValue,
           c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
           ctx,
         ),
-        new_display: renderTypedValue(
+        new_display: redact && !c.fieldId ? '—' : renderTypedValue(
           c.newValue,
           c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
           ctx,
@@ -3742,14 +3826,20 @@ export class RecordsService {
 
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
-    const target = { values: version.values as Record<string, unknown>, title: version.title };
+    const target: { values: Record<string, unknown>; title: string; titleLocal: string | null } = {
+      values: version.values as Record<string, unknown>,
+      title: version.title,
+      titleLocal: row.titleLocal,
+    };
     // MN-130: a computed name is always derived — restore the snapshot's values,
     // but re-derive the title from them rather than trusting the snapshot's
     // (possibly pre-computed-mode) stored title.
     const titleDef = this.computedTitleDef(defs);
     if (titleDef) {
       const labelByOption = await this.loadSelectLabels(defs);
-      target.title = this.computeTitle(titleDef, defs, target.values, row.number, labelByOption);
+      const pair = this.computeTitlePair(titleDef, defs, target.values, row.number, labelByOption);
+      target.title = pair.title;
+      target.titleLocal = pair.titleLocal;
     }
     // #595 — block-level diff for rich_text fields; every other field type's
     // diff is untouched (diffSnapshots only enriches ids in this set).
@@ -3775,7 +3865,7 @@ export class RecordsService {
       });
       const [next] = await tx
         .update(records)
-        .set({ values: target.values, title: target.title, updatedBy: actorId })
+        .set({ values: target.values, title: target.title, titleLocal: target.titleLocal, updatedBy: actorId })
         .where(eq(records.id, recordId))
         .returning();
       await tx.insert(activityEvents).values({
@@ -4435,12 +4525,13 @@ export class RecordsService {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+    const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
-    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.q) conditions.push(sql`${titleExpr ?? records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
       conditions.push(
-        compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }),
+        compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope, titleExpr }),
       );
     }
     // #474 — the same narrowing list/query apply. Without this, a count/sum
@@ -4553,6 +4644,7 @@ export class RecordsService {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+    const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
 
     const groupDef = surface.strictDefs.get(input.group_by);
     if (!groupDef) throw new UnprocessableEntityException(`unknown field "${input.group_by}"`);
@@ -4594,9 +4686,9 @@ export class RecordsService {
     }
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
-    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.q) conditions.push(sql`${titleExpr ?? records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }));
+      conditions.push(compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope, titleExpr }));
     }
     // #474 — same narrowing the single-value aggregate() applies; a grouped
     // count is still a count, and must not leak rows (or whole GROUPS) a
@@ -4801,6 +4893,126 @@ export class RecordsService {
   }
 
   /**
+   * #884 — does THIS caller see the LOCAL title (hidden inputs shown as "—") for records of this database?
+   *
+   * True for a narrowed caller (a guest, which includes a token bound to specific spaces/databases) when the database's
+   * computed title references a lookup/rollup whose far side the caller cannot read in full: the stored `title` then
+   * contains another database's data. Everyone else (admin, member, a guest with a grant on every input's database) sees
+   * the full title. Two callers seeing different titles for ONE record is DELIBERATE, the same as a rollup value
+   * (#824/#937): a computed value is a function of the caller's access, and the title is a computed value nobody
+   * treated as one. Do not "fix" the inconsistency by serving the full title.
+   */
+  private titleNarrowedFor(membership: Membership, databaseId: string): Promise<boolean> {
+    return memoizeForRequest(`title-narrowed:${membership.workspaceId}:${membership.userId}:${membership.bound ? 'b' : 'g'}:${databaseId}`, async () => {
+      const defs = await this.fieldDefs(databaseId);
+      const titleDef = this.computedTitleDef(defs);
+      if (!titleDef || !this.titleReferencesCrossRecord(titleDef, defs)) return false;
+      const surface = await this.narrowedQuerySurface(membership, defs, new Map(defs.map((d) => [d.api_name, d])));
+      const refs = new Set(formulaRefs(titleDef.config['ast'] as FormulaNode));
+      return [...surface.hiddenDerived].some((name) => refs.has(name));
+    });
+  }
+
+  /**
+   * #884 — HISTORY of a computed title. The stored trail (activity events, record versions, field changes) holds the FULL
+   * title at the moment each change was made, hidden inputs included, and the local variant of a PAST title was never
+   * stored, so for a caller who sees the local title the past values are shown as "—" and the CURRENT one is the live
+   * local title. Narrowed at READ time only: the stored rows are never rewritten (the trail is the real history and an
+   * admin keeps seeing it; the same ruling as #845). Returns true when the caller's titles for this database are narrowed.
+   */
+  async titleHistoryRedacted(membership: Membership | undefined, databaseId: string): Promise<boolean> {
+    return membership?.role === 'guest' ? this.titleNarrowedFor(membership, databaseId) : false;
+  }
+
+  /**
+   * #884 — the SQL a query must use for the title column: the local title for a caller who sees it, else undefined (the
+   * column itself). A `#<number>` fallback covers rows the backfill has not reached, so "not computed yet" never matches,
+   * sorts or reveals the full title.
+   */
+  private async titleSqlFor(membership: Membership | undefined, databaseId: string): Promise<SQL | undefined> {
+    if (!membership || membership.role !== 'guest') return undefined;
+    if (!(await this.titleNarrowedFor(membership, databaseId))) return undefined;
+    return sql`COALESCE(${records.titleLocal}, '#' || ${records.number}::text)`;
+  }
+
+  /**
+   * #884 — the title column for a query that spans DATABASES (global search): a CASE that yields the local title for every
+   * database this caller sees the local title of, and the stored title elsewhere. undefined when nothing is narrowed
+   * (everyone but a guest, and a guest with no such database), so the ordinary query is untouched.
+   */
+  async titleSqlForWorkspace(membership: Membership | undefined, workspaceId: string): Promise<SQL | undefined> {
+    if (!membership || membership.role !== 'guest') return undefined;
+    const computed = await this.db
+      .select({ databaseId: fields.databaseId })
+      .from(fields)
+      .innerJoin(databases, eq(databases.id, fields.databaseId))
+      .where(
+        and(
+          eq(databases.workspaceId, workspaceId),
+          eq(fields.type, 'title'),
+          isNull(fields.deletedAt),
+          sql`${fields.config}->>'name_mode' = 'computed'`,
+        ),
+      );
+    const narrowed: string[] = [];
+    for (const { databaseId } of computed) if (await this.titleNarrowedFor(membership, databaseId)) narrowed.push(databaseId);
+    if (narrowed.length === 0) return undefined;
+    return sql`CASE WHEN ${inArray(records.databaseId, narrowed)} THEN COALESCE(${records.titleLocal}, '#' || ${records.number}::text) ELSE ${records.title} END`;
+  }
+
+  /**
+   * #884 — `narrowTitles` for a RESPONSE: walks the value and narrows every `{ id, title }` it finds (the record itself,
+   * its relation chips, a list of them). For the write endpoints (create, update, upsert, duplicate, move, restore) and
+   * trash, whose return values are built in the service without a caller and so were serving the full title back to
+   * the guest who wrote the record. A no-op for anyone but a guest.
+   */
+  async narrowTitlesDeep<T>(membership: Membership | undefined, value: T): Promise<T> {
+    if (!membership || membership.role !== 'guest') return value;
+    const items: Array<{ id: string; title: string }> = [];
+    const walk = (v: unknown, depth: number) => {
+      if (depth > 4 || v === null || typeof v !== 'object') return;
+      if (Array.isArray(v)) {
+        for (const x of v) walk(x, depth + 1);
+        return;
+      }
+      const o = v as Record<string, unknown>;
+      if (typeof o['id'] === 'string' && typeof o['title'] === 'string') items.push(o as { id: string; title: string });
+      for (const x of Object.values(o)) walk(x, depth + 1);
+    };
+    walk(value, 0);
+    await this.narrowTitles(membership, items);
+    return value;
+  }
+
+  /**
+   * #884 — replace each item's `title` with what THIS caller may see, in place. A no-op for anyone but a guest (admin,
+   * member and system callers are untouched), so the ordinary path costs nothing. Called at every exit that serves a
+   * record's title: the record itself, relation chips, search, recent, favourites, trash, history.
+   * A record whose local title has not been computed yet (a row from before #884 that the boot backfill has not reached)
+   * shows `#<number>`: never the full title, because the safe answer to "not computed yet" is "not shown".
+   */
+  async narrowTitles(membership: Membership | undefined, items: Array<{ id: string; title: string }>): Promise<void> {
+    if (!membership || membership.role !== 'guest' || items.length === 0) return;
+    const ids = [...new Set(items.map((i) => i.id))];
+    const rows = await this.db
+      .select({ id: records.id, databaseId: records.databaseId, number: records.number, titleLocal: records.titleLocal })
+      .from(records)
+      .where(inArray(records.id, ids));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const decided = new Map<string, boolean>();
+    for (const item of items) {
+      const row = byId.get(item.id);
+      if (!row) continue;
+      let narrowed = decided.get(row.databaseId);
+      if (narrowed === undefined) {
+        narrowed = await this.titleNarrowedFor(membership, row.databaseId);
+        decided.set(row.databaseId, narrowed);
+      }
+      if (narrowed) item.title = row.titleLocal ?? (row.number != null ? `#${row.number}` : '');
+    }
+  }
+
+  /**
    * #881 — narrowing was applied to what a RESPONSE contains and never to what a QUERY can ask, so
    * a rollup whose value a guest was correctly shown as 0 still filtered and sorted on its true
    * value (a binary search recovered it), and `has [id]` on a relation confirmed a link to a record
@@ -4826,9 +5038,11 @@ export class RecordsService {
     filterDefs: Map<string, FieldDef>;
     strictDefs: Map<string, FieldDef>;
     linkScope: Map<string, 'none' | string[]> | undefined;
+    /** #884 — api_names of the lookups/rollups whose far side this caller cannot read in full. */
+    hiddenDerived: Set<string>;
   }> {
     if (!membership || membership.role !== 'guest') {
-      return { filterDefs: byApiName, strictDefs: byApiName, linkScope: undefined };
+      return { filterDefs: byApiName, strictDefs: byApiName, linkScope: undefined, hiddenDerived: new Set() };
     }
     // Per relation field: 'full' (the caller reads the whole target), or what they may see of it.
     const reach = new Map<string, 'full' | 'none' | string[]>();
@@ -4893,7 +5107,9 @@ export class RecordsService {
     }
     const linkScope = new Map<string, 'none' | string[]>();
     for (const [fieldId, r] of reach) if (r !== 'full') linkScope.set(fieldId, r);
-    return { filterDefs, strictDefs, linkScope: linkScope.size ? linkScope : undefined };
+    const hiddenDerived = new Set<string>();
+    for (const def of defs) if ((def.type === 'lookup' || def.type === 'rollup') && tainted(def)) hiddenDerived.add(def.api_name);
+    return { filterDefs, strictDefs, linkScope: linkScope.size ? linkScope : undefined, hiddenDerived };
   }
 
   async query(
@@ -4910,13 +5126,14 @@ export class RecordsService {
     // database with its own `number` field) always wins and is never shadowed.
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const surface = await this.narrowedQuerySurface(membership, defs, byApiName);
+    const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
     const nullsFirst = input.nulls === 'first';
     const sorts: SortSpec[] = validateSorts(input.sorts, surface.strictDefs);
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
-    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.q) conditions.push(sql`${titleExpr ?? records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope }));
+      conditions.push(compileFilter(input.filter, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope, titleExpr }));
     }
     const visibility = await this.recordVisibilityCondition(membership, databaseId);
     if (visibility) conditions.push(visibility);
@@ -4930,6 +5147,7 @@ export class RecordsService {
             (decoded.v ?? []).map((value, i) => reviveSortValue(value, sorts[i]!.def.type)),
             decoded.id,
             nullsFirst,
+            titleExpr,
           ),
         );
       } else {
@@ -4947,8 +5165,8 @@ export class RecordsService {
         ? [
             ...sorts.map((s) =>
               s.direction === 'asc'
-                ? sql`${sortExpr(s.def)} ASC ${nullsClause}`
-                : sql`${sortExpr(s.def)} DESC ${nullsClause}`,
+                ? sql`${sortExpr(s.def, titleExpr)} ASC ${nullsClause}`
+                : sql`${sortExpr(s.def, titleExpr)} DESC ${nullsClause}`,
             ),
             asc(records.id),
           ]
@@ -4969,7 +5187,11 @@ export class RecordsService {
     if (hasMore && last) {
       nextCursor =
         sorts.length > 0
-          ? encodeQueryCursor({ v: sorts.map((s) => extractSortValue(last, s.def)), id: last.id })
+          ? encodeQueryCursor({
+              // #884 — the cursor is client-readable: for a caller on the LOCAL title it must carry the local title, never the full one.
+              v: sorts.map((s) => extractSortValue(titleExpr ? { ...last, title: last.titleLocal ?? (last.number != null ? `#${last.number}` : '') } : last, s.def)),
+              id: last.id,
+            })
           : encodeQueryCursor({ p: last.position, id: last.id });
     }
 
@@ -4992,7 +5214,8 @@ export class RecordsService {
   ) {
     const defs = await this.fieldDefs(databaseId);
     const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
-    if (opts.q) conditions.push(sql`${records.title} ILIKE ${'%' + opts.q + '%'}`);
+    const listTitleExpr = await this.titleSqlFor(membership, databaseId); // #884
+    if (opts.q) conditions.push(sql`${listTitleExpr ?? records.title} ILIKE ${'%' + opts.q + '%'}`);
     const visibility = await this.recordVisibilityCondition(membership, databaseId);
     if (visibility) conditions.push(visibility);
 

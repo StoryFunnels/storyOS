@@ -40,7 +40,7 @@ export class RecordVersionsController {
     // per-record check into the one call every other single-record read
     // route already uses.
     await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
-    return this.records.listVersions(recordId, query.limit, query.cursor);
+    return this.records.listVersions(recordId, query.limit, query.cursor, { membership: req.membership, databaseId });
   }
 
   /**
@@ -59,7 +59,7 @@ export class RecordVersionsController {
   ) {
     // #474 phase 6 — same per-record fix as list() above.
     await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
-    return this.records.listFieldChanges(databaseId, recordId, query.limit, query.cursor);
+    return this.records.listFieldChanges(databaseId, recordId, query.limit, query.cursor, req.membership);
   }
 
   /**
@@ -79,7 +79,7 @@ export class RecordVersionsController {
     @Param('version') versionId: string,
   ) {
     await this.records.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
-    return this.records.getVersion(databaseId, recordId, versionId);
+    return this.records.getVersion(databaseId, recordId, versionId, req.membership);
   }
 
   @Post(':version/restore')

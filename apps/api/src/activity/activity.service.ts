@@ -7,6 +7,7 @@ import { buildRenderContext, renderValue } from './render-values';
 import { cursorTimestampSql, decodeKeysetCursor, encodeKeysetCursor, keysetBefore } from './keyset-cursor';
 import { extractText } from '../documents/documents.service';
 import { AccessService } from '../access/access.service';
+import { RecordsService } from '../records/records.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 
@@ -29,6 +30,7 @@ export class ActivityService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly recordsService: RecordsService,
   ) {}
 
   /**
@@ -133,9 +135,31 @@ export class ActivityService {
 
     const resolveValue = (value: unknown): unknown => renderValue(value, { optionLabel });
 
+    // #884 — a computed title in the stored trail holds the FULL text, hidden inputs included, at the moment of each
+    // change. For a caller who sees the LOCAL title of this database the past ones are shown as "—" (the local variant
+    // of a past title was never stored); the stored rows are NOT rewritten. A relation event's frozen `other.title` is
+    // swapped for that record's live local title when ITS database is narrowed for the caller.
+    const redactTitles = await this.recordsService.titleHistoryRedacted(membership, databaseId);
+    const others: Array<{ id: string; title: string }> = [];
+    const safePayload = (event: (typeof page)[number]): Record<string, unknown> => {
+      const original = event.payload as Record<string, unknown>;
+      if (membership.role !== 'guest') return original;
+      const payload = JSON.parse(JSON.stringify(original ?? {})) as Record<string, unknown>;
+      if (redactTitles) {
+        if (typeof payload.title === 'string') payload.title = '—';
+        const diff = payload.diff as Record<string, { from: unknown; to: unknown }> | undefined;
+        if (diff?.title) diff.title = { from: '—', to: '—' };
+      }
+      const other = payload.other as { id?: string; title?: string } | undefined;
+      if (other && typeof other.id === 'string' && typeof other.title === 'string') others.push(other as { id: string; title: string });
+      return payload;
+    };
+    const safePayloads = new Map(page.map((e) => [e.id, safePayload(e)]));
+    await this.recordsService.narrowTitles(membership, others);
+
     return {
       data: page.map((event) => {
-        const payload = event.payload as Record<string, unknown>;
+        const payload = safePayloads.get(event.id)!;
         let changes: Array<{ field: string; from: unknown; to: unknown; blocks?: BlockChange[] }> | undefined;
         if (event.type === 'record.updated' && payload.diff) {
           changes = Object.entries(
@@ -156,7 +180,7 @@ export class ActivityService {
           actor: event.actorId
             ? { id: event.actorId, name: actorName.get(event.actorId) ?? '(deactivated)' }
             : null,
-          payload: event.payload,
+          payload,
           changes,
           created_at: event.createdAt,
           // #481 — null on every row written before this column existed, or on
@@ -283,6 +307,7 @@ export class ActivityService {
     const recordRows = recordIds.length
       ? await this.db.query.records.findMany({ where: inArray(records.id, recordIds), columns: { id: true, title: true, number: true } })
       : [];
+    await this.recordsService.narrowTitles(membership, recordRows); // #884: chips carry titles
     const recordById = new Map(recordRows.map((r) => [r.id, r]));
     const chipOf = (id: string | null | undefined) => {
       const r = id ? recordById.get(id) : undefined;

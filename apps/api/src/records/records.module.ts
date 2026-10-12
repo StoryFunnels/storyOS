@@ -12,6 +12,7 @@ import { RecordsController } from './records.controller';
 import { RecordsService } from './records.service';
 import { RollupInvalidationSubscriber } from './rollup-invalidation.subscriber';
 import { PositionRepairSubscriber } from './position-repair.subscriber';
+import { TitleLocalBackfillSubscriber } from './title-local-backfill.subscriber';
 import { WatcherEmailService } from './watcher-email.service';
 import { BulkRecordJobsService } from './bulk-record-jobs.service';
 
@@ -26,7 +27,7 @@ import { BulkRecordJobsService } from './bulk-record-jobs.service';
     WorkspacesModule,
     DatabasesModule,
     ValidationEnforcerModule,
-    MentionsModule,
+    forwardRef(() => MentionsModule),
     AbuseModule,
     BillingModule,
     UsersModule,
@@ -34,7 +35,7 @@ import { BulkRecordJobsService } from './bulk-record-jobs.service';
     forwardRef(() => AttachmentsModule),
   ],
   controllers: [RecordsController],
-  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, WatcherEmailService, BulkRecordJobsService],
+  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, TitleLocalBackfillSubscriber, WatcherEmailService, BulkRecordJobsService],
   exports: [RecordsService, BulkRecordJobsService],
 })
 export class RecordsModule {}

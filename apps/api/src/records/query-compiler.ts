@@ -28,6 +28,12 @@ export interface CompilerContext {
    * read: against a hidden id it must answer exactly what it answers for an id that does not exist.
    */
   linkScope?: Map<string, 'none' | string[]>;
+  /**
+   * #884 — for a caller who sees the LOCAL title of this database: the SQL expression to match, sort and test emptiness
+   * against INSTEAD of `records.title`. The stored title contains another database's data; a filter, `q` or sort over it
+   * would be an oracle for text the caller cannot read, even with the rendered title redacted.
+   */
+  titleExpr?: SQL;
 }
 
 const err = (message: string) => new UnprocessableEntityException(message);
@@ -221,6 +227,10 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
 
   if (def.type === 'relation') return compileRelation(def, op, value, ctx);
 
+  if (def.type === 'title' && ctx.titleExpr) {
+    if (op === 'is_empty') return sql`(${ctx.titleExpr} = '')`;
+    if (op === 'not_empty') return sql`(${ctx.titleExpr} <> '')`;
+  }
   if (op === 'is_empty') return sql`NOT ${presentExpr(def)}`;
   if (op === 'not_empty') return presentExpr(def);
 
@@ -229,7 +239,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'text':
     case 'url':
     case 'email':
-      return compileTextish(def, op, value);
+      return compileTextish(def, op, value, def.type === 'title' ? ctx.titleExpr : undefined);
     case 'id':
     case 'number':
       return compileNumber(def, op, value);
@@ -324,9 +334,9 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
   }
 }
 
-function compileTextish(def: FieldDef, op: FilterOp, value: unknown): SQL {
+function compileTextish(def: FieldDef, op: FilterOp, value: unknown, exprOverride?: SQL): SQL {
   if (typeof value !== 'string') throw err(`op "${op}" on "${def.api_name}" expects a string value`);
-  const expr = fieldExpr(def);
+  const expr = exprOverride ?? fieldExpr(def);
   switch (op) {
     case 'eq':
       return sql`(${expr} = ${value})`;
@@ -583,7 +593,8 @@ export interface SortSpec {
  * (a removed member — ADR-0017 tombstones rather than deletes, so this is
  * mostly theoretical) naturally sorts as NULL, same bucket as "unset".
  */
-export function sortExpr(def: FieldDef): SQL {
+export function sortExpr(def: FieldDef, titleExpr?: SQL): SQL {
+  if (def.type === 'title' && titleExpr) return titleExpr; // #884
   if (def.type === 'created_by' || def.type === 'updated_by') {
     const idExpr = def.type === 'created_by' ? sql`${records.createdBy}` : sql`${records.updatedBy}`;
     return sql`(SELECT ${user.name} FROM ${user} WHERE ${user.id} = ${idExpr})`;
@@ -614,12 +625,13 @@ export function cursorCondition(
   sortValues: unknown[],
   afterId: string,
   nullsFirst = false,
+  titleExpr?: SQL,
 ): SQL {
   const levels: SQL[] = [];
   const equalities: SQL[] = [];
 
   sorts.forEach((spec, i) => {
-    const expr = sortExpr(spec.def);
+    const expr = sortExpr(spec.def, titleExpr);
     const value = sortValues[i] ?? null;
     let after: SQL;
     if (value === null) {
