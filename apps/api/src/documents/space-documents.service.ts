@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable, NotFoundException, PayloadTooLargeException, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { codedException } from '../common/coded-exception';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
@@ -191,8 +192,16 @@ export class SpaceDocumentsService {
 
     const { html, skippedImages } = await blocksToHtml(existing.title, existing.content, { resolveImage });
     // The cap is on the document's own text and structure; image bytes have their own budget above.
-    if (html.length - inlinedImageChars > MAX_PDF_HTML_CHARS) {
-      throw new PayloadTooLargeException('This document is too large to export as a PDF.');
+    const measured = html.length - inlinedImageChars;
+    if (measured > MAX_PDF_HTML_CHARS) {
+      // The figures are FIELDS: "too large" without a number is not actionable, and a
+      // client cannot show, compare or localise a number buried in a sentence.
+      throw codedException(
+        413,
+        'document_too_large',
+        `This document is too large to export as a PDF (${measured.toLocaleString('en-US')} characters of content; the limit is ${MAX_PDF_HTML_CHARS.toLocaleString('en-US')}).`,
+        { limit: MAX_PDF_HTML_CHARS, measured, unit: 'characters' },
+      );
     }
     const pdf = await this.pdf.render(html);
     return { title: existing.title, pdf, skippedImages };

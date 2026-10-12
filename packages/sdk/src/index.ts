@@ -32,6 +32,12 @@ export interface ErrorEnvelope {
     code: string;
     message: string;
     details?: Array<{ path?: string; message: string }>;
+    /**
+     * Structured, machine-readable facts about the refusal — figures and flags, never
+     * prose (#885). Present only where the endpoint documents it, e.g. a 413 carries
+     * `{ limit, measured, unit }`. A client reads these instead of parsing `message`.
+     */
+    meta?: Record<string, unknown>;
     request_id: string;
   };
 }

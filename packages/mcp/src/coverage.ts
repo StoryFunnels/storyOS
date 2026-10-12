@@ -44,6 +44,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#262 — the response is a binary PDF, which an MCP client cannot use: a tool result is text, so a PDF handed back as base64 would only burn the model's context without ever reaching the person who wants the file. The CONTENT is already reachable as text via get_document. What an agent actually wants from a PDF is to DELIVER it — attach it to an email or a record — and that is an automation-action question (a send/attach step that renders the document itself), not a read tool; it is the follow-up the ticket's own 'automation attaching a PDF' use case names, and it is not built yet. Recorded here as the reason this route has no tool, not as a claim that the delivery need does not exist.",
   },
   {
+    match: 'GET /api/v1/capabilities',
+    reason:
+      "#885 — it advertises which OPTIONAL server capabilities are currently usable, so a web client can decline to offer a control that would only fail. Its one entry today is PDF export, which is itself EXCLUDED from MCP (a binary result an MCP client cannot use — see the export/pdf rule above), so an agent has nothing to do with the answer. This is a reason tied to what the endpoint reports TODAY, not a standing claim that agents never need it: the day an entry lands here for a capability MCP CAN use (an optional integration an agent would call), this rule must be removed and a tool added — the endpoint exists precisely so that capabilities gain an entry, not a route.",
+  },
+  {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
     reason:
       /*

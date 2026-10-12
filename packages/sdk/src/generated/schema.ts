@@ -3400,6 +3400,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this server can currently do (#885). pdf_export.available = configured AND the renderer answered its health check within the last `checked_at` window — gate on that, not on `configured`. */
+        get: operations["CapabilitiesController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/tokens": {
         parameters: {
             query?: never;
@@ -11963,6 +11980,23 @@ export interface operations {
         };
     };
     WorkspaceExportController_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CapabilitiesController_get: {
         parameters: {
             query?: never;
             header?: never;

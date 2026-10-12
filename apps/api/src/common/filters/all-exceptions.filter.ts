@@ -9,8 +9,16 @@ interface ErrorEnvelope {
     code: string;
     message: string;
     details?: Array<{ path?: string; message: string }>;
+    /** Structured, machine-readable facts about the refusal — figures and flags, never prose. */
+    meta?: Record<string, unknown>;
     request_id: string;
   };
+}
+
+const SPECIFIC_CODE = /^[a-z][a-z0-9_]{2,63}$/;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 const CODE_BY_STATUS: Record<number, string> = {
@@ -36,6 +44,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let details: ErrorEnvelope['error']['details'];
+    let meta: ErrorEnvelope['error']['meta'];
     let code = 'internal_error';
 
     if (exception instanceof ZodValidationException) {
@@ -56,9 +65,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof body === 'string') {
         message = body;
       } else {
-        const bodyObj = body as { message?: string | string[]; details?: ErrorEnvelope['error']['details'] };
+        const bodyObj = body as {
+          message?: string | string[];
+          details?: ErrorEnvelope['error']['details'];
+          code?: unknown;
+          meta?: unknown;
+        };
         message = bodyObj.message?.toString() ?? exception.message;
         if (Array.isArray(bodyObj.details)) details = bodyObj.details;
+        // A thrower may name a specific code and attach structured facts (see
+        // coded-exception.ts). Anything malformed is ignored, so the status-derived
+        // default still applies rather than a half-honoured code.
+        if (typeof bodyObj.code === 'string' && SPECIFIC_CODE.test(bodyObj.code)) code = bodyObj.code;
+        if (isPlainObject(bodyObj.meta)) meta = bodyObj.meta;
       }
     } else {
       this.logger.error(
@@ -68,8 +87,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     const envelope: ErrorEnvelope = {
-      error: { code, message, ...(details ? { details } : {}), request_id: requestId },
+      error: { code, message, ...(details ? { details } : {}), ...(meta ? { meta } : {}), request_id: requestId },
     };
+
+    // `Retry-After` is the standard way to say "come back in N seconds"; a client that
+    // honours it needs no knowledge of this API's envelope.
+    const retryAfter = Number(meta?.retry_after_seconds);
+    if (Number.isFinite(retryAfter) && retryAfter > 0) reply.header('retry-after', String(Math.ceil(retryAfter)));
 
     void reply.status(status).send(envelope);
   }

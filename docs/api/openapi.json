@@ -8609,6 +8609,26 @@
         ]
       }
     },
+    "/api/v1/capabilities": {
+      "get": {
+        "operationId": "CapabilitiesController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "What this server can currently do (#885). pdf_export.available = configured AND the renderer answered its health check within the last `checked_at` window — gate on that, not on `configured`.",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
     "/api/v1/me/tokens": {
       "get": {
         "operationId": "TokensController_list",
