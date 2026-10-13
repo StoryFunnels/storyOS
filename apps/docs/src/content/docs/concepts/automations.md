@@ -73,6 +73,9 @@ fail validation.
 - Actions: the eleven above. Each action can also carry its **own** condition, checked against
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
+- **Turning a disabled rule back on re-checks it.** Its stored actions are validated again, so a rule
+  whose email or API connection was deleted while it sat switched off is refused when you enable it,
+  instead of being switched on and failing later in the run log.
 
 ## Notifying a specific member
 
