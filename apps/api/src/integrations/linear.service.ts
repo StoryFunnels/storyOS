@@ -1,5 +1,5 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { eq, or } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
@@ -29,7 +29,17 @@ export interface LinearLabel {
   color: string | null;
 }
 
+/** One of a team's workflow states (#904). `position` is Linear's own order. */
+export interface LinearState {
+  id: string;
+  name: string;
+  type: string;
+  position: number;
+}
+
 export interface LinearTeamComplete extends LinearTeamData {
+  /** The team's real workflow states, in Linear's order (#904). These BUILD the Issues State options. */
+  states: { nodes: LinearState[] };
   /** Linear's own `Team.issueCount`, fetched separately from the walk. */
   issueTotal: number;
 }
@@ -94,6 +104,7 @@ export const TEAM_ISSUE_COUNT_QUERY = `query TeamIssueCount($id: String!) { team
 export const TEAM_LABELS_QUERY = `query TeamLabels($id: String!, $after: String) { team(id: $id) { labels(first: ${LABEL_PAGE_SIZE}, after: $after) { nodes { id name color } ${PAGE_INFO} } } }`;
 export const TEAM_CYCLES_QUERY = `query TeamCycles($id: String!, $after: String) { team(id: $id) { cycles(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name number startsAt endsAt } ${PAGE_INFO} } } }`;
 export const TEAM_PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name description state targetDate url } ${PAGE_INFO} } } }`;
+export const TEAM_STATES_QUERY = `query TeamStates($id: String!, $after: String) { team(id: $id) { states(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name type position } ${PAGE_INFO} } } }`;
 export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String) {
   team(id: $id) {
     issues(first: ${ISSUE_PAGE_SIZE}, after: $after) {
@@ -156,13 +167,22 @@ export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Pro
  */
 export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam): Promise<LinearTeamComplete> {
   const id = team.id;
-  const [labels, cycles, projects, issues, count] = await Promise.all([
+  const [labels, cycles, projects, issues, count, states] = await Promise.all([
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
     pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, TEAM_ISSUES_QUERY, { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
     fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>,
+    pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
   ]);
+  states.sort((a, b) => a.position - b.position);
+  // #904: a status the team's own state list does not contain cannot be given an option, so the copy would have to
+  // guess. It fails the read instead, before anything is written.
+  const known = new Set(states.map((st) => st.name));
+  const stray = [...new Set(issues.map((i) => i.state.name).filter((n) => !known.has(n)))];
+  if (stray.length > 0) {
+    throw new UnprocessableEntityException(`Linear team ${team.key} has issues in status ${stray.map((n) => `"${n}"`).join(', ')} which is not in its workflow states — refusing to map them by guesswork`);
+  }
   const total = count.team?.issueCount;
   if (typeof total !== 'number') {
     throw new UnprocessableEntityException(`Linear did not report an issue total for ${team.key} — cannot verify the copy is complete`);
@@ -178,7 +198,7 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
       throw new UnprocessableEntityException(`Linear issue ${issue.identifier} has more than ${ISSUE_LABELS_CAP} labels (or its label list is incomplete) — refusing to import it without them`);
     }
   }
-  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, issueTotal: total };
+  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, issueTotal: total };
 }
 
 /** Per team and per Linear project: how many issues a sync will copy (#902 AC3). `project: null` = no project. */
@@ -194,15 +214,35 @@ export function issueCountsByProject(data: LinearTeamData): Array<{ project_id: 
     .sort((a, b) => b.issues - a.issues);
 }
 
-/** Linear workflow-state *types* → our task-DNA states. */
-const STATE_MAP: Record<string, string> = {
-  triage: 'Triage',
-  backlog: 'Backlog',
-  unstarted: 'To Do',
-  started: 'In Progress',
-  completed: 'Done',
-  canceled: 'Canceled',
+/** Per team and per Linear status, in Linear's order (zero-count statuses included): the preview a person checks against Linear. */
+export function issueCountsByStatus(data: LinearTeamComplete): Array<{ status: string; type: string; issues: number }> {
+  const counts = new Map<string, number>();
+  for (const issue of data.issues.nodes) counts.set(issue.state.name, (counts.get(issue.state.name) ?? 0) + 1);
+  return data.states.nodes.map((st) => ({ status: st.name, type: st.type, issues: counts.get(st.name) ?? 0 }));
+}
+
+/** #904: State options are the team's real workflow states, by name; this only colours them. */
+/** Option colour by Linear state TYPE — cosmetic only; the option's NAME is the team's own status name (#904). */
+const STATE_COLOR: Record<string, string> = {
+  triage: 'gold',
+  backlog: 'gray',
+  unstarted: 'blue',
+  started: 'green',
+  completed: 'brown',
+  canceled: 'red',
 };
+const stateColor = (type: string) => STATE_COLOR[type] ?? 'gray';
+
+/**
+ * #904 — the option whose name IS the Linear status. There is no type fallback and no 'Backlog' default: an issue whose
+ * status has no option is an error (fetchTeamData already refuses a status outside the team's workflow states, and the
+ * options are built from those states), never a silent "Done".
+ */
+function statusOptionId(options: Map<string, string>, status: string): string {
+  const id = pickOption(options, status);
+  if (!id) throw new UnprocessableEntityException(`No State option for Linear status "${status}" — refusing to map it by guesswork`);
+  return id;
+}
 
 const PRIORITY_MAP: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
 
@@ -329,8 +369,39 @@ export class LinearService {
     return rel.databaseAId === issuesDbId ? rel.fieldAId : rel.fieldBId;
   }
 
+  /**
+   * #904 — bring an EXISTING Issues database in line with the team's workflow states: add every status that has no
+   * option (matched by name, case-insensitively), put Linear's statuses first in Linear's order (an old fixed-list
+   * option such as "To Do" stays, after them, because issues may still point at it until they are re-synced), and add
+   * the `Linear Status` text field if the earlier import predates it. Never deletes an option.
+   */
+  private async syncStatusOptions(issuesDbId: string, states: LinearState[]) {
+    const stateField = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, 'state'), isNull(fieldsTable.deletedAt)),
+    });
+    if (stateField) {
+      const options = await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, stateField.id) });
+      const byLabel = new Map(options.map((o) => [o.label.toLowerCase(), o]));
+      for (const st of states) {
+        if (!byLabel.has(st.name.toLowerCase())) {
+          byLabel.set(st.name.toLowerCase(), await this.fields.addOption(issuesDbId, stateField.id, { label: st.name, color: stateColor(st.type) }));
+        }
+      }
+      const inLinearOrder = new Set(states.map((st) => st.name.toLowerCase()));
+      const leftovers = options.filter((o) => !inLinearOrder.has(o.label.toLowerCase()));
+      const ordered = [...states.map((st) => byLabel.get(st.name.toLowerCase())!), ...leftovers];
+      for (const [position, option] of ordered.entries()) {
+        if (option.position !== position) await this.fields.updateOption(issuesDbId, stateField.id, option.id, { position });
+      }
+    }
+    const hasStatusField = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, 'linear_status'), isNull(fieldsTable.deletedAt)),
+    });
+    if (!hasStatusField) await this.fields.create(issuesDbId, { display_name: 'Linear Status', type: 'text', config: {} });
+  }
+
   /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
-  private async ensureTeamPack(membership: Membership, team: LinearTeam) {
+  private async ensureTeamPack(membership: Membership, team: LinearTeam, states: LinearState[]) {
     const spaceName = `${team.name} (Linear)`;
     const allSpaces = await this.db.query.spaces.findMany({
       where: eq(spacesTable.workspaceId, membership.workspaceId),
@@ -346,6 +417,8 @@ export class LinearService {
       const sprintsDb = inSpace.find((d) => d.name === 'Sprints');
       let labelsDb = inSpace.find((d) => d.name === 'Labels');
       if (issuesDb && projectsDb && sprintsDb) {
+        // #904 incremental upgrade: an older import built State from a fixed list of 7 and kept no status name.
+        await this.syncStatusOptions(issuesDb.id, states);
         // Incremental upgrade: an older import predates the Labels database.
         let labelsFieldId = labelsDb ? await this.findLabelsFieldId(issuesDb.id, labelsDb.id) : undefined;
         if (!labelsDb) {
@@ -383,16 +456,15 @@ export class LinearService {
       space_id: space.id, name: 'Issues', icon: 'set:bug',
     });
     for (const f of [
-      { display_name: 'State', type: 'select' as const, config: {}, options: [
-        { label: 'Triage', color: 'gold' }, { label: 'Backlog', color: 'gray' }, { label: 'To Do', color: 'blue' },
-        { label: 'In Progress', color: 'green' }, { label: 'In Review', color: 'purple' },
-        { label: 'Done', color: 'brown' }, { label: 'Canceled', color: 'red' },
-      ] },
+      // #904: the options ARE the team's workflow states, named as in Linear, in Linear's order.
+      { display_name: 'State', type: 'select' as const, config: {}, options: states.map((st) => ({ label: st.name, color: stateColor(st.type) })) },
       { display_name: 'Priority', type: 'select' as const, config: {}, options: [
         { label: 'Urgent', color: 'red' }, { label: 'High', color: 'gold' },
         { label: 'Medium', color: 'blue' }, { label: 'Low', color: 'gray' },
       ] },
       { display_name: 'Identifier', type: 'text' as const, config: {} },
+      // #904: the original status name, kept as plain text as well, so a wrong State option is visible, not silent.
+      { display_name: 'Linear Status', type: 'text' as const, config: {} },
       { display_name: 'Assignee (name)', type: 'text' as const, config: {} },
       { display_name: 'Estimate', type: 'number' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
@@ -457,6 +529,8 @@ export class LinearService {
         key: string; name: string; issues: number; linear_issue_total: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
+        /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
+        issues_by_status: Array<{ status: string; type: string; issues: number }>;
       }>,
     };
     // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
@@ -474,6 +548,7 @@ export class LinearService {
         projects: data.projects.nodes.length,
         labels: data.labels.nodes.length,
         issues_by_project: issueCountsByProject(data),
+        issues_by_status: issueCountsByStatus(data),
       });
     }
 
@@ -496,6 +571,8 @@ export class LinearService {
       dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
       /** #902 — per team, what was fetched against what Linear says it has. A mismatch never gets this far (it throws). */
       per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number }>,
+      /** #904 — issues mapped to a State by anything other than their own status name. Always 0: a non-zero would have thrown. */
+      fallback_mapped: 0,
     };
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
@@ -510,7 +587,7 @@ export class LinearService {
     for (const team of teams) {
       const data = fetched.get(team.id)!;
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
-      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team);
+      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team, data.states.nodes);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');
@@ -566,7 +643,8 @@ export class LinearService {
         const id = await this.upsertByLinearId(membership, issuesDb.id, issue.id, {
           name: issue.title,
           identifier: issue.identifier,
-          state: pickOption(stateOptions, issue.state.name, STATE_MAP[issue.state.type], 'Backlog'),
+          state: statusOptionId(stateOptions, issue.state.name),
+          linear_status: issue.state.name,
           priority: issue.priority ? pickOption(priorityOptions, PRIORITY_MAP[issue.priority]) : null,
           assignee_name: issue.assignee?.name ?? null,
           estimate: issue.estimate,

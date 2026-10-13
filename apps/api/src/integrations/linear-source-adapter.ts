@@ -48,6 +48,7 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
       { key: 'state', label: 'State', sourceType: 'select' },
       { key: 'priority', label: 'Priority', sourceType: 'select' },
       { key: 'identifier', label: 'Identifier', sourceType: 'text' },
+      { key: 'linear_status', label: 'Linear Status', sourceType: 'text' },
       { key: 'assignee_name', label: 'Assignee (name)', sourceType: 'text' },
       { key: 'estimate', label: 'Estimate', sourceType: 'number' },
       { key: 'url', label: 'URL', sourceType: 'url' },
@@ -96,6 +97,7 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
           fields: {
             identifier: issue.identifier,
             state: issue.state.name,
+            linear_status: issue.state.name,
             priority: issue.priority,
             assignee_name: issue.assignee?.name ?? null,
             estimate: issue.estimate,

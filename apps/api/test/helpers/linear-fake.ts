@@ -9,6 +9,8 @@ interface FakeTeam {
     cycles: { nodes: unknown[] };
     projects: { nodes: unknown[] };
     issues: { nodes: Array<Record<string, unknown>> };
+    /** The team's workflow states; derived from the issues' own statuses when a test does not care. */
+    states?: Array<{ id: string; name: string; type: string; position: number }>;
   };
 }
 
@@ -38,6 +40,11 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
     if (query.includes('TeamLabels')) return { team: { labels: page(team.data.labels.nodes) } };
     if (query.includes('TeamCycles')) return { team: { cycles: page(team.data.cycles.nodes) } };
     if (query.includes('TeamProjects')) return { team: { projects: page(team.data.projects.nodes) } };
+    if (query.includes('TeamStates')) {
+      const derived = [...new Map(team.data.issues.nodes.map((n) => [(n['state'] as { name: string }).name, (n['state'] as { name: string; type: string })])).values()]
+        .map((st, i) => ({ id: `st-${i}`, name: st.name, type: st.type, position: i }));
+      return { team: { states: page(team.data.states ?? derived) } };
+    }
     if (query.includes('TeamIssues')) {
       const withInfo = team.data.issues.nodes.map((n) => ({
         ...n,

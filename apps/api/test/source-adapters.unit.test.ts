@@ -80,7 +80,7 @@ describe('LinearSourceAdapter (MN-066) implements SourceAdapter', () => {
   it('reads a static Issues schema', async () => {
     const adapter = new LinearSourceAdapter();
     await adapter.connect({ apiKey: 'k', teamKeys: [], fetcher: fakeFetcher });
-    expect(adapter.readSchema().map((f) => f.key)).toEqual(['state', 'priority', 'identifier', 'assignee_name', 'estimate', 'url']);
+    expect(adapter.readSchema().map((f) => f.key)).toEqual(['state', 'priority', 'identifier', 'linear_status', 'assignee_name', 'estimate', 'url']);
   });
 
   it('flattens labels/sprints/projects/issues into tagged SourceRecords', async () => {
