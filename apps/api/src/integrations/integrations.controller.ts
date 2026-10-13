@@ -154,6 +154,10 @@ class LinearConfigDto extends createZodDto(
   z.object({
     api_key: z.string().min(1).max(255).optional(),
     team_keys: z.array(z.string().min(1).max(20)).max(20).optional(),
+    /** #906 — the hourly mirror: off until an admin switches it on; interval 15 min to 1 day. */
+    auto_sync: z
+      .object({ enabled: z.boolean().optional(), interval_minutes: z.number().int().min(15).max(1440).optional() })
+      .optional(),
   }),
 ) {}
 
@@ -527,7 +531,7 @@ export class LinearIntegrationsController {
   @Post()
   @ApiOperation({ summary: 'Save Linear API key and/or team-key filter' })
   saveConfig(@Req() req: WorkspaceRequest, @Body() body: LinearConfigDto) {
-    return this.linear.saveConfig(req.membership.workspaceId, body);
+    return this.linear.saveConfig(req.membership.workspaceId, body, req.user.id);
   }
 
   @Post('dry-run')

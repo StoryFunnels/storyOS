@@ -1,9 +1,11 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
+import { memberships, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
+import { env } from '../config/env';
 import { DatabasesService } from '../databases/databases.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CommentsService } from '../comments/comments.service';
 import { DocumentsService } from '../documents/documents.service';
 import { FieldsService } from '../fields/fields.service';
@@ -80,6 +82,25 @@ export interface LinearTeamData {
       project: { id: string } | null;
     }>;
   };
+}
+
+export const DEFAULT_SYNC_INTERVAL_MINUTES = 60;
+
+/** The sync's own health, kept next to the config so an admin sees it without a log (#906). */
+interface LinearSyncStatus {
+  last_attempt_at?: string;
+  last_success_at?: string;
+  last_error?: string;
+  last_error_at?: string;
+  consecutive_failures?: number;
+  last_run?: { issues: number; comments: number; drift_flagged: number; left_scope: number; duration_ms: number };
+}
+
+interface LinearSettings {
+  api_key?: string;
+  team_keys?: string[];
+  auto_sync?: { enabled: boolean; interval_minutes: number; actor_id?: string; enabled_at?: string };
+  sync_status?: LinearSyncStatus;
 }
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
@@ -268,6 +289,9 @@ function statusOptionId(options: Map<string, string>, status: string): string {
   return id;
 }
 
+/** The `linear_status` an issue carries once Linear stops returning it (#906). */
+const LEFT_SCOPE_PREFIX = 'Left Linear scope (archived, deleted or moved)';
+
 const PRIORITY_MAP: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
 
 /**
@@ -286,7 +310,9 @@ export { pickOption };
  * first); parent/sub-issue, cycle and project links are preserved.
  */
 @Injectable()
-export class LinearService {
+export class LinearService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(LinearService.name);
+  private timer: ReturnType<typeof setInterval> | null = null;
   /** Swappable in tests. */
   fetcher: LinearFetcher = defaultFetcher;
 
@@ -301,7 +327,56 @@ export class LinearService {
     private readonly externalIdUpsert: ExternalIdUpsertService,
     private readonly relationLinker: RelationLinkerService,
     private readonly commentsService: CommentsService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  onModuleInit() {
+    if (env().NODE_ENV !== 'test') this.timer = setInterval(() => void this.tick(), 60_000);
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Everything already mirrored in an Issues database, by Linear id (paged read; ids and the three bookkeeping fields). */
+  private async loadMirror(issuesDbId: string, actorId: string) {
+    const out = new Map<string, { id: string; linearDescription: string | null; linearStatus: string | null }>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.recordsService.query(
+        issuesDbId,
+        { filter: { field: 'linear_id', op: 'not_empty' }, sorts: [], limit: 200, cursor } as never,
+        actorId,
+      );
+      for (const r of page.data as Array<{ id: string; values: Record<string, unknown> }>) {
+        const linearId = r.values['linear_id'];
+        if (typeof linearId !== 'string') continue;
+        const d = r.values['linear_description'];
+        const st = r.values['linear_status'];
+        out.set(linearId, { id: r.id, linearDescription: typeof d === 'string' ? d : null, linearStatus: typeof st === 'string' ? st : null });
+      }
+      if (!page.next_cursor) return out;
+      cursor = page.next_cursor;
+    }
+  }
+
+  /**
+   * #906 — the description bookkeeping for one issue. The StoryOS description is NEVER written here (importDescription
+   * only fills a blank one, and an agent may have built on the rest); this only decides what to store beside it:
+   *  - new record, or a still-blank description: record the Linear text, no drift;
+   *  - a description exists but we never recorded what Linear said (an import from before this field): record it as the
+   *    baseline, no drift (we cannot tell what changed, and flagging every edited description would drown the real ones);
+   *  - Linear's text differs from the text we recorded: store the new text and SET `description_drift`;
+   *  - same text: nothing (so a person clearing the flag is not undone).
+   */
+  private async descriptionValues(prior: { id: string; linearDescription: string | null } | undefined, linearText: string): Promise<Record<string, unknown>> {
+    if (!prior) return { linear_description: linearText, description_drift: false };
+    const blank = (await this.documentsService.get(prior.id)).version === 0;
+    if (blank) return { linear_description: linearText, description_drift: false };
+    if (prior.linearDescription === null) return { linear_description: linearText };
+    if (prior.linearDescription !== linearText) return { linear_description: linearText, description_drift: true };
+    return {};
+  }
 
   /**
    * Write a Linear body as the record's description — but only when the record
@@ -325,43 +400,83 @@ export class LinearService {
       .catch(() => undefined);
   }
 
-  async saveConfig(workspaceId: string, config: { api_key?: string; team_keys?: string[] }) {
+  private async readLinear(workspaceId: string): Promise<LinearSettings> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    return (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
+  }
+
+  private async writeLinear(workspaceId: string, linear: LinearSettings) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    const existing = (settings.linear as { api_key?: string; team_keys?: string[] }) ?? {};
-    const linear = {
+    await this.db.update(workspaces).set({ settings: { ...settings, linear } }).where(eq(workspaces.id, workspaceId));
+  }
+
+  /** What an admin sees (never the key): config, the schedule, and how the mirror is doing right now (#906). */
+  private present(linear: LinearSettings, now = new Date()) {
+    const auto = linear.auto_sync;
+    const interval = auto?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
+    const status = linear.sync_status ?? {};
+    const enabled = Boolean(auto?.enabled);
+    // A mirror is STALE when it is meant to be refreshing and has not succeeded in 2 intervals. A mirror that has never
+    // succeeded counts from when auto-sync was switched on, so "enabled and never worked" cannot look healthy.
+    const since = status.last_success_at ?? auto?.enabled_at;
+    const stale = enabled && (!since || now.getTime() - new Date(since).getTime() > 2 * interval * 60_000);
+    const lastAttempt = status.last_attempt_at ?? auto?.enabled_at;
+    return {
+      team_keys: linear.team_keys ?? [],
+      has_key: Boolean(linear.api_key),
+      auto_sync: { enabled, interval_minutes: interval },
+      sync: {
+        last_success_at: status.last_success_at ?? null,
+        last_attempt_at: status.last_attempt_at ?? null,
+        last_error: status.last_error ?? null,
+        last_error_at: status.last_error_at ?? null,
+        consecutive_failures: status.consecutive_failures ?? 0,
+        stale,
+        next_due_at: enabled ? new Date((lastAttempt ? new Date(lastAttempt).getTime() : now.getTime()) + interval * 60_000).toISOString() : null,
+        last_run: status.last_run ?? null,
+      },
+    };
+  }
+
+  async saveConfig(
+    workspaceId: string,
+    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number } },
+    actorId?: string,
+  ) {
+    const existing = await this.readLinear(workspaceId);
+    const linear: LinearSettings = {
+      ...existing,
       api_key: config.api_key !== undefined ? config.api_key : existing.api_key,
       team_keys: config.team_keys !== undefined ? config.team_keys : (existing.team_keys ?? []),
     };
-    await this.db
-      .update(workspaces)
-      .set({ settings: { ...settings, linear } })
-      .where(eq(workspaces.id, workspaceId));
-    return { team_keys: linear.team_keys, has_key: Boolean(linear.api_key) };
+    if (config.auto_sync) {
+      const was = existing.auto_sync;
+      const enabled = config.auto_sync.enabled ?? was?.enabled ?? false;
+      linear.auto_sync = {
+        enabled,
+        interval_minutes: config.auto_sync.interval_minutes ?? was?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES,
+        // Whoever switches it on owns what the schedule writes (the same rule as the GitHub webhook actor).
+        actor_id: enabled && !was?.enabled ? (actorId ?? was?.actor_id) : was?.actor_id,
+        enabled_at: enabled && !was?.enabled ? new Date().toISOString() : was?.enabled_at,
+      };
+    }
+    await this.writeLinear(workspaceId, linear);
+    return this.present(linear);
   }
 
   async getConfig(workspaceId: string) {
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const linear = ((ws?.settings ?? {}) as Record<string, unknown>).linear as
-      | { api_key?: string; team_keys?: string[] }
-      | undefined;
-    return { team_keys: linear?.team_keys ?? [], has_key: Boolean(linear?.api_key) };
+    return this.present(await this.readLinear(workspaceId));
   }
 
   /** MN-249: clear the stored API key + team-key filter — back to not-connected. */
   async disconnect(workspaceId: string) {
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    await this.db
-      .update(workspaces)
-      .set({ settings: { ...settings, linear: {} } })
-      .where(eq(workspaces.id, workspaceId));
+    await this.writeLinear(workspaceId, {});
     return { team_keys: [], has_key: false };
   }
 
   private async apiKey(workspaceId: string): Promise<string> {
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const key = (((ws?.settings ?? {}) as Record<string, unknown>).linear as { api_key?: string })?.api_key;
+    const key = (await this.readLinear(workspaceId)).api_key;
     if (!key) throw new UnprocessableEntityException('Configure a Linear API key first');
     return key;
   }
@@ -419,10 +534,17 @@ export class LinearService {
         if (option.position !== position) await this.fields.updateOption(issuesDbId, stateField.id, option.id, { position });
       }
     }
-    const hasStatusField = await this.db.query.fields.findFirst({
-      where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, 'linear_status'), isNull(fieldsTable.deletedAt)),
-    });
-    if (!hasStatusField) await this.fields.create(issuesDbId, { display_name: 'Linear Status', type: 'text', config: {} });
+    // The mirror's own bookkeeping fields (#904 Linear Status; #906 description drift). An earlier import lacks them.
+    for (const f of [
+      { apiName: 'linear_status', display_name: 'Linear Status', type: 'text' as const },
+      { apiName: 'linear_description', display_name: 'Linear Description', type: 'text' as const },
+      { apiName: 'description_drift', display_name: 'Description Drift', type: 'checkbox' as const },
+    ]) {
+      const has = await this.db.query.fields.findFirst({
+        where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, f.apiName), isNull(fieldsTable.deletedAt)),
+      });
+      if (!has) await this.fields.create(issuesDbId, { display_name: f.display_name, type: f.type, config: {} });
+    }
   }
 
   /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
@@ -490,6 +612,9 @@ export class LinearService {
       { display_name: 'Identifier', type: 'text' as const, config: {} },
       // #904: the original status name, kept as plain text as well, so a wrong State option is visible, not silent.
       { display_name: 'Linear Status', type: 'text' as const, config: {} },
+      // #906: the latest Linear description, and a flag a person or agent clears once they have reconciled it.
+      { display_name: 'Linear Description', type: 'text' as const, config: {} },
+      { display_name: 'Description Drift', type: 'checkbox' as const, config: {} },
       { display_name: 'Assignee (name)', type: 'text' as const, config: {} },
       { display_name: 'Estimate', type: 'number' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
@@ -591,7 +716,98 @@ export class LinearService {
     return { ...summary, will_create: built.will_create, sample: built.sample, schema };
   }
 
+  /**
+   * Run a sync and record how it went (#906): manual and scheduled runs both go through here, so the "last success" an
+   * admin sees is true whichever one made it. A failure is stored with its message and re-thrown, never swallowed: a
+   * job that fails quietly every hour looks exactly like one with nothing to do.
+   */
   async sync(membership: Membership, actorId: string) {
+    const started = Date.now();
+    const workspaceId = membership.workspaceId;
+    const before = await this.readLinear(workspaceId);
+    await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
+    try {
+      const summary = await this.runSync(membership, actorId);
+      const after = await this.readLinear(workspaceId);
+      await this.writeLinear(workspaceId, {
+        ...after,
+        sync_status: {
+          last_attempt_at: new Date(started).toISOString(),
+          last_success_at: new Date().toISOString(),
+          consecutive_failures: 0,
+          last_run: { issues: summary.issues, comments: summary.comments.fetched, drift_flagged: summary.drift_flagged, left_scope: summary.left_scope, duration_ms: Date.now() - started },
+        },
+      });
+      return summary;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const after = await this.readLinear(workspaceId);
+      const failures = (after.sync_status?.consecutive_failures ?? 0) + 1;
+      await this.writeLinear(workspaceId, {
+        ...after,
+        sync_status: { ...after.sync_status, last_attempt_at: new Date(started).toISOString(), last_error: message.slice(0, 500), last_error_at: new Date().toISOString(), consecutive_failures: failures },
+      });
+      // One ping when it STARTS failing (not one an hour while it stays broken); the status above stays loud meanwhile.
+      if (failures === 1) {
+        await this.notifications
+          .notify({ workspaceId, actorId, type: 'connection_error', recipients: [actorId], snippet: `Linear mirror sync failed: ${message.slice(0, 160)}`, allowSelf: true })
+          .catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  /** One scheduler pass — public so tests can call it. Runs each workspace whose auto-sync is on and due. */
+  async tick(now = new Date()): Promise<void> {
+    const rows = (await this.db.execute(
+      sql`SELECT id FROM workspaces WHERE settings->'linear'->'auto_sync'->>'enabled' = 'true'`,
+    )) as unknown as { rows?: Array<{ id: string }> };
+    for (const { id: workspaceId } of rows.rows ?? []) {
+      const linear = await this.readLinear(workspaceId);
+      const interval = linear.auto_sync?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
+      // Due by last ATTEMPT, so a broken key is retried each interval, not every minute.
+      const last = linear.sync_status?.last_attempt_at ?? null;
+      if (last && now.getTime() - new Date(last).getTime() < interval * 60_000) continue; // cheap pre-check; the claim below decides
+      if (!(await this.claimRun(workspaceId, now, interval))) continue;
+      try {
+        await this.runScheduled(workspaceId, linear);
+      } catch (error) {
+        this.logger.warn(`linear scheduled sync for ${workspaceId} failed: ${String(error)}`);
+      }
+    }
+  }
+
+  /**
+   * Claim a due run atomically in the workspace row: only one API instance wins the compare-and-set on last_attempt_at,
+   * and there is no session-level lock to leak (a pooled connection that unlocks on a different session releases nothing).
+   * Public so a test can prove the exclusion directly.
+   */
+  async claimRun(workspaceId: string, now: Date, intervalMinutes: number): Promise<boolean> {
+    const cutoff = new Date(now.getTime() - intervalMinutes * 60_000).toISOString();
+    const claimed = (await this.db.execute(sql`
+      UPDATE workspaces
+         SET settings = jsonb_set(settings, '{linear,sync_status}',
+               coalesce(settings->'linear'->'sync_status', '{}'::jsonb) || jsonb_build_object('last_attempt_at', ${now.toISOString()}::text))
+       WHERE id = ${workspaceId}
+         AND (settings->'linear'->'sync_status'->>'last_attempt_at' IS NULL
+              OR (settings->'linear'->'sync_status'->>'last_attempt_at')::timestamptz <= ${cutoff}::timestamptz)
+      RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
+    return Boolean(claimed.rows?.length);
+  }
+
+  private async runScheduled(workspaceId: string, linear: LinearSettings) {
+    // The admin who switched it on, else any active admin; nobody to act as means we do not invent an identity.
+    const candidates = await this.db.query.memberships.findMany({ where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')) });
+    const membership = candidates.find((m) => m.userId === linear.auto_sync?.actor_id) ?? candidates.find((m) => m.role === 'admin');
+    if (!membership) {
+      const after = await this.readLinear(workspaceId);
+      await this.writeLinear(workspaceId, { ...after, sync_status: { ...after.sync_status, last_attempt_at: new Date().toISOString(), last_error: 'No active admin to run the scheduled sync as', last_error_at: new Date().toISOString(), consecutive_failures: (after.sync_status?.consecutive_failures ?? 0) + 1 } });
+      return;
+    }
+    await this.sync(membership, membership.userId);
+  }
+
+  private async runSync(membership: Membership, actorId: string) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
     const summary = {
       dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
@@ -601,6 +817,10 @@ export class LinearService {
       fallback_mapped: 0,
       /** #903 — fetched = created + already_present, checked below; a gap throws. Not compared with a Linear-side total (Linear reports none). */
       comments: { fetched: 0, created: 0, already_present: 0 },
+      /** #906 — descriptions whose Linear text changed after import: new text stored, StoryOS body untouched. */
+      drift_flagged: 0,
+      /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
+      left_scope: 0,
     };
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
@@ -666,9 +886,14 @@ export class LinearService {
       const projectField = relationField('project');
       const parentField = relationField('parent_issue');
 
+      // What is already mirrored (one paged read), for drift detection and for spotting issues that have left scope.
+      const mirrored = await this.loadMirror(issuesDb.id, actorId);
       const issueIds = new Map<string, string>();
       for (const issue of data.issues.nodes) {
+        const descriptionValues = await this.descriptionValues(mirrored.get(issue.id), issue.description ?? '');
+        if (descriptionValues.description_drift === true) summary.drift_flagged++;
         const id = await this.upsertByLinearId(membership, issuesDb.id, issue.id, {
+          ...descriptionValues,
           name: issue.title,
           identifier: issue.identifier,
           state: statusOptionId(stateOptions, issue.state.name),
@@ -698,6 +923,20 @@ export class LinearService {
           const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, id, labelsFieldId, labelTargets, actorId);
           if (failure) linkWarnings.push(failure);
         }
+      }
+
+      // #906 — an issue we mirrored that Linear no longer returns (archived, deleted, moved out of the chosen teams) is
+      // MARKED, never deleted: agents may hold work against it. The read above passed the count check, so "absent" is
+      // reliable. It reverts by itself if the issue comes back (the upsert rewrites linear_status).
+      const fetchedIds = new Set(data.issues.nodes.map((i) => i.id));
+      for (const [linearId, prior] of mirrored) {
+        if (fetchedIds.has(linearId) || prior.linearStatus?.startsWith(LEFT_SCOPE_PREFIX)) continue;
+        await this.recordsService.update(
+          membership.workspaceId, issuesDb.id, prior.id,
+          { linear_status: `${LEFT_SCOPE_PREFIX} · ${new Date().toISOString().slice(0, 10)}` },
+          actorId, 0, 'automation',
+        );
+        summary.left_scope++;
       }
 
       // #903 — comments, in the order they were written. Each keeps its real author, time and body.
