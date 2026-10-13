@@ -25,6 +25,8 @@ It is built **API-first and agent-first**. The web app is just one client of a p
 
 **Hosted:** [app.storyos.dev](https://app.storyos.dev) · **Docs:** [docs.storyos.dev](https://docs.storyos.dev) · **Self-host:** one `docker compose up` (below)
 
+![A task board in StoryOS](docs/assets/board-view.png)
+
 ## What's in it
 
 **The engine**
@@ -34,17 +36,25 @@ It is built **API-first and agent-first**. The web app is just one client of a p
 - **Views:** table, board, calendar, gallery, list, feed, timeline, form and dashboard. Each view saves its own filters and sorts, and views can be published. → [Views](https://docs.storyos.dev/concepts/views/)
 - **Every record is a page,** with fields, a rich-text body, attachments, comments with @mentions, a full activity trail and version history you can restore from. → [Record history](https://docs.storyos.dev/concepts/record-history/)
 
+![Every record is a page: fields, links, a rich-text body and its activity](docs/assets/entity-page.png)
+
+![The same records as a table](docs/assets/table-view.png)
+
 **AI and agents**
 - **MCP server, built in.** Connect Claude or any MCP client to the hosted endpoint over OAuth, or run it yourself. Every API capability ships with its MCP tool or a written reason why not, and CI enforces it. → [MCP](https://docs.storyos.dev/mcp/overview/)
 - **Tyron**, the in-app assistant: ask about your workspace, or have it change things for you. → [Tyron](https://docs.storyos.dev/concepts/tyron/)
 - **Skills.** Reusable instructions your AI can run against your workspace, kept private, shared with members, or published. → [Skills](https://docs.storyos.dev/concepts/skills/)
 - **Approval gates and agent runs.** Risky actions wait for a human, and every agent run is recorded. → [Approval gates](https://docs.storyos.dev/concepts/approval-gates/) · [Agent runs](https://docs.storyos.dev/concepts/agent-runs/)
 
+![Connect Claude or ChatGPT to your workspace over MCP](docs/assets/connect-ai.png)
+
 **Working in it**
 - **Templates and packs:** installable workspaces for client work, CRM, content, social, dev projects, people ops and more, with sample data.
 - **Automations and buttons:** trigger on record changes or a schedule, or run an action with one click. → [Automations](https://docs.storyos.dev/concepts/automations/)
 - **Access that holds:** workspace roles, guests scoped to a single space or record, and **client portals** for people outside your team. → [Access and roles](https://docs.storyos.dev/concepts/access-and-roles/) · [Client portals](https://docs.storyos.dev/guides/client-portals/)
 - **Personal space, split screen, Cmd+K, Inbox and My Work.**
+
+![A calendar view of the same tasks, by due date](docs/assets/calendar-view.png)
 
 **Data in and out**
 - **Import:** CSV with type inference and a dry run, and a **Linear importer** (each team becomes a space, with issues, projects, cycles and labels; re-running it updates rather than duplicates). → [Migrate your data](https://docs.storyos.dev/guides/migrate-data/) · [From Linear](https://docs.storyos.dev/guides/migrate-from-linear/)
