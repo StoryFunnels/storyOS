@@ -39,6 +39,25 @@ other than a 2xx counts as a failure, including a network error. The delivery lo
 attempt's status code and error, so "I registered a webhook and nothing arrived" is answerable
 from the log rather than a guess.
 
+## What you can rely on, and what you can't
+
+- **Each event is queued at most once per webhook** — at most, not exactly: see the limit below
+  for the one case where an event is never queued. A database guarantee (a unique key on webhook and
+  event) means your endpoint is not sent the same event twice because of a scan running again.
+  Your own retries (above) can still resend an event whose delivery failed, so write the receiver to
+  tolerate a repeat.
+- **Delivery order is oldest first, but not strict.** An event written by a slow transaction is
+  delivered late rather than dropped, so a later event can arrive before it.
+- **A write that stays uncommitted for longer than the lookback can be missed.** StoryOS looks back
+  over a window (5 minutes by default; self-hosted operators set `WEBHOOK_SCAN_LOOKBACK_SECONDS`) so a
+  transaction that commits late is still found. One held open **longer than that window** writes
+  events the webhook never queues. The window is a bound, not a proof. The limit is real: if you run
+  long manual database transactions on a self-hosted instance, keep them well under the window.
+- **A miss is logged, not redelivered.** Self-hosted operators get a warning while a long transaction
+  is open and an error naming the event after the fact (`webhook.long_transaction`,
+  `webhook.lost_events`). The error can false-alarm right after you change a webhook's database or add an
+  event type to it, because older events that now match look as though they were never sent.
+
 ## Managing one over the API or MCP
 
 `list_webhooks`, `list_webhook_deliveries`, `update_webhook`, `delete_webhook` — all admin-scoped,
