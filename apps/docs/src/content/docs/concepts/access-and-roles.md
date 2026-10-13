@@ -41,6 +41,16 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
   existence of resources they can't see.
 - Cross-space relation chips on records they *can* see render **name-only and non-navigable**.
 - Guests can read and comment, but aren't `@`-mentionable in v1.
+- **Filters, sorts and aggregates give a guest no signal about hidden data.** A rollup or lookup
+  derived through a relation to something the guest can't fully read is treated, when they
+  filter, sort or aggregate, as if it didn't exist: the refusal is the same as for a field that was
+  never there. A relation filter only sees links to records the guest can read, so asking "is it
+  linked to this record?" about a hidden record gets the same answer as for one that doesn't exist.
+  The relation's own settings no longer name a database the guest can't reach. Admins, members and
+  guests with a grant on the far side are unaffected. **This is about querying only.** It is not a
+  promise that nothing derived from hidden data can show up anywhere else a guest looks; other
+  surfaces are narrowed one at a time (see the read paths above), so test with a real restricted
+  account if the difference matters to you.
 
 This is what lets you drop a client into their project space to check status and leave comments,
 while every other client's work stays invisible.
