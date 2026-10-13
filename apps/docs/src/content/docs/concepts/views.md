@@ -264,6 +264,26 @@ when you first create the view.
 - **A list's grouping is optional; a board's isn't** — a board always needs something to make
   columns from, so Save stays disabled until you pick one.
 
+## Counts, slots and footers in board, list, calendar and feed
+
+- **A board column's header shows the real total**, counted across the whole database, not just
+  the cards loaded so far.
+- **A board grouped by a field that can't be dragged says so.** Group by a text or lookup field and
+  a small banner names the field and explains why cards can't be moved between columns, instead of
+  the drag handle just not working.
+- **A list gives each configured field its own slot.** Every row shows the fields in the same order
+  and the same position, and an empty value leaves its slot empty rather than shifting the later
+  fields left, so the fields line up down the list like columns. The title keeps a minimum width, so
+  a row with many fields can't squeeze it to nothing.
+- **A calendar lists undated records under the month grid** as chips with a count, so you can see what has no date without leaving the calendar. It appears only when the
+  calendar is built on an editable date field and something is undated. Otherwise you see the plain
+  *"N undated records"* link to the table.
+- **A feed's footer shows the date it is actually sorted by.** Sort a feed by **Due** and the footer
+  reads *"Due 14 Mar"*; sort by **Updated** and it reads *"Updated 3 Mar"*. When it's sorted by
+  creation date the footer is unlabelled, as before. While the feed is sorted by a real date field,
+  records are grouped under **Today**, **Yesterday** and **Earlier** headings. Sorted by something
+  that isn't a date, such as Priority, there are no day headings.
+
 ## Sharing a view publicly
 
 A view can be published to a **public, read-only URL** — no sign-in required to view it — with an
