@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CsvSourceAdapter } from '../src/import/csv-source-adapter';
 import { LinearSourceAdapter } from '../src/integrations/linear-source-adapter';
+import { makeLinearFetcher } from './helpers/linear-fake';
 
 // Both adapters implement the framework's SourceAdapter contract (#198 /
 // MN-236, ADR-0013): connect, readSchema, readRecords, and (optionally)
@@ -64,12 +65,7 @@ describe('LinearSourceAdapter (MN-066) implements SourceAdapter', () => {
     },
   };
 
-  function fakeFetcher(query: string) {
-    if (query.includes('teams {')) {
-      return Promise.resolve({ teams: { nodes: [{ id: 'team-eng', key: 'ENG', name: 'Engineering' }] } });
-    }
-    return Promise.resolve({ team: TEAM_DATA });
-  }
+  const fakeFetcher = makeLinearFetcher([{ id: 'team-eng', key: 'ENG', name: 'Engineering', data: TEAM_DATA }]).fetcher;
 
   it('connects, filters teams by key, and rejects when nothing matches', async () => {
     const adapter = new LinearSourceAdapter();

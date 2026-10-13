@@ -1,7 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import type { SourceAdapter, SourceField, SourceRecord, SourceRelationLink } from '../migration-framework/types';
-import { TEAM_QUERY, TEAMS_QUERY, defaultFetcher } from './linear.service';
-import type { LinearFetcher, LinearTeam, LinearTeamData } from './linear.service';
+import { defaultFetcher, fetchAllTeams, fetchTeamData } from './linear.service';
+import type { LinearFetcher, LinearTeam, LinearTeamComplete } from './linear.service';
 
 export interface LinearSourceConfig {
   apiKey: string;
@@ -9,6 +9,8 @@ export interface LinearSourceConfig {
   teamKeys: string[];
   /** Swappable for tests, same contract as LinearService.fetcher. */
   fetcher?: LinearFetcher;
+  /** Teams already read (paged and count-checked) by the caller, by team id — avoids reading Linear twice. */
+  prefetched?: Map<string, LinearTeamComplete>;
 }
 
 /**
@@ -25,13 +27,13 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
   private apiKey = '';
   private fetcher: LinearFetcher = defaultFetcher;
   private teams: LinearTeam[] = [];
-  private teamData = new Map<string, LinearTeamData>();
+  private teamData = new Map<string, LinearTeamComplete>();
 
   async connect(config: LinearSourceConfig): Promise<void> {
     this.apiKey = config.apiKey;
     this.fetcher = config.fetcher ?? defaultFetcher;
-    const data = (await this.fetcher(TEAMS_QUERY, {}, this.apiKey)) as { teams: { nodes: LinearTeam[] } };
-    let teams = data.teams.nodes;
+    this.teamData = new Map(config.prefetched ?? []);
+    let teams = await fetchAllTeams(this.fetcher, this.apiKey);
     if (config.teamKeys.length > 0) teams = teams.filter((t) => config.teamKeys.includes(t.key));
     if (teams.length === 0) {
       throw new UnprocessableEntityException('No Linear teams matched — check the team keys');
@@ -52,10 +54,10 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
     ];
   }
 
-  private async fetchTeam(team: LinearTeam): Promise<LinearTeamData> {
+  private async fetchTeam(team: LinearTeam): Promise<LinearTeamComplete> {
     const cached = this.teamData.get(team.id);
     if (cached) return cached;
-    const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, this.apiKey)) as { team: LinearTeamData };
+    const data = await fetchTeamData(this.fetcher, this.apiKey, team);
     this.teamData.set(team.id, data);
     return data;
   }
