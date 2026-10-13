@@ -29,6 +29,11 @@ export interface LinearLabel {
   color: string | null;
 }
 
+export interface LinearTeamComplete extends LinearTeamData {
+  /** Linear's own `Team.issueCount`, fetched separately from the walk. */
+  issueTotal: number;
+}
+
 export interface LinearTeamData {
   labels: { nodes: LinearLabel[] };
   cycles: { nodes: Array<{ id: string; name: string | null; number: number; startsAt: string | null; endsAt: string | null }> };
@@ -70,24 +75,124 @@ export const defaultFetcher: LinearFetcher = async (query, variables, apiKey) =>
   return body.data;
 };
 
-export const TEAMS_QUERY = `query Teams { teams { nodes { id key name } } }`;
+/**
+ * #902 — every Linear connection is PAGED to its end. These queries used to be one `issues(first: 250)` (and 250/50/50
+ * for labels/cycles/projects) with no `pageInfo`, so a team past 250 issues imported its first 250 and reported
+ * success. Page sizes are deliberately modest: Linear rejects a query whose complexity is too high, and a page of issues
+ * carries nested labels. NOT measured against the live API; the page-walk does not depend on the size, only the number
+ * of requests does.
+ */
+export const ISSUE_PAGE_SIZE = 50;
+const LABEL_PAGE_SIZE = 250;
+const SMALL_PAGE_SIZE = 100;
+/** Nested labels on one issue are not paged; an issue with more than this many FAILS the sync instead of dropping labels. */
+export const ISSUE_LABELS_CAP = 50;
 
-export const TEAM_QUERY = `query Team($id: String!) {
+const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
+export const TEAMS_QUERY = `query Teams($after: String) { teams(first: 50, after: $after) { nodes { id key name } ${PAGE_INFO} } }`;
+export const TEAM_ISSUE_COUNT_QUERY = `query TeamIssueCount($id: String!) { team(id: $id) { issueCount } }`;
+export const TEAM_LABELS_QUERY = `query TeamLabels($id: String!, $after: String) { team(id: $id) { labels(first: ${LABEL_PAGE_SIZE}, after: $after) { nodes { id name color } ${PAGE_INFO} } } }`;
+export const TEAM_CYCLES_QUERY = `query TeamCycles($id: String!, $after: String) { team(id: $id) { cycles(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name number startsAt endsAt } ${PAGE_INFO} } } }`;
+export const TEAM_PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name description state targetDate url } ${PAGE_INFO} } } }`;
+export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String) {
   team(id: $id) {
-    labels(first: 250) { nodes { id name color } }
-    cycles(first: 50) { nodes { id name number startsAt endsAt } }
-    projects(first: 50) { nodes { id name description state targetDate url } }
-    issues(first: 250) { nodes {
-      id identifier title description url estimate priority
-      state { type name }
-      labels { nodes { id name color } }
-      assignee { name }
-      parent { id }
-      cycle { id }
-      project { id }
-    } }
+    issues(first: ${ISSUE_PAGE_SIZE}, after: $after) {
+      nodes {
+        id identifier title description url estimate priority
+        state { type name }
+        labels(first: ${ISSUE_LABELS_CAP}) { nodes { id name color } ${PAGE_INFO} }
+        assignee { name }
+        parent { id }
+        cycle { id }
+        project { id }
+      }
+      ${PAGE_INFO}
+    }
   }
 }`;
+
+interface PageInfo { hasNextPage: boolean; endCursor: string | null }
+
+/**
+ * Walk one connection to its end. Never assumes completeness: a response with no `pageInfo`, a `hasNextPage` with no
+ * cursor, or a cursor that does not advance is an ERROR, because each of those would otherwise look like "that was
+ * everything" — the exact silent partial import this replaces.
+ */
+async function pageAll<T>(
+  fetcher: LinearFetcher,
+  apiKey: string,
+  query: string,
+  variables: Record<string, unknown>,
+  pick: (data: never) => { nodes: T[]; pageInfo?: PageInfo } | undefined,
+  what: string,
+): Promise<T[]> {
+  const out: T[] = [];
+  const seen = new Set<string>();
+  let after: string | undefined;
+  for (;;) {
+    const data = await fetcher(query, after ? { ...variables, after } : variables, apiKey);
+    const conn = pick(data as never);
+    if (!conn || !Array.isArray(conn.nodes)) throw new UnprocessableEntityException(`Linear returned no ${what} — refusing to continue with a partial copy`);
+    if (!conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no pageInfo for ${what} — cannot tell whether the list is complete`);
+    out.push(...conn.nodes);
+    if (!conn.pageInfo.hasNextPage) return out;
+    const next = conn.pageInfo.endCursor;
+    if (!next || seen.has(next)) {
+      throw new UnprocessableEntityException(`Linear paging for ${what} stopped advancing after ${out.length} rows — refusing to continue with a partial copy`);
+    }
+    seen.add(next);
+    after = next;
+  }
+}
+
+export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Promise<LinearTeam[]> {
+  return pageAll<LinearTeam>(fetcher, apiKey, TEAMS_QUERY, {}, (d: { teams: { nodes: LinearTeam[]; pageInfo?: PageInfo } }) => d.teams, 'teams');
+}
+
+/**
+ * Everything one team has, every connection paged to its end, plus Linear's own issue total. The total comes from a
+ * SEPARATE count (`Team.issueCount`) so the comparison is between two independent answers, not the walk checking
+ * itself. A mismatch throws: a copy that is short of Linear must never be reported as a success.
+ */
+export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam): Promise<LinearTeamComplete> {
+  const id = team.id;
+  const [labels, cycles, projects, issues, count] = await Promise.all([
+    pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
+    pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
+    pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
+    pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, TEAM_ISSUES_QUERY, { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
+    fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>,
+  ]);
+  const total = count.team?.issueCount;
+  if (typeof total !== 'number') {
+    throw new UnprocessableEntityException(`Linear did not report an issue total for ${team.key} — cannot verify the copy is complete`);
+  }
+  if (total !== issues.length) {
+    throw new UnprocessableEntityException(
+      `Linear team ${team.key} has ${total} issues but ${issues.length} were fetched — nothing was written. Re-run; if it persists, the team may include archived issues.`,
+    );
+  }
+  for (const issue of issues) {
+    const l = issue.labels as { nodes: LinearLabel[]; pageInfo?: PageInfo };
+    if (!l.pageInfo || l.pageInfo.hasNextPage) {
+      throw new UnprocessableEntityException(`Linear issue ${issue.identifier} has more than ${ISSUE_LABELS_CAP} labels (or its label list is incomplete) — refusing to import it without them`);
+    }
+  }
+  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, issueTotal: total };
+}
+
+/** Per team and per Linear project: how many issues a sync will copy (#902 AC3). `project: null` = no project. */
+export function issueCountsByProject(data: LinearTeamData): Array<{ project_id: string | null; name: string; issues: number }> {
+  const names = new Map(data.projects.nodes.map((p) => [p.id, p.name]));
+  const counts = new Map<string | null, number>();
+  for (const issue of data.issues.nodes) {
+    const key = issue.project?.id ?? null;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([project_id, issues]) => ({ project_id, name: project_id ? (names.get(project_id) ?? project_id) : '(no project)', issues }))
+    .sort((a, b) => b.issues - a.issues);
+}
 
 /** Linear workflow-state *types* → our task-DNA states. */
 const STATE_MAP: Record<string, string> = {
@@ -327,8 +432,7 @@ export class LinearService {
   private async fetchTeams(workspaceId: string): Promise<{ teams: LinearTeam[]; apiKey: string }> {
     const apiKey = await this.apiKey(workspaceId);
     const config = await this.getConfig(workspaceId);
-    const data = (await this.fetcher(TEAMS_QUERY, {}, apiKey)) as { teams: { nodes: LinearTeam[] } };
-    let teams = data.teams.nodes;
+    let teams = await fetchAllTeams(this.fetcher, apiKey);
     if (config.team_keys.length > 0) {
       teams = teams.filter((t) => config.team_keys.includes(t.key));
     }
@@ -347,21 +451,34 @@ export class LinearService {
    */
   async dryRun(membership: Membership) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
-    const summary = { dry_run: true, teams: [] as Array<{ key: string; name: string; issues: number; sprints: number; projects: number; labels: number }> };
+    const summary = {
+      dry_run: true,
+      teams: [] as Array<{
+        key: string; name: string; issues: number; linear_issue_total: number; sprints: number; projects: number; labels: number;
+        /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
+        issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
+      }>,
+    };
+    // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
+    // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
+    const prefetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) {
-      const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, apiKey)) as { team: LinearTeamData };
+      const data = await fetchTeamData(this.fetcher, apiKey, team);
+      prefetched.set(team.id, data);
       summary.teams.push({
         key: team.key,
         name: team.name,
         issues: data.issues.nodes.length,
+        linear_issue_total: data.issueTotal,
         sprints: data.cycles.nodes.length,
         projects: data.projects.nodes.length,
         labels: data.labels.nodes.length,
+        issues_by_project: issueCountsByProject(data),
       });
     }
 
     const adapter = new LinearSourceAdapter();
-    await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher });
+    await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher, prefetched });
     const [schema, sourceRecords] = await Promise.all([adapter.readSchema(), adapter.readRecords()]);
     const report = new DryRunBuilder();
     for (const record of sourceRecords) {
@@ -375,7 +492,15 @@ export class LinearService {
 
   async sync(membership: Membership, actorId: string) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
-    const summary = { dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key) };
+    const summary = {
+      dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
+      /** #902 — per team, what was fetched against what Linear says it has. A mismatch never gets this far (it throws). */
+      per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number }>,
+    };
+    // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
+    // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
+    const fetched = new Map<string, LinearTeamComplete>();
+    for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -383,7 +508,8 @@ export class LinearService {
     const linkWarnings: string[] = [];
 
     for (const team of teams) {
-      const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, apiKey)) as { team: LinearTeamData };
+      const data = fetched.get(team.id)!;
+      summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);

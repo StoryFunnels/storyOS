@@ -3,6 +3,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { LinearService } from '../src/integrations/linear.service';
+import { makeLinearFetcher } from './helpers/linear-fake';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -34,15 +35,10 @@ const TEAM_DATA = {
 beforeAll(async () => {
   app = await createTestApp();
   const linear = app.get(LinearService);
-  linear.fetcher = async (query) => {
-    if (query.includes('teams {')) {
-      return { teams: { nodes: [
-        { id: 'team-eng', key: 'ENG', name: 'Engineering' },
-        { id: 'team-ops', key: 'OPS', name: 'Operations' },
-      ] } };
-    }
-    return { team: TEAM_DATA };
-  };
+  linear.fetcher = makeLinearFetcher([
+    { id: 'team-eng', key: 'ENG', name: 'Engineering', data: TEAM_DATA },
+    { id: 'team-ops', key: 'OPS', name: 'Operations', data: TEAM_DATA },
+  ]).fetcher;
   admin = await signUpUser(app, 'Migrator');
   wsId = (await inject('POST', '/workspaces', { name: 'Linear WS' })).json().id;
 });
@@ -67,7 +63,11 @@ describe('Linear importer (MN-066)', () => {
   it('dry-run reports counts per team and writes nothing', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run`);
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().teams).toEqual([{ key: 'ENG', name: 'Engineering', issues: 3, sprints: 1, projects: 1, labels: 3 }]);
+    expect(res.json().teams).toEqual([{
+      key: 'ENG', name: 'Engineering', issues: 3, linear_issue_total: 3, sprints: 1, projects: 1, labels: 3,
+      // #902 AC3: the preview says how many issues each Linear project will bring, and how many have none
+      issues_by_project: [{ project_id: null, name: '(no project)', issues: 2 }, { project_id: 'proj-1', name: 'Sharing flow', issues: 1 }],
+    }]);
     const spaces = (await inject('GET', `/workspaces/${wsId}/spaces`)).json();
     expect(spaces.some((s: { name: string }) => s.name.includes('Linear'))).toBe(false);
   });
@@ -75,7 +75,7 @@ describe('Linear importer (MN-066)', () => {
   it('imports the team into a dev-project-shaped space with mapped states and links', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/sync`);
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json()).toMatchObject({ issues: 3, sprints: 1, projects: 1, labels: 3, teams: ['ENG'] });
+    expect(res.json()).toMatchObject({ issues: 3, sprints: 1, projects: 1, labels: 3, teams: ['ENG'], per_team: [{ key: 'ENG', issues_fetched: 3, linear_issue_total: 3 }] });
 
     const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
     const issuesDb = dbs.find((d: { name: string }) => d.name === 'Issues');
