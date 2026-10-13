@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CollaborationModule } from '../comments/collaboration.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { FieldsModule } from '../fields/fields.module';
@@ -42,6 +43,7 @@ import { ShopifyWebhookController } from './shopify-webhook.controller';
     MigrationFrameworkModule,
     ConnectionsModule,
     SourcesModule,
+    CollaborationModule,
   ],
   controllers: [
     IntegrationsDirectoryController,
