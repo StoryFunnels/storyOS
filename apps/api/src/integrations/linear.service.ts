@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -85,9 +85,13 @@ export interface LinearTeamData {
 }
 
 export const DEFAULT_SYNC_INTERVAL_MINUTES = 60;
+/** A run marked as running for longer than this is presumed dead (a crash) and no longer blocks the next one. */
+export const RUN_LOCK_TIMEOUT_MINUTES = 60;
 
 /** The sync's own health, kept next to the config so an admin sees it without a log (#906). */
 interface LinearSyncStatus {
+  /** Set while a sync is running (manual or scheduled); cleared when it ends. Stops runs overlapping (#906). */
+  running_since?: string;
   last_attempt_at?: string;
   last_success_at?: string;
   last_error?: string;
@@ -435,6 +439,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         stale,
         next_due_at: enabled ? new Date((lastAttempt ? new Date(lastAttempt).getTime() : now.getTime()) + interval * 60_000).toISOString() : null,
         last_run: status.last_run ?? null,
+        running: Boolean(status.running_since && now.getTime() - new Date(status.running_since).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000),
       },
     };
   }
@@ -721,8 +726,22 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * admin sees is true whichever one made it. A failure is stored with its message and re-thrown, never swallowed: a
    * job that fails quietly every hour looks exactly like one with nothing to do.
    */
-  async sync(membership: Membership, actorId: string) {
+  async sync(membership: Membership, actorId: string, opts: { runHeld?: boolean } = {}) {
     const started = Date.now();
+    const workspaceId = membership.workspaceId;
+    // One run at a time per workspace. A scheduled run already holds the lock (claimRun took it); a manual one must take it,
+    // and is refused while another run is active, instead of two syncs writing the same records at once.
+    if (!opts.runHeld && !(await this.acquireRun(workspaceId, new Date(started)))) {
+      throw new ConflictException('A Linear sync is already running for this workspace — try again when it finishes');
+    }
+    try {
+      return await this.syncRecorded(membership, actorId, started);
+    } finally {
+      await this.releaseRun(workspaceId).catch(() => undefined);
+    }
+  }
+
+  private async syncRecorded(membership: Membership, actorId: string, started: number) {
     const workspaceId = membership.workspaceId;
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
@@ -768,11 +787,18 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // Due by last ATTEMPT, so a broken key is retried each interval, not every minute.
       const last = linear.sync_status?.last_attempt_at ?? null;
       if (last && now.getTime() - new Date(last).getTime() < interval * 60_000) continue; // cheap pre-check; the claim below decides
-      if (!(await this.claimRun(workspaceId, now, interval))) continue;
+      if (!(await this.claimRun(workspaceId, now, interval))) {
+        if (linear.sync_status?.running_since && now.getTime() - new Date(linear.sync_status.running_since).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000) {
+          this.logger.log(`linear sync for ${workspaceId} skipped: previous run still active`);
+        }
+        continue;
+      }
       try {
         await this.runScheduled(workspaceId, linear);
       } catch (error) {
         this.logger.warn(`linear scheduled sync for ${workspaceId} failed: ${String(error)}`);
+      } finally {
+        await this.releaseRun(workspaceId).catch(() => undefined); // also covers a run that never reached sync()
       }
     }
   }
@@ -784,15 +810,41 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    */
   async claimRun(workspaceId: string, now: Date, intervalMinutes: number): Promise<boolean> {
     const cutoff = new Date(now.getTime() - intervalMinutes * 60_000).toISOString();
+    const lockCutoff = new Date(now.getTime() - RUN_LOCK_TIMEOUT_MINUTES * 60_000).toISOString();
     const claimed = (await this.db.execute(sql`
       UPDATE workspaces
          SET settings = jsonb_set(settings, '{linear,sync_status}',
-               coalesce(settings->'linear'->'sync_status', '{}'::jsonb) || jsonb_build_object('last_attempt_at', ${now.toISOString()}::text))
+               coalesce(settings->'linear'->'sync_status', '{}'::jsonb)
+                 || jsonb_build_object('last_attempt_at', ${now.toISOString()}::text, 'running_since', ${now.toISOString()}::text))
        WHERE id = ${workspaceId}
          AND (settings->'linear'->'sync_status'->>'last_attempt_at' IS NULL
               OR (settings->'linear'->'sync_status'->>'last_attempt_at')::timestamptz <= ${cutoff}::timestamptz)
+         -- never start while the previous run is still going: a slow Linear or a 15 minute interval must not overlap runs
+         AND (settings->'linear'->'sync_status'->>'running_since' IS NULL
+              OR (settings->'linear'->'sync_status'->>'running_since')::timestamptz <= ${lockCutoff}::timestamptz)
       RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
     return Boolean(claimed.rows?.length);
+  }
+
+  /** Take the "a sync is running" mark for a MANUAL run. False while a fresh one exists. Atomic in the workspace row. */
+  async acquireRun(workspaceId: string, now: Date): Promise<boolean> {
+    const lockCutoff = new Date(now.getTime() - RUN_LOCK_TIMEOUT_MINUTES * 60_000).toISOString();
+    const taken = (await this.db.execute(sql`
+      UPDATE workspaces
+         SET settings = jsonb_set(settings, '{linear,sync_status}',
+               coalesce(settings->'linear'->'sync_status', '{}'::jsonb) || jsonb_build_object('running_since', ${now.toISOString()}::text))
+       WHERE id = ${workspaceId}
+         AND (settings->'linear'->'sync_status'->>'running_since' IS NULL
+              OR (settings->'linear'->'sync_status'->>'running_since')::timestamptz <= ${lockCutoff}::timestamptz)
+      RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
+    return Boolean(taken.rows?.length);
+  }
+
+  async releaseRun(workspaceId: string): Promise<void> {
+    await this.db.execute(sql`
+      UPDATE workspaces
+         SET settings = jsonb_set(settings, '{linear,sync_status}', (settings->'linear'->'sync_status') - 'running_since')
+       WHERE id = ${workspaceId} AND settings->'linear'->'sync_status' IS NOT NULL`);
   }
 
   private async runScheduled(workspaceId: string, linear: LinearSettings) {
@@ -804,7 +856,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       await this.writeLinear(workspaceId, { ...after, sync_status: { ...after.sync_status, last_attempt_at: new Date().toISOString(), last_error: 'No active admin to run the scheduled sync as', last_error_at: new Date().toISOString(), consecutive_failures: (after.sync_status?.consecutive_failures ?? 0) + 1 } });
       return;
     }
-    await this.sync(membership, membership.userId);
+    await this.sync(membership, membership.userId, { runHeld: true });
   }
 
   private async runSync(membership: Membership, actorId: string) {

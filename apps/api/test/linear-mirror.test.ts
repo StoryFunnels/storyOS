@@ -111,6 +111,40 @@ describe('#906 two API instances', () => {
   });
 });
 
+describe('#906 overlapping runs', () => {
+  it('a run that is still active blocks the next scheduled claim, even past the interval, and a manual sync is refused with 409', async () => {
+    const t = new Date(Date.now() + 20 * 60 * 60_000);
+    expect(await linear.acquireRun(ws, t), 'a run starts').toBe(true);
+    expect((await cfg()).sync.running, 'the config says one is running').toBe(true);
+    expect(await linear.acquireRun(ws, t), 'a second manual run cannot take it').toBe(false);
+    expect(await linear.claimRun(ws, new Date(t.getTime() + 30 * 60_000), 15), 'due (past the 15 minute interval) but the run is still going: no second run').toBe(false);
+    const manual = await inject('POST', `/workspaces/${ws}/integrations/linear/sync`);
+    expect(manual.statusCode, manual.body).toBe(409);
+    expect(manual.body).toContain('already running');
+    await linear.releaseRun(ws);
+    expect((await cfg()).sync.running).toBe(false);
+  });
+
+  it('a run presumed dead (older than the lock timeout) no longer blocks, and a finished sync clears its mark', async () => {
+    const t = new Date(Date.now() + 30 * 60 * 60_000);
+    expect(await linear.acquireRun(ws, t)).toBe(true);
+    expect(await linear.claimRun(ws, new Date(t.getTime() + 61 * 60_000), 15), 'a crashed run does not block forever').toBe(true);
+    await linear.releaseRun(ws);
+    use(current);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode).toBe(201);
+    expect((await cfg()).sync.running, 'a finished sync releases the mark').toBe(false);
+  });
+
+  it('a sync that FAILS also releases the mark, so one failure cannot block every later run', async () => {
+    linear.fetcher = async () => { throw new Error('Linear API 500 — boom'); };
+    const failed = await inject('POST', `/workspaces/${ws}/integrations/linear/sync`);
+    expect(failed.statusCode).toBeGreaterThanOrEqual(400);
+    expect((await cfg()).sync.running).toBe(false);
+    use(current);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode, 'the next run is not blocked').toBe(201);
+  });
+});
+
 describe('#906 description drift', () => {
   it('a description edited in Linear is flagged and stored beside the body; the StoryOS description is untouched', async () => {
     use([issue(1, 'first'), issue(2, 'Linear text v1')]);
