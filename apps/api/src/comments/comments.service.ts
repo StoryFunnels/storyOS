@@ -16,7 +16,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from '../integrations/slack.service';
-import { commentDeepLink, commentMentionIds, renderCommentText, truncateForPreview } from './comment-render';
+import { commentDeepLink, commentMentionIds, isBlocknoteCommentBody, renderCommentText, truncateForPreview } from './comment-render';
 
 // #235 — the body-shape guard now lives in the leaf render module; re-exported
 // here so existing importers (`from './comments.service'`) keep working.
@@ -213,6 +213,21 @@ export class CommentsService {
       updatedAt: createdAt,
     });
     return 'created';
+  }
+
+  /**
+   * #907 — add a one-line note to the END of an existing comment (e.g. "not delivered to Linear"). Both body shapes:
+   * a BlockNote doc gets a paragraph, a legacy segment array gets a text segment. The note is part of the stored body,
+   * so it shows wherever the comment does.
+   */
+  async appendNote(commentId: string, text: string): Promise<void> {
+    const row = await this.db.query.comments.findFirst({ where: eq(comments.id, commentId) });
+    if (!row) return;
+    const body = row.body as CommentBody;
+    const next: CommentBody = isBlocknoteCommentBody(body)
+      ? { ...body, doc: [...body.doc, { type: 'paragraph', content: [{ type: 'text', text, styles: { italic: true } }] }] }
+      : [...body, { type: 'text', text: `\n${text}` }];
+    await this.db.update(comments).set({ body: next }).where(eq(comments.id, commentId));
   }
 
   async create(

@@ -14791,6 +14791,14 @@
                 "maximum": 1440
               }
             }
+          },
+          "write_back": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            }
           }
         }
       },

@@ -5597,6 +5597,9 @@ export interface components {
                 enabled?: boolean;
                 interval_minutes?: number;
             };
+            write_back?: {
+                enabled?: boolean;
+            };
         };
         SlackConfigDto: {
             bot_token?: string;
