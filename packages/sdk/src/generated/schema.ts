@@ -5593,6 +5593,10 @@ export interface components {
         LinearConfigDto: {
             api_key?: string;
             team_keys?: string[];
+            auto_sync?: {
+                enabled?: boolean;
+                interval_minutes?: number;
+            };
         };
         SlackConfigDto: {
             bot_token?: string;

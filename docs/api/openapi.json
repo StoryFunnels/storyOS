@@ -14778,6 +14778,19 @@
               "minLength": 1,
               "maxLength": 20
             }
+          },
+          "auto_sync": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "interval_minutes": {
+                "type": "integer",
+                "minimum": 15,
+                "maximum": 1440
+              }
+            }
           }
         }
       },

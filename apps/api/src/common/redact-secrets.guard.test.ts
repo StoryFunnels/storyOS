@@ -64,6 +64,7 @@ const DECLARED_SAFE: Record<string, string> = {
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
+  has_key: 'a presence BOOLEAN on the Linear config response (#906) — it reports that a key is stored and never carries the key',
   // packages/schemas/src/record-values.ts (#230) — upsertRecordSchema's
   // key_field names WHICH FIELD to match on (an api_name, e.g. "email"), not
   // a credential. Never flows through redactSecrets at all: it's a request
