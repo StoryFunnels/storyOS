@@ -735,6 +735,39 @@ export const comments = pgTable(
 );
 
 /**
+ * #907 — the outbox for pushing a StoryOS comment to the Linear issue its record mirrors. One row per comment ever
+ * considered, so a comment is pushed at most once (the primary key is the comment) and the Linear comment id that came
+ * back is KEPT: the importer (#903) skips any Linear comment it finds here, which is what stops a pushed comment
+ * from being imported back as a second copy. `status`: pending (waiting for its turn or a retry), sending (the call is
+ * in flight), sent, failed (gave up, shown on the StoryOS comment).
+ */
+export const linearCommentPushes = pgTable(
+  'linear_comment_pushes',
+  {
+    commentId: uuid('comment_id')
+      .primaryKey()
+      .references(() => comments.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The Linear issue (its internal UUID, the mirrored record's `linear_id`) the comment goes to. */
+    linearIssueId: text('linear_issue_id').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    /** What Linear returned on success. */
+    linearCommentId: text('linear_comment_id'),
+    linearCommentUrl: text('linear_comment_url'),
+    ...timestamps,
+  },
+  (t) => [
+    index('linear_comment_pushes_due_idx').on(t.status, t.nextAttemptAt),
+    index('linear_comment_pushes_linear_comment_idx').on(t.linearCommentId),
+  ],
+);
+
+/**
  * MN-134: a token's power ceiling. read = look only; write = read + create/update/
  * delete records, links, comments, attachments, run buttons; admin = + schema
  * (databases, fields, relations, views) and everything else. Enforced server-side

@@ -1,8 +1,9 @@
 import { ConflictException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { VIA_STORYOS_PATTERN } from './linear-write-back.constants';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
+import { linearCommentPushes, memberships, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { env } from '../config/env';
 import { DatabasesService } from '../databases/databases.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -104,6 +105,8 @@ interface LinearSettings {
   api_key?: string;
   team_keys?: string[];
   auto_sync?: { enabled: boolean; interval_minutes: number; actor_id?: string; enabled_at?: string };
+  /** #907 — push StoryOS comments on mirrored records to Linear. Off until an admin switches it on. */
+  write_back?: { enabled: boolean; enabled_at?: string };
   sync_status?: LinearSyncStatus;
 }
 
@@ -416,7 +419,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** What an admin sees (never the key): config, the schedule, and how the mirror is doing right now (#906). */
-  private present(linear: LinearSettings, now = new Date()) {
+  private present(linear: LinearSettings, now = new Date(), pushes: { pending: number; failed: number; last_error: string | null } = { pending: 0, failed: 0, last_error: null }) {
     const auto = linear.auto_sync;
     const interval = auto?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
     const status = linear.sync_status ?? {};
@@ -430,6 +433,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       team_keys: linear.team_keys ?? [],
       has_key: Boolean(linear.api_key),
       auto_sync: { enabled, interval_minutes: interval },
+      write_back: { enabled: Boolean(linear.write_back?.enabled), ...pushes },
       sync: {
         last_success_at: status.last_success_at ?? null,
         last_attempt_at: status.last_attempt_at ?? null,
@@ -446,7 +450,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   async saveConfig(
     workspaceId: string,
-    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number } },
+    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean } },
     actorId?: string,
   ) {
     const existing = await this.readLinear(workspaceId);
@@ -466,18 +470,46 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         enabled_at: enabled && !was?.enabled ? new Date().toISOString() : was?.enabled_at,
       };
     }
+    if (config.write_back?.enabled !== undefined) {
+      const was = existing.write_back?.enabled ?? false;
+      linear.write_back = {
+        enabled: config.write_back.enabled,
+        // Only comments written AFTER this moment are ever pushed: switching it on never replays history.
+        enabled_at: config.write_back.enabled && !was ? new Date().toISOString() : existing.write_back?.enabled_at,
+      };
+    }
     await this.writeLinear(workspaceId, linear);
-    return this.present(linear);
+    return this.present(linear, new Date(), await this.pushCounts(workspaceId));
   }
 
   async getConfig(workspaceId: string) {
-    return this.present(await this.readLinear(workspaceId));
+    return this.present(await this.readLinear(workspaceId), new Date(), await this.pushCounts(workspaceId));
+  }
+
+  /** How the comment push is doing, for the config response: what is waiting, what gave up, and the latest error. */
+  private async pushCounts(workspaceId: string) {
+    const rows = await this.db
+      .select({ status: linearCommentPushes.status, n: sql<number>`count(*)::int`, lastError: sql<string | null>`max(${linearCommentPushes.lastError})` })
+      .from(linearCommentPushes)
+      .where(eq(linearCommentPushes.workspaceId, workspaceId))
+      .groupBy(linearCommentPushes.status);
+    const by = new Map(rows.map((r) => [r.status, r]));
+    return {
+      pending: (by.get('pending')?.n ?? 0) + (by.get('sending')?.n ?? 0),
+      failed: by.get('failed')?.n ?? 0,
+      last_error: by.get('failed')?.lastError ?? by.get('pending')?.lastError ?? null,
+    };
   }
 
   /** MN-249: clear the stored API key + team-key filter — back to not-connected. */
   async disconnect(workspaceId: string) {
     await this.writeLinear(workspaceId, {});
     return { team_keys: [], has_key: false };
+  }
+
+  /** The stored key, for the server-side write-back only. Never returned by any endpoint or tool. */
+  async apiKeyFor(workspaceId: string): Promise<string> {
+    return this.apiKey(workspaceId);
   }
 
   private async apiKey(workspaceId: string): Promise<string> {
@@ -859,6 +891,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     await this.sync(membership, membership.userId, { runHeld: true });
   }
 
+  private async isOurOwnPush(c: LinearComment): Promise<boolean> {
+    if (VIA_STORYOS_PATTERN.test(c.body ?? '')) return true;
+    const [row] = await this.db.select({ id: linearCommentPushes.commentId }).from(linearCommentPushes).where(eq(linearCommentPushes.linearCommentId, c.id)).limit(1);
+    return Boolean(row);
+  }
+
   private async runSync(membership: Membership, actorId: string) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
     const summary = {
@@ -996,6 +1034,13 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       for (const c of commentRows) {
         const recordId = issueIds.get(c.issue!.id);
         if (!recordId) throw new UnprocessableEntityException(`Comment ${c.id} belongs to an issue that was not imported`);
+        // #907 — a comment WE pushed to Linear must not come back as a second copy. Two independent guards: its Linear id is
+        // recorded in the outbox, and its first line ends "· via StoryOS". Either one is enough; both is the point.
+        if (await this.isOurOwnPush(c)) {
+          summary.comments.fetched++;
+          summary.comments.already_present++;
+          continue;
+        }
         const author = c.user?.name ?? c.botActor?.name ?? c.externalUser?.name ?? 'Unknown author';
         const header = { type: 'paragraph', content: [{ type: 'text', text: `${author} · ${c.createdAt.slice(0, 16).replace('T', ' ')} UTC (from Linear)`, styles: { bold: true } }] };
         const outcome = await this.commentsService.importExternal(recordId, actorId, [header, ...markdownToBlocks(c.body ?? '')], new Date(c.createdAt), c.url);

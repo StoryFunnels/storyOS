@@ -158,6 +158,8 @@ class LinearConfigDto extends createZodDto(
     auto_sync: z
       .object({ enabled: z.boolean().optional(), interval_minutes: z.number().int().min(15).max(1440).optional() })
       .optional(),
+    /** #907 — push StoryOS comments on mirrored records to Linear (needs a key that can write comments). Off by default. */
+    write_back: z.object({ enabled: z.boolean().optional() }).optional(),
   }),
 ) {}
 
