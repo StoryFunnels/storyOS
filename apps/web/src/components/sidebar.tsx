@@ -1236,6 +1236,18 @@ function SpaceSection({
 
   const [renaming, setRenaming] = useState(false);
   /**
+   * #922 — whether either hover-revealed menu (+ or …) is open. The actions are `display: none`
+   * unless the row is hovered or has focus, and an open menu has neither: its content is a
+   * portal, so the pointer and focus have left the row. The trigger would be hidden under its
+   * own open menu and Radix would anchor to a zero-size rect (the top-left of the sidebar).
+   * Lifted state rather than a `data-state=open` selector: the triggers sit inside a Tooltip,
+   * which overwrites `data-state` on the same element (`aria-expanded` survives, but the caret in
+   * this row carries one too, so a `has-` selector on it would match the wrong control).
+   */
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
+  const menuOpen = addMenuOpen || optionsMenuOpen;
+  /**
    * #211 — the New-database dialog is shared by the space's "+" and by every
    * folder's menu, so it carries the destination rather than each caller owning a
    * copy of the dialog. `null` = the space root, a string = that folder, and
@@ -1752,13 +1764,13 @@ function SpaceSection({
             paginated, so this is the real number, not a count of loaded rows
             (the #755 lie). */}
         {!renaming && databases.length > 0 && (
-          <span className="shrink-0 text-micro font-semibold tabular-nums text-faint group-focus-within:hidden group-hover:hidden">
+          <span className={cn('shrink-0 text-micro font-semibold tabular-nums text-faint group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
             {databases.length}
           </span>
         )}
         {canEdit && (
-          <span className="hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
-            <DropdownMenu>
+          <span className={cn('items-center gap-0.5', menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex')}>
+            <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
                   <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Add to ${space.name}`}>
@@ -1817,7 +1829,7 @@ function SpaceSection({
                 }}
               />
             </Dialog>
-            <DropdownMenu>
+            <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
                   <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Options for ${space.name}`}>

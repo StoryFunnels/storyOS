@@ -200,7 +200,7 @@ export function FieldMenu({
           <DropdownMenuTrigger asChild>
             <button
               aria-label={`Options for ${field.displayName}`}
-              className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
               onClick={(e) => e.stopPropagation()}
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
