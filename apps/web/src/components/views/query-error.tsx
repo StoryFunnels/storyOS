@@ -2,6 +2,7 @@
 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { looksLikeMarkup } from '@/lib/http-error';
 
 /**
  * #346 — ONE error surface for a failed records query, used by every view.
@@ -33,6 +34,13 @@ import { Button } from '@/components/ui/button';
  * would keep the user exactly as stuck as the silent empty grid did.
  */
 export function queryErrorMessage(error: unknown): string | null {
+  const message = rawQueryErrorMessage(error);
+  // #921 — a response body is never shown unless it reads as a sentence. The API client already turns
+  // a proxy's HTML into a fixed message; this is the second line for any path that bypasses it.
+  return message && !looksLikeMarkup(message) ? message : null;
+}
+
+function rawQueryErrorMessage(error: unknown): string | null {
   if (!error) return null;
   if (typeof error === 'string') return error.trim() || null;
 

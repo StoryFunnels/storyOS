@@ -1,4 +1,5 @@
 import { createStoryOSClient } from '@storyos/sdk';
+import { withSafeErrors } from '@/lib/http-error';
 
 // '' (set by the docker build) = same-origin relative calls behind caddy (MN-068);
 // the localhost default is for `pnpm dev` where web and api run on separate ports.
@@ -30,7 +31,12 @@ export const MCP_ENDPOINT = `${MCP_ORIGIN}/mcp`;
  * The ONLY way the web app talks to the backend (CONTRIBUTING.md).
  * Cookie-authenticated: the SDK sends credentials, better-auth sets the cookie.
  */
-export const api = createStoryOSClient({ baseUrl: API_URL });
+export const api = createStoryOSClient({
+  baseUrl: API_URL,
+  // #921 — a non-JSON error body (the proxy's HTML page) becomes a short message, not on-screen markup.
+  // Lazy `globalThis.fetch` lookup: test setups replace it after import.
+  fetch: withSafeErrors((input, init) => globalThis.fetch(input, init)),
+});
 
 /**
  * The API's own message, not a generic one (MN-119).
