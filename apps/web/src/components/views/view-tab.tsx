@@ -158,7 +158,7 @@ export function ViewTab({
                 type="button"
                 className={cn(
                   'rounded p-0.5 text-faint hover:bg-active hover:text-ink focus-visible:opacity-100',
-                  isActive ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100',
+                  isActive ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100 aria-expanded:opacity-100',
                 )}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="View options"

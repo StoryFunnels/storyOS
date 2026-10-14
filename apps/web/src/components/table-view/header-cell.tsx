@@ -270,7 +270,7 @@ export function HeaderCell({
                    the resize handle has carried since MN-225. */
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={`Options for ${field.displayName}`}
-                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100 aria-expanded:opacity-100"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -324,7 +324,7 @@ export function HeaderCell({
                    the resize handle has carried since MN-225. */
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={`Options for ${field.displayName}`}
-                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100"
+                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100 aria-expanded:opacity-100"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
