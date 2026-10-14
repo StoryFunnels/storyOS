@@ -11,6 +11,8 @@ interface FakeTeam {
     issues: { nodes: Array<Record<string, unknown>> };
     /** The team's workflow states; derived from the issues' own statuses when a test does not care. */
     states?: Array<{ id: string; name: string; type: string; position: number }>;
+    /** Comments across the team's issues (#903); the fake serves them as one paged stream like the real query. */
+    comments?: Array<Record<string, unknown>>;
   };
 }
 
@@ -34,6 +36,11 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
       return { nodes, pageInfo: { hasNextPage: end < all.length, endCursor: String(end) } };
     };
     if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name }) => ({ id, key, name }))) };
+    if (query.includes('query TeamComments(')) {
+      const t = teams.find((x) => x.id === variables['id']);
+      if (!t) throw new Error('fake Linear: no such team for comments');
+      return { comments: page(t.data.comments ?? []) };
+    }
     const team = teams.find((t) => t.id === variables['id']);
     if (!team) throw new Error(`fake Linear: no team ${String(variables['id'])}`);
     if (query.includes('TeamIssueCount')) return { team: { issueCount: opts.issueCount ? opts.issueCount(team) : team.data.issues.nodes.length } };

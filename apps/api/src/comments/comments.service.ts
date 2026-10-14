@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, memberships, records, user } from '../db/schema';
@@ -169,6 +169,50 @@ export class CommentsService {
         created_at: c.createdAt,
       })),
     };
+  }
+
+  /**
+   * #903 — write ONE comment that was authored somewhere else (the Linear migration), exactly as it was: its original
+   * time, no notification to anyone, no mention resync, no activity event. Calling `create` would have e-mailed and
+   * pinged the whole thread for every imported comment and stamped them all "now".
+   *
+   * Idempotent without a schema change: a closing paragraph links the original (`originalUrl`), and that link IS the
+   * key. A second call for the same URL on the same record finds it by jsonb containment and does nothing, including
+   * when the first copy was since soft-deleted in StoryOS, so a person's deletion is never undone by a re-run. (A
+   * comment whose footer a person edited away would be re-created; there is no external-id column because one
+   * migration is already in flight.)
+   *
+   * `source: 'automation'` marks it as not written by the importing user; the header block the caller supplies names
+   * the real author and date, because the stored author is whoever ran the import.
+   */
+  async importExternal(
+    recordId: string,
+    authorId: string,
+    doc: unknown[],
+    createdAt: Date,
+    originalUrl: string,
+  ): Promise<'created' | 'exists'> {
+    const key = [{ type: 'paragraph', content: [{ type: 'link', href: originalUrl }] }];
+    const [existing] = await this.db
+      .select({ id: comments.id })
+      .from(comments)
+      .where(and(eq(comments.recordId, recordId), sql`${comments.body} @> ${JSON.stringify({ format: 'blocknote', doc: key })}::jsonb`))
+      .limit(1);
+    if (existing) return 'exists';
+    const footer = {
+      type: 'paragraph',
+      content: [{ type: 'link', href: originalUrl, content: [{ type: 'text', text: 'Original comment in Linear', styles: {} }] }],
+    };
+    await this.db.insert(comments).values({
+      recordId,
+      authorId,
+      body: { format: 'blocknote', doc: [...doc, footer] },
+      mentions: [],
+      source: 'automation',
+      createdAt,
+      updatedAt: createdAt,
+    });
+    return 'created';
   }
 
   async create(

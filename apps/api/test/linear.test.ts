@@ -64,7 +64,7 @@ describe('Linear importer (MN-066)', () => {
     const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().teams).toEqual([{
-      key: 'ENG', name: 'Engineering', issues: 3, linear_issue_total: 3, sprints: 1, projects: 1, labels: 3,
+      key: 'ENG', name: 'Engineering', issues: 3, linear_issue_total: 3, comments: 0, sprints: 1, projects: 1, labels: 3,
       // #902 AC3: the preview says how many issues each Linear project will bring, and how many have none
       issues_by_project: [{ project_id: null, name: '(no project)', issues: 2 }, { project_id: 'proj-1', name: 'Sharing flow', issues: 1 }],
       issues_by_status: [{ status: 'In Progress', type: 'started', issues: 1 }, { status: 'Triage', type: 'triage', issues: 1 }, { status: 'Canceled', type: 'canceled', issues: 1 }],

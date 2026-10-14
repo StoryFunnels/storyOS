@@ -4,6 +4,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
+import { CommentsService } from '../comments/comments.service';
 import { DocumentsService } from '../documents/documents.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -37,7 +38,21 @@ export interface LinearState {
   position: number;
 }
 
+/** One Linear comment (#903). The author is a user, or an integration/bot, or an external user; one is set. */
+export interface LinearComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  user: { name: string } | null;
+  botActor: { name: string } | null;
+  externalUser: { name: string } | null;
+  issue: { id: string } | null;
+}
+
 export interface LinearTeamComplete extends LinearTeamData {
+  /** Every comment on the team's issues, paged to the end (#903). */
+  comments: { nodes: LinearComment[] };
   /** The team's real workflow states, in Linear's order (#904). These BUILD the Issues State options. */
   states: { nodes: LinearState[] };
   /** Linear's own `Team.issueCount`, fetched separately from the walk. */
@@ -105,6 +120,8 @@ export const TEAM_LABELS_QUERY = `query TeamLabels($id: String!, $after: String)
 export const TEAM_CYCLES_QUERY = `query TeamCycles($id: String!, $after: String) { team(id: $id) { cycles(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name number startsAt endsAt } ${PAGE_INFO} } } }`;
 export const TEAM_PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name description state targetDate url } ${PAGE_INFO} } } }`;
 export const TEAM_STATES_QUERY = `query TeamStates($id: String!, $after: String) { team(id: $id) { states(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name type position } ${PAGE_INFO} } } }`;
+/** All comments of one team's issues, as one stream (not nested per issue: nesting would multiply query complexity). */
+export const TEAM_COMMENTS_QUERY = `query TeamComments($id: ID!, $after: String) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } } }) { nodes { id body createdAt url user { name } botActor { name } externalUser { name } issue { id } } ${PAGE_INFO} } }`;
 export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String) {
   team(id: $id) {
     issues(first: ${ISSUE_PAGE_SIZE}, after: $after) {
@@ -167,13 +184,14 @@ export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Pro
  */
 export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam): Promise<LinearTeamComplete> {
   const id = team.id;
-  const [labels, cycles, projects, issues, count, states] = await Promise.all([
+  const [labels, cycles, projects, issues, count, states, linearComments] = await Promise.all([
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
     pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, TEAM_ISSUES_QUERY, { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
     fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>,
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
+    pageAll<LinearComment>(fetcher, apiKey, TEAM_COMMENTS_QUERY, { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
   ]);
   states.sort((a, b) => a.position - b.position);
   // #904: a status the team's own state list does not contain cannot be given an option, so the copy would have to
@@ -192,13 +210,19 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
       `Linear team ${team.key} has ${total} issues but ${issues.length} were fetched — nothing was written. Re-run; if it persists, the team may include archived issues.`,
     );
   }
+  // #903: a comment on an issue we did not read cannot be placed, and dropping it would be a silent loss.
+  const issueIds = new Set(issues.map((i) => i.id));
+  const orphans = linearComments.filter((c) => !c.issue || !issueIds.has(c.issue.id));
+  if (orphans.length > 0) {
+    throw new UnprocessableEntityException(`Linear team ${team.key} has ${orphans.length} comments on issues that were not read — refusing to copy without them`);
+  }
   for (const issue of issues) {
     const l = issue.labels as { nodes: LinearLabel[]; pageInfo?: PageInfo };
     if (!l.pageInfo || l.pageInfo.hasNextPage) {
       throw new UnprocessableEntityException(`Linear issue ${issue.identifier} has more than ${ISSUE_LABELS_CAP} labels (or its label list is incomplete) — refusing to import it without them`);
     }
   }
-  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, issueTotal: total };
+  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, comments: { nodes: linearComments }, issueTotal: total };
 }
 
 /** Per team and per Linear project: how many issues a sync will copy (#902 AC3). `project: null` = no project. */
@@ -276,6 +300,7 @@ export class LinearService {
     private readonly documentsService: DocumentsService,
     private readonly externalIdUpsert: ExternalIdUpsertService,
     private readonly relationLinker: RelationLinkerService,
+    private readonly commentsService: CommentsService,
   ) {}
 
   /**
@@ -526,7 +551,7 @@ export class LinearService {
     const summary = {
       dry_run: true,
       teams: [] as Array<{
-        key: string; name: string; issues: number; linear_issue_total: number; sprints: number; projects: number; labels: number;
+        key: string; name: string; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
@@ -544,6 +569,7 @@ export class LinearService {
         name: team.name,
         issues: data.issues.nodes.length,
         linear_issue_total: data.issueTotal,
+        comments: data.comments.nodes.length,
         sprints: data.cycles.nodes.length,
         projects: data.projects.nodes.length,
         labels: data.labels.nodes.length,
@@ -573,6 +599,8 @@ export class LinearService {
       per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number }>,
       /** #904 — issues mapped to a State by anything other than their own status name. Always 0: a non-zero would have thrown. */
       fallback_mapped: 0,
+      /** #903 — fetched = created + already_present, checked below; a gap throws. Not compared with a Linear-side total (Linear reports none). */
+      comments: { fetched: 0, created: 0, already_present: 0 },
     };
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
@@ -672,6 +700,19 @@ export class LinearService {
         }
       }
 
+      // #903 — comments, in the order they were written. Each keeps its real author, time and body.
+      const commentRows = [...data.comments.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      for (const c of commentRows) {
+        const recordId = issueIds.get(c.issue!.id);
+        if (!recordId) throw new UnprocessableEntityException(`Comment ${c.id} belongs to an issue that was not imported`);
+        const author = c.user?.name ?? c.botActor?.name ?? c.externalUser?.name ?? 'Unknown author';
+        const header = { type: 'paragraph', content: [{ type: 'text', text: `${author} · ${c.createdAt.slice(0, 16).replace('T', ' ')} UTC (from Linear)`, styles: { bold: true } }] };
+        const outcome = await this.commentsService.importExternal(recordId, actorId, [header, ...markdownToBlocks(c.body ?? '')], new Date(c.createdAt), c.url);
+        summary.comments.fetched++;
+        if (outcome === 'created') summary.comments.created++;
+        else summary.comments.already_present++;
+      }
+
       // parents in a second pass — a parent can appear later in the feed
       if (parentField) {
         for (const issue of data.issues.nodes) {
@@ -682,6 +723,9 @@ export class LinearService {
           if (failure) linkWarnings.push(failure);
         }
       }
+    }
+    if (summary.comments.fetched !== summary.comments.created + summary.comments.already_present) {
+      throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
     return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
   }
