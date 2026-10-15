@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentEditor, formatBytes } from './attachment-cell';
 import type { AttachmentValue } from './attachment-cell';
@@ -20,6 +20,7 @@ import { AgentRefCell } from './agent-ref-cell';
 import { isAgentConfigRefValue } from '@/lib/database-labels';
 import { ICON_BY_NAME, brandIconSlug, brandIconSrc, setIconName } from '@/components/ui/icon-set';
 import type { Field, SelectOption } from './use-table-data';
+import type { AiFieldState } from '@/lib/ai-field-state';
 import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { OPTION_COLORS } from './option-colors';
@@ -248,6 +249,8 @@ interface DisplayProps {
    * When set, text-carrying types wrap and break instead of truncating.
    */
   wrap?: boolean;
+  /** #620: an ai field's reported state (from `aiFieldState`). Only read for `ai` fields. */
+  aiState?: AiFieldState;
   /** #293: workspace slug, threaded down so a relation chip can build a link to
    * the linked record's own page. Omit to keep relation chips non-navigable
    * (matches every call site that hasn't been wired up yet). */
@@ -287,6 +290,28 @@ export function CheckGlyph({ checked, className }: { checked: boolean; className
 }
 
 /**
+ * #620 — an AI field whose last recompute FAILED. The reason is on screen (not only in a tooltip), and
+ * the last good value, if the field still holds one, stays visible but dimmed so it cannot be read as
+ * current. Never a blank cell and never a stale value with no sign it is stale.
+ */
+export function AiFailedCell({ value, reason, wrap }: { value: unknown; reason: string; wrap?: boolean }) {
+  const hasValue = value !== undefined && value !== null && value !== '';
+  return (
+    <span
+      data-ai-state="failed"
+      title={hasValue ? `Last recompute failed: ${reason.replace(/[.\s]+$/, '')}. Showing the last good value.` : `Last recompute failed: ${reason}`}
+      className={cn('flex min-w-0 items-center gap-1.5', wrap ? 'flex-wrap' : 'overflow-hidden')}
+    >
+      {hasValue && <span className={cn('text-body text-ink-secondary opacity-60', wrap ? 'break-words' : 'truncate')}>{String(value)}</span>}
+      <span className="inline-flex min-w-0 items-center gap-1 text-label text-ink-secondary">
+        <AlertTriangle className="h-3 w-3 shrink-0 text-error" aria-hidden />
+        <span className={wrap ? 'break-words' : 'truncate'}>{hasValue ? 'Out of date: ' : 'Failed: '}{reason}</span>
+      </span>
+    </span>
+  );
+}
+
+/**
  * The file chips of an attachment value. ONE renderer for an `attachment` field and for a `collect`
  * rollup (ticket #234 / #886), which resolves to the same chip objects gathered across related
  * records: a second copy here is how a rollup rendered as one "Untitled" chip.
@@ -310,10 +335,14 @@ export function AttachmentChips({ value, wrap }: { value: unknown; wrap?: boolea
   );
 }
 
-export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
+export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiState, ws }: DisplayProps) {
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
+  // #620 — ahead of the empty-cell shortcut: a failed field with no value yet must still say so.
+  if (field.type === 'ai' && aiState?.kind === 'failed') {
+    return <AiFailedCell value={value} reason={aiState.reason} wrap={wrap} />;
+  }
   if (value === undefined || value === null || value === '') {
     /* #669 — this and the two like it below hold a bare space, NO GLYPH. They
        exist to give an empty cell a height. Contrast here is not merely

@@ -75,6 +75,8 @@ export interface RecordRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Persisted computed values; for an ai field also its `<id>:computed_at` / `<id>:error` siblings (#620). */
+  computed_values?: Record<string, unknown>;
 }
 
 interface RecordsPage {
