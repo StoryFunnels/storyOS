@@ -286,6 +286,30 @@ export function CheckGlyph({ checked, className }: { checked: boolean; className
   );
 }
 
+/**
+ * The file chips of an attachment value. ONE renderer for an `attachment` field and for a `collect`
+ * rollup (ticket #234 / #886), which resolves to the same chip objects gathered across related
+ * records: a second copy here is how a rollup rendered as one "Untitled" chip.
+ */
+export function AttachmentChips({ value, wrap }: { value: unknown; wrap?: boolean }) {
+  const files = Array.isArray(value) ? (value as AttachmentValue[]) : [];
+  if (files.length === 0) return null;
+  return (
+    <span className={cn('flex items-center gap-1', wrap ? 'flex-wrap' : 'overflow-hidden')}>
+      {files.map((f) => (
+        <span
+          key={f.id}
+          title={`${f.filename} · ${formatBytes(f.size)}`}
+          className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-label text-muted"
+        >
+          <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
+          <span className="truncate">{f.filename}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
@@ -329,6 +353,10 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       // #286: a first/last rollup is no longer necessarily a number — it can be
       // the winning record's own field value (text/date/boolean) or a chip
       // pointing at that record. `toFixed` on a string used to throw here.
+      // #886 — a `collect` rollup is an ARRAY of attachment chips (every file across the related
+      // records). `typeof [] === 'object'`, so without this check the whole array was handed to the
+      // single-chip branch below and drew one "Untitled" chip.
+      if (Array.isArray(value)) return <AttachmentChips value={value} wrap={wrap} />;
       if (typeof value === 'object') {
         const chip = value as LinkChip & { database_id?: string };
         return (
@@ -444,22 +472,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
      * the picture belongs, and it has its own renderer for exactly that reason.
      */
     case 'attachment': {
-      const files = Array.isArray(value) ? (value as AttachmentValue[]) : [];
-      if (files.length === 0) return null;
-      return (
-        <span className={cn('flex items-center gap-1', wrap ? 'flex-wrap' : 'overflow-hidden')}>
-          {files.map((f) => (
-            <span
-              key={f.id}
-              title={`${f.filename} · ${formatBytes(f.size)}`}
-              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-label text-muted"
-            >
-              <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
-              <span className="truncate">{f.filename}</span>
-            </span>
-          ))}
-        </span>
-      );
+      return <AttachmentChips value={value} wrap={wrap} />;
     }
     case 'number':
       return <span className="w-full truncate text-right text-body tabular-nums">{formatNumberValue(field, value)}</span>;
