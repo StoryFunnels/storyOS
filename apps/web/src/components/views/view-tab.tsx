@@ -88,6 +88,8 @@ export function ViewTab({
   onShare?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  // #927 — the options menu is also opened by right-clicking the tab, so it is reachable without finding the chevron.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState(view.name);
   const [regrouping, setRegrouping] = useState(false);
   const [groupDraft, setGroupDraft] = useState(view.config.group_by_field_id ?? '');
@@ -106,6 +108,11 @@ export function ViewTab({
     <div
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
+      onContextMenu={(e) => {
+        if (!canManage || renaming) return;
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
       className={cn(
         'group/tab flex items-center gap-1 rounded px-2 py-1 text-body',
         isActive ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
@@ -151,19 +158,24 @@ export function ViewTab({
       )}
 
       {canManage && !renaming && (
-        <DropdownMenu>
-          <Tooltip label="Options">
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <Tooltip label="View options">
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className={cn(
-                  'rounded p-0.5 text-faint hover:bg-active hover:text-ink focus-visible:opacity-100',
-                  isActive ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100 aria-expanded:opacity-100',
+                  'rounded p-1 hover:bg-active hover:text-ink focus-visible:opacity-100',
+                  // #927 — the ACTIVE tab's control is a real control at full opacity (it was a faint 12px chevron at
+                  // 70%); inactive tabs reveal theirs on hover, on keyboard focus, and always on a touch device (see
+                  // the (hover: none) rule in globals.css).
+                  isActive
+                    ? 'text-muted'
+                    : 'text-faint opacity-0 group-hover/tab:opacity-100 aria-expanded:opacity-100',
                 )}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="View options"
               >
-                <ChevronDown className="h-3 w-3" />
+                <ChevronDown className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
           </Tooltip>

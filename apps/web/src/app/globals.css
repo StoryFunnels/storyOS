@@ -995,3 +995,63 @@ html[data-embed] body {
     grid-row: span var(--block-h, 1);
   }
 }
+
+/*
+ * Ticket #933 (the #900 touch class) — hover-revealed controls on a device that cannot hover.
+ *
+ * Tailwind v4 wraps every `hover:` / `group-hover:` variant in `@media (hover: hover)`, so on a touch
+ * device a control written `opacity-0 group-hover:opacity-100` can never be revealed: it stays at
+ * opacity 0 for good. Measured on a touch profile: every table row's "Open" link and 20 of 21 column
+ * menus. Decision (Otto, 2026-10-15): on `(hover: none)` and `(pointer: coarse)` every such control is
+ * ALWAYS visible at full opacity. NOT tap-to-reveal: that makes every action two taps and fights with
+ * tapping a row to open it.
+ *
+ * Done ONCE here, by the shape of the class, instead of at ~30 call sites: any element that is
+ * `opacity-0` and also names a hover variant that raises it back to 100 is matched, so a control added
+ * next month with the same idiom is covered without anyone remembering. The attribute selectors read
+ * the literal class string (`group-hover:opacity-100`, `hover/header:opacity-100`, ...); the
+ * `[class*="hover"][class*=":opacity-100"]` pair is what tells a hover-reveal from an unrelated
+ * `opacity-0` (a fade-in), which has no hover variant and is untouched.
+ *
+ * Unlayered on purpose: it must beat Tailwind's utilities, which live in a cascade layer.
+ */
+@media (hover: none), (pointer: coarse) {
+  .opacity-0[class*='hover'][class*=':opacity-100'] {
+    opacity: 1;
+  }
+  /* display-based reveals: `hidden ... group-hover:flex` (the sidebar space row's + and … actions) */
+  .hidden[class*='group-hover:flex'] {
+    display: flex;
+  }
+  /* ...and its member count, which hides while the actions are showing */
+  [class*='group-hover:hidden'] {
+    display: none;
+  }
+}
+
+/*
+ * Keyboard: the same controls are revealed by focus, on every device. Before this, 17 of the 29 had no
+ * focus fallback, so a keyboard user tabbed onto a control they could not see. `:focus-within` covers a
+ * hidden wrapper whose child button took the focus.
+ */
+.opacity-0[class*='hover'][class*=':opacity-100']:is(:focus-visible, :focus-within) {
+  opacity: 1;
+}
+
+/*
+ * Touch targets of at least 44px (WCAG 2.5.5 / platform guidance) without changing how a dense row
+ * looks: the visible 18px button gets an invisible hit area that extends 13px each way. Only buttons and
+ * links, only on a coarse pointer, and `position: relative` only where the element is not already
+ * positioned (an `absolute` control must stay absolute). The areas of two neighbouring controls can
+ * overlap by a few pixels; the later one in the DOM wins the overlap.
+ */
+@media (pointer: coarse) {
+  :is(button, a).opacity-0[class*='hover'][class*=':opacity-100']:not(.absolute, .fixed, .sticky, .relative) {
+    position: relative;
+  }
+  :is(button, a).opacity-0[class*='hover'][class*=':opacity-100']::after {
+    content: '';
+    position: absolute;
+    inset: -13px;
+  }
+}
