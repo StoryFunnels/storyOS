@@ -6,7 +6,7 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Suspense, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, LayoutDashboard, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
@@ -39,7 +39,7 @@ import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
-import { fieldReorderMoves } from '@/lib/reorder';
+import { computeReorder, fieldReorderMoves } from '@/lib/reorder';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -87,13 +87,9 @@ function DatabasePageInner() {
   };
   function onViewDragEnd(e: DragEndEvent) {
     if (readOnly || !e.over || e.active.id === e.over.id) return;
-    const from = views.findIndex((v) => v.id === e.active.id);
-    const to = views.findIndex((v) => v.id === e.over!.id);
-    if (from < 0 || to < 0) return;
-    // Persist only the views whose index actually changed (the run between from/to).
-    const moves = arrayMove(views, from, to)
-      .map((v, i) => ({ id: v.id, position: i }))
-      .filter(({ id }, i) => views[i]?.id !== id);
+    // #926 — the shared helper judges "moved" by each view's STORED position, so a database whose views
+    // have gaps in their positions (a view was deleted) still saves the order that was dropped.
+    const moves = computeReorder(views, String(e.active.id), String(e.over.id));
     if (moves.length) viewMutations.reorderViews.mutate(moves);
   }
 
