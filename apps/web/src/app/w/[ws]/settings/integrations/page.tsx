@@ -6,6 +6,7 @@ import { useState } from 'react';
 import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   ArrowDownToLine,
   AtSign,
   Bot,
@@ -25,6 +26,7 @@ import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, MCP_ENDPOINT } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { mirrorHealth, type SyncStatus } from '@/lib/linear-mirror';
 import { Button } from '@/components/ui/button';
 
 type AuthKind = 'oauth2' | 'config' | 'delegate';
@@ -99,6 +101,36 @@ function nextAction(entry: IntegrationEntry): string {
     'delegate-agent': 'Enable Agents, create an agent, then delegate from a record menu.',
   };
   return actions[entry.id] ?? 'Open the setup page and follow the next highlighted step.';
+}
+
+/**
+ * #919 — the Linear mirror's loud failure, on the page admins already open. A mirror that stops
+ * refreshing otherwise looks exactly like one with nothing new to say. Reads the same query (and
+ * cache entry) as the Linear page itself, and shows only what the server reports.
+ */
+function LinearMirrorChip({ ws }: { ws: string }) {
+  const config = useQuery({
+    queryKey: ['linear-config', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/integrations/linear', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as { auto_sync: { enabled: boolean }; sync: SyncStatus };
+    },
+  });
+  if (!config.data) return null;
+  const health = mirrorHealth(config.data.auto_sync.enabled, config.data.sync);
+  if (health !== 'stale' && health !== 'failing') return null;
+  return (
+    <span
+      data-testid="linear-mirror-chip"
+      className="inline-flex items-center gap-1 rounded-full border border-border-strong px-2 py-0.5 text-meta font-medium text-ink"
+    >
+      <AlertTriangle className="h-3 w-3 text-error" aria-hidden />
+      {health === 'stale' ? 'Not updating' : 'Last sync failed'}
+    </span>
+  );
 }
 
 /**
@@ -249,6 +281,7 @@ export default function IntegrationsPage() {
                       <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-ink">
                         Connected
                       </span>
+                      {entry.id === 'linear' && <LinearMirrorChip ws={ws} />}
                     </div>
                     <p className="truncate text-label text-muted">{entry.description}</p>
                     <p className="mt-1 text-meta text-ink-secondary">
