@@ -306,14 +306,14 @@ Each of these needs a twin:
 
 Decided in [ADR-0018](../decisions/ADR-0018-restricted-spaces-and-databases.md):
 
-- A restricted space closes its databases; a space grant opens them (§3). A database restricted inside an open space stays closed.
+- A restricted space closes its databases; a space grant opens them, **except a database that is itself flagged restricted (sticky, decided 2026-10-15)** (§3). A database restricted inside an open space stays closed.
 - **One central guard for creators:** `assertSpace(creator)` inside `DatabasesService.create`, so templates, Shopify, packs, Linear and the architect are all covered at once (§4).
 - Duplicating a restricted database copies `restricted` and its grants; moving one keeps the flag; a duplicate by a non-admin of a restricted source is allowed only if the caller holds a grant (§3).
 - Who may set the flag, rename and manage: admin only in v1 (§6). MCP can set `restricted` but not add or remove people (§6).
 - Members' record grants rejected in v1 (§7); grants deleted on member removal; a member invite's grants applied or rejected, never discarded (§8).
 - Derived data (lookups, rollups, AI fields), outbound integrations and public sharing: policy in §9.
 
-Still open (none blocks phase 1): sticky restriction inside a restricted space; who beyond admins manages access; files with no scope (capability URLs); whether `restricted` and grants round-trip through the workspace export zip; Tyron thread history and approvals after access is revoked; admin-to-member demotion; the named-approver rule for a restricted database; billing for a member holding only viewer grants.
+Answered 2026-10-15 (ADR "Open questions"): sticky restriction yes; admin-only management; no member record grants and no groups in v1; files stay capability URLs with a follow-up; **the export zip carries `restricted` and grants**; Tyron history kept and documented; named-approver rule unchanged; billing unchanged. Still open: admin-to-member demotion visibility.
 
 ## Counts
 

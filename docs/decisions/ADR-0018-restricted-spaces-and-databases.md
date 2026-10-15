@@ -1,6 +1,6 @@
 # ADR-0018: Restricted spaces and databases — members stop being workspace-wide
 
-- **Status:** proposed (2026-10-14), for agreement before any build ticket is filed
+- **Status:** proposed (2026-10-14); open questions answered by the product owner on 2026-10-15 (below), pending Ievgen's veto on sticky restriction and the export decision. Phase 1 starts when this merges.
 - **Ticket:** #923 (design half: ticket #924). Decisions (a), (b), (c) were made by Ievgen on 2026-10-14, see below.
 - **Supersedes:** the sentence in [ADR-0009](ADR-0009-contributor-rung.md) *"Members stay workspace-wide creators. No member scoping."* Everything else in ADR-0007 and ADR-0009 (the ladder, 404-not-403, grants at space/database/record scope, the ladder as the billing boundary) stands.
 - **Companion:** [the inventory](../architecture/restricted-access-inventory.md) — every place that today special-cases guests, or assumes a member sees everything.
@@ -40,13 +40,15 @@ effective(caller, resource):
   otherwise                              -> max(applicable grants), or null  (404)
 ```
 
+**Sticky restriction (decided 2026-10-15, see below).** "Applicable grants" depends on which flag closed the resource: a database that is itself `restricted` is opened **only by a grant on that database**; a space grant does not open it. A database closed only because its **space** is restricted is opened by a space grant or a database grant, as today. So a confidential database inside an otherwise shared team space stays closed to everyone who merely holds the space grant. The rule applies to guests and members alike.
+
 "Applicable grants" are exactly today's: a grant on the database, or on its space, or (for a record) on the record. Highest wins, as in ADR-0007. Grants only ever matter where the caller is not open-by-default; a member's grant on an open database is ignored (grants add, never subtract, as in ADR-0007).
 
 A member who is granted `viewer` on a restricted database is a viewer there and a creator everywhere else. That is intended and is what Notion and Fibery do.
 
 ### 3. Restriction cascades down, grants cascade down, nothing cascades up
 
-- Restricting a **space** closes every database in it. A grant on the space opens them all, **including a database in it that is itself flagged restricted** (v1; see open question 1).
+- Restricting a **space** closes every database in it. A grant on the space opens them all, **except a database in it that is itself flagged restricted**: that restriction is **sticky** and only a grant on the database opens it (decision 2026-10-15). The trigger was confidential data at Dr.Wunder, so the model fails closed.
 - Restricting a **database** closes only it. It can sit in an open space: this is the Dr.Wunder case.
 - A database **created** inside a restricted space is closed by inheritance; its creator holds the space grant already.
 - A grant on a database makes its space *visible* in the sidebar with only that database in it. This is today's guest behaviour and it stays, for members too.
@@ -124,6 +126,7 @@ The inventory is a point-in-time list, and **a list is a proxy that drifts** (th
 
 0. This ADR, the inventory and the Share / Manage access design (ticket #924, Dara).
 1. **Foundation (API):** migration for the two columns; `narrowing()`, `isNarrowed()` and the primitives re-expressed on it; bound-token grants intersected; the coverage test with every endpoint classified (most as `workspace-level` at first, which is the visible backlog); twin tests for the primitives and the shared restricted-member fixture (`test/helpers/members.ts`; there is no shared guest fixture today, each test file hand-rolls its own). Also in this phase, because they are holes rather than sweeps: `assertSpace(creator)` **inside `DatabasesService.create`** (covers every creator at once), scope checks on `PATCH spaces/:space` and the folders routes, the database check in `space-views.updateById` and `move-to-space`, the role gate on the Google Calendar bindings list (a guest leak today), the by-id watchers routes and the batch-job read; grant cleanup on member removal; the invite decision above.
+**Also phase 1:** the workspace export carries `restricted` on spaces and databases and the grants (decision 6), and the import restores both; an export-then-restore test asserts the restriction survives.
 2. **Read-path sweep (API), one PR per module group** from the inventory (`restricted-access-inventory.md`, Parts 1 and 2), each with its twin tests: records and query; search, recent, favourites, My Work; databases and spaces lists, sidebar tree; relations, lookups, rollups, computed titles; mentions; activity, versions, audit; notifications and watchers; comments and files; views and dashboards; exports and webhooks; automations and sources.
 3. **Management API and MCP parity in the same PR** (house rule): set `restricted`, list and edit grants for members, rejecting record grants for members and restriction of system databases.
 4. **UI (Iris):** the Share / Manage access dialog on spaces and databases; the sidebar and pickers need nothing but the API's answer.
@@ -132,17 +135,19 @@ The inventory is a point-in-time list, and **a list is a proxy that drifts** (th
 
 Each phase ships alone and is safe alone, because nothing changes until `restricted` is set: that is the property the default of false buys.
 
-## Open questions (none blocks phase 1)
+## Open questions, and the calls made on 2026-10-15
 
-1. **`restricted` on a database inside a restricted space.** v1 says a space grant opens it. The alternative is "sticky": a database flagged restricted stays closed to a space-grant holder until granted directly. Sticky is safer for confidential databases and one more rule; I recommend deciding it with the first real use.
-2. **Who manages access** beyond admins: Notion lets whoever has full access on a page share it. v1 is admin-only; widening it to `creator` on that scope is an API change, not a model change.
-3. **Per-record grants for members** later: the primitives support it; the question is only the UI and the audit.
-4. **Groups** (the ticket's Share dialog mentions "people and groups"). There is no group concept in the schema today. v1 is people only; a group table is a separate decision and would expand to the same grant rows.
-5. **Files** embedded in documents and records carry no scope (capability URLs): accept as unguessable, or add a scope column.
-6. **Workspace export zip** carries no `restricted` marker, so restriction is lost on a restore; decide whether the zip carries flags and grants.
-7. **Tyron thread history and approvals** keep tool output after access is revoked; the privacy rule exists, a revocation rule does not.
-8. **Named approver** of an approval on a restricted database (today deliberate for guests, ticket #691).
-9. **Billing** for a member holding only viewer grants: unchanged in v1 (a member is a seat), flagged for the pricing page.
+Answered by the product owner and put to Ievgen for veto. **Q1 and Q6 are the two that matter most**; if either is vetoed the ADR changes there.
+
+1. **Sticky restriction: YES.** A database flagged `restricted` stays closed to someone who only holds the space grant. Fail closed; the first real use is confidential data. (Applied in §2 and §3.)
+2. **Who manages access:** admin only in v1. Widening to `creator` on that scope is an API change, not a model change.
+3. **Per-record grants for members:** later. The API rejects them in v1 (§7).
+4. **Groups:** people only in v1. There is no group concept in the schema; a group table is a separate decision and would expand to the same grant rows.
+5. **Files** embedded in documents and records carry no scope: **accept capability URLs in v1**, and file a follow-up ticket for a scope column.
+6. **Workspace export zip: YES, it carries `restricted` and grants.** A restore that silently unrestricts confidential data is fail-open. (Added to phase 1 and to the export and import tests.)
+7. **Tyron thread history and approvals** keep tool output after access is revoked: keep history in v1 **and say so in the docs**. Follow-up ticket for a revocation rule.
+8. **Named approver** of an approval on a restricted database: keep ticket #691's behaviour.
+9. **Billing:** unchanged in v1 (a member is a seat, whatever their grants). Flagged for the pricing page.
 
 ## Consequences
 
