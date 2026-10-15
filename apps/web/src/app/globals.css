@@ -755,6 +755,26 @@ html[data-embed] body {
 }
 
 /*
+ * #899 — the gutter above is reserved for a HOVER-revealed side menu (the insert `+` and the drag handle). A device
+ * that cannot hover never shows it, so there the 52px holds nothing: at 375px it left a 235px text column, 84px from
+ * the left edge and 56px from the right (the 28px asymmetry is what read as "almost centred"), and 37% of the screen
+ * was padding. Gated on POINTER TYPE, not viewport width, so a tablet with a trackpad keeps its handle and a touch
+ * tablet that never had one stops reserving it. The 48px floor is untouched for every pointer device.
+ *
+ * What this costs, stated plainly: a touch user has no drag handle here, so a block cannot be reordered by dragging on
+ * touch. It could not before either (the handle was never revealed without hover); the gutter was dead space, not a
+ * reduced affordance. A real touch device was NOT tried — see the ticket.
+ *
+ * Same specificity as the rule above, later in source order, inside the media query.
+ */
+@media (hover: none) and (pointer: coarse) {
+  .bn-root .bn-editor {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+/*
  * #638 — OPTION CHIPS: THE TINT STAYS, THE INK BECOMES THEME-AWARE.
  *
  * Every one of the 15 option colours failed WCAG AA, on every surface, in BOTH
