@@ -11,6 +11,8 @@ import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 import type { Db } from '../db/client';
 import { databases, fields, records, relations, selectOptions, spaceFolders, views } from '../db/schema';
 
@@ -383,12 +385,31 @@ export function defaultBoardGroupBy(
 
 @Injectable()
 export class ViewsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
   private async liveFields(databaseId: string): Promise<FieldRow[]> {
     return this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
+  }
+
+  /** Can this caller read the database the relation field points at? (#941) */
+  private async canReadRelationTarget(membership: Membership, field: FieldRow, ownDatabaseId: string): Promise<boolean> {
+    const config = field.config as { relation_id?: string } | null;
+    const relation = config?.relation_id
+      ? await this.db.query.relations.findFirst({ where: eq(relations.id, config.relation_id) })
+      : undefined;
+    if (!relation) return true; // a dangling relation resolves to no target, so there is nothing to leak
+    const targetId = relation.databaseAId === ownDatabaseId ? relation.databaseBId : relation.databaseAId;
+    const target = await this.db.query.databases.findFirst({
+      where: eq(databases.id, targetId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!target) return true;
+    return (await this.access.effectiveForDatabase(membership, target)) !== null;
   }
 
   /** Validates that every field reference in the config exists (422 otherwise). */
@@ -870,6 +891,7 @@ export class ViewsService {
       indexable?: boolean;
       recipient_scope_field_api_name?: string;
     },
+    membership: Membership,
   ): Promise<{ token: string }> {
     const view = await this.db.query.views.findFirst({
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
@@ -896,6 +918,13 @@ export class ViewsService {
     const relationApiNames = new Set(live.filter((f) => f.type === 'relation').map((f) => f.apiName));
     for (const name of input.include_relation_api_names ?? []) {
       if (!relationApiNames.has(name)) {
+        throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
+      }
+      // #941 — you cannot publish what you cannot read. A relation chip carries the TITLES of records in the relation's
+      // target database; this only checked that the name was a relation of THIS database, so a guest with editor here could
+      // publish titles from a database they hold no grant on. The refusal is worded exactly like an unknown relation name,
+      // so it does not confirm that the target exists.
+      if (!(await this.canReadRelationTarget(membership, live.find((f) => f.apiName === name)!, databaseId))) {
         throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
       }
     }
