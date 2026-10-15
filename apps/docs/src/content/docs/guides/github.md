@@ -25,8 +25,10 @@ inspect** (run the first sync and open the generated GitHub space). There are tw
 
 ## Choosing repositories
 
-StoryOS only imports the repositories you select. GitHub can still send it events from a
-repository you haven't selected, which is what the notice below reports.
+Once you have selected at least one repository, StoryOS ignores incoming GitHub events from every
+other repository, and the notice below reports what it skipped. **With no repository selected, events
+from every repository are accepted and no notice appears**, so select the ones you want to narrow
+it.
 
 ## "Ignoring deliveries from repositories you have not selected"
 
