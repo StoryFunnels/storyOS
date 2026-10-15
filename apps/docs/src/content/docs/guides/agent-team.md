@@ -66,6 +66,10 @@ cp -R skills/skills/* ~/.claude/skills/
 Start a new Claude Code session and say "plan an agent team", or run `/plan-agent-team`. Keep the
 folders whole: several skills read files from each other's `references/` directory.
 
+## Using the skills
+
+The skills are free to use.
+
 ## What this is not
 
 - **Not a framework.** There is no code to run. These are instructions an agent follows.
