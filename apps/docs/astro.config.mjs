@@ -126,6 +126,7 @@ export default defineConfig({
             { label: 'Removing a member, and GDPR', slug: 'guides/removing-a-member' },
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Webhooks', slug: 'guides/webhooks' },
+            { label: 'Run your work with an agent team', slug: 'guides/agent-team' },
             { label: 'Sources', slug: 'guides/sources' },
             { label: 'Copying a record into another database', slug: 'guides/copy-record' },
             { label: 'Sync with Google Calendar', slug: 'guides/google-calendar-sync' },
