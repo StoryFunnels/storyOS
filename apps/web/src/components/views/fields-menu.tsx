@@ -49,7 +49,15 @@ export function FieldsMenu({
   searchPlaceholder = 'Filter fields…',
   emptyLabel = 'No fields.',
   footer,
+  open,
+  onOpenChange,
+  anchorOnly = false,
 }: {
+  /** #936 — controlled open state, so a menu elsewhere (the record header's ⋯) can open this one. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** #936 — render no visible trigger: an invisible anchor fills the nearest `relative` parent and the menu opens from it. */
+  anchorOnly?: boolean;
   fields: Field[];
   isVisible: (field: Field) => boolean;
   onToggle: (field: Field, next: boolean) => void;
@@ -99,8 +107,12 @@ export function FieldsMenu({
   ));
 
   return (
-    <DropdownMenu>
-      {iconOnly ? (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      {anchorOnly ? (
+        <DropdownMenuTrigger asChild>
+          <span aria-hidden className="pointer-events-none absolute inset-0" />
+        </DropdownMenuTrigger>
+      ) : iconOnly ? (
         // Tooltip OUTSIDE the trigger — see record-chrome's Actions button.
         <Tooltip label={triggerLabel}>
           <DropdownMenuTrigger asChild>

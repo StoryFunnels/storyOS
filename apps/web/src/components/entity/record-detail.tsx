@@ -421,6 +421,8 @@ export function RecordDetail({
    * page reload resets it, which is the one gap.
    */
   const [sidePanelCollapsed, setSidePanelCollapsed] = useState(() => Boolean(onClose));
+  // #936 — the Fields popover is opened from the ⋯ menu's "Customize fields…".
+  const [fieldsOpen, setFieldsOpen] = useState(false);
   // #312 — retire the title draft only once the saved value has actually arrived, so
   // the input never falls back to a stale title mid-save. If the save fails the draft
   // stays, which is the right outcome: the user keeps what they typed.
@@ -527,40 +529,42 @@ export function RecordDetail({
             </>
           )}
         </nav>
-        <div className="flex shrink-0 items-center gap-1">
+        {/* #936 — pinned to the right edge (`ml-auto`), two groups split by a divider: content actions, then
+            window controls. Close is always last. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <StarButton ws={ws} rec={recordId} />
           {/* #780 — promoted to a header icon, matching the design artifact's
               cluster (star/watch/copy-link/split-view/delegate/actions). Reuses
               the same fetch/mutation the About tab's watcher list already used. */}
           <WatchButton ws={ws} db={db} rec={recordId} />
-          {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
-          <RecordActions
-            ws={ws}
-            db={db}
-            dbName={database.data?.name ?? ''}
-            rec={recordId}
-            recTitle={record.data?.title}
-            recNumber={record.data?.number}
-            fields={allFields}
-            readOnly={readOnly}
-            canCreate={schemaEditable}
-            isAdmin={workspace.data?.role === 'admin'}
-          />
+          {/* The ⋯ menu also holds "Customize fields…" (#936): the Fields popover opens from an invisible anchor
+              laid over the ⋯ button, so it appears where the person just clicked. */}
+          <span className="relative inline-flex">
+            <RecordActions
+              ws={ws}
+              db={db}
+              dbName={database.data?.name ?? ''}
+              rec={recordId}
+              recTitle={record.data?.title}
+              recNumber={record.data?.number}
+              fields={allFields}
+              readOnly={readOnly}
+              canCreate={schemaEditable}
+              isAdmin={workspace.data?.role === 'admin'}
+              onCustomizeFields={schemaEditable ? () => setTimeout(() => setFieldsOpen(true), 0) : undefined}
+            />
+            {schemaEditable && (
+              <FieldsPopover ws={ws} db={db} fields={allFields} anchorOnly open={fieldsOpen} onOpenChange={setFieldsOpen} />
+            )}
+          </span>
+          <span className="mx-1 h-4 w-px shrink-0 bg-border-default" aria-hidden />
           {/* #780 — Ievgen's ruling: collapsible by the user, open by default
               on the full page, auto-collapsed on mount in split view (see
-              sidePanelCollapsed's own lazy init above). Placement is Dara's
-              explicit call, not measured off any artifact (the artifact draws
-              no collapse control at all — a genuine addition): beside
-              split-view rather than an edge handle on the panel itself,
-              because split-view is the only OTHER header control that
-              changes layout rather than acting on content, and an edge
-              handle would imply a drag this panel doesn't support (the
-              sidebar's own resizable-edge convention would train the wrong
-              expectation here). */}
-          <Tooltip label={sidePanelCollapsed ? 'Show panel' : 'Hide panel'}>
+              sidePanelCollapsed's own lazy init above). */}
+          <Tooltip label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}>
             <button
               type="button"
-              aria-label={sidePanelCollapsed ? 'Show the Activity/Comments/About panel' : 'Hide the Activity/Comments/About panel'}
+              aria-label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}
               className={HEADER_ICON_BTN}
               onClick={() => setSidePanelCollapsed((c) => !c)}
             >
@@ -571,10 +575,10 @@ export function RecordDetail({
               restore the split area. Only present when the host mounts this record
               as a panel. */}
           {onCollapse && (
-            <Tooltip label="Collapse">
+            <Tooltip label="Collapse to side rail">
               <button
                 type="button"
-                aria-label="Collapse to rail"
+                aria-label="Collapse to side rail"
                 className={HEADER_ICON_BTN}
                 onClick={onCollapse}
               >
@@ -583,10 +587,10 @@ export function RecordDetail({
             </Tooltip>
           )}
           {onToggleMaximize && (
-            <Tooltip label={isMaximized ? 'Restore' : 'Maximize'}>
+            <Tooltip label={isMaximized ? 'Restore split view' : 'Expand to full width'}>
               <button
                 type="button"
-                aria-label={isMaximized ? 'Restore split view' : 'Maximize pane'}
+                aria-label={isMaximized ? 'Restore split view' : 'Expand to full width'}
                 className={HEADER_ICON_BTN}
                 onClick={onToggleMaximize}
               >
