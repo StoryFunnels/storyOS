@@ -84,3 +84,17 @@ export function stripPlan({
   }
   return writes;
 }
+
+/**
+ * #937 — the fields the grid below the title shows: everything the row under the title does NOT already show,
+ * and nothing that was promoted to its own block. A field appears once on the record page; unpinning it from
+ * the row (so it leaves `strip.fields`) is what puts it back in the grid.
+ */
+export function gridFieldsExcludingStrip<T extends { id: string }>(
+  unifiedFields: T[],
+  strip: { fields: Array<{ id: string }> },
+  promoted: Array<{ id: string }> = [],
+): T[] {
+  const hidden = new Set([...strip.fields, ...promoted].map((f) => f.id));
+  return unifiedFields.filter((f) => !hidden.has(f.id));
+}

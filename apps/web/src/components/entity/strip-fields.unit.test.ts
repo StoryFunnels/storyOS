@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Field } from '@/components/table-view/use-table-data';
-import { canPinToStrip, stripFields, stripPlan, zonesWithTop } from './strip-fields';
+import { canPinToStrip, gridFieldsExcludingStrip, stripFields, stripPlan, zonesWithTop } from './strip-fields';
 
 const f = (id: string, type: string, zones?: string[]): Field =>
   ({ id, apiName: id, displayName: id, type, config: zones ? { entity_zones: zones } : {} }) as unknown as Field;
@@ -73,5 +73,38 @@ describe('canPinToStrip', () => {
   it('refuses body-locked fields', () => {
     expect(canPinToStrip(f('r', 'rich_text'))).toBe(false);
     expect(canPinToStrip(note)).toBe(true);
+  });
+});
+
+describe('gridFieldsExcludingStrip (ticket #937)', () => {
+  const sidebarField = (id: string, type: string, zones: string[]) => f(id, type, zones);
+  const status = sidebarField('status', 'workflow', ['sidebar', 'top']);
+  const priority = sidebarField('priority', 'select', ['sidebar', 'top']);
+  const notes = sidebarField('notes', 'text', ['sidebar']);
+  const epic = sidebarField('epic', 'relation', ['sidebar', 'top']);
+  const unified = [status, priority, notes, epic];
+
+  it('a field in the row under the title is not repeated in the grid, and the rest stay', () => {
+    const strip = stripFields({ topFields: [status, priority, epic], visibleFields: unified, unifiedFields: unified });
+    expect(gridFieldsExcludingStrip(unified, strip).map((x) => x.id)).toEqual(['notes']);
+  });
+
+  it('unpinning puts the field back in the grid (the row is what the grid is measured against)', () => {
+    const before = stripFields({ topFields: [status, priority], visibleFields: unified, unifiedFields: unified });
+    expect(gridFieldsExcludingStrip(unified, before).map((x) => x.id)).toEqual(['notes', 'epic']);
+    const after = stripFields({ topFields: [status], visibleFields: unified, unifiedFields: unified });
+    expect(gridFieldsExcludingStrip(unified, after).map((x) => x.id)).toEqual(['priority', 'notes', 'epic']);
+  });
+
+  it('the automatic (heuristic) row also is not repeated: what the row shows, the grid does not', () => {
+    const plain = [f('s', 'workflow'), f('o', 'user'), f('d', 'date'), f('t', 'text')];
+    const strip = stripFields({ topFields: [], visibleFields: plain, unifiedFields: plain });
+    expect(strip.configured).toBe(false);
+    expect(gridFieldsExcludingStrip(plain, strip).map((x) => x.id)).toEqual(['t']);
+  });
+
+  it('promoted blocks still leave the grid, and a field in neither stays', () => {
+    const strip = stripFields({ topFields: [status], visibleFields: unified, unifiedFields: unified });
+    expect(gridFieldsExcludingStrip(unified, strip, [notes]).map((x) => x.id)).toEqual(['priority', 'epic']);
   });
 });
