@@ -200,8 +200,12 @@ function EditorInner({
           box 52px further left (and widening it by the same 52px, so its
           RIGHT edge doesn't move) puts the text back at the column edge,
           with the drag handle now sitting in the reclaimed margin outside
-          the visible content — exactly what the comment above asks for. */}
-      <div className="-ml-[52px] w-[calc(100%+52px)] min-h-12 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
+          the visible content — exactly what the comment above asks for.
+
+          #899 — on a device that cannot hover there is no handle and globals.css drops the 52px gutter, so the
+          pull-left above would push the box 52px off-screen. The three `[@media(hover:none)_and_(pointer:coarse)]`
+          classes undo it there (no pull, normal width) and give the text a 12px inset from the border. */}
+      <div className="-ml-[52px] w-[calc(100%+52px)] min-h-12 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent [@media(hover:none)_and_(pointer:coarse)]:ml-0 [@media(hover:none)_and_(pointer:coarse)]:w-full [@media(hover:none)_and_(pointer:coarse)]:px-3">
         <MentionScope ws={ws}>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and it

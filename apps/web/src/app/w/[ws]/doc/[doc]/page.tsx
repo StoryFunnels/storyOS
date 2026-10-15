@@ -91,7 +91,7 @@ function DocEditor({
     // not capped to the prose measure) has real room — the prose itself is
     // narrowed separately below, scoped to `.doc-prose` in globals.css so the
     // record panel's description (same BlockNote CSS) is untouched.
-    <div className="doc-prose mx-auto max-w-5xl px-8 py-8">
+    <div className="doc-prose mx-auto max-w-5xl px-4 py-8 sm:px-8">
       {/* #262 — the title lives in an <input>, and an input's VALUE is not
           printed reliably across engines (WebKit drops it entirely). Mirrored
           into a print-only heading so a printed document is not untitled. */}
