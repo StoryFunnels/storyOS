@@ -126,6 +126,12 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         className={cn(
           'z-[var(--z-drawer)] h-full shrink-0 transition-transform duration-200 ease-out',
           'fixed inset-y-0 left-0 md:static md:z-auto md:translate-x-0',
+          // #898 — on mobile the drawer is `fixed`, lifted out of flow and floating over the page, and nothing in it
+          // painted an opaque surface: the 52px rail is a 40% tint (`bg-hover/40`), so the live page showed through
+          // it. The surface belongs on the CONTAINER, not on the rail, so anything else mounted in the drawer is
+          // covered too. `md:bg-transparent` keeps desktop exactly as it was (the rail's tint composites over the
+          // app shell, which is what makes it read as a tint).
+          'bg-sidebar md:bg-transparent',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           // Desktop collapse (persistent, per-user): fully removed from the
           // md+ flow rather than animated to width 0, keeping this simple and
