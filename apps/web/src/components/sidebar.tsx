@@ -1409,6 +1409,13 @@ function SpaceSection({
   const childViewsOf = (databaseId: string) =>
     spaceViews.filter((v) => v.database_id === databaseId && !v.folder_id && !v.is_default);
 
+  /** The rows you see directly under this space when it is open: the same "direct children" a folder's count uses. */
+  const topLevelRows =
+    folders.length +
+    databases.filter((d) => !d.folderId).length +
+    spaceViews.filter((v) => !v.database_id && !v.folder_id).length +
+    (docs.data ?? []).filter((d) => !d.folder_id).length;
+
   /** Placement is per-view; the database is only needed to address the route. */
   const moveSpaceViewToFolder = useMutation({
     mutationFn: async (v: { id: string; folderId: string | null }) => {
@@ -1763,9 +1770,9 @@ function SpaceSection({
             full database list from useDatabases(ws) — that endpoint is not
             paginated, so this is the real number, not a count of loaded rows
             (the #755 lie). */}
-        {!renaming && databases.length > 0 && (
-          <span className={cn('shrink-0 text-micro font-semibold tabular-nums text-faint group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
-            {databases.length}
+        {!renaming && topLevelRows > 0 && (
+          <span className={cn(ROW_COUNT, 'group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
+            {topLevelRows}
           </span>
         )}
         {canEdit && (
@@ -2409,8 +2416,11 @@ function FolderSection({
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
+        {/* The ⋯ button reserves its slot even while invisible, so the count slides over
+            it (-mr-3.5 = that slot's width, measured) to share the space header's right
+            edge, and steps aside on hover/focus exactly as the space count does. */}
         {contentCount > 0 && (
-          <span className="ml-1 shrink-0 text-meta text-faint">{contentCount}</span>
+          <span className={cn(ROW_COUNT, '-mr-3.5 group-focus-within:hidden group-hover:hidden')}>{contentCount}</span>
         )}
         {canEdit && (
           <SidebarRowMenu
@@ -3026,17 +3036,22 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
 /**
  * #742 finding 08 — "three marks, three jobs, no overlap": a coloured letter
  * mark is how a GROUP (and, per the same finding, a SPACE) is told apart from
- * a database's monochrome glyph or a view's per-type icon. First letter of
- * the name, uppercased; falls back to a neutral border-tinted grey when no
+ * a database's monochrome glyph or a view's per-type icon. Initials of
+ * the name (two initials, see markInitials), uppercased; falls back to a neutral border-tinted grey when no
  * color is set rather than picking one, since an unset color is information
  * (nobody has customized this one yet), not a value to paper over.
  */
+/** One style for every row count (space header, folder header): what a row holds, faint, aligned right. */
+const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
+
 function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
   const letter = markInitials(name);
   return (
     <span
       className={cn(
-        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-micro font-semibold text-[var(--text-on-dark)]',
+        /* Two letters do not fit 16px at text-micro (5 of 6 overflowed): the box is
+           20px (fixed, so every row's label lines up) and pulled back by -mr-1 so the label stays aligned. */
+        'flex h-4 w-5 shrink-0 items-center justify-center -mr-1 rounded text-[9px] font-semibold leading-none tracking-tighter text-[var(--text-on-dark)]',
         className,
       )}
       style={{ backgroundColor: color ?? 'var(--text-faint)' }}
