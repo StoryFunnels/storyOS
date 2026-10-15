@@ -145,7 +145,7 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
     <Tooltip label={starred ? 'Unstar' : 'Star'}>
       <button
         onClick={() => toggle.mutate()}
-        aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
+        aria-label={starred ? 'Unstar' : 'Star'}
         className={HEADER_ICON_BTN}
       >
         <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
@@ -165,7 +165,7 @@ export function WatchButton({ ws, db, rec }: { ws: string; db: string; rec: stri
       <button
         onClick={() => toggle.mutate(!watching)}
         disabled={toggle.isPending}
-        aria-label={watching ? 'Stop watching this item' : 'Watch this item for changes'}
+        aria-label={watching ? 'Unwatch' : 'Watch'}
         className={HEADER_ICON_BTN}
       >
         <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
@@ -186,7 +186,10 @@ export function RecordActions({
   readOnly,
   canCreate,
   isAdmin,
+  onCustomizeFields,
 }: {
+  /** #936 — when given, the ⋯ menu offers "Customize fields…" (the header's sliders icon moved here). */
+  onCustomizeFields?: () => void;
   ws: string;
   db: string;
   dbName: string;
@@ -248,9 +251,9 @@ export function RecordActions({
         {/* Tooltip OUTSIDE the trigger: a Radix `asChild` trigger must wrap the
             real button directly, or it clones a non-DOM component and the menu
             never opens. */}
-        <Tooltip label="Actions">
+        <Tooltip label="More actions">
           <DropdownMenuTrigger asChild>
-            <button className={HEADER_ICON_BTN} aria-label="Item actions">
+            <button className={HEADER_ICON_BTN} aria-label="More actions">
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
@@ -272,6 +275,12 @@ export function RecordActions({
           <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
             <History className="mr-2 h-3.5 w-3.5" /> History
           </DropdownMenuItem>
+          {/* #936 — the field-settings sliders left the header; it is a schema-editor power action. */}
+          {onCustomizeFields && (
+            <DropdownMenuItem onSelect={onCustomizeFields}>
+              <SlidersHorizontal className="mr-2 h-3.5 w-3.5" /> Customize fields…
+            </DropdownMenuItem>
+          )}
           {isAdmin && (
             <DropdownMenuItem onSelect={() => setDelegateOpen(true)}>
               <Bot className="mr-2 h-3.5 w-3.5" /> Delegate to agent
@@ -445,7 +454,21 @@ function DelegateToAgentDialog({
  * #175 — now the shared Fibery-parity Fields menu (search + toggle switch + field-
  * type icon). Field reordering on the record page lives on the field rows
  * themselves (per-zone drag, `entity_order`), so this picker stays visibility-only. */
-export function FieldsPopover({ ws, db, fields }: { ws: string; db: string; fields: Field[] }) {
+export function FieldsPopover({
+  ws,
+  db,
+  fields,
+  open,
+  onOpenChange,
+  anchorOnly,
+}: {
+  ws: string;
+  db: string;
+  fields: Field[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchorOnly?: boolean;
+}) {
   const setConfig = useSetFieldConfig(ws, db);
   return (
     <FieldsMenu
@@ -456,6 +479,9 @@ export function FieldsPopover({ ws, db, fields }: { ws: string; db: string; fiel
       triggerLabel="Fields"
       iconOnly
       align="end"
+      open={open}
+      onOpenChange={onOpenChange}
+      anchorOnly={anchorOnly}
     />
   );
 }
