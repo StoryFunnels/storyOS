@@ -10,9 +10,11 @@ import { arrayMove } from '@dnd-kit/sortable';
  * This is the same arrayMove-then-reindex pattern the view tabs, table columns,
  * and record panels already use; centralising it keeps every reorder surface
  * collision-free (positions become a contiguous 0..n-1 run) instead of the old
- * two-item "swap" that left the items dragged over untouched.
+ * two-item "swap" that left the items dragged over untouched. When the items carry
+ * their stored numeric `position`, "moved" is judged against THAT (see #926), so a
+ * list whose positions have gaps still ends up in the order that was dropped.
  */
-export function computeReorder<T extends { id: string }>(
+export function computeReorder<T extends { id: string; position?: unknown }>(
   items: T[],
   activeId: string,
   overId: string,
@@ -21,9 +23,20 @@ export function computeReorder<T extends { id: string }>(
   const from = items.findIndex((i) => i.id === activeId);
   const to = items.findIndex((i) => i.id === overId);
   if (from < 0 || to < 0) return [];
-  return arrayMove(items, from, to)
-    .map((item, index) => ({ id: item.id, position: index }))
-    .filter((move, index) => items[index]?.id !== move.id);
+  return (
+    arrayMove(items, from, to)
+      .map((item, index) => ({ item, index }))
+      // #926 — "unchanged" means the item's STORED position already equals its new index, NOT that the item
+      // is still at the same index in the array. The two only coincide when positions are a contiguous 0..n-1
+      // run, and they are not once a view has been deleted or a position was ever written by something else:
+      // an item that kept its old, higher position then tied with (or sorted past) the items that were
+      // rewritten, and the drop landed in the wrong place. Items with no numeric position fall back to the
+      // old id-at-index comparison.
+      .filter(({ item, index }) =>
+        typeof item.position === 'number' ? item.position !== index : items[index]?.id !== item.id,
+      )
+      .map(({ item, index }) => ({ id: item.id, position: index }))
+  );
 }
 
 /**

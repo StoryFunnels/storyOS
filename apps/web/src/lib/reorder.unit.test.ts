@@ -3,6 +3,65 @@ import { computeReorder, fieldReorderMoves } from './reorder';
 
 const list = (...ids: string[]) => ids.map((id, position) => ({ id, position }));
 
+/**
+ * #926 — the view tabs saved the wrong order once a database's view positions had gaps (a view had been
+ * deleted). Reproduced in a browser: positions [0,3,5,7,9], drag the last tab to the third slot; the stored
+ * result tied two views and put the dragged one before a view it should follow. These apply the returned
+ * writes to the stored positions and read the resulting order, which is what the API does.
+ */
+function applied(items: Array<{ id: string; position: number }>, moves: Array<{ id: string; position: number }>) {
+  const next = new Map(items.map((i) => [i.id, i.position]));
+  for (const m of moves) next.set(m.id, m.position);
+  return {
+    order: [...next.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id),
+    ties: new Set(next.values()).size !== next.size,
+  };
+}
+
+describe('computeReorder with gaps in the stored positions (#926)', () => {
+  const gapped = [
+    { id: 'all', position: 0 },
+    { id: 'cal', position: 3 },
+    { id: 'gal', position: 5 },
+    { id: 'feed', position: 7 },
+    { id: 'list', position: 9 },
+  ];
+
+  it('dragging the last item to the third slot lands it there, with no ties', () => {
+    const r = applied(gapped, computeReorder(gapped, 'list', 'gal'));
+    expect(r.order).toEqual(['all', 'cal', 'list', 'gal', 'feed']);
+    expect(r.ties).toBe(false);
+  });
+
+  it('every drag between any two slots saves exactly the order dropped, without ties', () => {
+    for (const a of gapped) {
+      for (const b of gapped) {
+        if (a.id === b.id) continue;
+        const ids = gapped.map((g) => g.id);
+        const from = ids.indexOf(a.id);
+        const to = ids.indexOf(b.id);
+        const expected = [...ids];
+        expected.splice(to, 0, expected.splice(from, 1)[0]!);
+        const r = applied(gapped, computeReorder(gapped, a.id, b.id));
+        expect(r.order, `${a.id} -> ${b.id}`).toEqual(expected);
+        expect(r.ties, `${a.id} -> ${b.id}`).toBe(false);
+      }
+    }
+  });
+
+  it('items already stored at their new index are not rewritten', () => {
+    const contiguous = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }, { id: 'c', position: 2 }];
+    expect(computeReorder(contiguous, 'a', 'b')).toEqual([{ id: 'b', position: 0 }, { id: 'a', position: 1 }]);
+  });
+
+  it('items with no numeric position keep the old id-at-index behaviour', () => {
+    expect(computeReorder([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 'a', 'b')).toEqual([
+      { id: 'b', position: 0 },
+      { id: 'a', position: 1 },
+    ]);
+  });
+});
+
 describe('computeReorder', () => {
   it('returns no writes when dropped on itself', () => {
     expect(computeReorder(list('a', 'b', 'c'), 'a', 'a')).toEqual([]);
