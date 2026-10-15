@@ -27,6 +27,18 @@ today. The list is maintained by hand: when you add or remove an event, change i
   only a path, a search query and a count.
 - **Off unless configured.** Docs ships none of this unless `PUBLIC_POSTHOG_KEY` is set; the API
   emits nothing unless `POSTHOG_PROJECT_TOKEN` is set, so self-hosted installs send nothing.
+- **The docs key is a BUILD-time value (ticket #820).** `apps/docs/astro.config.mjs` reads
+  `PUBLIC_POSTHOG_KEY` with its own `readEnvFile()` while the config is evaluated, because Astro
+  does not expose `.env` to the config. So on Cloudflare it must be a **build variable** of
+  `Workers Builds: storyos-docs`, not a runtime binding, and a change takes effect only on a
+  rebuild. A runtime variable (or a missing one) ships the site with **no analytics at all and no
+  error**; that is how docs went to zero after #946.
+  - **Check it from the served HTML, not from a browser.** `curl -s https://docs.storyos.dev/ | grep -c posthog`
+    is non-zero with the key set (an inline script in `<head>`) and **zero** without it.
+    `window.posthog` is always undefined on docs, so it proves nothing.
+  - Docs has no `/ingest` proxy (that belongs to `apps/web`). Events go straight to the configured
+    PostHog host (`https://us.i.posthog.com` unless `PUBLIC_POSTHOG_HOST` says otherwise), so look
+    for requests there, not to `/ingest`.
 
 ## Current events
 
