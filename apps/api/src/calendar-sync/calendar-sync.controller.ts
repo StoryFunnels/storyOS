@@ -28,7 +28,10 @@ class CreateCalendarBindingDto extends createZodDto(
 export class CalendarSyncController {
   constructor(private readonly calendar: CalendarSyncService) {}
 
+  // #939 — an integration setting, like the write routes below. These two reads had no role gate, so a guest could list which
+  // databases are synced to which calendar, and make the server call Google with the connection's stored token.
   @Get('calendars')
+  @MinRole('admin')
   @RequiresScope('read')
   @ApiOperation({ summary: 'List writable calendars for a Calendar connection' })
   calendars(@Req() req: WorkspaceRequest, @Query('connection_id') connectionId: string) {
@@ -36,6 +39,7 @@ export class CalendarSyncController {
   }
 
   @Get('bindings')
+  @MinRole('admin')
   @RequiresScope('read')
   @ApiOperation({ summary: 'List database-to-calendar sync bindings' })
   bindings(@Req() req: WorkspaceRequest) {
