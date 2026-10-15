@@ -52,7 +52,7 @@ The skills run in order. Most people start at phase 0 and spend their time in ph
 - **Claude Code.** Each agent is a long-lived Claude Code session, and the launch phase uses its
   loop.
 - **A StoryOS workspace** as the queue, hosted or [self-hosted](/self-hosting/overview/). The
-  provisioning skill creates the databases by hand; there is no one-click pack for this.
+  provisioning skill builds the databases for you through the API; it is not an installable pack.
 - **For an engineering team:** a git repository with branch protection, and room for one worktree per
   agent.
 
