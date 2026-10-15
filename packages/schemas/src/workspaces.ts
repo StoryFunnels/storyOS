@@ -102,6 +102,8 @@ export const updateSpaceSchema = z.object({
   description: descriptionPatchSchema,
   /** #742 finding 04 — presentational sidebar group; null ungroups. */
   groupId: z.string().uuid().nullable().optional(),
+  /** #943 / ADR-0018 — restrict the space to people with an access grant (admins only; admins always see it). */
+  restricted: z.boolean().optional(),
 });
 
 import { grantScopeSchema } from './access';

@@ -150,6 +150,10 @@ export class WorkspaceController {
     @Param('space') spaceId: string,
     @Body() body: UpdateSpaceDto,
   ) {
+    // #943 — who a space is shared with is an admin decision (ADR-0018 §6); the rest of this PATCH stays member+.
+    if (body.restricted !== undefined && req.membership.role !== 'admin') {
+      throw new ForbiddenException('Only an admin can change who a space is shared with');
+    }
     return this.spaces.update(req.membership.workspaceId, spaceId, body);
   }
 

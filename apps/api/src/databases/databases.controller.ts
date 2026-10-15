@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Body,
   Controller,
   Delete,
@@ -78,6 +79,10 @@ export class DatabasesController {
     // must not re-parent it into a space they can't see.
     if (body.space_id !== undefined || body.position !== undefined) {
       await this.databases.assertCanMove(req.membership, body.space_id);
+    }
+    // #943 — who a database is shared with is an admin decision (ADR-0018 §6), even for someone holding creator on it.
+    if (body.restricted !== undefined && req.membership.role !== 'admin') {
+      throw new ForbiddenException('Only an admin can change who a database is shared with');
     }
     await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.update(req.membership, databaseId, body);

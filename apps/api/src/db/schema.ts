@@ -194,6 +194,12 @@ export const spaces = pgTable(
      * would be visible to nobody and unreachable, so the two are set as a pair.
      */
     personal: boolean('personal').notNull().default(false),
+    /**
+     * #943 / ADR-0018 — a RESTRICTED space is visible to members only through an access grant (admins always see it; a guest
+     * is closed out of everything by default anyway). false (the default) is exactly today's behaviour: every member sees
+     * and edits it. The model lives in `AccessService`; nothing else should read this column to decide access.
+     */
+    restricted: boolean('restricted').notNull().default(false),
     /** Plain text like `createdBy` — the auth `user` table isn't in this schema, and
      *  #291 requires an EXPLICIT hard delete on member removal, not a DB cascade. */
     ownerUserId: text('owner_user_id'),
@@ -374,6 +380,12 @@ export const databases = pgTable(
      * whatever you like. Mirrors `fields.isSystem`.
      */
     isSystem: boolean('is_system').notNull().default(false),
+    /**
+     * #943 / ADR-0018 — a RESTRICTED database is visible to members only through an access grant (admins always see it; a guest
+     * is closed out of everything by default anyway). false (the default) is exactly today's behaviour: every member sees
+     * and edits it. The model lives in `AccessService`; nothing else should read this column to decide access.
+     */
+    restricted: boolean('restricted').notNull().default(false),
     /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,

@@ -771,6 +771,13 @@
       "when": 1791935485415,
       "tag": "0109_productive_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1792102574607,
+      "tag": "0110_unusual_paladin",
+      "breakpoints": true
     }
   ]
 }
