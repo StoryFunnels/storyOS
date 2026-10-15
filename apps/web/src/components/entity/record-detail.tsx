@@ -62,7 +62,7 @@ import {
 } from '@/components/entity/entity-field-utils';
 import type { FieldGroup, Zone } from '@/components/entity/entity-field-utils';
 import { FieldPicker, TopRowMenu, TopStripAdd, useSetFieldConfig } from '@/components/entity/field-controls';
-import { canPinToStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
+import { canPinToStrip, gridFieldsExcludingStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
 import { BodyScalar, ScalarValue, SidebarField, TopChip, UnifiedFieldRow } from '@/components/entity/scalar-fields';
 import { CollectionSection } from '@/components/entity/collection-section';
 import { RichTextFieldSection } from '@/components/entity/rich-text-field';
@@ -249,17 +249,6 @@ export function RecordDetail({
       return f.type === 'relation' && Array.isArray(v) && v.length > 12;
     });
   }, [unifiedFields, record.data]);
-  const gridFields = useMemo(() => {
-    const promotedIds = new Set([...promotedProseFields, ...promotedRelationFields].map((f) => f.id));
-    return unifiedFields.filter((f) => !promotedIds.has(f.id));
-  }, [unifiedFields, promotedProseFields, promotedRelationFields]);
-  /** #780 — the artifact's own four collapsible headings, in its own order. */
-  const FIELD_GROUP_ORDER: FieldGroup[] = ['Details', 'Links', 'Computed', 'System'];
-  const groupedFields = useMemo(() => {
-    const groups = new Map<FieldGroup, Field[]>(FIELD_GROUP_ORDER.map((g) => [g, []]));
-    for (const f of gridFields) groups.get(fieldGroup(f))!.push(f);
-    return FIELD_GROUP_ORDER.map((g) => [g, groups.get(g)!] as const).filter(([, fs]) => fs.length > 0);
-  }, [gridFields]);
   /**
    * #780 — the status strip: a fixed, non-configurable summary row under the
    * title (workflow state, an assignee-shaped field, a due-date-shaped
@@ -270,9 +259,32 @@ export function RecordDetail({
    * concept in the data model, so this is a best-effort pick of the first
    * matching type among fields that would have shown near the top before —
    * flagged on the ticket as provisional, not a designed mapping.
+   * #809: it reads the stored `top` zone and falls back to that heuristic only while a database has none.
    */
   const strip = useMemo(() => stripFields({ topFields, visibleFields, unifiedFields }), [topFields, visibleFields, unifiedFields]);
-
+  /**
+   * #937 — a field shown as a chip in the row under the title is not repeated in the grid below. The
+   * grid used to be `topFields + sidebarFields` from when the row was hidden (#780); the row is back
+   * (#809), so the grid is everything the row does NOT already show. Unpinning a field puts it back here,
+   * because `strip` is what the row renders.
+   */
+  const gridFields = useMemo(
+    () => gridFieldsExcludingStrip(unifiedFields, strip, [...promotedProseFields, ...promotedRelationFields]),
+    [unifiedFields, promotedProseFields, promotedRelationFields, strip],
+  );
+  /** #780 — the artifact's own four collapsible headings, in its own order. */
+  const FIELD_GROUP_ORDER: FieldGroup[] = ['Details', 'Links', 'Computed', 'System'];
+  /**
+   * #937 — the heading the person reads. The first group is stored and collapsed under the key `Details`, but a
+   * record very often also has a rich-text field NAMED "Details" with its own heading; two headings reading
+   * DETAILS on one screen. Only the label changes, so every stored collapsed-state keeps working.
+   */
+  const GROUP_LABEL: Record<FieldGroup, string> = { Details: 'Properties', Links: 'Links', Computed: 'Computed', System: 'System' };
+  const groupedFields = useMemo(() => {
+    const groups = new Map<FieldGroup, Field[]>(FIELD_GROUP_ORDER.map((g) => [g, []]));
+    for (const f of gridFields) groups.get(fieldGroup(f))!.push(f);
+    return FIELD_GROUP_ORDER.map((g) => [g, groups.get(g)!] as const).filter(([, fs]) => fs.length > 0);
+  }, [gridFields]);
   // #780 — one useCollapsedSection call per POSSIBLE group, fixed at 4 and
   // unconditional (never inside groupedFields' own .map, which varies in
   // length per record) — hooks can't be called a variable number of times;
@@ -399,6 +411,30 @@ export function RecordDetail({
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  // #937 — the title is a textarea that grows to its text: a record title wraps, it is never cut to one line with an ellipsis.
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const titleText = titleDraft ?? record.data?.title ?? '';
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [titleText]);
+  // Also re-fit when the pane is resized (a split view or a rotated phone changes where the title wraps).
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      // Only a WIDTH change moves the wrap point; reacting to our own height write would loop.
+      if (el.clientWidth === lastWidth) return;
+      lastWidth = el.clientWidth;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   /**
    * #780 — Ievgen's ruling: the side panel is collapsible by the user, open
    * by default on the full record page, and auto-collapsed on mount when
@@ -645,8 +681,10 @@ export function RecordDetail({
                 actually titled "Untitled" — trading a passing ratio for a worse
                 product. The placeholder->muted rule (#637) is about instructions
                 at body size; it is not about every string in a placeholder. */}
-            <input
-              className="w-full truncate bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
+            <textarea
+              ref={titleRef}
+              rows={1}
+              className="w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
               placeholder="Untitled"
               value={titleDraft ?? record.data.title}
               readOnly={titleReadOnly}
@@ -664,7 +702,13 @@ export function RecordDetail({
                 }
                 setTitleDraft(null);
               }}
-              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              // Enter commits (it never inserts a line break into a record title).
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  (e.target as HTMLTextAreaElement).blur();
+                }
+              }}
             />
             {titleComputed && (
               <span
@@ -713,7 +757,7 @@ export function RecordDetail({
               of field-zoning's pin-to-top UI. #809: the row reads the stored `top` zone, and falls
               back to the type heuristic only while a database has none. */}
           {(strip.fields.length > 0 || (watchers.query.data?.watchers.length ?? 0) > 0) && (
-            <div className="mb-5 ml-[43px] flex flex-wrap items-center gap-1.5">
+            <div className="mb-5 flex flex-wrap items-center gap-1.5">
               {strip.fields.map((field) => (
                 <span
                   key={field.id}
@@ -752,7 +796,7 @@ export function RecordDetail({
                   className={cn('h-3 w-3 shrink-0 transition-transform', !groupSection[group].collapsed && 'rotate-90')}
                   aria-hidden
                 />
-                {group}
+                {GROUP_LABEL[group]}
                 <span className="h-px flex-1 bg-border-default" aria-hidden />
               </button>
               <CollapsibleBody collapsed={groupSection[group].collapsed}>
