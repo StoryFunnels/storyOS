@@ -12,6 +12,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { aiFieldState } from '@/lib/ai-field-state';
 import { useShortcut, useWithShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
@@ -995,6 +996,8 @@ export function TableView({
             onPressed={() => updateRecord.reset()}
           />
         ) : isEmptyCellValue(valueOf(row, field)) &&
+          // #620 — a failed AI recompute with no value yet is shown as failed, not as an "Add" ghost.
+          !(field.type === 'ai' && aiFieldState(row, field.id).kind === 'failed') &&
           !readOnly &&
           field.type !== 'id' &&
           field.type !== 'title' &&
@@ -1061,6 +1064,7 @@ export function TableView({
             <CellDisplay
               field={field}
               value={valueOf(row, field)}
+              aiState={field.type === 'ai' ? aiFieldState(row, field.id) : undefined}
               memberNames={memberNames}
               memberImages={memberImages}
               ws={ws}
