@@ -189,7 +189,7 @@ export class ViewsController {
     @Body() body: ShareViewDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.viewsService.share(databaseId, viewId, body);
+    return this.viewsService.share(databaseId, viewId, body, req.membership);
   }
 
   @Delete(':view/share')
