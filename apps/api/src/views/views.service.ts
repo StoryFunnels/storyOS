@@ -9,7 +9,8 @@ import {
 import { randomBytes } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
-import { SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
+import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
+import { filterMeReference } from '../records/query-compiler';
 import { DB } from '../db/db.module';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -412,6 +413,24 @@ export class ViewsService {
     return (await this.access.effectiveForDatabase(membership, target)) !== null;
   }
 
+  /**
+   * #938 — a view's first "Me" condition, as the field's display name, or undefined. Looks everywhere a view carries a filter:
+   * the view's own `filters` and each dashboard tile's and widget's own `filter` (cross-database tiles are refused at share
+   * time by #555 before this runs, so every filter here names THIS database's fields).
+   */
+  private async findMeInConfig(databaseId: string, config: ViewConfig | null | undefined): Promise<string | undefined> {
+    if (!config) return undefined;
+    const live = await this.liveFields(databaseId);
+    const byApi = new Map(live.map((f) => [f.apiName, f]));
+    const typeOf = (apiName: string) => byApi.get(apiName)?.type ?? SYSTEM_FIELD_BY_API_NAME.get(apiName)?.type;
+    const nodes = [config.filters, ...(config.dashboard_tiles ?? []).map((t) => t.filter), ...(config.dashboard_widgets ?? []).map((w) => w.filter)];
+    for (const node of nodes) {
+      const api = filterMeReference(node, typeOf);
+      if (api !== undefined) return byApi.get(api)?.displayName ?? api;
+    }
+    return undefined;
+  }
+
   /** Validates that every field reference in the config exists (422 otherwise). */
   private async validateConfig(databaseId: string, type: ViewType, config: ViewConfig) {
     const live = await this.liveFields(databaseId);
@@ -644,6 +663,15 @@ export class ViewsService {
     });
     if (!view) throw new NotFoundException('View not found');
     if (patch.config) await this.validateConfig(databaseId, view.type, patch.config);
+    // #938 — the same rule for a view that is ALREADY public: saving a "Me" condition would silently empty the live page.
+    if (patch.config && (view.config as ViewConfig | null)?.share?.public_token) {
+      const meField = await this.findMeInConfig(databaseId, patch.config);
+      if (meField !== undefined) {
+        throw new UnprocessableEntityException(
+          `This view is published. Its "${meField}" filter uses "Me", which matches nobody on a public link, so saving it would empty the public page. Unpublish the view first, or filter by a specific person.`,
+        );
+      }
+    }
     await this.assertFolderInSameSpace(databaseId, patch.folder_id);
 
     // #264 — `share` is service-owned (minted/cleared only by ViewsService's
@@ -927,6 +955,14 @@ export class ViewsService {
       if (!(await this.canReadRelationTarget(membership, live.find((f) => f.apiName === name)!, databaseId))) {
         throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
       }
+    }
+    // #938 — a public link has no signed-in visitor, so a "Me" condition matches nobody and the page is silently empty
+    // (the owner, signed in, sees their own link work). Refuse it here, plainly, instead of publishing a page that looks broken.
+    const meField = await this.findMeInConfig(databaseId, view.config as ViewConfig | null);
+    if (meField !== undefined) {
+      throw new UnprocessableEntityException(
+        `This view filters by "Me" (the "${meField}" field). A public link has no signed-in visitor, so "Me" matches nobody and the page would show nothing. Remove that condition, or filter by a specific person, then publish.`,
+      );
     }
     // #535 — the recipient-scope rule only makes sense against a relation (to
     // e.g. a Clients database) or a text-ish field a recipient's email can
