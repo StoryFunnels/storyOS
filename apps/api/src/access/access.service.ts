@@ -441,6 +441,27 @@ export class AccessService {
     return space;
   }
 
+  /**
+   * #940 — the sidebar DOOR for a space: the space exists in this workspace, it is not someone else's personal space, and
+   * (for a guest) it is one the guest can see at all. 404 in every refusal, so the answer never says which.
+   *
+   * The door is `visibleSpaceIds`, NOT `assertSpace`: `assertSpace` → `effectiveForSpace` matches only SPACE-scoped grants,
+   * but a guest holding a database grant sees the parent space in their sidebar (`visibleSpaceIds` adds it), and
+   * `assertSpace` would 404 a space the product just showed them (views-and-the-sidebar.md). This was inline in
+   * `SpaceViewsService.assertVisibleSpace`, and folders had no check at all; one function so the two cannot drift.
+   */
+  async assertSpaceDoor(membership: Membership, spaceId: string) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId), notDeleted(spaces.deletedAt)),
+      columns: { id: true, personal: true, ownerUserId: true },
+    });
+    if (!space) throw new NotFoundException('Space not found');
+    if (!this.canSeePersonal(membership, space)) throw new NotFoundException('Space not found');
+    const visible = await this.visibleSpaceIds(membership);
+    if (visible !== null && !visible.has(spaceId)) throw new NotFoundException('Space not found');
+    return space;
+  }
+
   /** For list filtering. null = sees everything (admin/member). */
   async guestVisibility(
     membership: Membership,

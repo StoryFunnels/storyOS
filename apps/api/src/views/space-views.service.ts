@@ -176,15 +176,8 @@ export class SpaceViewsService {
    * cannot drift from list. Returns the space row once the viewer is cleared.
    */
   private async assertVisibleSpace(membership: Membership, spaceId: string) {
-    const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId), notDeleted(spaces.deletedAt)),
-      columns: { id: true, personal: true, ownerUserId: true },
-    });
-    if (!space) throw new NotFoundException('Space not found');
-    if (!this.access.canSeePersonal(membership, space)) throw new NotFoundException('Space not found');
-    const visible = await this.access.visibleSpaceIds(membership);
-    if (visible !== null && !visible.has(spaceId)) throw new NotFoundException('Space not found');
-    return space;
+    // #940: the door check lives in AccessService now (folders needed the same one); this stays as the local name.
+    return this.access.assertSpaceDoor(membership, spaceId);
   }
 
   /**

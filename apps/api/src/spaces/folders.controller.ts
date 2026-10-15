@@ -35,27 +35,27 @@ export class FoldersController {
   @Get('spaces/:space/folders')
   @ApiOperation({ summary: 'Folders in a space (MN-096)' })
   async list(@Req() req: WorkspaceRequest, @Param('space') space: string) {
-    return { data: await this.folders.list(req.membership.workspaceId, space) };
+    return { data: await this.folders.list(req.membership, space) };
   }
 
   @Post('spaces/:space/folders')
   @MinRole('member')
   @ApiOperation({ summary: 'Create a folder in a space' })
   async create(@Req() req: WorkspaceRequest, @Param('space') space: string, @Body() body: CreateFolderDto) {
-    return this.folders.create(req.membership.workspaceId, space, body);
+    return this.folders.create(req.membership, space, body);
   }
 
   @Patch('folders/:folder')
   @MinRole('member')
   @ApiOperation({ summary: 'Rename / re-icon / reorder a folder' })
   async update(@Req() req: WorkspaceRequest, @Param('folder') folder: string, @Body() body: UpdateFolderDto) {
-    return this.folders.update(req.membership.workspaceId, folder, body);
+    return this.folders.update(req.membership, folder, body);
   }
 
   @Delete('folders/:folder')
   @MinRole('member')
   @ApiOperation({ summary: 'Delete a folder (its items fall back to the space root)' })
   async remove(@Req() req: WorkspaceRequest, @Param('folder') folder: string) {
-    return this.folders.remove(req.membership.workspaceId, folder);
+    return this.folders.remove(req.membership, folder);
   }
 }
