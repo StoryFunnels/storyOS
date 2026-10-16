@@ -231,7 +231,16 @@ export function HeaderCell({
         {reorderable && (
           <GripVertical className="-ml-1 h-3 w-3 shrink-0 text-faint opacity-0 group-hover/header:opacity-100" />
         )}
-        <span className="truncate">{field.displayName}</span>
+        {/* #930 — the record-number column is sized to its 3-digit values, and "ID" plus
+            the always-reserved pin button left room for one letter ("I."). It reads "#",
+            with the full name on hover, so the header can never be cut mid-word. */}
+        {field.type === 'id' ? (
+          <span title={field.displayName} aria-label={field.displayName}>
+            #
+          </span>
+        ) : (
+          <span className="truncate">{field.displayName}</span>
+        )}
         {/* #224: always visible, not hover-gated — an active filter is state the
             user needs to see without hunting for it. */}
         {isFiltered && (
