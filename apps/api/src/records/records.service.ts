@@ -3486,6 +3486,18 @@ export class RecordsService {
   // ── watch / subscribe (#236) ─────────────────────────────────────────────
 
   /** Subscribe the user to this record's changes (idempotent). */
+  /**
+   * #945 — the watch routes were checked against the database in the URL but acted on the record id alone, so any readable
+   * database id reached any record. The record must live in THAT database (404 otherwise, same answer as a missing record).
+   */
+  async assertRecordInDatabase(databaseId: string, recordId: string): Promise<void> {
+    const row = await this.db.query.records.findFirst({
+      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId)),
+      columns: { id: true },
+    });
+    if (!row) throw new NotFoundException('Record not found');
+  }
+
   async watch(workspaceId: string, recordId: string, userId: string): Promise<{ watching: true }> {
     await this.db
       .insert(recordWatchers)

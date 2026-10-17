@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
@@ -58,6 +59,14 @@ export class InvitesService {
     invitedBy: string,
     input: { email: string; role: MembershipRole; grants?: GrantInput[] },
   ) {
+    // #945 — a member invite carries its grants (they matter once something is restricted); an admin needs none, and a
+    // record-scoped grant is a guest-only shape (ADR-0018 §7). Refused here, never silently dropped at accept.
+    if (input.grants?.length) {
+      if (input.role === 'admin') throw new UnprocessableEntityException('An admin already sees everything; invite without grants');
+      if (input.role === 'member' && input.grants.some((g) => g.record_id)) {
+        throw new UnprocessableEntityException('A member cannot be shared a single record; share its database, or invite them as a guest');
+      }
+    }
     // MN-190: block at the moment the admin acts, not the invitee's accept —
     // Free has no seat-overage price, so this is the only real ceiling.
     if (invitedRoleIsBillable(input.role, input.grants)) {
@@ -78,7 +87,7 @@ export class InvitesService {
     const email = input.email.toLowerCase();
     const values = {
       role: input.role,
-      grants: input.role === 'guest' ? input.grants : null,
+      grants: input.role === 'admin' ? null : input.grants,
       tokenHash: sha256(token),
       expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       invitedBy,
@@ -235,7 +244,7 @@ export class InvitesService {
       return created!;
     });
 
-    if (invite.role === 'guest' && Array.isArray(invite.grants)) {
+    if (invite.role !== 'admin' && Array.isArray(invite.grants)) {
       await this.access.createGrants(
         invite.workspaceId,
         user.id,

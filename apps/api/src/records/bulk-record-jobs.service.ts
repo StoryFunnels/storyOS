@@ -107,11 +107,13 @@ export class BulkRecordJobsService implements OnModuleInit, OnModuleDestroy {
     return toStatus(row!);
   }
 
-  async get(workspaceId: string, jobId: string): Promise<BulkRecordJobStatus> {
+  async get(workspaceId: string, jobId: string, databaseId: string): Promise<BulkRecordJobStatus> {
     const row = await this.db.query.bulkRecordJobs.findFirst({
       where: eq(bulkRecordJobs.id, jobId),
     });
-    if (!row || row.workspaceId !== workspaceId) throw new NotFoundException('Job not found');
+    // #945: the database in the URL is the one the caller was access-checked against, so the job must belong to IT —
+    // otherwise any readable database id polls any job in the workspace.
+    if (!row || row.workspaceId !== workspaceId || row.databaseId !== databaseId) throw new NotFoundException('Job not found');
     return toStatus(row);
   }
 
