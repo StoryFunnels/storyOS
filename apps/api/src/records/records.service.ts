@@ -1512,30 +1512,40 @@ export class RecordsService {
     const CHUNK = 500;
     for (let i = 0; i < recordIds.length; i += CHUNK) {
       const chunk = recordIds.slice(i, i + CHUNK);
-      const patchByRecord = new Map<string, Record<string, unknown>>();
-      for (const def of rollupDefs) {
-        const values = await this.computeRollupValuesForChunk(def, defs, chunk);
-        for (const recordId of chunk) {
-          const patch = patchByRecord.get(recordId) ?? {};
-          patch[def.id] = values.has(recordId)
-            ? values.get(recordId)
-            : def.config['op'] === 'count' || def.config['op'] === 'collect'
-              ? 0
-              : null;
-          patchByRecord.set(recordId, patch);
-        }
-      }
-      for (const def of pickOneDefs) {
-        const values = await this.computePickOneKeysForChunk(def, defs, chunk);
-        for (const recordId of chunk) {
-          const patch = patchByRecord.get(recordId) ?? {};
-          // No winner is null — never 0. A pick-one has no "count" reading, and
-          // 0 would sort as a real value below every genuine one.
-          patch[def.id] = values.get(recordId) ?? null;
-          patchByRecord.set(recordId, patch);
-        }
-      }
+      /*
+       * #897 — compute AND persist under one per-record lock. This used to read the aggregate, then write it in a LATER transaction
+       * with nothing ordering two recomputes of the same record: one that had read an older state could write last and leave a
+       * stale materialized value (the sort key). Now the read happens only once the lock is held, so whichever recompute holds it
+       * reads state at least as new as the change that triggered it, and the last writer is always the newest reader. Locks are
+       * taken in sorted id order so two overlapping chunks cannot deadlock. Still fire-and-forget for the write that triggered it.
+       */
       await this.db.transaction(async (tx) => {
+        for (const recordId of [...chunk].sort()) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'rollup:' + recordId}, 0))`);
+        }
+        const patchByRecord = new Map<string, Record<string, unknown>>();
+        for (const def of rollupDefs) {
+          const values = await this.computeRollupValuesForChunk(def, defs, chunk);
+          for (const recordId of chunk) {
+            const patch = patchByRecord.get(recordId) ?? {};
+            patch[def.id] = values.has(recordId)
+              ? values.get(recordId)
+              : def.config['op'] === 'count' || def.config['op'] === 'collect'
+                ? 0
+                : null;
+            patchByRecord.set(recordId, patch);
+          }
+        }
+        for (const def of pickOneDefs) {
+          const values = await this.computePickOneKeysForChunk(def, defs, chunk);
+          for (const recordId of chunk) {
+            const patch = patchByRecord.get(recordId) ?? {};
+            // No winner is null — never 0. A pick-one has no "count" reading, and
+            // 0 would sort as a real value below every genuine one.
+            patch[def.id] = values.get(recordId) ?? null;
+            patchByRecord.set(recordId, patch);
+          }
+        }
         for (const [recordId, patch] of patchByRecord) {
           await tx
             .update(records)
