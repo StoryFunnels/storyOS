@@ -1142,14 +1142,24 @@ export function TableView({
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div
-              className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-meta font-medium text-faint', pinned && 'sticky left-0 z-30')}
+              className={cn('flex w-14 shrink-0 items-center justify-center overflow-hidden bg-app text-meta font-medium text-faint', pinned && 'sticky left-0 z-30')}
               // #659 — the persistent total-record-count AC: this gutter header is
               // sticky in both axes already (pinned left + the header's own sticky
               // top), so it's always on screen regardless of scroll — the one spot
               // that never needed new positioning to satisfy "no scrolling required".
               title={recordCount.data !== undefined ? `${recordCount.data} ${pluralNoun(noun, recordCount.data)}` : undefined}
             >
-              {recordCount.data ?? '#'}
+              {/* #930 — a bare number beside the 1, 2, 3… row numbers read as one more
+                  row number. The noun under it says what it counts; the count itself is
+                  still the server's (#755), never the loaded rows. */}
+              {recordCount.data === undefined ? (
+                '#'
+              ) : (
+                <span className="flex min-w-0 flex-col items-center leading-none">
+                  <span className="tabular-nums">{recordCount.data}</span>
+                  <span className="max-w-full truncate text-micro font-normal">{pluralNoun(noun, recordCount.data)}</span>
+                </span>
+              )}
             </div>
             {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell

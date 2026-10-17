@@ -477,6 +477,7 @@ export function ViewToolbar({
         <SortButton
           fields={augmented}
           sorts={config.sorts}
+          emptyLabel="Manual order"
           nulls={config.sorts_nulls}
           onChange={(sorts) => onPatch({ sorts })}
           onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
@@ -2593,7 +2594,10 @@ export function SortButton({
   // sort empty-values setting). Hiding the section is cheaper and more honest
   // than rendering a toggle that would silently do nothing when clicked.
   showNulls = true,
+  emptyLabel = 'Sort',
 }: {
+  /** #930 — what the button says while no sort is set. A record view passes "Manual order": with no sort the server returns position order, and a bare "Sort" left a list that runs 925, 924, 919, 915… looking unordered. */
+  emptyLabel?: string;
   fields: Field[];
   sorts: SortSpec[];
   nulls?: NullsPlacement;
@@ -2679,7 +2683,7 @@ export function SortButton({
         )}
       >
         <ArrowUpDown className="h-3.5 w-3.5" />
-        {sorts.length ? `Sorted by ${sorts.length}` : 'Sort'}
+        {sorts.length ? `Sorted by ${sorts.length}` : emptyLabel}
       </button>
       {open && (
         <>
