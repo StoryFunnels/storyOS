@@ -67,6 +67,29 @@ request as it stands. The *opposite* decision — rejecting after approving, or 
 with a `409` and a reason, and so is any decision on an approval that has **expired**. Nothing is
 changed. To undo what an approval allowed, change that thing directly.
 
+## The Governance page
+
+**Settings → Governance** (workspace admins only) shows what the server actually enforces, read-only.
+Nothing on it widens a scope or decides an approval.
+
+- **Agents.** Each agent's declared scope (read, read and change, or admin) and its own approval
+  policy in plain words. An agent that declares no scope is shown as read-only, because that is what
+  the server does. An enabled agent that can change records and holds nothing for approval is
+  flagged; a switched-off agent is not. A banner appears only when *every* enabled agent that can
+  change records has no approval policy *and* no workspace gate is in force.
+- **Gates in force.** The workspace's gate policies, in-force ones first. A policy on an action the
+  server doesn't enforce shows as **"Does nothing"**, with the server's reason, never as protection.
+- **Approvals.** How many are waiting and, of the latest 100, how many were approved, rejected or
+  expired, with who decided, when, and why. These are counts of the latest 100, not totals.
+- **Always enforced.** Only a person can approve or reject; an approval is decided once; an agent
+  never has more access than its owner; and publishing to the outside is held for approval unless an
+  admin turns that off.
+
+**What it cannot show.** The scopes and approval policies on the page describe a run **when StoryOS
+runs the agent**. They do not describe an API token or a connected AI client, which act as the person
+who made them. There is no audit export yet, and past actions aren't linked to the credential that
+performed them, so the page can't say which token or agent identity authorised a given action.
+
 ## Not built
 
 - Only the `delete_records` class can be declared as a policy, and the API enforces that:

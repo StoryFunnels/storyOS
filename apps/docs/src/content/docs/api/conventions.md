@@ -136,6 +136,38 @@ Over MCP: `update_records` and `delete_records` take up to **200** ids per call 
 endpoints above take 5,000), `undo_batch_update` takes the `restorable` list, and
 `enqueue_bulk_record_job` / `get_bulk_record_job` are the large-selection pair.
 
+## Exporting a document to PDF
+
+`GET /workspaces/:ws/documents/:doc/export/pdf` returns the document as a PDF attachment. It is
+rate-limited, and images that can't be embedded (an external address, another workspace's file, or
+over the size budget) are drawn as a visible placeholder and counted in the
+`x-storyos-export-skipped-images` response header, so nothing is dropped silently. There is no
+"Export to PDF" button in the app yet, and an MCP client can't use this route (the result is binary;
+read the content with `get_document`).
+
+**It depends on a renderer.** The PDF is made by a separate Gotenberg container. StoryOS doesn't ship
+that container in its compose files yet. A self-hosted instance turns the feature on by pointing
+`PDF_RENDERER_URL` at a Gotenberg it runs itself; with the variable unset, the route answers `503`
+`pdf_export_not_configured`. Two limits are tunable: `PDF_RENDER_TIMEOUT_MS` (default 30000, a render
+past it fails with `504`) and `PDF_RENDER_MAX_PENDING` (default 4, renders accepted at once; renders
+run one at a time).
+
+**Ask before you offer it.** `GET /api/v1/capabilities` (authenticated) returns
+`{ "pdf_export": { "configured", "reachable", "available", "checked_at" } }`. Gate on `available`: it
+is true only when the renderer answered its health check, not merely when the variable is set. An
+answer is reused for about 15 seconds, and `checked_at` says how stale it is.
+
+Every refusal carries a stable `error.code`:
+
+| Situation | Status | `error.code` | Extra |
+|---|---|---|---|
+| Not configured | 503 | `pdf_export_not_configured` | |
+| Another render running and the queue is full | 503 | `pdf_export_busy` | `Retry-After` header and `meta.retry_after_seconds` |
+| Renderer hung | 504 | `pdf_render_timeout` | `meta.timeout_ms` |
+| Renderer unreachable | 503 | `pdf_renderer_unreachable` | |
+| Renderer failed | 502 | `pdf_render_failed` | |
+| Document too large | 413 | `document_too_large` | `meta.limit`, `meta.measured`, `meta.unit` (characters of generated content) |
+
 ## Pagination
 
 Keyset cursors only — an opaque base64url of `{sort_values, id}`. Responses are
