@@ -51,6 +51,14 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
   promise that nothing derived from hidden data can show up anywhere else a guest looks; other
   surfaces are narrowed one at a time (see the read paths above), so test with a real restricted
   account if the difference matters to you.
+- **A computed record title is computed from what the viewer may read.** A database whose record
+  title is computed from other fields shows a guest (or a token bound to specific spaces or
+  databases) the title with any lookup or rollup input they can't read replaced by "—", and someone
+  who can read those inputs still sees the full title. The same narrowed title is used when they
+  search, filter or sort by title, so it can't be probed. It covers record reads and lists, relation
+  chips, search, recent, favourites, write responses, backlinks, relation link lists, CSV export and
+  history. **That list is what is covered; a surface not on it is not covered by this.** Two people
+  seeing different titles for the same record is intended.
 
 This is what lets you drop a client into their project space to check status and leave comments,
 while every other client's work stays invisible.
