@@ -553,14 +553,32 @@ function compileRelation(def: FieldDef, op: FilterOp, value: unknown, ctx: Compi
   return op === 'has' ? sql`(${match})` : sql`(NOT ${match})`;
 }
 
+/** The field types on which a stored `'me'` means "the signed-in caller". ONE list: `resolveMe` and `filterMeReference` both read it. */
+export const ME_FIELD_TYPES: ReadonlySet<string> = new Set(['user', 'created_by', 'updated_by']);
+
 function resolveMe(def: FieldDef, value: unknown, ctx: CompilerContext): unknown {
-  if (
-    (def.type === 'user' || def.type === 'created_by' || def.type === 'updated_by') &&
-    value === 'me'
-  ) {
+  if (ME_FIELD_TYPES.has(def.type) && value === 'me') {
     return ctx.currentUserId;
   }
   return value;
+}
+
+/**
+ * #938 — the api_name of the first leaf in a filter tree that uses `'me'` on a field where it means the signed-in caller,
+ * or undefined. A public link has NO signed-in caller, so such a condition matches nobody and the page is silently empty;
+ * the share path refuses it with this. Type-checked, not a text search: `title contains "me"` is an ordinary value.
+ * `typeOf` resolves an api_name to its field type (a live field or a system field such as `created_by`).
+ */
+export function filterMeReference(node: unknown, typeOf: (apiName: string) => string | undefined): string | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  if ('and' in node) return (node as { and: unknown[] }).and.map((n) => filterMeReference(n, typeOf)).find((f) => f !== undefined);
+  if ('or' in node) return (node as { or: unknown[] }).or.map((n) => filterMeReference(n, typeOf)).find((f) => f !== undefined);
+  const leaf = node as { field?: string; value?: unknown };
+  if (!leaf.field) return undefined;
+  const type = typeOf(leaf.field);
+  if (!type || !ME_FIELD_TYPES.has(type)) return undefined;
+  const usesMe = leaf.value === 'me' || (Array.isArray(leaf.value) && leaf.value.includes('me'));
+  return usesMe ? leaf.field : undefined;
 }
 
 function assertValidOptionId(def: FieldDef, id: string) {
