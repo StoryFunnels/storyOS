@@ -23,12 +23,17 @@ then:
 The authorization is still scoped to the user's [role and space grants](/concepts/access-and-roles/),
 so the connector can only touch what the user can.
 
-**There is no narrower limit than that.** A [personal access token](/api/authentication/) can be
-capped at read, write or admin power and can be bound to specific spaces or databases. A connector
-signed in through OAuth cannot: it acts with the signed-in user's full role, and the scope and
-resource limits a token carries are not applied to it. Its changes are recorded as coming from an AI
-(`mcp`), not as a person's. If you want an AI limited to read-only, or to one space or database, give
-it a personal access token instead.
+**A connected AI has no scope or resource ceiling, by design.** It acts with the full access of the
+person who connected it, so what it can do equals what you can do. It is your hands, not a separate
+party, and StoryOS does not narrow it. Its changes are recorded as coming from an AI (`mcp`), not as
+a person's.
+
+- **To revoke it, disconnect it.**
+- **Approval gates still apply** to what a connected AI does, exactly as they do for a personal
+  access token: an action a [gate](/concepts/approval-gates/) holds waits for a person.
+- **To narrow an AI on purpose, give it a personal access token instead.** A
+  [token](/api/authentication/) can be capped at read, write or admin power and bound to specific
+  spaces or databases. That is for delegating to a script or a tool, not for your own AI.
 
 ## Enable it (self-host)
 
