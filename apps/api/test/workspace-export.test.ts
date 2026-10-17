@@ -139,7 +139,7 @@ describe('workspace export contents (#320)', () => {
     // #293 — bumped to 2 when documents.json (standalone space documents +
     // shared views) was added; a future importer keys off this to know
     // whether that file exists.
-    expect(manifest.format_version).toBe(2);
+    expect(manifest.format_version).toBe(3);
     expect(manifest.workspace.id).toBe(wsId);
     expect(manifest.counts.databases).toBe(2);
     expect(manifest.counts.relations).toBe(1);
