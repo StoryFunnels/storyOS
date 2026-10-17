@@ -49,6 +49,7 @@ import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
+import { withoutStalePending } from './ai-field-state';
 import { diffSnapshots } from './record-diff';
 import { diffBlocks, jsonEqual, type BlockChange } from '@storyos/schemas/block-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -273,7 +274,8 @@ export class RecordsService {
       created_by: row.createdBy,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
-      computed_values: row.computedValues as Record<string, unknown>,
+      // #925: a stale `<field>:pending_at` marker (a worker that died mid-job) reads as not pending.
+      computed_values: withoutStalePending(row.computedValues as Record<string, unknown>),
     };
   }
 

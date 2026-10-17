@@ -1449,7 +1449,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_record',
     {
       title: 'Get record',
-      description: 'One record in full — values keyed by api_name, resolved relation chips. Accepts the record uuid or its public number.',
+      description: 'One record in full — values keyed by api_name, resolved relation chips. Accepts the record uuid or its public number. `computed_values` carries an AI field\'s state beside its value: `<field_id>:computed_at`, `<field_id>:error` (a failed recompute; the last good value is kept) and `<field_id>:pending_at` (an ISO time, present while a recompute is in flight; treat it as absent once it is more than 5 minutes old, the API already drops it then).',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),

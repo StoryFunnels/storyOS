@@ -12,12 +12,15 @@ import type { JobHelpers } from '../automations/job-runner.service';
 import { defaultManagedAiClient } from '../agents/managed-ai-client';
 import type { ManagedAiClient } from '../agents/managed-ai-client';
 import { renderAiPrompt } from './ai-field-prompt';
+import { pendingAtKey } from './ai-field-state';
 
 interface AiFieldRecomputePayload {
   workspaceId: string;
   databaseId: string;
   recordId: string;
   fieldId: string;
+  /** The `pending_at` this job's enqueue wrote (#925). It clears the marker only if it is still THIS value, so a job that started before a newer edit cannot clear the newer edit's marker. */
+  pendingAt?: string;
 }
 
 /** Suffixed sibling keys on `computed_values`, alongside the field's own
@@ -85,11 +88,19 @@ export class AiFieldSubscriber implements OnModuleInit {
       const deps = config.dependency_field_ids ?? [];
       if (changed && !deps.some((id) => changed.has(id))) continue;
 
+      // #925 — mark the field in flight BEFORE the job exists, so a GET can never see "computed" for a value that is already
+      // being replaced. The timestamp is the job's token for clearing it (see `finishMarker`).
+      const pendingAt = new Date().toISOString();
+      await this.db
+        .update(records)
+        .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify({ [pendingAtKey(field.id)]: pendingAt })}::jsonb` })
+        .where(eq(records.id, event.recordId));
       const payload: AiFieldRecomputePayload = {
         workspaceId: event.workspaceId,
         databaseId: event.databaseId,
         recordId: event.recordId,
         fieldId: field.id,
+        pendingAt,
       };
       // Not deduped against a prior recompute of the same record+field on
       // purpose — DomainEventsService fires exactly once per write, so each
@@ -180,15 +191,29 @@ export class AiFieldSubscriber implements OnModuleInit {
     await this.db
       .update(records)
       .set({
-        computedValues: sql`${records.computedValues} || ${JSON.stringify({
+        computedValues: this.finishMarker(payload, {
           [payload.fieldId]: text,
           [computedAtKey(payload.fieldId)]: new Date().toISOString(),
           [errorKey(payload.fieldId)]: null,
-        })}::jsonb`,
+        }),
       })
       .where(eq(records.id, payload.recordId));
 
     return { value: text };
+  }
+
+  /**
+   * The new `computed_values` for a job that has ended (#925): merge `patch`, and clear the field's `pending_at` marker ONLY if
+   * it is still the value this job's enqueue wrote. A job that started before a newer edit must not clear that edit's marker:
+   * the newer job is still coming, and a cleared marker would show "computed" for a value that is about to be replaced.
+   * Atomic in SQL, so two jobs finishing together cannot interleave a read and a write.
+   */
+  private finishMarker(payload: AiFieldRecomputePayload, patch: Record<string, unknown>) {
+    const key = pendingAtKey(payload.fieldId);
+    const merged = sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb`;
+    // No token (a job enqueued before this field of the payload existed) clears unconditionally: the old behaviour had no marker.
+    if (!payload.pendingAt) return sql`(${merged}) - ${key}::text`;
+    return sql`CASE WHEN ${records.computedValues}->>${key} = ${payload.pendingAt} THEN (${merged}) - ${key}::text ELSE ${merged} END`;
   }
 
   /**
@@ -200,11 +225,7 @@ export class AiFieldSubscriber implements OnModuleInit {
   private async markFailed(payload: AiFieldRecomputePayload, message: string): Promise<void> {
     await this.db
       .update(records)
-      .set({
-        computedValues: sql`${records.computedValues} || ${JSON.stringify({
-          [errorKey(payload.fieldId)]: message.slice(0, 500),
-        })}::jsonb`,
-      })
+      .set({ computedValues: this.finishMarker(payload, { [errorKey(payload.fieldId)]: message.slice(0, 500) }) })
       .where(eq(records.id, payload.recordId))
       .catch(() => undefined);
   }
