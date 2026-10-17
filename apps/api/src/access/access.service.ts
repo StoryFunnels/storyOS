@@ -125,6 +125,17 @@ export class AccessService {
     return best;
   }
 
+  /**
+   * #880 — is this database closed to some members: restricted itself, or inside a restricted space? For a channel we do not
+   * control the membership of (the Slack mirror), "open to every member" is the only safe thing to post to.
+   */
+  async isClosedToSomeMembers(workspaceId: string, databaseId: string): Promise<boolean> {
+    const res = (await this.db.execute(sql`
+      SELECT 1 FROM databases d JOIN spaces s ON s.id = d.space_id
+      WHERE d.id = ${databaseId} AND d.workspace_id = ${workspaceId} AND (d.restricted OR s.restricted) LIMIT 1`)) as unknown as { rows?: unknown[] };
+    return (res.rows?.length ?? 0) > 0;
+  }
+
   /** Drop this request's memo of the restricted set: call it after any write to `spaces.restricted` / `databases.restricted`. */
   forgetClosed(): void {
     forgetForRequest('closed:');

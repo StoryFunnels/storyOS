@@ -3560,7 +3560,7 @@ export class RecordsService {
         })
       : undefined;
     await this.watcherEmail
-      .notify(workspaceId, recordId, recordTitle, actor?.name ?? null, summary, recipients)
+      .notify(workspaceId, databaseId, recordId, recordTitle, actor?.name ?? null, summary, recipients)
       .catch(() => undefined);
 
     // #538 — in-app notifications key off a real actorUserId (NotifyInput

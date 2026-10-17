@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { EmailService } from '../mail/email.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PreferencesService } from '../users/preferences.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import { WatcherEmailService } from './watcher-email.service';
@@ -40,7 +41,9 @@ function buildService(opts: {
     },
   } as unknown as Db;
 
-  const service = new WatcherEmailService(db, emailService, preferences);
+  // #880: send-time access check — every watcher can read in these cases; access.test covers the narrowing.
+  const notifications = { readableRecipients: vi.fn(async (_w: string, _d: string, _r: string, ids: string[]) => ids) } as unknown as NotificationsService;
+  const service = new WatcherEmailService(db, emailService, preferences, notifications);
   return { service, sent, preferences };
 }
 
@@ -48,7 +51,7 @@ describe('WatcherEmailService (#273)', () => {
   it('emails a watcher who has not opted out, with the change summary and a record deep link', async () => {
     const { service, sent } = buildService({ watchers: [{ id: 'u1', email: 'u1@example.com' }] });
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', 'Ada', 'Status: Todo → Done', ['u1']);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', 'Ada', 'Status: Todo → Done', ['u1']);
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
@@ -67,7 +70,7 @@ describe('WatcherEmailService (#273)', () => {
       recordChangedToggleByUser: { u1: false },
     });
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', 'Ada', 'Status: Todo → Done', ['u1']);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', 'Ada', 'Status: Todo → Done', ['u1']);
 
     expect(preferences.notificationPrefsFor).toHaveBeenCalledWith(['u1']);
     expect(sent).toEqual([]);
@@ -82,7 +85,7 @@ describe('WatcherEmailService (#273)', () => {
       recordChangedToggleByUser: { u2: false },
     });
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', ['u1', 'u2']);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', ['u1', 'u2']);
 
     expect(sent.map((s) => s.to)).toEqual(['u1@example.com']);
   });
@@ -90,7 +93,7 @@ describe('WatcherEmailService (#273)', () => {
   it('falls back to "Someone" when the actor has no name', async () => {
     const { service, sent } = buildService({ watchers: [{ id: 'u1', email: 'u1@example.com' }] });
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', null, 'summary', ['u1']);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', null, 'summary', ['u1']);
 
     expect(sent[0]).toMatchObject({ actorName: 'Someone' });
   });
@@ -99,7 +102,7 @@ describe('WatcherEmailService (#273)', () => {
     const { service, sent } = buildService({ watchers: [] });
     const db = (service as unknown as { db: { query: { user: { findMany: ReturnType<typeof vi.fn> } } } }).db;
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', []);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', []);
 
     expect(sent).toEqual([]);
     expect(db.query.user.findMany).not.toHaveBeenCalled();
@@ -110,7 +113,7 @@ describe('WatcherEmailService (#273)', () => {
     const watchers = watcherIds.slice(0, 50).map((id) => ({ id, email: `${id}@example.com` }));
     const { service, sent } = buildService({ watchers });
 
-    await service.notify('ws1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', watcherIds);
+    await service.notify('ws1', 'db1', 'rec1', 'Q3 roadmap', 'Ada', 'summary', watcherIds);
 
     // The mocked lookup only knows the first 50 watchers — if the cap didn't apply,
     // the 51st id would resolve to no user and simply be skipped, hiding the bug;
