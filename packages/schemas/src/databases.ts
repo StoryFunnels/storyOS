@@ -58,6 +58,8 @@ export const updateDatabaseSchema = z.object({
   description_hidden: z.boolean().optional(),
   /** null = the historical position (after all body fields). */
   description_order: z.number().int().nullable().optional(),
+  /** #943 / ADR-0018 — restrict the database to people with an access grant (admins only; admins always see it). */
+  restricted: z.boolean().optional(),
 });
 
 export const deleteDatabaseSchema = z.object({

@@ -5187,6 +5187,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe('Group name or id (from list_space_groups) to file this space under. Pass null to ungroup it.'),
+        restricted: z.boolean().optional().describe('Admin only. true = the space is visible only to people holding a grant on it (admins always see it); false = open again. A restricted database inside an open space is not opened by a space grant — it needs its own grant. Not allowed on personal spaces or system databases.'),
       },
     },
     handle<{
@@ -5197,7 +5198,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       color?: string | null;
       description?: string | null;
       group?: string | null;
-    }>(async ({ workspace, space, rename_to, icon, color, description, group }) => {
+      restricted?: boolean;
+    }>(async ({ workspace, space, rename_to, icon, color, description, group, restricted }) => {
       const ws = await resolveWorkspace(client, workspace);
       const spaceId = await resolveSpaceId(ws.id, space);
       const body: Record<string, unknown> = {};
@@ -5208,6 +5210,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       if (color !== undefined) body.color = color;
       if (description !== undefined) body.description = description;
       if (group !== undefined) body.groupId = group === null ? null : await resolveSpaceGroup(client, ws.id, group);
+      if (restricted !== undefined) body.restricted = restricted;
       const res = await unwrap<unknown>(
         client.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
           params: { path: { ws: ws.id, space: spaceId } } as never,
@@ -5442,6 +5445,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
         move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
+        restricted: z.boolean().optional().describe('Admin only. true = the database is visible only to people holding a grant on it (admins always see it); false = open again. A restricted database inside an open space is not opened by a space grant — it needs its own grant. Not allowed on personal spaces or system databases.'),
       },
     },
     handle<{
@@ -5452,8 +5456,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       color?: string | null;
       description?: string | null;
       move_to_space?: string;
+      restricted?: boolean;
     }>(
-      async ({ workspace, database, rename_to, icon, color, description, move_to_space }) => {
+      async ({ workspace, database, rename_to, icon, color, description, move_to_space, restricted }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const body: Record<string, unknown> = {};
@@ -5464,6 +5469,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         if (color !== undefined) body.color = color;
         if (description !== undefined) body.description = description;
         if (move_to_space) body.space_id = await resolveSpaceId(ws.id, move_to_space);
+        if (restricted !== undefined) body.restricted = restricted;
         const res = await unwrap<unknown>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
             params: { path: { ws: ws.id, db: db.id } } as never,

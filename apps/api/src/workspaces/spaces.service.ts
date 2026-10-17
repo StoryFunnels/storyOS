@@ -135,8 +135,19 @@ export class SpacesService {
       description?: string | null;
       /** #742 finding 04 — presentational sidebar group; null ungroups. */
       groupId?: string | null;
+      /** #943 / ADR-0018 — admin-only (the controller refuses anyone else). */
+      restricted?: boolean;
     },
   ) {
+    if (patch.restricted !== undefined) {
+      const current = await this.db.query.spaces.findFirst({
+        where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
+        columns: { personal: true },
+      });
+      if (!current) throw new NotFoundException('Space not found');
+      // A personal space is private to its owner already, from admins too; "restricted" has no meaning there (ADR-0018 §3).
+      if (current.personal) throw new UnprocessableEntityException('A personal space is already private; it cannot be restricted');
+    }
     let icon = patch.icon;
     if (icon !== undefined && icon !== null) {
       // Prefer the name in this same patch; otherwise the current row's name
@@ -167,6 +178,7 @@ export class SpacesService {
       .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
       .returning();
     if (!space) throw new NotFoundException('Space not found');
+    if (patch.restricted !== undefined) this.access.forgetClosed();
     return space;
   }
 

@@ -208,14 +208,12 @@ export class DatabasesService {
   }
 
   async list(membership: Membership) {
-    const visibility = await this.access.guestVisibility(membership);
+    const readable = await this.access.visibleDatabaseIds(membership);
     const rows = await this.db.query.databases.findMany({
       where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       orderBy: [asc(databases.position)],
     });
-    const visible = visibility
-      ? rows.filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
-      : rows;
+    const visible = readable ? rows.filter((d) => readable.has(d.id)) : rows;
     const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
     // #562 — a write-access-only picker (e.g. #433's Copy-to dialog) needs
     // per-row access without a click-to-find-out N+1: one batched grants
@@ -590,6 +588,8 @@ export class DatabasesService {
        *  thing entirely from `description` above; see the schema comment. */
       description_hidden?: boolean;
       description_order?: number | null;
+      /** #943 / ADR-0018 — admin-only (the controller refuses anyone else). */
+      restricted?: boolean;
     },
   ) {
     const current = await this.db.query.databases.findFirst({
@@ -597,6 +597,10 @@ export class DatabasesService {
     });
     if (!current) throw new NotFoundException('Database not found');
     await this.get(membership, databaseId);
+    // The Members database (ADR-0017) backs every assignee and people picker: a member who could not resolve it would break them.
+    if (patch.restricted !== undefined && current.isSystem) {
+      throw new UnprocessableEntityException('A system database (such as Members) cannot be restricted');
+    }
 
     // Moving to another space: keep the slug if free there, else suffix — the
     // per-space uniqueness (MN-153) would otherwise 500 on a collision.
@@ -631,9 +635,11 @@ export class DatabasesService {
         position: patch.position,
         descriptionHidden: patch.description_hidden,
         descriptionOrder: patch.description_order,
+        restricted: patch.restricted,
       })
       .where(eq(databases.id, databaseId))
       .returning();
+    if (patch.restricted !== undefined) this.access.forgetClosed();
     return updated!;
   }
 

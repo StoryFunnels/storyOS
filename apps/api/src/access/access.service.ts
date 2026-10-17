@@ -60,6 +60,77 @@ export class AccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   /**
+   * #943 / ADR-0018 — the RESTRICTED spaces and databases of this workspace, once per request (memoized like the grants, and
+   * dropped by every grant/flag write). null when nothing is restricted, which is the case for every workspace that has not
+   * used the feature: the whole model then collapses to today's behaviour at the cost of ONE small query.
+   *
+   * Only read for a non-admin: an admin sees everything, so it never asks.
+   */
+  private closedResources(membership: Membership) {
+    return memoizeForRequest(`closed:${membership.workspaceId}`, async () => {
+      // Internal callers act with a role-less `{ workspaceId }` membership (members-db provisioning): they are neither a member
+      // nor a guest and have always seen everything, so nothing is closed to them.
+      if (membership.role !== 'member' && membership.role !== 'guest') return null;
+      const res = (await this.db.execute(sql`
+        SELECT 's' AS kind, id FROM spaces WHERE workspace_id = ${membership.workspaceId} AND restricted AND deleted_at IS NULL
+        UNION ALL
+        SELECT 'd' AS kind, id FROM databases WHERE workspace_id = ${membership.workspaceId} AND restricted AND deleted_at IS NULL`)) as unknown as {
+        rows?: Array<{ kind: 's' | 'd'; id: string }>;
+      };
+      const rows = res.rows ?? [];
+      if (rows.length === 0) return null;
+      return {
+        spaces: new Set(rows.filter((r) => r.kind === 's').map((r) => r.id)),
+        databases: new Set(rows.filter((r) => r.kind === 'd').map((r) => r.id)),
+      };
+    });
+  }
+
+  /**
+   * ADR-0018 — is anything closed to THIS caller? An admin: never. A guest: always (everything is closed to a guest unless a
+   * grant opens it). A member: only in a workspace that has restricted something. The one predicate that replaces the literal
+   * `role === 'guest'` branches, so a restricted member is narrowed by the same code a guest is.
+   */
+  async isNarrowed(membership: Membership): Promise<boolean> {
+    if (membership.role === 'admin') return false;
+    if (membership.role === 'guest') return true;
+    return (await this.closedResources(membership)) !== null;
+  }
+
+  /**
+   * The one resolver for "what does THIS caller hold on this database". admin: admin. A member where the database and its space
+   * are both open: creator (today's behaviour). Otherwise the best of the caller's grants, where STICKY restriction (ADR-0018 §3)
+   * means a database that is itself restricted is opened only by a grant ON the database, never by a grant on its space.
+   * A guest is the same function with "open" never true.
+   */
+  private async resolveDatabaseRole(
+    membership: Membership,
+    database: { id: string; spaceId: string },
+    grants?: Array<typeof accessGrants.$inferSelect>,
+    closed?: Awaited<ReturnType<AccessService['closedResources']>>,
+  ): Promise<EffectiveRole | null> {
+    if (membership.role === 'admin') return 'admin';
+    const closedNow = closed === undefined ? await this.closedResources(membership) : closed;
+    if (membership.role !== 'guest' && (!closedNow || (!closedNow.databases.has(database.id) && !closedNow.spaces.has(database.spaceId)))) {
+      return 'creator';
+    }
+    const held = grants ?? (await this.guestGrants(membership));
+    const sticky = closedNow?.databases.has(database.id) ?? false;
+    let best: EffectiveRole | null = null;
+    for (const grant of held) {
+      if (grant.databaseId === database.id || (!sticky && grant.spaceId === database.spaceId)) {
+        if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+      }
+    }
+    return best;
+  }
+
+  /** Drop this request's memo of the restricted set: call it after any write to `spaces.restricted` / `databases.restricted`. */
+  forgetClosed(): void {
+    forgetForRequest('closed:');
+  }
+
+  /**
    * #861 — read once per REQUEST (see `request-memo.ts`: the memo cannot outlive the request, and
    * `createGrant`/`deleteGrant` drop it). Never cache this any wider: MN-125.
    */
@@ -126,6 +197,11 @@ export class AccessService {
       for (const g of ownerGrants) if (matches(g) && rank(g.role) > rank(best)) best = g.role;
       return best;
     };
+    // #943 — a MEMBER owner's ceiling is what that member can really reach, capped at creator: a member holds 'creator' on
+    // everything that is not restricted and only their grant on what is. Resolved against the owner as a plain member (not the
+    // bound, downgraded view of them), so a token bound to a restricted entry its owner cannot read gets NOTHING for it.
+    const realMember = { ...membership, role: 'member' as const, bound: undefined };
+    const cap = (role: EffectiveRole | null): GrantRole | null => (role === null ? null : role === 'admin' ? 'creator' : role);
     const now = new Date();
     const grant = (scope: { spaceId?: string; databaseId?: string }, role: GrantRole) =>
       ({
@@ -142,14 +218,21 @@ export class AccessService {
       }) as typeof accessGrants.$inferSelect;
     const out: Array<typeof accessGrants.$inferSelect> = [];
     for (const space of visibleSpaces) {
-      const role = ceiling.realRole === 'guest' ? bestOf((g) => g.spaceId === space.id) : 'creator';
+      const role =
+        ceiling.realRole === 'guest'
+          ? bestOf((g) => g.spaceId === space.id)
+          : ceiling.realRole === 'admin'
+            ? 'creator'
+            : cap(await this.effectiveForSpace(realMember, space.id));
       if (role) out.push(grant({ spaceId: space.id }, role));
     }
     for (const database of databaseRows) {
       const role =
         ceiling.realRole === 'guest'
           ? bestOf((g) => g.databaseId === database.id || g.spaceId === database.spaceId)
-          : 'creator';
+          : ceiling.realRole === 'admin'
+            ? 'creator'
+            : cap(await this.resolveDatabaseRole(realMember, database));
       if (role) out.push(grant({ databaseId: database.id }, role));
     }
     return out;
@@ -164,15 +247,19 @@ export class AccessService {
   async guestScopeIds(
     membership: Membership,
   ): Promise<{ spaceIds: string[]; databaseIds: string[]; recordIds: string[] } | null> {
-    if (membership.role !== 'guest') return null;
+    if (membership.role === 'admin') return null;
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && !closed) return null;
     const grants = await this.guestGrants(membership);
     const ids = (pick: (g: (typeof grants)[number]) => string | null) =>
       [...new Set(grants.map(pick).filter((id): id is string => Boolean(id)))];
-    return {
-      spaceIds: ids((g) => g.spaceId),
-      databaseIds: ids((g) => g.databaseId),
-      recordIds: ids((g) => g.recordId),
-    };
+    if (!closed) {
+      return { spaceIds: ids((g) => g.spaceId), databaseIds: ids((g) => g.databaseId), recordIds: ids((g) => g.recordId) };
+    }
+    // Something is restricted: a space grant no longer means "every database in the space" (sticky restriction), and a member
+    // sees everything that is open, which an allow-list of grants cannot say. Express it as an explicit list of databases.
+    const visible = await this.visibleDatabaseIds(membership);
+    return { spaceIds: [], databaseIds: [...(visible ?? [])], recordIds: ids((g) => g.recordId) };
   }
 
   /**
@@ -210,16 +297,7 @@ export class AccessService {
     membership: Membership,
     database: { id: string; spaceId: string },
   ): Promise<EffectiveRole | null> {
-    if (membership.role === 'admin') return 'admin';
-    if (membership.role === 'member') return 'creator';
-    const grants = await this.guestGrants(membership);
-    let best: EffectiveRole | null = null;
-    for (const grant of grants) {
-      if (grant.databaseId === database.id || grant.spaceId === database.spaceId) {
-        if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
-      }
-    }
-    return best;
+    return this.resolveDatabaseRole(membership, database);
   }
 
   /**
@@ -236,19 +314,12 @@ export class AccessService {
     databaseRows: ReadonlyArray<{ id: string; spaceId: string }>,
   ): Promise<Map<string, EffectiveRole | null>> {
     if (membership.role === 'admin') return new Map(databaseRows.map((d) => [d.id, 'admin' as const]));
-    if (membership.role === 'member') return new Map(databaseRows.map((d) => [d.id, 'creator' as const]));
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && !closed) return new Map(databaseRows.map((d) => [d.id, 'creator' as const]));
     const grants = await this.guestGrants(membership);
-    return new Map(
-      databaseRows.map((d) => {
-        let best: EffectiveRole | null = null;
-        for (const grant of grants) {
-          if (grant.databaseId === d.id || grant.spaceId === d.spaceId) {
-            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
-          }
-        }
-        return [d.id, best];
-      }),
-    );
+    const out = new Map<string, EffectiveRole | null>();
+    for (const d of databaseRows) out.set(d.id, await this.resolveDatabaseRole(membership, d, grants, closed));
+    return out;
   }
 
   /**
@@ -267,7 +338,8 @@ export class AccessService {
       id: record.databaseId,
       spaceId: record.spaceId,
     });
-    if (membership.role !== 'guest') return fromDatabase;
+    // A record grant can only ADD (highest wins), so an admin, and a member on an open database, already hold the top rung.
+    if (membership.role === 'admin' || (membership.role !== 'guest' && fromDatabase === 'creator')) return fromDatabase;
     const grants = await this.guestGrants(membership);
     let best = fromDatabase;
     for (const grant of grants) {
@@ -296,24 +368,18 @@ export class AccessService {
     recordRows: ReadonlyArray<{ id: string; databaseId: string; spaceId: string }>,
   ): Promise<Map<string, EffectiveRole | null>> {
     if (membership.role === 'admin') return new Map(recordRows.map((r) => [r.id, 'admin' as const]));
-    if (membership.role === 'member') return new Map(recordRows.map((r) => [r.id, 'creator' as const]));
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && !closed) return new Map(recordRows.map((r) => [r.id, 'creator' as const]));
     const grants = await this.guestGrants(membership);
-    return new Map(
-      recordRows.map((r) => {
-        let best: EffectiveRole | null = null;
-        for (const grant of grants) {
-          if (grant.databaseId === r.databaseId || grant.spaceId === r.spaceId) {
-            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
-          }
-        }
-        for (const grant of grants) {
-          if (grant.recordId === r.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
-            best = grant.role;
-          }
-        }
-        return [r.id, best];
-      }),
-    );
+    const out = new Map<string, EffectiveRole | null>();
+    for (const r of recordRows) {
+      let best = await this.resolveDatabaseRole(membership, { id: r.databaseId, spaceId: r.spaceId }, grants, closed);
+      for (const grant of grants) {
+        if (grant.recordId === r.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) best = grant.role;
+      }
+      out.set(r.id, best);
+    }
+    return out;
   }
 
   /**
@@ -340,11 +406,14 @@ export class AccessService {
     membership: Membership,
     database: { id: string; spaceId: string },
   ): Promise<{ ids: Set<string>; bestRole: GrantRole | null } | null> {
-    if (membership.role !== 'guest') return null;
+    if (membership.role === 'admin') return null;
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && (!closed || (!closed.databases.has(database.id) && !closed.spaces.has(database.spaceId)))) {
+      return null; // an open database: no record-level narrowing
+    }
     const grants = await this.guestGrants(membership);
-    const hasBroaderGrant = grants.some(
-      (g) => g.databaseId === database.id || g.spaceId === database.spaceId,
-    );
+    const sticky = closed?.databases.has(database.id) ?? false;
+    const hasBroaderGrant = grants.some((g) => g.databaseId === database.id || (!sticky && g.spaceId === database.spaceId));
     if (hasBroaderGrant) return null;
     const recordGrants = grants.filter(
       (g): g is typeof g & { recordId: string } => Boolean(g.recordId),
@@ -352,7 +421,7 @@ export class AccessService {
     if (recordGrants.length === 0) return { ids: new Set(), bestRole: null };
     // A grant's recordId has no databaseId of its own (schema.ts:200-206's
     // three scopes are mutually exclusive columns) — resolve which of this
-    // guest's record grants actually belong to THIS database.
+    // caller's record grants actually belong to THIS database.
     const rows = await this.db.query.records.findMany({
       where: and(
         inArray(
@@ -391,7 +460,10 @@ export class AccessService {
     });
     if (space && !this.canSeePersonal(membership, space)) return null;
     if (membership.role === 'admin') return 'admin';
-    if (membership.role === 'member') return 'creator';
+    if (membership.role !== 'guest') {
+      const closed = await this.closedResources(membership);
+      if (!closed?.spaces.has(spaceId)) return 'creator'; // ADR-0018: only a RESTRICTED space is closed to a member
+    }
     const grants = await this.guestGrants(membership);
     let best: EffectiveRole | null = null;
     for (const grant of grants) {
@@ -462,7 +534,11 @@ export class AccessService {
     return space;
   }
 
-  /** For list filtering. null = sees everything (admin/member). */
+  /**
+   * The GRANTS a guest holds, as space and database id sets. null for admin/member: it says "no grant-based narrowing", which is
+   * NOT the same as "sees everything" once something is restricted. Resolved visibility is `visibleSpaceIds` /
+   * `visibleDatabaseIds` below; this stays as the raw grant view for the callers that only need to know a guest holds anything.
+   */
   async guestVisibility(
     membership: Membership,
   ): Promise<{ spaceIds: Set<string>; databaseIds: Set<string> } | null> {
@@ -475,41 +551,62 @@ export class AccessService {
     return { spaceIds, databaseIds };
   }
 
-  /** Spaces a guest can see: directly granted + those containing granted databases. */
+  /**
+   * Spaces this caller can see in the sidebar (ADR-0018). A guest: spaces they hold a grant on, plus the parent of every database
+   * they hold a grant on. A member: every space that is not restricted, plus the same two. null = admin, or a member in a workspace
+   * that restricts nothing: no narrowing.
+   */
   async visibleSpaceIds(membership: Membership): Promise<Set<string> | null> {
-    const visibility = await this.guestVisibility(membership);
-    if (!visibility) return null;
-    const result = new Set(visibility.spaceIds);
-    if (visibility.databaseIds.size > 0) {
+    if (membership.role === 'admin') return null;
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && !closed) return null;
+    const grants = await this.guestGrants(membership);
+    const result = new Set(grants.map((g) => g.spaceId).filter((v): v is string => Boolean(v)));
+    const grantedDatabases = grants.map((g) => g.databaseId).filter((v): v is string => Boolean(v));
+    if (grantedDatabases.length > 0) {
       const rows = await this.db.query.databases.findMany({
-        where: and(inArray(databases.id, [...visibility.databaseIds]), notDeleted(databases.deletedAt)),
+        where: and(inArray(databases.id, grantedDatabases), notDeleted(databases.deletedAt)),
         columns: { spaceId: true },
       });
       rows.forEach((r) => result.add(r.spaceId));
+    }
+    if (membership.role !== 'guest') {
+      const all = await this.db.query.spaces.findMany({
+        where: and(eq(spaces.workspaceId, membership.workspaceId), notDeleted(spaces.deletedAt)),
+        columns: { id: true },
+      });
+      for (const space of all) if (!closed!.spaces.has(space.id)) result.add(space.id);
     }
     return result;
   }
 
   /**
-   * #469 — Databases a guest can see: directly granted + those inside a granted
-   * space (mirrors `visibleSpaceIds`). null = sees every database (member/admin).
+   * #469 — Databases this caller can read in full (ADR-0018). A database is visible when it is OPEN to them (a member, and neither
+   * it nor its space is restricted), or they hold a grant on it, or they hold a grant on its space AND it is not itself restricted
+   * (sticky). null = sees every database (admin, or a member in a workspace that restricts nothing).
    *
-   * This computation existed as three drifting copies before this ticket —
-   * inline in `mentions.service.ts` `backlinks()`, again inline in
-   * `search.controller.ts`, and nowhere at all in the two relation-chip readers
-   * that leaked a guest's denied database's record titles. All three call sites
-   * now go through this one.
+   * This computation existed as three drifting copies before ticket #469 — inline in `mentions.service.ts` `backlinks()`, again
+   * inline in `search.controller.ts`, and nowhere at all in the two relation-chip readers that leaked a guest's denied
+   * database's record titles. All call sites go through this one.
    */
   async visibleDatabaseIds(membership: Membership): Promise<Set<string> | null> {
-    const visibility = await this.guestVisibility(membership);
-    if (!visibility) return null;
+    if (membership.role === 'admin') return null;
+    const closed = await this.closedResources(membership);
+    if (membership.role !== 'guest' && !closed) return null;
+    const grants = await this.guestGrants(membership);
+    const grantedSpaces = new Set(grants.map((g) => g.spaceId).filter((v): v is string => Boolean(v)));
+    const grantedDatabases = new Set(grants.map((g) => g.databaseId).filter((v): v is string => Boolean(v)));
     const rows = await this.db.query.databases.findMany({
       where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       columns: { id: true, spaceId: true },
     });
     return new Set(
       rows
-        .filter((d) => visibility.spaceIds.has(d.spaceId) || visibility.databaseIds.has(d.id))
+        .filter((d) => {
+          const stickyClosed = closed?.databases.has(d.id) ?? false;
+          const openToMe = membership.role !== 'guest' && !stickyClosed && !(closed?.spaces.has(d.spaceId) ?? false);
+          return openToMe || grantedDatabases.has(d.id) || (grantedSpaces.has(d.spaceId) && !stickyClosed);
+        })
         .map((d) => d.id),
     );
   }
@@ -525,7 +622,8 @@ export class AccessService {
    * guest-only primitive here).
    */
   async guestRecordGrantIds(membership: Membership): Promise<Set<string> | null> {
-    if (membership.role !== 'guest') return null;
+    if (membership.role === 'admin') return null;
+    if (membership.role !== 'guest' && !(await this.closedResources(membership))) return null;
     const grants = await this.guestGrants(membership);
     return new Set(grants.map((g) => g.recordId).filter((v): v is string => Boolean(v)));
   }
@@ -668,6 +766,11 @@ export class AccessService {
       ),
     });
     if (!target) throw new NotFoundException('That person is not in this workspace');
+    // ADR-0018 §7: members' record-scoped grants are out of scope for v1. The primitives would honour one, so the API refuses it
+    // rather than opening a surface nobody designed.
+    if (input.record_id && target.role !== 'guest') {
+      throw new UnprocessableEntityException('Record-scoped access is for guests; members get space and database access');
+    }
 
     /**
      * MN-125: a real atomic upsert. This was read-then-write with no unique index

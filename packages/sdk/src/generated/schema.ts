@@ -4618,6 +4618,7 @@ export interface components {
             description?: string | null;
             /** Format: uuid */
             groupId?: string | null;
+            restricted?: boolean;
         };
         /** @default {} */
         DeleteSpaceDto: {
@@ -4734,6 +4735,7 @@ export interface components {
             description?: string | null;
             description_hidden?: boolean;
             description_order?: number | null;
+            restricted?: boolean;
         };
         DeleteDatabaseDto: {
             confirm: string;
