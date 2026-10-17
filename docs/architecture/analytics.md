@@ -33,9 +33,11 @@ today. The list is maintained by hand: when you add or remove an event, change i
   `Workers Builds: storyos-docs`, not a runtime binding, and a change takes effect only on a
   rebuild. A runtime variable (or a missing one) ships the site with **no analytics at all and no
   error**; that is how docs went to zero after #946.
-  - **Check it from the served HTML, not from a browser.** `curl -s https://docs.storyos.dev/ | grep -c posthog`
-    is non-zero with the key set (an inline script in `<head>`) and **zero** without it.
-    `window.posthog` is always undefined on docs, so it proves nothing.
+  - **Check it from the served HTML first.** `curl -s https://docs.storyos.dev/ | grep -c posthog`
+    is non-zero with the key set (an inline script in `<head>`) and **zero** without it. It does not
+    depend on a script having run. In a browser, `window.posthog` follows the same rule: the inline
+    snippet assigns a stub to it before `posthog.init` runs (the real client replaces the stub once
+    `array.js` loads), so it is defined when the key is baked in and undefined when it is not.
   - Docs has no `/ingest` proxy (that belongs to `apps/web`). Events go straight to the configured
     PostHog host (`https://us.i.posthog.com` unless `PUBLIC_POSTHOG_HOST` says otherwise), so look
     for requests there, not to `/ingest`.
