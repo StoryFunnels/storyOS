@@ -7969,18 +7969,25 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('REPLACES the whole subscription list (1–20 events), it does not add to it.'),
         enabled: z.boolean().optional().describe('false pauses deliveries without discarding the subscription.'),
+        take_ownership: z
+          .boolean()
+          .optional()
+          .describe(
+            "true makes YOU the webhook's owner. A webhook acts with its owner's access, so when the owner is demoted, removed or was never recorded, deliveries pause (list_webhooks shows paused_reason) until an admin does this.",
+          ),
       },
     },
-    handle<{ workspace: string; webhook: string; url?: string; events?: string[]; enabled?: boolean }>(
-      async ({ workspace, webhook, url, events, enabled }) => {
+    handle<{ workspace: string; webhook: string; url?: string; events?: string[]; enabled?: boolean; take_ownership?: boolean }>(
+      async ({ workspace, webhook, url, events, enabled, take_ownership }) => {
         const ws = await resolveWorkspace(client, workspace);
         const hook = await resolveWebhook(ws.id, webhook);
         const body: Record<string, unknown> = {};
         if (url !== undefined) body.url = url;
         if (events !== undefined) body.events = events;
         if (enabled !== undefined) body.enabled = enabled;
+        if (take_ownership !== undefined) body.take_ownership = take_ownership;
         if (Object.keys(body).length === 0) {
-          throw new Error('Nothing to update — pass at least one of url, events, enabled.');
+          throw new Error('Nothing to update — pass at least one of url, events, enabled, take_ownership.');
         }
         const updated = await unwrap<unknown>(
           client.PATCH('/api/v1/workspaces/{ws}/webhooks/{id}', {

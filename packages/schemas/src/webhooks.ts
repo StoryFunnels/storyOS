@@ -58,4 +58,6 @@ export const updateWebhookSchema = z.object({
   url: webhookUrlSchema.optional(),
   events: z.array(webhookEventSchema).min(1).max(20).optional(),
   enabled: z.boolean().optional(),
+  /** #920 — make the caller the webhook's owner (the person whose access it acts with). Resumes a paused webhook. */
+  take_ownership: z.boolean().optional(),
 });
