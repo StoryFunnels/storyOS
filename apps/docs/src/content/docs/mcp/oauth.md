@@ -23,6 +23,18 @@ then:
 The authorization is still scoped to the user's [role and space grants](/concepts/access-and-roles/),
 so the connector can only touch what the user can.
 
+**A connected AI has no scope or resource ceiling, by design.** It acts with the full access of the
+person who connected it, so what it can do equals what you can do. It is your hands, not a separate
+party, and StoryOS does not narrow it. Its changes are recorded as coming from an AI (`mcp`), not as
+a person's.
+
+- **To revoke it, disconnect it.**
+- **Approval gates still apply** to what a connected AI does, exactly as they do for a personal
+  access token: an action a [gate](/concepts/approval-gates/) holds waits for a person.
+- **To narrow an AI on purpose, give it a personal access token instead.** A
+  [token](/api/authentication/) can be capped at read, write or admin power and bound to specific
+  spaces or databases. That is for delegating to a script or a tool, not for your own AI.
+
 ## Enable it (self-host)
 
 OAuth is off unless you turn it on. It requires the OIDC tables to be migrated, then set these

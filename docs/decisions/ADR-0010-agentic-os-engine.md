@@ -96,3 +96,12 @@ Prerequisites: MN-134 scopes (done), `activity_events` outbox + Inbox (done), MN
 - **The default tier for a person's own skill is unchanged** (`shared`), and there is no admins-only tier and no admin cross-tier override.
 
 **5. Not decided here.** `source: 'mcp'` cannot say whether a person is at the keyboard or an unattended agent is acting, and every awkward edge in #848, #858 and #867 traces to that. A per-action approval is the correct local answer and works without that distinction existing; the distinction itself deserves its own ticket.
+
+## Amendment — 2026-10-17 (tickets #879, #860): an OAuth-connected AI has no scope ceiling
+
+OAuth-connected AI has no scope ceiling (2026-10-17, Ievgen: "my AI - my rules"). It acts with its
+owner's full access. PAT scoping (#543) is for delegation. Approval gates still apply.
+
+`RequiresScope` and resource binding are enforced on the personal-access-token path only
+(`auth.guard.ts`); the OAuth path has neither, and that is the decision, not a gap. #860 is closed as
+intended behaviour with #879 cited. Do not build a ceiling for the connector without reopening #879.
