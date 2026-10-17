@@ -4,6 +4,7 @@ import type { EmailService } from '../mail/email.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { MentionsService } from '../mentions/mentions.service';
 import type { PreferencesService } from '../users/preferences.service';
+import type { AccessService } from '../access/access.service';
 import type { SlackService } from '../integrations/slack.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import { CommentsService } from './comments.service';
@@ -64,11 +65,12 @@ function buildService(opts: {
 
   const service = new CommentsService(
     db,
-    {} as unknown as NotificationsService,
+    { readableRecipients: vi.fn(async (_w: string, _d: string, _r: string, ids: string[]) => ids) } as unknown as NotificationsService,
     {} as unknown as MentionsService,
     emailService,
     preferences,
     slackService,
+    { isClosedToSomeMembers: vi.fn().mockResolvedValue(false) } as unknown as AccessService,
   );
   return { service, sent, preferences, slackPosts };
 }

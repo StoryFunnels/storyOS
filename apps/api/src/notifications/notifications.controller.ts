@@ -43,7 +43,7 @@ export class NotificationsController {
       // MN-262: a source's own monthly run cap was reached, also never opt-out-able.
       'source_run_cap_reached',
     ]);
-    const page = await this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
+    const page = await this.notifications.list(req.membership, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,
       archived: archived === 'true',
     });
@@ -55,7 +55,7 @@ export class NotificationsController {
   @Get('unread-count')
   @ApiOperation({ summary: 'Unread badge count' })
   async unreadCount(@Req() req: WorkspaceRequest) {
-    return { count: await this.notifications.unreadCount(req.membership.workspaceId, req.user.id) };
+    return { count: await this.notifications.unreadCount(req.membership, req.user.id) };
   }
 
   @Post(':id/read')

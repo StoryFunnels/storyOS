@@ -16,6 +16,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from '../integrations/slack.service';
+import { AccessService } from '../access/access.service';
 import { commentDeepLink, commentMentionIds, isBlocknoteCommentBody, renderCommentText, truncateForPreview } from './comment-render';
 
 // #235 — the body-shape guard now lives in the leaf render module; re-exported
@@ -70,6 +71,7 @@ export class CommentsService {
     private readonly emailService: EmailService,
     private readonly preferences: PreferencesService,
     private readonly slackService: SlackService,
+    private readonly access: AccessService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4).
@@ -325,7 +327,11 @@ export class CommentsService {
       this.preferences.notificationPrefsFor(mentioned.map((m) => m.id)),
     ]);
     const excerpt = truncateForPreview(rendered, 200);
+    // #880 — email and the Slack mirror carry the comment text and the record title OUT of the app, so they ask at SEND time
+    // whether each mentioned person can read this record (the in-app leg already does, in notify()).
+    const readable = new Set(await this.notificationsService.readableRecipients(workspaceId, record?.databaseId, recordId, mentioned.map((m) => m.id)));
     for (const target of mentioned) {
+      if (!readable.has(target.id)) continue;
       if (target.id === authorId) continue;
       // MN-103: the same "Mentions" toggle that gates the in-app notification
       // (NotificationsService.filterByPreference) doubles as the v1 email
@@ -348,6 +354,8 @@ export class CommentsService {
     // v1; per-user DM is blocked on Slack phase-2). Reuses the SAME shared render
     // as email/inbox. Best-effort: sendMessage throws when Slack isn't connected,
     // and we swallow it — a comment must never fail because Slack is down/unset.
+    // #880: a channel's membership is not ours to know, so a record of a restricted database (or space) is never mirrored to it.
+    if (record?.databaseId && (await this.access.isClosedToSomeMembers(workspaceId, record.databaseId))) return;
     const slackText =
       `💬 *${author?.name ?? 'Someone'}* mentioned you on *${record?.title ?? 'a record'}*\n` +
       `> ${excerpt}\n<${commentDeepLink(env().WEB_URL, recordId, commentId)}|Open in StoryOS>`;

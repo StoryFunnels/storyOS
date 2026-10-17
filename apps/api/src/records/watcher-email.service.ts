@@ -6,6 +6,7 @@ import { user } from '../db/schema';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { PreferencesService } from '../users/preferences.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * #273 — a record with many watchers must not turn one change into a mail
@@ -35,10 +36,12 @@ export class WatcherEmailService {
     @Inject(DB) private readonly db: Db,
     private readonly emailService: EmailService,
     private readonly preferences: PreferencesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async notify(
     workspaceId: string,
+    databaseId: string,
     recordId: string,
     recordTitle: string,
     actorName: string | null,
@@ -46,7 +49,11 @@ export class WatcherEmailService {
     watcherIds: string[],
   ): Promise<void> {
     if (watcherIds.length === 0) return;
-    const capped = watcherIds.slice(0, MAX_WATCHER_EMAILS_PER_CHANGE);
+    // #880 — a watcher may have lost access since they subscribed; the mail carries the title and the change text outside the
+    // app's read check, so it asks at SEND time (and before the cap, so the cap is spent on people who can read it).
+    const readable = await this.notifications.readableRecipients(workspaceId, databaseId, recordId, watcherIds);
+    const capped = readable.slice(0, MAX_WATCHER_EMAILS_PER_CHANGE);
+    if (capped.length === 0) return;
 
     const [recipients, prefs] = await Promise.all([
       this.db.query.user.findMany({

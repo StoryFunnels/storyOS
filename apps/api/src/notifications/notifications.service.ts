@@ -7,6 +7,7 @@ import { comments, databases, memberships, notifications, records, user, userPre
 import { DEFAULT_PREFERENCES, mergePreferences } from '../users/preferences.constants';
 import type { UserPreferences } from '../users/preferences.constants';
 import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 
 export type NotificationType =
   | 'assigned'
@@ -256,8 +257,18 @@ export class NotificationsService {
    * A bare notification (no databaseId — trial reminders, connection
    * errors) has nothing to check access against and is left alone.
    */
-  private async filterByAccess(input: NotifyInput, recipients: string[]): Promise<string[]> {
-    if (!input.databaseId) return recipients;
+  private filterByAccess(input: NotifyInput, recipients: string[]): Promise<string[]> {
+    return this.readableRecipients(input.workspaceId, input.databaseId, input.recordId, recipients);
+  }
+
+  /**
+   * Who of `recipients` can CURRENTLY read this record (or database). The one check shared by the in-app emit above and the
+   * delivery paths that carry text out of the app (watcher email, mention email) — #880: they must ask at SEND time, because
+   * a watcher or mentioned person may have lost access since they subscribed. No databaseId = a bare notification, left alone.
+   */
+  async readableRecipients(workspaceId: string, databaseId: string | undefined, recordId: string | undefined, recipients: string[]): Promise<string[]> {
+    if (!databaseId) return recipients;
+    const input = { workspaceId, databaseId, recordId };
     try {
       const database = await this.db.query.databases.findFirst({
         where: eq(databases.id, input.databaseId),
@@ -300,14 +311,65 @@ export class NotificationsService {
     return [...out];
   }
 
+  /**
+   * #880 — the rows of `rows` this caller can CURRENTLY read. Keep-and-filter (Otto, 2026-10-14): nothing is rewritten or purged,
+   * so a restored grant brings the notification back. A bare notification (no database) is the caller's own and always shown.
+   * Anyone nothing is closed to (an admin; a member in a workspace that restricts nothing) skips this entirely.
+   */
+  private async readableRows<T extends { databaseId: string | null; recordId: string | null }>(membership: Membership, rows: T[]): Promise<T[]> {
+    if (!(await this.access.isNarrowed(membership))) return rows;
+    const dbIds = [...new Set(rows.map((r) => r.databaseId).filter((v): v is string => Boolean(v)))];
+    if (dbIds.length === 0) return rows;
+    const dbRows = await this.db.query.databases.findMany({ where: inArray(databases.id, dbIds), columns: { id: true, spaceId: true } });
+    const dbById = new Map(dbRows.map((d) => [d.id, d]));
+    const byDatabase = await this.access.effectiveForDatabases(membership, dbRows);
+    const withRecord = rows.filter((r) => r.databaseId && r.recordId && dbById.has(r.databaseId));
+    const byRecord = withRecord.length
+      ? await this.access.effectiveForRecords(
+          membership,
+          [...new Map(withRecord.map((r) => [r.recordId!, { id: r.recordId!, databaseId: r.databaseId!, spaceId: dbById.get(r.databaseId!)!.spaceId }])).values()],
+        )
+      : new Map<string, unknown>();
+    return rows.filter((r) => {
+      if (!r.databaseId) return true;
+      if (!dbById.has(r.databaseId)) return false; // its database is gone: nothing to read it through
+      return r.recordId ? Boolean(byRecord.get(r.recordId)) : Boolean(byDatabase.get(r.databaseId));
+    });
+  }
+
   async list(
-    workspaceId: string,
+    membership: Membership,
     userId: string,
     unreadOnly: boolean,
     cursor?: string,
     opts?: { type?: NotificationType; archived?: boolean },
   ) {
-    const rows = await this.db
+    const workspaceId = membership.workspaceId;
+    const PAGE = 30;
+    const narrowed = await this.access.isNarrowed(membership);
+    // A narrowed reader's page is filled by scanning forward past rows they cannot read (bounded), so a run of hidden
+    // notifications never turns into an empty page that looks like "no more".
+    let rows: Awaited<ReturnType<NotificationsService['page']>> = [];
+    let from = cursor;
+    let more = false;
+    for (let scan = 0; scan < (narrowed ? 10 : 1); scan++) {
+      const batch = await this.page(workspaceId, userId, unreadOnly, from, opts, PAGE);
+      const readable = narrowed ? await this.readableRows(membership, batch) : batch;
+      rows = rows.concat(readable);
+      more = batch.length === PAGE;
+      if (batch.length > 0) from = encodeKeysetCursor({ t: batch[batch.length - 1]!.cursorTs, id: batch[batch.length - 1]!.id });
+      if (rows.length >= PAGE || !more) break;
+    }
+    if (rows.length > PAGE) {
+      rows = rows.slice(0, PAGE);
+      more = true;
+      from = encodeKeysetCursor({ t: rows[PAGE - 1]!.cursorTs, id: rows[PAGE - 1]!.id });
+    }
+    return this.shape(rows, more ? from! : null);
+  }
+
+  private async page(workspaceId: string, userId: string, unreadOnly: boolean, cursor: string | undefined, opts: { type?: NotificationType; archived?: boolean } | undefined, limit: number) {
+    return this.db
       .select({ ...getTableColumns(notifications), cursorTs: cursorTimestampSql(notifications.createdAt) })
       .from(notifications)
       .where(
@@ -325,8 +387,10 @@ export class NotificationsService {
         ),
       )
       .orderBy(desc(notifications.createdAt), desc(notifications.id))
-      .limit(30);
+      .limit(limit);
+  }
 
+  private async shape(rows: Awaited<ReturnType<NotificationsService['page']>>, nextCursor: string | null) {
     const recordIds = [...new Set(rows.map((r) => r.recordId).filter((v): v is string => Boolean(v)))];
     const actorIds = [...new Set(rows.map((r) => r.actorId).filter((v): v is string => Boolean(v)))];
     const [recordRows, actorRows] = await Promise.all([
@@ -360,11 +424,23 @@ export class NotificationsService {
           actor: actor ? { id: actor.id, name: actor.name, image: actor.image } : null,
         };
       }),
-      next_cursor: rows.length === 30 ? encodeKeysetCursor({ t: rows[rows.length - 1]!.cursorTs, id: rows[rows.length - 1]!.id }) : null,
+      next_cursor: nextCursor,
     };
   }
 
-  async unreadCount(workspaceId: string, userId: string): Promise<number> {
+  async unreadCount(membership: Membership, userId: string): Promise<number> {
+    const workspaceId = membership.workspaceId;
+    // #880 — a narrowed caller's badge counts only what the list would show. Grouped by (database, record) so the access check is
+    // per distinct target, not per row.
+    if (await this.access.isNarrowed(membership)) {
+      const groups = await this.db
+        .select({ databaseId: notifications.databaseId, recordId: notifications.recordId, n: sql<number>`count(*)::int` })
+        .from(notifications)
+        .where(and(eq(notifications.workspaceId, workspaceId), eq(notifications.userId, userId), isNull(notifications.readAt), isNull(notifications.archivedAt)))
+        .groupBy(notifications.databaseId, notifications.recordId);
+      const readable = await this.readableRows(membership, groups);
+      return readable.reduce((sum, g) => sum + g.n, 0);
+    }
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(notifications)
