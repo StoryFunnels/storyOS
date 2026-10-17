@@ -7,6 +7,8 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { StoryOSToaster } from '@/components/ui/toaster';
 import { UndoHotkey } from '@/components/undo-hotkey';
 import { useSession } from '@/lib/auth-client';
+import { sessionVerdict } from '@/lib/session-state';
+import { SessionUnavailable } from '@/components/session-unavailable';
 import { AccountMenu } from '@/components/account-menu';
 import { CommandPalette } from '@/components/command-palette';
 import { QuickAddFab } from '@/components/quick-add-fab';
@@ -24,7 +26,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
   const pathname = usePathname();
-  const { data: session, isPending } = useSession();
+  const { data: session, isPending, error: sessionError, refetch } = useSession();
+  const verdict = sessionVerdict({ data: session, isPending, error: sessionError });
 
   // Off-canvas drawer under md (MN-230b). Plain useState(false) — never read
   // from storage — so the drawer is guaranteed CLOSED on first paint and a
@@ -79,8 +82,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (mounted && !isPending && !session) router.replace('/login');
-  }, [mounted, isPending, session, router]);
+    if (mounted && verdict === 'signed_out') router.replace('/login');
+  }, [mounted, verdict, router]);
 
   // Navigating (tapping a sidebar link) closes the mobile drawer so the
   // destination is immediately visible instead of hidden behind it.
@@ -88,7 +91,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  const authed = mounted && !isPending && !!session;
+  const authed = mounted && verdict === 'authed';
 
   return (
     /*
@@ -111,7 +114,12 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         // structural mismatch. An unauthenticated visitor still sees this and
         // is still redirected by the effect above; an authed one sees it for
         // one frame at most, same as before.
-        <div className="flex flex-1 items-center justify-center text-muted">Loading…</div>
+        mounted && verdict === 'unavailable' ? (
+          // #948 — the API did not answer. That is not "signed out": stay, say so, retry.
+          <SessionUnavailable retry={() => void refetch()} />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-muted">Loading…</div>
+        )
       ) : (
         <>
       {/* Mobile-only backdrop — tapping it closes the drawer, same as the X. */}
