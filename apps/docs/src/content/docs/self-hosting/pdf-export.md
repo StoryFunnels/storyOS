@@ -30,7 +30,7 @@ configured **and** answered its health check recently.
 | | |
 |---|---|
 | **Disk** | The image is pulled, never built on your server. The registry reports about **705 MB to download** (compressed, amd64); it is larger once unpacked. |
-| **Memory** | Capped at **1 GB** (`mem_limit`). Chromium starts on the first export, not at boot, so an idle renderer uses far less. Renders run **one at a time**, so a burst queues rather than multiplying memory. |
+| **Memory** | Capped at **1 GB** (`mem_limit`). Renders run **one at a time**, so a burst queues rather than multiplying memory. Gotenberg's documentation says it starts Chromium on the first export rather than at boot; we have not measured idle or peak memory yet, so treat the 1 GB cap as the only number you can rely on. |
 | **When it's off** | Nothing. No image, no container, no memory. |
 
 On a small host (the reference deployment is 4 GB), leave it off unless you need PDF export, and
@@ -57,6 +57,26 @@ Two consequences worth knowing:
 |---|---|---|
 | `PDF_RENDERER_URL` | unset | Base URL of the renderer. Unset or empty means PDF export is unavailable. |
 | `GOTENBERG_API_TIMEOUT` | `25s` | The renderer's own deadline. Keep it **below** the API's render timeout (`PDF_RENDER_TIMEOUT_MS`, 30 s by default): if the API gave up first, the abandoned render would keep the renderer's single slot busy. |
+| `PDF_RENDER_TIMEOUT_MS` | `30000` | The API's own deadline for one render. **The stock compose file does not pass this through**, so you can only change it with an override file (below). Likewise `PDF_RENDER_MAX_PENDING` (renders accepted at once, default `4`). |
+
+The two API settings are not passed through on purpose: an empty value would be read as `0` and the API
+would refuse to start. To raise them — for example for very long documents — add a compose override and
+raise `GOTENBERG_API_TIMEOUT` with it, keeping the renderer's timeout below the API's:
+
+```yaml
+# docker-compose.override.yml  (Compose reads this automatically unless COMPOSE_FILE is set;
+# if you set COMPOSE_FILE, add this file to it)
+services:
+  api:
+    environment:
+      PDF_RENDER_TIMEOUT_MS: '90000'
+      PDF_RENDER_MAX_PENDING: '4'
+```
+
+```bash
+# in .env — still below the API's 90 s
+GOTENBERG_API_TIMEOUT=80s
+```
 
 A document too large to render is refused with `413` and a body that names the limit and the
 document's measured size.
