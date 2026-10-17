@@ -207,13 +207,29 @@ export class PublicViewsService {
       // don't apply to an anonymous visitor at all.
     );
 
+    // #909 — the title is computed from what this share publishes, not served from the stored (full) one.
+    const shareTitles = await this.records.titlesForShare(
+      database.id,
+      result.data,
+      new Set([...exposedApiNames, ...relationApiNames]),
+    );
     const records = result.data.map((record) => {
       const values: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(record.values)) {
         if (relationApiNames.has(key) || exposedApiNames.has(key)) values[key] = value;
       }
-      return { id: record.id, title: record.title, number: record.number, values };
+      return { id: record.id, title: shareTitles.get(record.id) ?? record.title, number: record.number, values };
     });
+    // #909 — a published relation column carries the TARGET record's title in each chip; narrow those like a guest with no
+    // grant on the far side (a computed target title shows its lookup input as "—").
+    const chips: Array<{ id: string; title: string }> = [];
+    for (const record of records) {
+      for (const [key, value] of Object.entries(record.values)) {
+        if (!relationApiNames.has(key) || !Array.isArray(value)) continue;
+        for (const chip of value) if (chip && typeof chip === 'object' && typeof (chip as { id?: unknown }).id === 'string' && typeof (chip as { title?: unknown }).title === 'string') chips.push(chip as { id: string; title: string });
+      }
+    }
+    await this.records.narrowTitlesForAnonymous(chips);
 
     // #555 — board grouping / dashboard tiles. `share()` already validates
     // these against the allowlist at PUBLISH time, but `hidden_field_ids`

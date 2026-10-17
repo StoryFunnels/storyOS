@@ -4987,6 +4987,81 @@ export class RecordsService {
   }
 
   /**
+   * #909 — the titles a PUBLIC or PORTAL view serves: computed from the fields the share PUBLISHES, and nothing else (Otto,
+   * 2026-10-14). An anonymous viewer has no member access to compute against, so the share's own field allowlist is the access
+   * model: an input the share does not publish is shown as "—" (the way #884 redacts), never blanked, because the record itself
+   * is legitimately shown. Returns the overrides only (record id → title); empty when the database's title is not computed or
+   * every input it references is published, so an author who published the field sees no change.
+   *
+   * `published` is every api_name the share serves (columns and relation columns). `rows` are the query rows as the view
+   * resolved them: a published lookup/rollup input is taken from the row's own resolved value.
+   */
+  async titlesForShare(
+    databaseId: string,
+    rows: ReadonlyArray<{ id: string; number: number | null; values: Record<string, unknown> }>,
+    published: ReadonlySet<string>,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (rows.length === 0) return out;
+    const defs = await this.fieldDefs(databaseId);
+    const titleDef = this.computedTitleDef(defs);
+    if (!titleDef) return out;
+    const byApi = new Map(defs.map((d) => [d.api_name, d]));
+    const hidden = new Set(
+      formulaRefs(titleDef.config['ast'] as FormulaNode).filter((ref) => {
+        const def = byApi.get(ref);
+        return !!def && def.type !== 'title' && !published.has(ref);
+      }),
+    );
+    if (hidden.size === 0) return out;
+    const raw = await this.db.query.records.findMany({ where: inArray(records.id, rows.map((r) => r.id)), columns: { id: true, values: true } });
+    const rawById = new Map(raw.map((r) => [r.id, r.values as Record<string, unknown>]));
+    const labelByOption = await this.loadSelectLabels(defs);
+    for (const row of rows) {
+      const valuesById = { ...(rawById.get(row.id) ?? {}) };
+      const cross = new Map<string, unknown>();
+      for (const def of defs) {
+        if (def.type === 'lookup' || def.type === 'rollup' || def.type === 'relation') {
+          cross.set(def.api_name, hidden.has(def.api_name) ? '—' : (row.values[def.api_name] ?? null));
+        } else if (hidden.has(def.api_name)) {
+          valuesById[def.id] = '—';
+        }
+      }
+      out.set(row.id, this.computeTitle(titleDef, defs, valuesById, row.number, labelByOption, cross));
+    }
+    return out;
+  }
+
+  /**
+   * #909 — `narrowTitles` for an ANONYMOUS reader (a public or portal share): a relation chip carries the TARGET record's title,
+   * and a viewer with no membership can read nothing outside the share, so a target whose computed title is built from a
+   * lookup/rollup shows its local title (the lookup input as "—"), the same value a guest with no grant on the far side sees.
+   * A target whose title references nothing cross-record is left alone.
+   */
+  async narrowTitlesForAnonymous(items: Array<{ id: string; title: string }>): Promise<void> {
+    if (items.length === 0) return;
+    const ids = [...new Set(items.map((i) => i.id))];
+    const rows = await this.db
+      .select({ id: records.id, databaseId: records.databaseId, number: records.number, titleLocal: records.titleLocal })
+      .from(records)
+      .where(inArray(records.id, ids));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const decided = new Map<string, boolean>();
+    for (const item of items) {
+      const row = byId.get(item.id);
+      if (!row) continue;
+      let narrowed = decided.get(row.databaseId);
+      if (narrowed === undefined) {
+        const defs = await this.fieldDefs(row.databaseId);
+        const titleDef = this.computedTitleDef(defs);
+        narrowed = !!titleDef && this.titleReferencesCrossRecord(titleDef, defs);
+        decided.set(row.databaseId, narrowed);
+      }
+      if (narrowed) item.title = row.titleLocal ?? (row.number != null ? `#${row.number}` : '');
+    }
+  }
+
+  /**
    * #884 — replace each item's `title` with what THIS caller may see, in place. A no-op for anyone but a guest (admin,
    * member and system callers are untouched), so the ordinary path costs nothing. Called at every exit that serves a
    * record's title: the record itself, relation chips, search, recent, favourites, trash, history.
