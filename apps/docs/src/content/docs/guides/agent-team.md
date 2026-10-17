@@ -13,6 +13,12 @@ It is the method behind the agent team that builds StoryOS. It ships as six Clau
 public repository:
 **[github.com/ikrasovytskyi/skills](https://github.com/ikrasovytskyi/skills)**.
 
+## Who wrote this
+
+Written by **Ievgen Krasovytskyi**, from running the agent team that builds StoryOS.
+[LinkedIn](https://www.linkedin.com/in/krasovytskyi/) ·
+[GitHub](https://github.com/ikrasovytskyi).
+
 ## What the method is
 
 - **Agents coordinate through records, not messages.** A message is delivered once and gone. A
@@ -68,7 +74,8 @@ folders whole: several skills read files from each other's `references/` directo
 
 ## Using the skills
 
-The skills are free to use.
+The skills are licensed [CC BY 4.0](https://github.com/ikrasovytskyi/skills/blob/main/LICENSE): use,
+adapt and share them, commercially too, with credit.
 
 ## What this is not
 
