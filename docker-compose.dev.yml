@@ -27,5 +27,28 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # PDF renderer for local development (#874) — OFF unless asked for:
+  #   docker compose -f docker-compose.dev.yml --profile pdf up -d
+  # then run the API with PDF_RENDERER_URL=http://127.0.0.1:3010.
+  #
+  # DELIBERATELY NOT ISOLATED here, unlike docker-compose.yml: in dev the API runs on
+  # your HOST, and a host process cannot reach a container on an `internal: true`
+  # network. So this publishes a port — bound to 127.0.0.1 only, never your LAN. That is
+  # fine for a laptop and WRONG for a server: never copy this block into a deployed file.
+  # Keep the image tag and settings in step with docker-compose.yml's `gotenberg`.
+  gotenberg:
+    image: gotenberg/gotenberg:8.38.1
+    profiles: [pdf]
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:3010:3000"
+    environment:
+      CHROMIUM_MAX_CONCURRENCY: "1"
+      API_TIMEOUT: "25s"
+      CHROMIUM_DISABLE_JAVASCRIPT: "true"
+      API_DISABLE_DOWNLOAD_FROM: "true"
+      WEBHOOK_DISABLE: "true"
+      LIBREOFFICE_DISABLE_ROUTES: "true"
+
 volumes:
   storyos_pg_data:
