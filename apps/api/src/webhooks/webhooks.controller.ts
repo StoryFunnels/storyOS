@@ -36,13 +36,13 @@ export class WebhooksController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a webhook (url / events / enabled)' })
+  @ApiOperation({ summary: 'Update a webhook (url / events / enabled; take_ownership makes you its owner and resumes it if paused)' })
   async update(
     @Req() req: WorkspaceRequest,
     @Param('id') id: string,
     @Body() body: UpdateWebhookDto,
   ) {
-    return this.webhooks.update(req.membership.workspaceId, id, body);
+    return this.webhooks.update(req.membership.workspaceId, id, body, req.user.id);
   }
 
   @Delete(':id')

@@ -1841,7 +1841,7 @@ export interface paths {
         delete: operations["WebhooksController_remove"];
         options?: never;
         head?: never;
-        /** Update a webhook (url / events / enabled) */
+        /** Update a webhook (url / events / enabled; take_ownership makes you its owner and resumes it if paused) */
         patch: operations["WebhooksController_update"];
         trace?: never;
     };
@@ -5517,6 +5517,7 @@ export interface components {
             url?: string;
             events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
             enabled?: boolean;
+            take_ownership?: boolean;
         };
         CommentBodyDto: {
             body: ({
