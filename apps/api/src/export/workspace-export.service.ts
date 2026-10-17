@@ -5,6 +5,7 @@ import { and, asc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
+  accessGrants,
   attachments,
   databases,
   recordLinks,
@@ -31,8 +32,11 @@ export const WORKSPACE_EXPORT_FORMAT = 'storyos-workspace-export';
  * this was a named "not yet included, candidate for a format_version bump"
  * gap. Bumped rather than left at 1 so a future importer keyed on this field
  * can tell an archive that has `documents.json` from one that doesn't.
+ *
+ * #946 — v3 adds `restricted` on every space and database, and `access.json` (the grants), so a restore cannot silently
+ * open a confidential database (ADR-0018 decision 6).
  */
-export const WORKSPACE_EXPORT_VERSION = 2;
+export const WORKSPACE_EXPORT_VERSION = 3;
 
 /** One page of records/links at a time — memory stays bounded on a huge workspace. */
 const PAGE = 500;
@@ -64,6 +68,7 @@ type AttachmentRef = {
  *   spaces/<space-slug>/<db-slug>.json     — schema + records (values keyed by field id)
  *   relations.json                         — relation defs + links, by record id
  *   documents.json                         — standalone space documents + shared views (#293)
+ *   access.json                            — `restricted` lives on spaces/databases; this holds the grants (#946)
  *   attachments/<attachment-id>/<filename> — the actual files
  */
 @Injectable()
@@ -110,6 +115,29 @@ export class WorkspaceExportService {
     const relationRows = await this.db.query.relations.findMany({
       where: eq(relations.workspaceId, workspaceId),
     });
+
+    /**
+     * #946 / ADR-0018 decision 6 — who holds a grant on what, so a restore can never describe a restricted database as open.
+     * Only grants whose target IS in this archive (a grant on a system database or a personal space points at nothing a
+     * restore can rebuild). Carries user ids, never emails: ids are what a restore maps; contact data stays out of the file.
+     */
+    const exportedSpaces = new Set(spaceRows.map((s) => s.id));
+    const exportedDatabases = new Set(databaseRows.map((d) => d.id));
+    const grantRows = await this.db.query.accessGrants.findMany({
+      where: eq(accessGrants.workspaceId, workspaceId),
+      orderBy: [asc(accessGrants.createdAt), asc(accessGrants.id)],
+    });
+    const grantedRecordIds = grantRows.map((g) => g.recordId).filter((id): id is string => Boolean(id));
+    const recordDatabase = new Map<string, string>();
+    if (grantedRecordIds.length > 0) {
+      for (const r of await this.db.query.records.findMany({
+        where: and(inArray(records.id, grantedRecordIds), isNull(records.deletedAt)),
+        columns: { id: true, databaseId: true },
+      })) recordDatabase.set(r.id, r.databaseId);
+    }
+    const exportedGrants = grantRows.filter((g) =>
+      g.spaceId ? exportedSpaces.has(g.spaceId) : g.databaseId ? exportedDatabases.has(g.databaseId) : g.recordId ? exportedDatabases.has(recordDatabase.get(g.recordId) ?? '') : false,
+    );
 
     /**
      * #293 — the export boundary follows an item's CURRENT container, same
@@ -221,6 +249,7 @@ export class WorkspaceExportService {
         attachments: allAttachments.length,
         documents: spaceDocumentRows.length,
         views: viewRows.length,
+        grants: exportedGrants.length,
       },
       spaces: spaceRows.map((s) => ({
         id: s.id,
@@ -228,9 +257,10 @@ export class WorkspaceExportService {
         slug: s.slug,
         icon: s.icon,
         color: s.color,
+        restricted: s.restricted,
         databases: databaseRows
           .filter((d) => d.spaceId === s.id)
-          .map((d) => ({ id: d.id, name: d.name, api_slug: d.apiSlug, path: dbPath.get(d.id)! })),
+          .map((d) => ({ id: d.id, name: d.name, api_slug: d.apiSlug, restricted: d.restricted, path: dbPath.get(d.id)! })),
       })),
     };
 
@@ -250,6 +280,22 @@ export class WorkspaceExportService {
         name: dbPath.get(db.id)!,
       });
     }
+
+    // #946 — who holds which grant. Written whole (a few rows), before the heavy entries.
+    archive.append(
+      JSON.stringify({
+        grants: exportedGrants.map((g) => ({
+          id: g.id,
+          user_id: g.userId,
+          space_id: g.spaceId,
+          database_id: g.databaseId,
+          record_id: g.recordId,
+          role: g.role,
+          created_at: g.createdAt,
+        })),
+      }),
+      { name: 'access.json' },
+    );
 
     // The relation graph, streamed: definitions (few) then links (potentially many).
     archive.append(Readable.from(this.relationsJson(relationRows)), { name: 'relations.json' });
@@ -345,6 +391,7 @@ export class WorkspaceExportService {
         icon: db.icon,
         color: db.color,
         position: db.position,
+        restricted: db.restricted,
       },
       fields: fieldRows.map((f) => ({
         id: f.id,
