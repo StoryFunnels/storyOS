@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { OPTION_COLORS } from '@storyos/schemas';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
@@ -318,8 +318,10 @@ describe('database color auto-assignment + fallback (MN-299)', () => {
 describe('concurrent slug allocation is race-safe (MN-165)', () => {
   it('two concurrent creates of the SAME name in the SAME space both succeed with distinct slugs (no 500)', async () => {
     const service = app.get(DatabasesService);
+    // The admin, explicitly: `create` now checks edit access to the space (#945), and "the first membership of the workspace"
+    // is whoever the earlier tests happened to add, which may be a guest.
     const membership = (await db.query.memberships.findFirst({
-      where: eq(memberships.workspaceId, wsId),
+      where: and(eq(memberships.workspaceId, wsId), eq(memberships.role, 'admin')),
     })) as Membership;
     expect(membership).toBeTruthy();
 
@@ -350,8 +352,10 @@ describe('concurrent slug allocation is race-safe (MN-165)', () => {
 
   it('a third concurrent create of the same name lands on the next free suffix', async () => {
     const service = app.get(DatabasesService);
+    // The admin, explicitly: `create` now checks edit access to the space (#945), and "the first membership of the workspace"
+    // is whoever the earlier tests happened to add, which may be a guest.
     const membership = (await db.query.memberships.findFirst({
-      where: eq(memberships.workspaceId, wsId),
+      where: and(eq(memberships.workspaceId, wsId), eq(memberships.role, 'admin')),
     })) as Membership;
 
     // clientSpace already holds `race_me` and `race_me_2` from the prior test.

@@ -8,6 +8,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import { ForbiddenException } from '@nestjs/common';
 import type { WebhookEvent } from '@storyos/schemas';
 import { env } from '../config/env';
 import { DB } from '../db/db.module';
@@ -15,6 +16,7 @@ import type { Db } from '../db/client';
 import {
   activityEvents,
   databases,
+  memberships,
   records,
   webhookDeliveries,
   webhookSubscriptions,
@@ -76,9 +78,13 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
   // --- CRUD ---
 
   /** snake_case is the public contract here, as everywhere else in the API. */
-  private toPublic(row: typeof webhookSubscriptions.$inferSelect) {
+  private toPublic(row: typeof webhookSubscriptions.$inferSelect, pausedReason: string | null = null) {
     return {
       id: row.id,
+      /** #920 — whose access this webhook acts with. Changes only when an admin takes it over. */
+      owner_id: row.createdBy,
+      /** #920 — non-null while deliveries are paused because the owner is no longer an admin. Computed live, never stale. */
+      paused_reason: pausedReason,
       workspace_id: row.workspaceId,
       database_id: row.databaseId,
       url: row.url,
@@ -99,7 +105,42 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       where: eq(webhookSubscriptions.workspaceId, workspaceId),
       orderBy: [desc(webhookSubscriptions.createdAt)],
     });
-    return rows.map((row) => this.toPublic(row));
+    const reasons = await this.pausedReasons(rows);
+    return rows.map((row) => this.toPublic(row, reasons.get(row.id) ?? null));
+  }
+
+  /**
+   * #920 — a webhook is a standing read into an outside system, made on its OWNER's behalf, so it may never read more than the
+   * owner can. Only an admin can own one, so an owner who stops being an admin (demoted, removed) or was never recorded leaves
+   * it with an owner who holds no such access: deliveries PAUSE, with the reason visible on the webhook, until an admin takes it
+   * over. Evaluated live from the membership at every read, scan and flush, so a demotion bites on the next tick and a
+   * re-promotion or take-over resumes it, with nothing to keep in sync.
+   */
+  private async pausedReasons(rows: Array<{ id: string; workspaceId: string; createdBy: string | null }>): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const ownerIds = [...new Set(rows.map((r) => r.createdBy).filter((v): v is string => Boolean(v)))];
+    const held = ownerIds.length
+      ? await this.db.query.memberships.findMany({ where: inArray(memberships.userId, ownerIds), columns: { workspaceId: true, userId: true, role: true, status: true } })
+      : [];
+    const byKey = new Map(held.map((m) => [`${m.workspaceId}:${m.userId}`, m]));
+    for (const r of rows) {
+      if (!r.createdBy) {
+        out.set(r.id, 'This webhook has no owner, so it is paused. An admin must take ownership to resume deliveries.');
+        continue;
+      }
+      const m = byKey.get(`${r.workspaceId}:${r.createdBy}`);
+      if (!m || m.status !== 'active') out.set(r.id, 'Its owner left the workspace, so deliveries are paused. An admin must take ownership to resume them.');
+      else if (m.role !== 'admin') out.set(r.id, 'Its owner is no longer an admin, so deliveries are paused. An admin must take ownership to resume them.');
+    }
+    return out;
+  }
+
+  /** SQL form of the same rule, for the queries that must not read a paused webhook (scan, flush). `subId` is the subscription id expression. */
+  private ownerIsAdminSql(subId: unknown) {
+    return sql`EXISTS (
+      SELECT 1 FROM webhook_subscriptions s JOIN memberships m
+        ON m.workspace_id = s.workspace_id AND m.user_id = s.created_by AND m.role = 'admin' AND m.status = 'active'
+      WHERE s.id = ${subId})`;
   }
 
   async create(
@@ -133,11 +174,15 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
   async update(
     workspaceId: string,
     id: string,
-    input: { url?: string; events?: WebhookEvent[]; enabled?: boolean },
+    input: { url?: string; events?: WebhookEvent[]; enabled?: boolean; take_ownership?: boolean },
+    /** The caller, who becomes the owner when `take_ownership` is set. The controller guarantees they are an admin. */
+    actorId?: string,
   ) {
+    if (input.take_ownership && !actorId) throw new ForbiddenException('take_ownership needs a signed-in admin');
     const [row] = await this.db
       .update(webhookSubscriptions)
       .set({
+        ...(input.take_ownership ? { createdBy: actorId } : {}),
         ...(input.url !== undefined ? { url: input.url } : {}),
         ...(input.events !== undefined ? { events: input.events } : {}),
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
@@ -148,7 +193,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       )
       .returning();
     if (!row) throw new NotFoundException('webhook not found');
-    return this.toPublic(row);
+    return this.toPublic(row, (await this.pausedReasons([row])).get(row.id) ?? null);
   }
 
   async remove(workspaceId: string, id: string) {
@@ -354,7 +399,9 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
    */
   async scan(): Promise<number> {
     const subs = await this.db.query.webhookSubscriptions.findMany({
-      where: eq(webhookSubscriptions.enabled, true),
+      // #920: a paused webhook (owner no longer an admin) queues nothing. Its cursor does not advance, so what happened while
+      // it was paused is delivered once an admin takes it over, under THAT admin's access.
+      where: and(eq(webhookSubscriptions.enabled, true), this.ownerIsAdminSql(webhookSubscriptions.id)),
       limit: 100,
     });
     let queued = 0;
@@ -464,6 +511,8 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       where: and(
         eq(webhookDeliveries.status, 'pending'),
         or(isNull(webhookDeliveries.nextAttemptAt), lte(webhookDeliveries.nextAttemptAt, new Date())),
+        // #920: nothing queued under a paused webhook is sent (checked in SQL so paused rows cannot crowd the 50-row batch)
+        this.ownerIsAdminSql(webhookDeliveries.subscriptionId),
       ),
       orderBy: [asc(webhookDeliveries.createdAt)],
       limit: 50,

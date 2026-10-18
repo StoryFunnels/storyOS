@@ -4715,7 +4715,7 @@
             "bearer": []
           }
         ],
-        "summary": "Update a webhook (url / events / enabled)",
+        "summary": "Update a webhook (url / events / enabled; take_ownership makes you its owner and resumes it if paused)",
         "tags": [
           "webhooks"
         ]

@@ -439,6 +439,9 @@ export class DatabasesService {
       is_system?: boolean;
     },
   ) {
+    // #945: creating INTO a space needs edit access to that space. Inside `create` (not the controller) so the template,
+    // Shopify, pack, Linear and architect callers are covered too; their internal role-less membership is never narrowed.
+    await this.access.assertSpace(membership, input.space_id, 'editor');
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, membership.workspaceId)),
     });
