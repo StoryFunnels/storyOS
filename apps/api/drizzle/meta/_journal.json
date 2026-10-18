@@ -778,6 +778,13 @@
       "when": 1792102574607,
       "tag": "0110_unusual_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1792350930198,
+      "tag": "0111_credential_token_id",
+      "breakpoints": true
     }
   ]
 }

@@ -3452,6 +3452,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/credentials/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A credential's scope and window — including after it was revoked or its owner erased (#882) */
+        get: operations["CredentialsController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/credentials/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything one credential did (activity events), newest first (#882) */
+        get: operations["CredentialsController_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/activity-events/{event}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One past action and the credential that performed it (#882) */
+        get: operations["CredentialsController_event"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/files": {
         parameters: {
             query?: never;
@@ -5517,6 +5568,7 @@ export interface components {
             url?: string;
             events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
             enabled?: boolean;
+            take_ownership?: boolean;
         };
         CommentBodyDto: {
             body: ({
@@ -12066,6 +12118,65 @@ export interface operations {
             header?: never;
             path: {
                 token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CredentialsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CredentialsController_actions: {
+        parameters: {
+            query: {
+                cursor: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CredentialsController_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event: string;
             };
             cookie?: never;
         };

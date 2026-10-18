@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable } from '@nestjs/common';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { runWithCredential } from '../common/credential-context';
 
 /**
  * #861 — a memo whose lifetime IS one HTTP request, and nothing wider.
@@ -46,12 +47,16 @@ export function forgetForRequest(prefix: string): void {
 /** Opens one memo per request. Registered once, globally, by AccessModule. */
 @Injectable()
 export class RequestMemoInterceptor implements NestInterceptor {
-  intercept(_context: ExecutionContext, next: CallHandler): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    // #882 — interceptors run AFTER the guards, so the auth guard has already set `auth.tokenId` (PATs only).
+    const tokenId = (context.switchToHttp().getRequest<{ auth?: { tokenId?: string } }>()?.auth?.tokenId) ?? null;
     return new Observable((subscriber) =>
-      store.run(new Map(), () => {
-        const subscription = next.handle().subscribe(subscriber);
-        return () => subscription.unsubscribe();
-      }),
+      runWithCredential(tokenId, () =>
+        store.run(new Map(), () => {
+          const subscription = next.handle().subscribe(subscriber);
+          return () => subscription.unsubscribe();
+        }),
+      ),
     );
   }
 }
