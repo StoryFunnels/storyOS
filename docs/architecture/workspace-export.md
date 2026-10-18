@@ -28,6 +28,7 @@ manifest.json
 spaces/<space-slug>/<database-slug>.json
 relations.json
 documents.json
+access.json
 attachments/<attachment-id>/<filename>
 ```
 
@@ -42,15 +43,15 @@ space and database (with the in-archive `path` of each database file).
 ```jsonc
 {
   "format": "storyos-workspace-export",
-  "format_version": 2,
+  "format_version": 3,
   "exported_at": "2026-07-25T12:00:00.000Z",
   "workspace": { "id": "…", "name": "Acme", "slug": "acme" },
   "counts": { "spaces": 2, "databases": 5, "relations": 3, "attachments": 12, "documents": 4, "views": 6 },
   "spaces": [
     {
-      "id": "…", "name": "Product", "slug": "product", "icon": null, "color": null,
+      "id": "…", "name": "Product", "slug": "product", "icon": null, "color": null, "restricted": false,
       "databases": [
-        { "id": "…", "name": "Tasks", "api_slug": "tasks", "path": "spaces/product/tasks.json" }
+        { "id": "…", "name": "Tasks", "api_slug": "tasks", "restricted": false, "path": "spaces/product/tasks.json" }
       ]
     }
   ]
@@ -105,6 +106,22 @@ drops the fork back out, while the original it was copied from stays.
   `folder_id`, `name`, `type`, `config`, `position`, `is_default`,
   `created_by`.
 
+### `restricted` and `access.json` (#946, since `format_version` 3)
+
+A space or database can be **restricted** (ADR-0018): visible to a member only through a grant. A backup that
+forgot this would restore a confidential database open to everyone, so the export carries it:
+
+- every space and database entry in `manifest.json`, and the `database` header of each database file, has an
+  explicit `restricted` boolean (`false` for everything unrestricted — never absent in v3).
+- `access.json` — `{ "grants": [ { id, user_id, space_id, database_id, record_id, role, created_at } ] }`:
+  exactly one of `space_id` / `database_id` / `record_id` is set. Only grants whose target is in the archive are
+  written (a grant on a system database or a personal space points at nothing a restore can rebuild).
+  `user_id` is the stable account id, never an email — a restore maps it to the person it invites; contact data
+  stays out of this file.
+
+**An importer must apply both, and must fail closed:** apply `restricted` before (or in the same step as) it makes
+anything visible, then the grants. Applying neither yields a workspace where every member sees everything.
+
 ### `attachments/<attachment-id>/<filename>`
 
 The actual attachment bytes. A record reaches them via its `attachments[].path`.
@@ -123,7 +140,7 @@ These remaining gaps are candidates for a further `format_version` bump.
 
 ## Import
 
-There is no importer yet. The format is designed to make one possible: stable uuid
+There is no importer yet (so the #946 round trip is tested by replaying the zip through the public API: `test/workspace-export-restricted.test.ts`). The format is designed to make one possible: stable uuid
 keys throughout, schema captured alongside data, and a version field to gate on. An
 importer would create spaces/databases/fields from each database file, remap ids if
 it cannot preserve them, load records, then replay `relations.json`.
