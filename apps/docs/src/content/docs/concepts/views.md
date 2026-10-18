@@ -369,6 +369,14 @@ generic homepage title, and images resolve against your real domain rather than 
 field's actual display label (not a humanized `api_name` fallback) and, for select/multi_select/
 workflow fields, the same coloured `OptionChip` a signed-in member sees — not a raw option id.
 
+**A computed title shows only what the share publishes.** If a database's record title is computed
+from other fields, a public or portal share builds each title from the fields that share publishes
+and nothing else: an input the share does not publish (a lookup, a rollup, or any other column)
+shows as a dash, for example *"Invoice to —"*. Publish the field to show it. A portal share (one
+scoped to a [recipient](/concepts/portal-recipients/)) never exposes lookups, rollups or relations, so
+those inputs always show as a dash there. A relation column on a share follows the same rule for the
+linked record's title.
+
 **The "Powered by StoryOS" footer follows the workspace's plan**, the same computed value the
 public form page already used — visible on Free, hidden on a paid plan. No re-publishing needed;
 it reads live.
