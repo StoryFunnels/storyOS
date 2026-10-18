@@ -9,7 +9,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, spaces, user, views } from '../db/schema';
+import { accessGrants, memberships, spaces, user, views } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -129,6 +129,9 @@ export class MembersService {
     if (target.role === 'admin') await this.assertNotLastAdmin(workspaceId, membershipId);
 
     await this.db.delete(memberships).where(eq(memberships.id, membershipId));
+    // #945 — grants are keyed by user id, not membership: without this a removed member's grants survived, and a re-invited
+    // person silently got the old access back (a restricted database they had been taken off, for instance).
+    await this.db.delete(accessGrants).where(and(eq(accessGrants.workspaceId, workspaceId), eq(accessGrants.userId, target.userId)));
 
     /**
      * #291/#290 — HARD-DELETE this member's personal content.

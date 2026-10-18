@@ -145,11 +145,13 @@ export class WorkspaceController {
   @Patch('spaces/:space')
   @MinRole('member')
   @ApiOperation({ summary: 'Rename/reorder a space' })
-  updateSpace(
+  async updateSpace(
     @Req() req: WorkspaceRequest,
     @Param('space') spaceId: string,
     @Body() body: UpdateSpaceDto,
   ) {
+    // #945 — @MinRole('member') alone never asked WHICH space: 404 without a grant on a restricted one, 403 below editor.
+    await this.access.assertSpace(req.membership, spaceId, 'editor');
     // #943 — who a space is shared with is an admin decision (ADR-0018 §6); the rest of this PATCH stays member+.
     if (body.restricted !== undefined && req.membership.role !== 'admin') {
       throw new ForbiddenException('Only an admin can change who a space is shared with');

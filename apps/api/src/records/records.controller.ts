@@ -283,7 +283,7 @@ export class RecordsController {
     @Param('id') id: string,
   ) {
     await this.assertDb(req, databaseId);
-    return this.bulkJobs.get(req.membership.workspaceId, id);
+    return this.bulkJobs.get(req.membership.workspaceId, id, databaseId);
   }
 
   @Post('batch-delete')
@@ -434,6 +434,7 @@ export class RecordsController {
   @ApiOperation({ summary: 'Watch this record — get notified (inbox/email) on any change (#236)' })
   async watch(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
     await this.assertDb(req, databaseId); // if you can see it, you can watch it
+    await this.recordsService.assertRecordInDatabase(databaseId, recordId);
     return this.recordsService.watch(req.membership.workspaceId, recordId, req.user.id);
   }
 
@@ -441,6 +442,7 @@ export class RecordsController {
   @ApiOperation({ summary: 'Stop watching this record (#236)' })
   async unwatch(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
     await this.assertDb(req, databaseId);
+    await this.recordsService.assertRecordInDatabase(databaseId, recordId);
     return this.recordsService.unwatch(recordId, req.user.id);
   }
 
@@ -448,6 +450,7 @@ export class RecordsController {
   @ApiOperation({ summary: "List this record's watchers + whether I watch it (#236)" })
   async watchers(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
     await this.assertDb(req, databaseId);
+    await this.recordsService.assertRecordInDatabase(databaseId, recordId);
     return this.recordsService.listWatchers(recordId, req.user.id);
   }
 

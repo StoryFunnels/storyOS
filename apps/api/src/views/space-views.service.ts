@@ -10,7 +10,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, spaceFolders, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
-import { AccessService } from '../access/access.service';
+import { ACCESS_RANK, AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /**
@@ -286,6 +286,23 @@ export class SpaceViewsService {
   }
 
   /**
+   * #945 — a view that lives on a DATABASE is behind that database's door, not just its space's: a restricted database in an
+   * open space passes the space check and would otherwise be editable through its dashboard. 404 when the caller cannot read the
+   * database (never says it exists), 403 when they can read but not edit.
+   */
+  private async assertDatabaseOfView(membership: Membership, databaseId: string, min: 'viewer' | 'editor') {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('View not found');
+    const role = await this.access.effectiveForDatabase(membership, database);
+    if (!role) throw new NotFoundException('View not found');
+    if (ACCESS_RANK[role] < ACCESS_RANK[min]) throw new ForbiddenException('You need edit access to this database.');
+    return database;
+  }
+
+  /**
    * #306 — update a view addressed WITHOUT its database.
    *
    * The database-scoped PATCH stays the canonical one for a view that has a
@@ -324,6 +341,7 @@ export class SpaceViewsService {
      * refuse rather than become a second, laxer way to delete the same thing.
      */
     if (view.databaseId) {
+      await this.assertDatabaseOfView(membership, view.databaseId, 'editor');
       throw new UnprocessableEntityException(
         'This view belongs to a database. Delete it through that database, which enforces that a database keeps at least one view.',
       );
@@ -350,6 +368,8 @@ export class SpaceViewsService {
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
       throw new NotFoundException('View not found');
     }
+
+    if (view.databaseId) await this.assertDatabaseOfView(membership, view.databaseId, 'editor');
 
     // Same door as everything else, resolved from whichever side this view has.
     let spaceId = view.spaceId;
@@ -405,6 +425,8 @@ export class SpaceViewsService {
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
       throw new NotFoundException('View not found');
     }
+    // #945: the database's door first, so a 422 below never confirms a view the caller cannot see.
+    if (view.databaseId) await this.assertDatabaseOfView(membership, view.databaseId, 'editor');
     if (!view.databaseId) {
       throw new UnprocessableEntityException('This view already lives in a space.');
     }
