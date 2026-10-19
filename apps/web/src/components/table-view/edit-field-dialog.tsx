@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CONVERTIBLE } from '@storyos/schemas';
 import { useDatabase } from './use-table-data';
 import type { Field } from './use-table-data';
 import {
-  CONVERTIBLE,
   ConfigEditor,
   FIELD_TYPES,
   useDeleteField,

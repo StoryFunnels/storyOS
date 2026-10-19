@@ -103,6 +103,27 @@ describe('Linear importer (MN-066)', () => {
     expect((eng1.values.labels ?? []).map((c: { title: string }) => c.title)).toEqual(['bug']);
   });
 
+  it('#957: the Projects State is a select of Linear\'s own project states, and a state the list lacks is ADDED, not dropped', async () => {
+    const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
+    const projectsDb = dbs.find((d: { name: string }) => d.name === 'Projects');
+    const detail = async () => (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}`)).json();
+    const stateField = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
+    expect(stateField.type).toBe('select');
+    expect(stateField.options.map((o: { label: string }) => o.label)).toEqual(['backlog', 'planned', 'started', 'paused', 'completed', 'canceled']);
+    const project = async () => (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}/records?limit=50`)).json().data[0];
+    expect((await project()).values.state, 'the project value is its option id, not the label').toBe(stateField.options.find((o: { label: string }) => o.label === 'started').id);
+
+    // A person converted a text State into a choice and the list lacks a state Linear now reports: the sync adds it.
+    const started = stateField.options.find((o: { label: string }) => o.label === 'started');
+    const del = await inject('DELETE', `/workspaces/${wsId}/databases/${projectsDb.id}/fields/${stateField.id}/options/${started.id}`, { confirm: true });
+    expect(del.statusCode, del.body).toBe(200);
+    expect((await inject('POST', `/workspaces/${wsId}/integrations/linear/sync`)).statusCode).toBe(201);
+    const after = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
+    const readded = after.options.find((o: { label: string }) => o.label === 'started');
+    expect(readded, 'the missing state was added back').toBeTruthy();
+    expect((await project()).values.state).toBe(readded.id);
+  });
+
   it('imports labels as their own database with colors + issue relations (MN-078)', async () => {
     const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
     const labelsDb = dbs.find((d: { name: string }) => d.name === 'Labels');
