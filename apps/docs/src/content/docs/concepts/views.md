@@ -339,7 +339,10 @@ A table view's **⋯ menu** carries **Share…**, opening a dialog with:
   (rollup, lookup, formula) is labelled **(computed)** and can still be checked, since exposing it
   is a decision you make, not something that happens by leaving it alone.
 - **Related records to include** — off by default, one checkbox per relation field. A related
-  record is its own data, not this view's, so including it is a second, separate decision.
+  record is its own data, not this view's, so including it is a second, separate decision. You can
+  only include a relation whose target database you can read yourself; for one you can't, publishing
+  is refused with the same `422` as for a field that isn't a relation, so it doesn't confirm the
+  target exists.
 - **Allow search engines to index this page** — off by default.
 
 **Publish** mints the link and flips the dialog to a **Live** badge with a copyable **Link**
