@@ -8,6 +8,9 @@ sidebar:
 **Settings → Integrations → Google Calendar.** Connects a database to a calendar so records and
 events stay in sync in whichever direction you choose.
 
+Listing, creating, changing and removing bindings is **admin-only**; a guest or member can't see
+which databases are synced to which calendar.
+
 ## Connect
 
 Google Calendar uses its **own connection**, separate from the one YouTube uses — reconnecting or
