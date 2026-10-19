@@ -123,25 +123,6 @@ export const BASIC_FIELD_TYPES = new Set([
   'attachment',
 ]);
 
-/** Conversions the API allows (docs/architecture/record-storage.md). */
-export const CONVERTIBLE: Record<string, string[]> = {
-  text: ['number', 'date', 'rich_text'],
-  rich_text: ['text'],
-  number: ['text'],
-  checkbox: ['text'],
-  date: ['text'],
-  select: ['text', 'multi_select', 'workflow'],
-  multi_select: ['text', 'select', 'workflow'],
-  workflow: ['text', 'select', 'multi_select'],
-  url: ['text', 'email'],
-  email: ['text', 'url'],
-  user: [],
-  // #391 — no conversion in or out. A filename is not a file, so "text →
-  // attachment" would produce a column of names pointing at nothing, and
-  // "attachment → text" would silently strip the files off the record.
-  attachment: [],
-};
-
 export const COLOR_NAMES = Object.keys(OPTION_COLORS);
 
 /** First palette color not in use yet, so new options don't all land on gray. */

@@ -61,7 +61,7 @@ Range filters/sorts on JSONB casts seq-scan within the `database_id` slice — f
 ## Field lifecycle integrity
 
 - **Delete field:** soft-delete (`fields.deleted_at`). Orphan keys in `values` are ignored by reads; a lazy cleanup job strips them — never blocks the user action. Views drop dead references defensively at read time. Deleting a relation-field deletes the relation + its `record_links` (both sides) after explicit confirm.
-- **Type change:** small compatibility matrix only — anything→text (stringify); text→number/date (batch best-effort parse, unparseable→null, single transaction); select↔multi_select. Everything else = "delete & create new" (explicit, honest). API returns a **dry-run count** of lossy conversions before applying.
+- **Type change:** small compatibility matrix only — anything→text (stringify); text→number/date (batch best-effort parse, unparseable→null, single transaction); text→select/multi_select/workflow (#957: each distinct non-empty trimmed value becomes one case-sensitive option, no comma splitting, refused above 200 distinct values; the dry run returns the option list with counts); select↔multi_select. The matrix is ONE list, `CONVERTIBLE` in `packages/schemas/src/field-conversions.ts`, imported by the API and the web dialog. Everything else = "delete & create new" (explicit, honest). API returns a **dry-run count** of lossy conversions before applying.
 - **Select option delete:** dangling option ids resolve to null at read; optional "reassign to option X" parameter on delete.
 
 ## Sorting by a computed field (MN-260)

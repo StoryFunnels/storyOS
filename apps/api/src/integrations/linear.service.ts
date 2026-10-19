@@ -285,6 +285,12 @@ const STATE_COLOR: Record<string, string> = {
 };
 const stateColor = (type: string) => STATE_COLOR[type] ?? 'gray';
 
+/** #957 — Linear's fixed project states (`Project.state`), as Linear names them, in lifecycle order. */
+const PROJECT_STATES = ['backlog', 'planned', 'started', 'paused', 'completed', 'canceled'] as const;
+const PROJECT_STATE_COLOR: Record<(typeof PROJECT_STATES)[number], string> = {
+  backlog: 'gray', planned: 'blue', started: 'green', paused: 'gold', completed: 'brown', canceled: 'red',
+};
+
 /**
  * #904 — the option whose name IS the Linear status. There is no type fallback and no 'Backlog' default: an issue whose
  * status has no option is an error (fetchTeamData already refuses a status outside the team's workflow states, and the
@@ -620,7 +626,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       space_id: space.id, name: 'Projects', icon: '🎯',
     });
     for (const f of [
-      { display_name: 'State', type: 'text' as const, config: {} },
+      // #957: Linear's project states are a fixed set, so State is a select, not free text. The names are Linear's own.
+      { display_name: 'State', type: 'select' as const, config: {}, options: PROJECT_STATES.map((st) => ({ label: st, color: PROJECT_STATE_COLOR[st] })) },
       { display_name: 'Target Date', type: 'date' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
       { display_name: 'Linear ID', type: 'text' as const, config: {} },
@@ -958,10 +965,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       }
 
       const projectIds = new Map<string, string>();
+      const projectState = await this.projectStateWriter(projectsDb.id);
       for (const project of data.projects.nodes) {
         const id = await this.upsertByLinearId(membership, projectsDb.id, project.id, {
           name: project.name,
-          state: project.state,
+          state: await projectState(project.state),
           target_date: project.targetDate,
           url: project.url,
         }, actorId);
@@ -1064,6 +1072,27 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
     return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
+  }
+
+  /**
+   * #957 — what to write into a Projects database's `State`. A NEW import makes it a select; one imported before
+   * that (or converted by a person since) may still be text, or a select whose options came from the distinct values
+   * the person had. So: text → the Linear name as is; a choice field → the option with that name, ADDED if the team
+   * now has a state the list lacks (never dropped to empty, never mapped to a neighbour by guesswork).
+   */
+  private async projectStateWriter(projectsDbId: string): Promise<(state: string) => Promise<string | null>> {
+    const field = (await this.db.query.fields.findMany({ where: eq(fieldsTable.databaseId, projectsDbId) })).find((f) => f.apiName === 'state' && !f.deletedAt);
+    if (!field) return async () => null;
+    if (field.type !== 'select' && field.type !== 'workflow') return async (state) => state;
+    const options = await this.selectLabelMap(projectsDbId, 'state');
+    return async (state) => {
+      const known = pickOption(options, state);
+      if (known) return known;
+      const color = PROJECT_STATE_COLOR[state as keyof typeof PROJECT_STATE_COLOR] ?? 'gray';
+      const created = await this.fields.addOption(projectsDbId, field.id, { label: state, color });
+      options.set(created.label, created.id);
+      return created.id;
+    };
   }
 
   private async selectLabelMap(databaseId: string, apiName: string): Promise<Map<string, string>> {

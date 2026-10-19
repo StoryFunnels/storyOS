@@ -20,14 +20,18 @@ import {
   activeFilter,
   aiFieldConfigSchema,
   aiPromptRefs,
+  CONVERTIBLE,
   FormulaError,
   formulaRefs,
   formulaTypeOfFieldType,
+  isTextToChoice,
+  OPTION_COLORS,
   parseFormula,
   SYSTEM_FIELDS,
   systemFieldDefsFor,
   titleConfigSchema,
   numberConfigSchema,
+  TEXT_TO_CHOICE_MAX_OPTIONS,
   textConfigSchema,
   typecheck,
 } from '@storyos/schemas';
@@ -43,23 +47,6 @@ import { isPickOneOp, pickOneValueType } from '../records/rollup-pick-one';
 import type { CompilerContext } from '../records/query-compiler';
 
 type Field = typeof fields.$inferSelect;
-
-/** Allowed type conversions — docs/architecture/record-storage.md (field lifecycle). */
-const CONVERTIBLE: Record<string, CreatableFieldType[]> = {
-  text: ['number', 'date', 'rich_text'],
-  rich_text: ['text'],
-  number: ['text'],
-  checkbox: ['text'],
-  date: ['text'],
-  // #172: workflow is single-select-shaped, so it round-trips with select/multi_select
-  // (option ids are preserved on select↔workflow) and degrades to text.
-  select: ['text', 'multi_select', 'workflow'],
-  multi_select: ['text', 'select', 'workflow'],
-  workflow: ['text', 'select', 'multi_select'],
-  url: ['text', 'email'],
-  email: ['text', 'url'],
-  user: [],
-};
 
 /** #172: field types that carry coloured select_options (single- or multi-valued). */
 export const OPTIONED_FIELD_TYPES = new Set(['select', 'multi_select', 'workflow']);
@@ -1700,21 +1687,64 @@ export class FieldsService {
 
     let lossy = 0;
     const updates: Array<{ id: string; value: unknown }> = [];
+    // #957 — text → choice: each distinct non-empty TRIMMED value becomes one option (case-sensitive, never merged;
+    // multi_select takes the whole value as ONE option, no comma splitting). Counted here so the dry run and the apply
+    // see the same list; the option IDS only exist once the apply creates them.
+    const toChoice = isTextToChoice(field.type, targetType);
+    const distinct = new Map<string, number>();
+    let emptyRecords = 0;
+    if (toChoice) {
+      for (const row of rows) {
+        const label = String((row.values as Record<string, unknown>)[fieldId] ?? '').trim();
+        if (label === '') emptyRecords++;
+        else distinct.set(label, (distinct.get(label) ?? 0) + 1);
+      }
+      if (distinct.size > TEXT_TO_CHOICE_MAX_OPTIONS) {
+        throw new UnprocessableEntityException(
+          `This field holds ${distinct.size} distinct values; converting to ${targetType} would create that many options (the limit is ${TEXT_TO_CHOICE_MAX_OPTIONS}). It looks like free text, not a list of choices.`,
+        );
+      }
+    }
     for (const row of rows) {
       const current = (row.values as Record<string, unknown>)[fieldId];
+      if (toChoice) {
+        const label = String(current ?? '').trim();
+        updates.push({ id: row.id, value: label === '' ? null : label });
+        continue;
+      }
       const { value, lost } = convertValue(current, field.type, targetType, optionLabels);
       if (lost) lossy++;
       updates.push({ id: row.id, value });
     }
+    // Most-used first, then alphabetical: stable, and the common values lead the list a person will see.
+    const newOptions = [...distinct.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([label, count], i) => ({ label, count, color: OPTION_COLORS[i % OPTION_COLORS.length]! }));
+    const choicePreview = toChoice
+      ? { options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })), empty_records: emptyRecords }
+      : {};
 
     const dependentRules = await this.dependentRules(databaseId, field, { toType: targetType });
     if (dryRun) {
-      return { dry_run: true, records_affected: rows.length, lossy_conversions: lossy, dependent_rules: dependentRules };
+      return { dry_run: true, records_affected: rows.length, lossy_conversions: lossy, dependent_rules: dependentRules, ...choicePreview };
     }
     this.assertRulesConfirmed(dependentRules, confirmDependentRules, `Changing "${field.apiName}" to ${targetType}`);
 
     await this.db.transaction(async (tx) => {
+      // #957 — the options first, so each record's label can be swapped for its option id.
+      const optionIds = new Map<string, string>();
+      if (toChoice && newOptions.length > 0) {
+        const created = await tx
+          .insert(selectOptions)
+          .values(newOptions.map((o, position) => ({ fieldId, label: o.label, color: o.color, position })))
+          .returning({ id: selectOptions.id, label: selectOptions.label });
+        for (const o of created) optionIds.set(o.label, o.id);
+      }
       for (const u of updates) {
+        if (toChoice && u.value !== null) {
+          const id = optionIds.get(u.value as string)!;
+          u.value = targetType === 'multi_select' ? [id] : id;
+        }
         await tx
           .update(records)
           .set({
