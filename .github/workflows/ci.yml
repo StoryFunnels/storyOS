@@ -10,6 +10,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # #953 — is this diff docs-only? Decides whether the two test jobs below run at all. Same base-SHA
+  # logic as the `images` job's docker-inputs-changed.mjs, for both triggers. FAIL-SAFE: if the base
+  # cannot be resolved the script reports docs_only=false and the tests run.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.docs.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Is this diff docs-only?
+        id: docs
+        env:
+          DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: node scripts/docs-only-changed.mjs
+
   # #865 — the old single `ci` job ran everything in series and took ~19 min
   # against its own 20-min timeout; 948 s of that was @storyos/api's tests, which
   # run file-by-file (`fileParallelism: false`, one shared DB). So the work is
@@ -160,6 +179,9 @@ jobs:
   # the files one serial run would.
   test-api:
     name: test-api (${{ matrix.shard }}/4)
+    needs: changes
+    # #953 — skipped on a docs-only diff; the `ci` gate accepts that skip ONLY then (scripts/ci-gate.mjs).
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -215,6 +237,8 @@ jobs:
   # #865 — every other package's tests, plus the repo scripts' own tests: what
   # `pnpm test` ran besides @storyos/api.
   test-other:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -248,27 +272,24 @@ jobs:
   # #865 — THE required check. The `main` ruleset and the merge queue wait on a
   # status check named `ci`; this job is it. It runs whenever the run was not
   # cancelled (so a red dependency still produces a red `ci`, never a missing
-  # one) and passes only if every job above is `success`. `skipped` and
-  # `cancelled` count as not-green on purpose: a gate that lets "didn't run"
-  # through is a gate that lets anything through.
+  # one) and passes only if every job above is `success`. `cancelled` and any
+  # unexplained `skipped` count as not-green on purpose: a gate that lets "didn't
+  # run" through is a gate that lets anything through. The ONE exception (#953):
+  # test-api / test-other may be `skipped` when `changes` succeeded and said
+  # docs-only. The rule lives in scripts/ci-gate.mjs so it has a test.
   ci:
     name: ci
     if: ${{ !cancelled() }}
-    needs: [checks, test-api, test-other]
+    needs: [changes, checks, test-api, test-other]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - name: Every required job succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(" ")')
-          if [ -n "$bad" ]; then
-            echo "::error::not green: $bad"
-            exit 1
-          fi
-          echo "all required jobs succeeded"
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: node scripts/ci-gate.mjs
 
   # MN-129: `pnpm build` says nothing about whether the SERVER can build or run
   # these. The Docker graph is different — it copies a subset of the workspace and
