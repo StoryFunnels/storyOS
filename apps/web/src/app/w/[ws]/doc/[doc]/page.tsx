@@ -12,6 +12,7 @@ import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
 import { PrintAction } from '@/components/entity/print-action';
+import { PdfExportAction } from '@/components/entity/pdf-export-action';
 import {
   MentionScope,
   MentionSuggestionMenus,
@@ -120,8 +121,9 @@ function DocEditor({
             if (title !== initial.title) save.mutate({ title }, { onSuccess: onRenamed });
           }}
         />
-        <span className="mt-2 shrink-0">
+        <span className="mt-2 flex shrink-0 items-center gap-0.5">
           <MarkdownActions editor={editor} filename={title || 'document'} />
+          <PdfExportAction ws={ws} doc={doc} title={title} />
           <PrintAction />
         </span>
       </div>
