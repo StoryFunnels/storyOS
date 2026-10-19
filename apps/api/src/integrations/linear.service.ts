@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, HttpException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { VIA_STORYOS_PATTERN } from './linear-write-back.constants';
 import { DB } from '../db/db.module';
@@ -591,14 +591,26 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
-  private async ensureTeamPack(membership: Membership, team: LinearTeam, states: LinearState[]) {
+  private async ensureTeamPack(membership: Membership, team: LinearTeam, states: LinearState[], warnings: string[]) {
     const spaceName = `${team.name} (Linear)`;
-    const allSpaces = await this.db.query.spaces.findMany({
-      where: eq(spacesTable.workspaceId, membership.workspaceId),
-    });
-    let space = allSpaces.find((s) => s.name === spaceName);
+    // #959 — LIVE rows only. A trashed mirror (someone deleted the space to re-import fresh) kept being found by name, and its
+    // databases' fields are gone, so every sync died on `unknown field "linear_id"`. Newest first: when a restore leaves two
+    // live spaces with this name, the sync imports into the newest and says so (see `warnings`).
+    const liveSpaces = (
+      await this.db.query.spaces.findMany({
+        where: and(eq(spacesTable.workspaceId, membership.workspaceId), isNull(spacesTable.deletedAt)),
+      })
+    )
+      .filter((s) => s.name === spaceName)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    let space = liveSpaces[0];
+    if (liveSpaces.length > 1) {
+      warnings.push(
+        `team ${team.key}: ${liveSpaces.length} live spaces are named "${spaceName}"; importing into the newest (${space!.id}). Delete or rename the others to stop seeing this.`,
+      );
+    }
     const allDbs = await this.db.query.databases.findMany({
-      where: eq(databasesTable.workspaceId, membership.workspaceId),
+      where: and(eq(databasesTable.workspaceId, membership.workspaceId), isNull(databasesTable.deletedAt)),
     });
     if (space) {
       const inSpace = allDbs.filter((d) => d.spaceId === space!.id);
@@ -606,6 +618,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const projectsDb = inSpace.find((d) => d.name === 'Projects');
       const sprintsDb = inSpace.find((d) => d.name === 'Sprints');
       let labelsDb = inSpace.find((d) => d.name === 'Labels');
+      // #959 — some but not all of the three core databases: a half-present mirror (one was trashed or renamed). Building a
+      // second full set beside the survivors would duplicate them, so refuse, naming the team and what is missing.
+      const present = [issuesDb, projectsDb, sprintsDb].filter(Boolean).length;
+      if (present > 0 && present < 3) {
+        const missing = [['Issues', issuesDb], ['Projects', projectsDb], ['Sprints', sprintsDb]].filter(([, d]) => !d).map(([n]) => n);
+        throw new UnprocessableEntityException(
+          `team ${team.key}: target database missing — the space "${spaceName}" has no live ${missing.join(' / ')} database (trashed or renamed?). Restore it from the trash or rename it back, or delete the space to import fresh.`,
+        );
+      }
       if (issuesDb && projectsDb && sprintsDb) {
         // #904 incremental upgrade: an older import built State from a fixed list of 7 and kept no status name.
         await this.syncStatusOptions(issuesDb.id, states);
@@ -929,10 +950,13 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // summary's existing counted fields.
     const linkWarnings: string[] = [];
 
+    let currentTeam = '';
+    try {
     for (const team of teams) {
+      currentTeam = team.key;
       const data = fetched.get(team.id)!;
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
-      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team, data.states.nodes);
+      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');
@@ -1068,6 +1092,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
+    } catch (error) {
+      // #959 — the integration page shows this text: name the team, so a raw engine message ("unknown field ...") is never
+      // the whole story. The status is kept, and a message that already names the team is not prefixed twice.
+      if (!currentTeam) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith(`team ${currentTeam}:`)) throw error;
+      const wrapped = `team ${currentTeam}: ${message}`;
+      throw error instanceof HttpException ? new HttpException(wrapped, error.getStatus()) : new Error(wrapped);
+    }
     if (summary.comments.fetched !== summary.comments.created + summary.comments.already_present) {
       throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
@@ -1097,7 +1130,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   private async selectLabelMap(databaseId: string, apiName: string): Promise<Map<string, string>> {
     const rows = await this.db.query.fields.findMany({
-      where: eq(fieldsTable.databaseId, databaseId),
+      where: and(eq(fieldsTable.databaseId, databaseId), isNull(fieldsTable.deletedAt)),
     });
     const target = rows.find((f) => f.apiName === apiName);
     if (!target) return new Map();
