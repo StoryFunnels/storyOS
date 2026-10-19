@@ -7,7 +7,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, notExists, or, sql, type SQL } from 'drizzle-orm';
 import { ForbiddenException } from '@nestjs/common';
 import type { WebhookEvent } from '@storyos/schemas';
 import { env } from '../config/env';
@@ -133,6 +133,27 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       else if (m.role !== 'admin') out.set(r.id, 'Its owner is no longer an admin, so deliveries are paused. An admin must take ownership to resume them.');
     }
     return out;
+  }
+
+  /**
+   * #956 — EVERY subscription matching `where`, in id order, read a page at a time. scan() and the audit used `limit: 100` with no
+   * ORDER BY, so the 101st enabled subscription in the whole database was never read: nothing queued, nothing audited, nothing logged.
+   * Keyset on id (not offset) so a subscription created or paused mid-pass cannot shift a page and skip a neighbour.
+   */
+  private async allSubscriptions(where: SQL | undefined) {
+    const PAGE = 100;
+    const out: Array<typeof webhookSubscriptions.$inferSelect> = [];
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.db.query.webhookSubscriptions.findMany({
+        where: and(where, after ? gt(webhookSubscriptions.id, after) : undefined),
+        orderBy: [asc(webhookSubscriptions.id)],
+        limit: PAGE,
+      });
+      out.push(...page);
+      if (page.length < PAGE) return out;
+      after = page[page.length - 1]!.id;
+    }
   }
 
   /** SQL form of the same rule, for the queries that must not read a paused webhook (scan, flush). `subId` is the subscription id expression. */
@@ -306,13 +327,9 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
    * by; `updated_at` moves on every delivery). The message says so. A new column would remove it.
    */
   async auditBehindFloor(onlySubscriptionId?: string): Promise<number> {
-    const subs = await this.db.query.webhookSubscriptions.findMany({
-      where: and(
-        eq(webhookSubscriptions.enabled, true),
-        onlySubscriptionId ? eq(webhookSubscriptions.id, onlySubscriptionId) : undefined,
-      ),
-      limit: 100,
-    });
+    const subs = await this.allSubscriptions(
+      and(eq(webhookSubscriptions.enabled, true), onlySubscriptionId ? eq(webhookSubscriptions.id, onlySubscriptionId) : undefined),
+    );
     let reported = 0;
     for (const sub of subs) {
       const types = (sub.events as string[]) ?? [];
@@ -398,12 +415,9 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
    * column), which needs a migration and is tracked on the ticket.
    */
   async scan(): Promise<number> {
-    const subs = await this.db.query.webhookSubscriptions.findMany({
-      // #920: a paused webhook (owner no longer an admin) queues nothing. Its cursor does not advance, so what happened while
-      // it was paused is delivered once an admin takes it over, under THAT admin's access.
-      where: and(eq(webhookSubscriptions.enabled, true), this.ownerIsAdminSql(webhookSubscriptions.id)),
-      limit: 100,
-    });
+    // #920: a paused webhook (owner no longer an admin) queues nothing. Its cursor does not advance, so what happened while
+    // it was paused is delivered once an admin takes it over, under THAT admin's access.
+    const subs = await this.allSubscriptions(and(eq(webhookSubscriptions.enabled, true), this.ownerIsAdminSql(webhookSubscriptions.id)));
     let queued = 0;
 
     for (const sub of subs) {
