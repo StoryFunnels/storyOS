@@ -10,7 +10,8 @@ import '@blocknote/mantine/style.css';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
-import { MarkdownActions } from '@/components/entity/markdown-actions';
+import { BLOCKNOTE_BODY } from '@/components/entity/long-text-block';
+import type { MutableRefObject } from 'react';
 import {
   MentionScope,
   MentionSuggestionMenus,
@@ -18,6 +19,11 @@ import {
 } from '@/components/entity/mentions';
 import { Button } from '@/components/ui/button';
 import { isEmptyBlocks } from '@/components/entity/entity-field-utils';
+
+/** What the ⋯ menu needs from the editor (BlockNote's own method). */
+export interface MarkdownSourceLike {
+  blocksToMarkdownLossy: () => string | Promise<string>;
+}
 
 interface DocumentPayload {
   content: Block[] | null;
@@ -52,6 +58,7 @@ export function DescriptionEditor({
   readOnly,
   autoFocus,
   onBlurEmpty,
+  markdownRef,
 }: {
   ws: string;
   db: string;
@@ -61,12 +68,14 @@ export function DescriptionEditor({
   autoFocus?: boolean;
   /** #813 — focus left the editor while it is still empty. */
   onBlurEmpty?: () => void;
+  /** #954 — the section's ⋯ menu owns Copy and Download now; it reads the editor through this. */
+  markdownRef?: MutableRefObject<MarkdownSourceLike | null>;
 }) {
   const qc = useQueryClient();
   const doc = useDescriptionDocument(ws, db, rec);
 
   if (doc.isLoading) return <p className="text-sm text-muted">Loading description…</p>;
-  return <EditorInner key={rec} ws={ws} db={db} rec={rec} readOnly={readOnly} autoFocus={autoFocus} onBlurEmpty={onBlurEmpty} initial={doc.data!} qcInvalidate={() => void qc.invalidateQueries({ queryKey: ['document', ws, db, rec] })} />;
+  return <EditorInner key={rec} ws={ws} db={db} rec={rec} readOnly={readOnly} autoFocus={autoFocus} onBlurEmpty={onBlurEmpty} markdownRef={markdownRef} initial={doc.data!} qcInvalidate={() => void qc.invalidateQueries({ queryKey: ['document', ws, db, rec] })} />;
 }
 
 function EditorInner({
@@ -76,6 +85,7 @@ function EditorInner({
   readOnly,
   autoFocus,
   onBlurEmpty,
+  markdownRef,
   initial,
   qcInvalidate,
 }: {
@@ -85,6 +95,7 @@ function EditorInner({
   readOnly: boolean;
   autoFocus?: boolean;
   onBlurEmpty?: () => void;
+  markdownRef?: MutableRefObject<MarkdownSourceLike | null>;
   initial: DocumentPayload;
   qcInvalidate: () => void;
 }) {
@@ -100,6 +111,7 @@ function EditorInner({
       initial.content && initial.content.length > 0 ? (initial.content as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
+  if (markdownRef) markdownRef.current = editor;
 
   const save = useMutation({
     mutationFn: async (content: Block[] | unknown[]) => {
@@ -181,9 +193,6 @@ function EditorInner({
           </span>
         </div>
       )}
-      <div className="flex items-center justify-end">
-        <MarkdownActions editor={editor} filename="description" />
-      </div>
       {/* #642 — was min-h-40 (160px), reserved regardless of content: an empty
           description held the full 160px for one placeholder line, 73-112px
           more than the content needed. min-h-12 (48px) keeps a real click
@@ -205,7 +214,7 @@ function EditorInner({
           #899 — on a device that cannot hover there is no handle and globals.css drops the 52px gutter, so the
           pull-left above would push the box 52px off-screen. The three `[@media(hover:none)_and_(pointer:coarse)]`
           classes undo it there (no pull, normal width) and give the text a 12px inset from the border. */}
-      <div className="-ml-[52px] w-[calc(100%+52px)] min-h-12 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent [@media(hover:none)_and_(pointer:coarse)]:ml-0 [@media(hover:none)_and_(pointer:coarse)]:w-full [@media(hover:none)_and_(pointer:coarse)]:px-3">
+      <div className={BLOCKNOTE_BODY}>
         <MentionScope ws={ws}>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and it

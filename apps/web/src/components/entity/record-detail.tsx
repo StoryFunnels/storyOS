@@ -38,11 +38,11 @@ import {
   useUpdateDescriptionPlacement,
 } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
-import { DescriptionEditor, useDescriptionDocument } from '@/components/entity/description-editor';
+import { DescriptionEditor, useDescriptionDocument, type MarkdownSourceLike } from '@/components/entity/description-editor';
+import { LongTextHeader, LongTextMenu } from '@/components/entity/long-text-block';
 import { PromotedProse } from '@/components/entity/promoted-prose';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
-  CollapseToggle,
   CollapsibleBody,
   useCollapsedSection,
 } from '@/components/entity/collapsible-section';
@@ -877,12 +877,18 @@ export function RecordDetail({
               at 6 inline chips + "+N more" (ScalarValue's own cap), same as
               every relation chip list — this block only changes WHERE it
               renders, not how the chips themselves render. */}
+          {/* #954 — the vertical rhythm between long blocks has ONE owner: this container. Each block used
+              to set its own margin (`mt-6` here, `mb-5` on rich text, nothing on the description), so after a
+              promoted block the description header sat 0px below it and 8px above its own body, and read as
+              the footer of the block above. 24px above a header against 6px below it can only read as
+              belonging to what is under it. */}
+          <div className="mt-6 space-y-6">
           {promotedRelationFields.map((field) => {
             const count = Array.isArray(record.data!.values[field.apiName])
               ? (record.data!.values[field.apiName] as unknown[]).length
               : 0;
             return (
-              <div key={field.id} className="mt-6">
+              <div key={field.id}>
                 <div className="mb-1.5 flex items-center gap-2">
                   <h4 className="text-body font-semibold text-ink">{field.displayName}</h4>
                   <span className="rounded border border-border-default px-1 font-mono text-micro text-muted">
@@ -906,11 +912,11 @@ export function RecordDetail({
               key={field.id}
               ws={ws}
               db={db}
-              rec={recordId}
               field={field}
               text={String(record.data!.values[field.apiName] ?? '')}
-              members={memberList}
               readOnly={readOnly}
+              schemaEditable={schemaEditable}
+              onToggleZone={toggleZone}
               onCommit={vp.onCommit}
             />
           ))}
@@ -988,6 +994,7 @@ export function RecordDetail({
               )}
             </DragPreview>
           </DndContext>
+          </div>
 
           {/* #740 AC1 — no longer a default block; own margin lives inside
               AttachmentsStrip now, since it renders nothing (no wrapper div,
@@ -1368,6 +1375,12 @@ function DescriptionSection({
   onHide?: () => void;
 }) {
   const { collapsed, toggle } = useCollapsedSection(db, 'description');
+  // #954 — Copy / Download live in the ⋯ menu; the editor registers itself here so the menu can read it.
+  const markdownRef = useRef<MarkdownSourceLike | null>(null);
+  const markdown = {
+    get: async () => (await markdownRef.current?.blocksToMarkdownLossy()) ?? '',
+    filename: 'description',
+  };
   // #813 — same rule as every rich-text field: empty means one quiet line.
   const doc = useDescriptionDocument(ws, db, recordId);
   const [opened, setOpened] = useState(false);
@@ -1384,43 +1397,20 @@ function DescriptionSection({
           <Plus className="h-3 w-3 text-faint group-hover:text-ink" aria-hidden />
           Description
         </button>
-        {onHide && (
-          <Tooltip label="Remove">
-            <button
-              type="button"
-              onClick={onHide}
-              aria-label="Remove Description from this database's items"
-              className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/desc:opacity-100 group-hover/bodyrow:opacity-100"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
-        )}
+        <LongTextMenu label="Description" onHide={onHide} hideLabel="Hide Description" />
       </div>
     );
   }
   return (
     <div>
-      <div className="mb-2 flex items-center gap-1">
-        <CollapseToggle collapsed={collapsed} onToggle={toggle} label="Description" />
-        <h2 className="text-label font-medium uppercase tracking-wider text-muted">Description</h2>
-        {onHide && (
-          <Tooltip label="Remove">
-          <button
-            type="button"
-            onClick={onHide}
-            aria-label="Remove Description from this database's items"
-          /* #706 — KEEPS faint: this button's only content is an X icon, a
-             non-text graphic judged at 3:1, which faint clears. */
-            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/bodyrow:opacity-100"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-          </Tooltip>
-        )}
-      </div>
+      <LongTextHeader
+        label="Description"
+        collapsed={collapsed}
+        onToggle={toggle}
+        menu={<LongTextMenu label="Description" markdown={markdown} onHide={onHide} hideLabel="Hide Description" />}
+      />
       <CollapsibleBody collapsed={collapsed}>
-        <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} autoFocus={opened} onBlurEmpty={() => setOpened(false)} />
+        <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} autoFocus={opened} onBlurEmpty={() => setOpened(false)} markdownRef={markdownRef} />
       </CollapsibleBody>
     </div>
   );

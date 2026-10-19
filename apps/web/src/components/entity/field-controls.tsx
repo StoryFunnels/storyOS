@@ -1,6 +1,8 @@
 'use client';
 
 import { Tooltip } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { MarkdownMenuItems, type MarkdownProvider } from './markdown-actions';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal, Pin, Plus } from 'lucide-react';
@@ -166,12 +168,18 @@ export function FieldMenu({
   onToggleZone,
   collection = false,
   hideZoneToggle = false,
+  persistent = false,
+  markdown,
 }: {
   ws: string;
   db: string;
   field: Field;
   onToggleZone: (field: Field, zone: Zone) => void;
   collection?: boolean;
+  /** #954 — a long-text block's ⋯ is always visible (#900: a hover-only trigger does not exist on touch). */
+  persistent?: boolean;
+  /** #954 — when set, Copy Markdown and Download .md lead the menu (they used to float beside the header). */
+  markdown?: MarkdownProvider;
   /** #780 — field zoning (top/sidebar/body placement) is hidden now that every
    * scalar field renders in one unified area; toggling a zone nobody can see
    * anymore would be confusing, so the record page's own unified field row
@@ -200,7 +208,10 @@ export function FieldMenu({
           <DropdownMenuTrigger asChild>
             <button
               aria-label={`Options for ${field.displayName}`}
-              className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
+              className={cn(
+                'rounded p-0.5 text-faint hover:bg-hover hover:text-ink',
+                !persistent && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100',
+              )}
               onClick={(e) => e.stopPropagation()}
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
@@ -208,6 +219,8 @@ export function FieldMenu({
           </DropdownMenuTrigger>
         </Tooltip>
         <DropdownMenuContent align="end">
+          {markdown && <MarkdownMenuItems markdown={markdown} />}
+          {markdown && <DropdownMenuSeparator />}
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
           {!collection &&
             !hideZoneToggle &&
