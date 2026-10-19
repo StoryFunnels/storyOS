@@ -7,10 +7,10 @@ import { BlockNoteView } from '@blocknote/mantine';
 import { useTheme } from '@/lib/theme';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import type { Field } from '@/components/table-view/use-table-data';
-import { MarkdownActions } from './markdown-actions';
+import { BLOCKNOTE_BODY, LongTextHeader, LongTextMenu } from './long-text-block';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 import { FieldMenu } from './field-controls';
-import { CollapseToggle, CollapsibleBody, useCollapsedSection } from './collapsible-section';
+import { CollapsibleBody, useCollapsedSection } from './collapsible-section';
 import { isEmptyBlocks } from './entity-field-utils';
 import type { Zone } from './entity-field-utils';
 
@@ -51,6 +51,7 @@ export function RichTextFieldSection({
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
   const editorRef = useRef(editor);
+  const markdown = { get: () => editor.blocksToMarkdownLossy(), filename: field.displayName };
   editorRef.current = editor;
   useEffect(
     () => () => {
@@ -93,7 +94,7 @@ export function RichTextFieldSection({
 
   return (
     <div
-      className="group mb-5"
+      className="group"
       // Opened but left empty: fold back to the quiet line instead of leaving a
       // blank box behind. Focus moving to an editor menu (slash/mention) is
       // inside the container's descendants only while typing, i.e. not empty.
@@ -103,16 +104,20 @@ export function RichTextFieldSection({
         }
       }}
     >
-      <div className="mb-1.5 flex items-center gap-1">
-        <CollapseToggle collapsed={collapsed} onToggle={toggle} label={field.displayName} />
-        <h2 className="text-label font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
-        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection />}
-        <span className="ml-auto">
-          <MarkdownActions editor={editor} filename={field.displayName} />
-        </span>
-      </div>
+      <LongTextHeader
+        label={field.displayName}
+        collapsed={collapsed}
+        onToggle={toggle}
+        menu={
+          schemaEditable ? (
+            <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection persistent markdown={markdown} />
+          ) : (
+            <LongTextMenu label={field.displayName} markdown={markdown} />
+          )
+        }
+      />
       <CollapsibleBody collapsed={collapsed}>
-      <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
+      <div className={BLOCKNOTE_BODY}>
         <MentionScope ws={ws}>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and
