@@ -180,6 +180,8 @@ export class TokensService {
   async resolve(
     token: string,
   ): Promise<{
+    /** #882 — the token row's own id: the credential that acts for this request. */
+    id: string;
     userId: string;
     workspaceId: string;
     scope: TokenScope;
@@ -203,6 +205,7 @@ export class TokensService {
         .where(eq(apiTokens.id, row.id));
     }
     return {
+      id: row.id,
       userId: row.userId,
       workspaceId: row.workspaceId,
       scope: row.scope,

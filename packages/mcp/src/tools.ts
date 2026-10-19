@@ -795,6 +795,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   update_webhook: 'admin',
   delete_webhook: 'admin',
   list_webhook_deliveries: 'admin',
+  // #882: credential provenance is an admin surface (which colleague's token touched what is not a member's to learn).
+  get_credential: 'admin',
+  list_credential_actions: 'admin',
+  get_activity_event: 'admin',
   // #334: automation-rule CRUD. The AutomationsController is @RequiresScope('admin')
   // AND creator-gated on the database, so EVERY tool here — including the reads —
   // mirrors that ceiling: a read- or write-scoped token never even sees them, and
@@ -7915,6 +7919,66 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.GET('/api/v1/workspaces/{ws}/webhooks', { params: { path: { ws: ws.id } } } as never),
       );
       return text(res.data ?? []);
+    }),
+  );
+
+  reg(
+    'get_credential',
+    {
+      title: 'Get credential (token) scope and window',
+      description:
+        'What an API token (a "credential") could reach and when it existed: its power scope, whether it was bound to specific spaces/databases (`resource_scope`; null = unrestricted), its origin, and `revoked_at`. ' +
+        'Works for REVOKED tokens and for tokens whose owner was erased (their name reads "Erased token"), because "what could that leaked token have touched" has to stay answerable after the token is dead. ' +
+        'Admin only. Deliberately returns no person: no user id, email or token hash. Pass the credential id from list_credential_actions or get_activity_event.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        credential: z.string().describe('The credential (api token) id.'),
+      },
+    },
+    handle<{ workspace: string; credential: string }>(async ({ workspace, credential }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      return text(await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/credentials/{id}', { params: { path: { ws: ws.id, id: credential } } } as never)));
+    }),
+  );
+
+  reg(
+    'list_credential_actions',
+    {
+      title: 'List what one credential did',
+      description:
+        'Every action (activity event: type, record id, source, time) performed with one API token, newest first, 50 per page (pass `cursor` from `next_cursor`). ' +
+        'Pair it with get_credential: together they answer "what could this token reach, and what did it do". Works for revoked tokens. Admin only. ' +
+        'Only actions made with a personal access token carry a credential; a session, an OAuth grant, an automation or anything before this was recorded has none, so an empty list is not proof the token did nothing before it was recorded.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        credential: z.string().describe('The credential (api token) id.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
+    },
+    handle<{ workspace: string; credential: string; cursor?: string }>(async ({ workspace, credential, cursor }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      return text(
+        await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/credentials/{id}/actions', { params: { path: { ws: ws.id, id: credential }, query: cursor ? { cursor } : {} } } as never),
+        ),
+      );
+    }),
+  );
+
+  reg(
+    'get_activity_event',
+    {
+      title: 'Get one past action and its credential',
+      description:
+        'One activity event (type, record id, source, time) and `credential_id`, the API token that performed it (null for a session, an OAuth grant, an automation, or before this was recorded). Feed the id to get_credential for what that token could reach. Admin only.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        event: z.string().describe('The activity event id.'),
+      },
+    },
+    handle<{ workspace: string; event: string }>(async ({ workspace, event }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      return text(await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/activity-events/{event}', { params: { path: { ws: ws.id, event } } } as never)));
     }),
   );
 

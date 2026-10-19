@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { currentCredentialId } from '../common/credential-context';
 import {
   boolean,
   check,
@@ -1180,12 +1181,21 @@ export const activityEvents = pgTable(
      * what makes the sentence "Agent X did this" permanently true regardless
      * of what happens to the Agent record afterward. */
     agentName: text('agent_name'),
+    /**
+     * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
+     * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
+     * session, an OAuth grant, an automation or a job: absence, never a person. No FK and no join to the token's user: the row it
+     * points at is anonymised on erasure (gdpr.service.ts) and this link must not become a way back to the person.
+     */
+    tokenId: uuid('token_id').$defaultFn(() => currentCredentialId() as string),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('activity_record_created_idx').on(t.recordId, t.createdAt),
     // #541 AC — "queryable in bulk for a date range" for one agent.
     index('activity_agent_created_idx').on(t.agentId, t.createdAt),
+    // #882 — "everything this credential did".
+    index('activity_token_created_idx').on(t.tokenId, t.createdAt),
   ],
 );
 
@@ -1217,6 +1227,13 @@ export const recordVersions = pgTable(
     source: changeSource('source').notNull().default('human'),
     agentId: uuid('agent_id'),
     agentName: text('agent_name'),
+    /**
+     * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
+     * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
+     * session, an OAuth grant, an automation or a job: absence, never a person. No FK and no join to the token's user: the row it
+     * points at is anonymised on erasure (gdpr.service.ts) and this link must not become a way back to the person.
+     */
+    tokenId: uuid('token_id').$defaultFn(() => currentCredentialId() as string),
     title: text('title').notNull(),
     values: jsonb('values').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1268,6 +1285,13 @@ export const recordFieldChanges = pgTable(
     agentId: uuid('agent_id'),
     /** #541 — see activity_events.agent_name's doc comment. */
     agentName: text('agent_name'),
+    /**
+     * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
+     * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
+     * session, an OAuth grant, an automation or a job: absence, never a person. No FK and no join to the token's user: the row it
+     * points at is anonymised on erasure (gdpr.service.ts) and this link must not become a way back to the person.
+     */
+    tokenId: uuid('token_id').$defaultFn(() => currentCredentialId() as string),
     /** null for a create, or for a field that had no previous value. */
     oldValue: jsonb('old_value'),
     newValue: jsonb('new_value'),

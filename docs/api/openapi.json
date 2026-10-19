@@ -8706,6 +8706,101 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/credentials/{id}": {
+      "get": {
+        "operationId": "CredentialsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A credential's scope and window — including after it was revoked or its owner erased (#882)",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/credentials/{id}/actions": {
+      "get": {
+        "operationId": "CredentialsController_actions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Everything one credential did (activity events), newest first (#882)",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/activity-events/{event}": {
+      "get": {
+        "operationId": "CredentialsController_event",
+        "parameters": [
+          {
+            "name": "event",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One past action and the credential that performed it (#882)",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/files": {
       "post": {
         "operationId": "FilesController_upload",

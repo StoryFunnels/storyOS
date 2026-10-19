@@ -64,6 +64,8 @@ export interface AuthContext {
    */
   agentId?: string;
   agentName?: string;
+  /** #882 — the api_tokens row acting (only `via: 'token'`); the request's credential context is entered from it. */
+  tokenId?: string;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -196,6 +198,7 @@ export class AuthGuard implements CanActivate {
       };
       (request as AuthedRequest).auth = {
         via: 'token',
+        tokenId: resolved.id,
         workspaceId: resolved.workspaceId,
         tokenScope: resolved.scope,
         allowRunButton: resolved.allowRunButton,
