@@ -65,7 +65,7 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     id: 'linear',
     label: 'Linear',
     builtBy: 'StoryOS',
-    description: 'One-shot migration — teams become spaces with Issues, Sprints and Projects.',
+    description: 'Teams become spaces with Issues, Sprints and Projects. Optional scheduled re-sync and comment write-back.',
     authKind: 'config',
     status: 'available',
   },

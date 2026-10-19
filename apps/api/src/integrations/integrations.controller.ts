@@ -516,7 +516,7 @@ export class GithubWebhookController {
   }
 }
 
-/** Linear importer (MN-066): one-shot GraphQL migration into dev-project shapes. Admin-only. */
+/** Linear importer (MN-066): GraphQL import into dev-project shapes, re-runnable and optionally scheduled (#906) with comment write-back (#907). Admin-only. */
 @ApiTags('integrations')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @MinRole('admin')

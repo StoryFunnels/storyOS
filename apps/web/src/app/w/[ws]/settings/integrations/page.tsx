@@ -91,7 +91,7 @@ function primaryLabel(entry: IntegrationEntry): string {
 function nextAction(entry: IntegrationEntry): string {
   const actions: Record<string, string> = {
     github: 'Connect GitHub, choose repositories, then run the first sync.',
-    linear: 'Save the API key, preview the import, then approve the migration.',
+    linear: 'Save the API key, preview the import, then approve it. Switch on the schedule to keep it current.',
     slack: 'Connect and test Slack, then select it in a button or automation.',
     youtube: 'Connect YouTube, create a matching database, then add its source.',
     meta: 'Save a Meta Page token, open a database, then add the Meta source and sync.',
