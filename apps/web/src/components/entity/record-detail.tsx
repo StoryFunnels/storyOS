@@ -38,6 +38,7 @@ import {
   useUpdateDescriptionPlacement,
 } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
+import { LinearDriftNotice } from '@/components/entity/linear-drift-notice';
 import { DescriptionEditor, useDescriptionDocument, type MarkdownSourceLike } from '@/components/entity/description-editor';
 import { LongTextHeader, LongTextMenu } from '@/components/entity/long-text-block';
 import { PromotedProse } from '@/components/entity/promoted-prose';
@@ -56,6 +57,7 @@ import {
   isCollection,
   isEmptyBlocks,
   isHidden,
+  linearDriftText,
   orderKey,
   resetOrderPlan,
   zonesOf,
@@ -920,6 +922,12 @@ export function RecordDetail({
               onCommit={vp.onCommit}
             />
           ))}
+
+          {/* #955 — Linear's text is hidden above; this is the one time it is offered. */}
+          {(() => {
+            const drift = record.data ? linearDriftText(database.data?.fields ?? [], record.data) : null;
+            return drift === null ? null : <LinearDriftNotice text={drift} />;
+          })()}
 
           {/* Body fields: collections (lists), scalars-in-body, rich text — in order.
               All are drag-reorderable via a hover-revealed handle EXCEPT rich-text

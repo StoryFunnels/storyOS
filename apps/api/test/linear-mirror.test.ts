@@ -3,6 +3,9 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { makeLinearFetcher, manyIssues } from './helpers/linear-fake';
+import { connectTestDb } from './helpers/db';
+import { eq } from 'drizzle-orm';
+import { fields as fieldsTable } from '../src/db/schema';
 import { LinearService } from '../src/integrations/linear.service';
 import type { LinearFetcher } from '../src/integrations/linear.service';
 
@@ -14,6 +17,7 @@ const empty = { labels: { nodes: [] as unknown[] }, cycles: { nodes: [] as unkno
 const TEAM = { id: 'team-m', key: 'MR', name: 'Mirror' };
 const issue = (n: number, description: string | null) => ({ ...manyIssues(1)[0]!, id: `i${n}`, identifier: `MR-${n}`, title: `Issue ${n}`, description });
 
+const { db: rawDb } = connectTestDb();
 let app: NestFastifyApplication;
 let linear: LinearService;
 let admin: { token: string };
@@ -191,5 +195,64 @@ describe('#906 leaving scope', () => {
     use([issue(1, 'first'), issue(2, 'Linear text v2')]);
     await inject('POST', `/workspaces/${ws}/integrations/linear/sync`);
     expect(String((await recordsByTitle()).byTitle('Issue 2').values.linear_status)).not.toMatch(/Left Linear scope/);
+  });
+});
+
+describe('#955 the machine copy of the description is hidden on the record page', () => {
+  const field = async (dbId: string) =>
+    (await inject('GET', `/workspaces/${ws}/databases/${dbId}`)).json().fields.find((f: { apiName: string }) => f.apiName === 'linear_description') as { id: string; config: Record<string, unknown> };
+  const setConfig = (dbId: string, id: string, config: Record<string, unknown>) =>
+    inject('PATCH', `/workspaces/${ws}/databases/${dbId}/fields/${id}`, { config });
+  const sync = async () => (await inject('POST', `/workspaces/${ws}/integrations/linear/sync`)).json();
+
+  it('a fresh import creates it hidden on the FIRST sync (not via a later upgrade) — and it is still readable over the API', async () => {
+    // A workspace of its own and exactly one sync: in `ws`, later syncs would hide it anyway and hide a broken create.
+    const ws2 = (await inject('POST', '/workspaces', { name: 'Linear Fresh WS' })).json().id as string;
+    expect((await inject('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['MR'] })).statusCode).toBe(201);
+    use([issue(1, 'first')]);
+    const res = await inject('POST', `/workspaces/${ws2}/integrations/linear/sync`);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().description_hidden_in, 'created hidden, so there was nothing to hide afterwards').toEqual([]);
+    const dbs = (await inject('GET', `/workspaces/${ws2}/databases`)).json();
+    const issuesDb = dbs.find((d: { name: string }) => d.name === 'Issues');
+    const f = (await inject('GET', `/workspaces/${ws2}/databases/${issuesDb.id}`)).json().fields.find((x: { apiName: string }) => x.apiName === 'linear_description');
+    expect(f.config.entity_hidden).toBe(true);
+    const rows = (await inject('GET', `/workspaces/${ws2}/databases/${issuesDb.id}/records?limit=50`)).json().data;
+    expect(typeof rows[0].values.linear_description, 'still a readable value').toBe('string');
+    use(current);
+  });
+
+  it('an existing database (no decision yet) is hidden ONCE, the databases are listed, and the next sync changes nothing', async () => {
+    const { db } = await recordsByTitle();
+    const f = await field(db.id);
+    // what an import from before #955 looks like: the API merges config patches, so undo the key at the source
+    await rawDb.update(fieldsTable).set({ config: {} }).where(eq(fieldsTable.id, f.id));
+    expect((await field(db.id)).config.entity_hidden, 'precondition: undecided').toBeUndefined();
+    use(current);
+    const first = await sync();
+    expect(first.description_hidden_in).toHaveLength(1);
+    expect(first.description_hidden_in[0]).toContain(db.id);
+    expect((await field(db.id)).config.entity_hidden).toBe(true);
+    expect((await sync()).description_hidden_in, 'idempotent: nothing changed the second time').toEqual([]);
+  });
+
+  it('a person who shows it again is not overruled by the next sync', async () => {
+    const { db } = await recordsByTitle();
+    const f = await field(db.id);
+    expect((await setConfig(db.id, f.id, { entity_hidden: false })).statusCode).toBe(200);
+    use(current);
+    expect((await sync()).description_hidden_in).toEqual([]);
+    expect((await field(db.id)).config.entity_hidden, 'still shown').toBe(false);
+  });
+
+  it('MUST KEEP WORKING: drift detection and the sync writing the field are unchanged while it is hidden', async () => {
+    const { db } = await recordsByTitle();
+    const f = await field(db.id);
+    await setConfig(db.id, f.id, { entity_hidden: true });
+    use([issue(1, 'first'), issue(2, 'Linear text v3')]);
+    expect((await sync()).drift_flagged).toBe(1);
+    const rec = (await recordsByTitle()).byTitle('Issue 2');
+    expect(rec.values.description_drift).toBe(true);
+    expect(rec.values.linear_description).toBe('Linear text v3');
   });
 });
