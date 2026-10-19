@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } fro
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { atLeastOneField } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole } from '../workspaces/workspace-access.guard';
@@ -17,11 +18,11 @@ import { FoldersService } from './folders.service';
 const createSchema = z.object({ name: z.string().trim().min(1).max(100), icon: z.string().max(48).optional() });
 class CreateFolderDto extends createZodDto(createSchema) {}
 
-const updateSchema = z.object({
+const updateSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: z.string().max(48).nullable().optional(),
   position: z.number().int().optional(),
-});
+}));
 class UpdateFolderDto extends createZodDto(updateSchema) {}
 
 @ApiTags('spaces')

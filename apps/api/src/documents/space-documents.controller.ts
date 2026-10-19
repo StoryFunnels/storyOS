@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { atLeastOneField } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
@@ -24,14 +25,14 @@ function exportFilename(title: string, ext: 'md' | 'pdf'): string {
 const createSchema = z.object({ title: z.string().max(200).optional(), icon: z.string().max(48).optional() });
 class CreateSpaceDocDto extends createZodDto(createSchema) {}
 
-const updateSchema = z.object({
+const updateSchema = atLeastOneField(z.object({
   title: z.string().max(200).optional(),
   icon: z.string().max(48).nullable().optional(),
   content: z.unknown().optional(),
   expected_version: z.number().int().min(0).optional(),
   /** #368 — sidebar placement, mirroring what views got in #347. */
   folder_id: z.string().uuid().nullable().optional(),
-});
+}));
 class UpdateSpaceDocDto extends createZodDto(updateSchema) {}
 
 // #293 — target space for "Move to shared space"; the service rejects a

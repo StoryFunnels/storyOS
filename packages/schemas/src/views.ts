@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { atLeastOneField } from './patch';
 import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
 import { systemFieldId } from './system-fields';
@@ -591,9 +592,9 @@ export const createViewSchema = z.object({
   folder_id: folderIdSchema,
 });
 
-export const updateViewSchema = z.object({
+export const updateViewSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   config: viewConfigSchema.optional(),
   position: z.number().int().optional(),
   folder_id: folderIdSchema,
-});
+}));

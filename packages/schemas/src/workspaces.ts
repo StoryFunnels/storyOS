@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
@@ -47,7 +48,7 @@ export const workspaceBrandingSchema = z.object({
 });
 export type WorkspaceBranding = z.infer<typeof workspaceBrandingSchema>;
 
-export const updateWorkspaceSchema = z.object({
+export const updateWorkspaceSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   /** #201: when on, `GET /files/:id` (inline editor-image serve) also requires
    * an authenticated, access-checked request instead of relying on the id being
@@ -65,7 +66,7 @@ export const updateWorkspaceSchema = z.object({
   /** #539 — merged over the existing value; a field omitted here is left
    * alone, one explicitly `null` is cleared. See workspaceBrandingSchema. */
   branding: workspaceBrandingSchema.optional(),
-});
+}));
 
 /**
  * #399 — DERIVED. Was byte-identical to `databaseColorSchema`: a third copy of
@@ -93,7 +94,7 @@ export const createSpaceSchema = z.object({
   description: descriptionSchema,
 });
 
-export const updateSpaceSchema = z.object({
+export const updateSpaceSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: z.string().max(48).nullable().optional(),
   color: spaceColorSchema.nullable().optional(),
@@ -104,7 +105,7 @@ export const updateSpaceSchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
   /** #943 / ADR-0018 — restrict the space to people with an access grant (admins only; admins always see it). */
   restricted: z.boolean().optional(),
-});
+}));
 
 import { grantScopeSchema } from './access';
 

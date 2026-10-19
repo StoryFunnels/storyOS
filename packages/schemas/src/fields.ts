@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
 import { AUTOMATION_TOP_N_LIMIT_CEILING, filterSchema, sortSchema } from './query';
@@ -697,11 +698,11 @@ export const createFieldSchema = z
     }
   });
 
-export const updateFieldSchema = z.object({
+export const updateFieldSchema = atLeastOneField(z.object({
   display_name: z.string().trim().min(1).max(100).optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
-});
+}));
 
 /** Allowed type conversions (docs/architecture/record-storage.md). */
 export const changeFieldTypeSchema = z.object({
@@ -722,13 +723,13 @@ export const createOptionSchema = z.object({
   icon: z.string().max(120).optional(),
 });
 
-export const updateOptionSchema = z.object({
+export const updateOptionSchema = atLeastOneField(z.object({
   label: z.string().trim().min(1).max(100).optional(),
   color: z.enum(OPTION_COLORS).optional(),
   // #202: nullable so an icon can be cleared (null) or set; omit to leave unchanged.
   icon: z.string().max(120).nullish(),
   position: z.number().int().optional(),
-});
+}));
 
 export const deleteOptionSchema = z.object({
   /** Required when records still use the option. */
