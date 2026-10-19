@@ -2,8 +2,9 @@
 #
 # Every external contributor's commit must carry a `Signed-off-by:` trailer
 # (git commit -s). Per CLA.md, that sign-off is also their acceptance of the
-# Contributor License Agreement, so this is the active CLA gate even before the
-# richer cla-assistant flow (cla.yml) is activated with a token.
+# Contributor License Agreement, so this IS the CLA gate. (A separate cla-assistant
+# workflow, cla.yml, was removed in #953: it was never activated and its own `if:`
+# was invalid, so it failed on every push.)
 #
 # Maintainers and bots are allow-listed so internal PRs are never blocked.
 name: DCO

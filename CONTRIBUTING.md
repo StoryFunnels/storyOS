@@ -83,7 +83,7 @@ Meet every acceptance criterion on the ticket, or say which one you didn't and w
 
 ## How a PR lands
 
-- `main` is protected: linear history, a required `ci` check, and a **merge queue** that rebases and re-tests the merge result before it lands.
+- `main` is protected: linear history, a required `ci` check, and a **merge queue** that rebases and re-tests the merge result before it lands. A diff that touches only docs (`apps/docs/`, `docs/`, `tickets/`, or Markdown outside `apps/` and `packages/`) skips the API and package test jobs and still runs lint, typecheck, docs links and the build; if CI can't tell, it runs everything.
 - **Authors don't merge their own work.** A maintainer verifies the PR against the ticket's acceptance criteria, in a browser wherever a criterion describes something a person sees. Then they merge it, send it back, or ask a question. Nobody verifies their own work, because the misunderstanding that produces a bug also produces the test that misses it.
 - **"Done" includes the docs.** If your change is visible to users, the docs site has to describe it. Changes that are visible to self-hosters or contributors need the matching page under `docs/` or `apps/docs/`.
 
