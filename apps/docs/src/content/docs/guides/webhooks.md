@@ -70,9 +70,6 @@ one. The webhook list shows each webhook's `owner_id`, and a `paused_reason` whe
   transaction that commits late is still found. One held open **longer than that window** writes
   events the webhook never queues. The window is a bound, not a proof. The limit is real: if you run
   long manual database transactions on a self-hosted instance, keep them well under the window.
-- **A busy instance may not scan every webhook.** Each pass looks at up to 100 enabled webhooks across
-  the whole instance, in no particular order. Beyond 100 enabled webhooks in total, some are not
-  scanned on a given pass. This is a known limit that is being tracked separately.
 - **A miss is logged, not redelivered.** Self-hosted operators get a warning while a long transaction
   is open and an error naming the event after the fact (`webhook.long_transaction`,
   `webhook.lost_events`). The error can false-alarm right after you change a webhook's database or add an
