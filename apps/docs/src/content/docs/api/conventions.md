@@ -141,8 +141,8 @@ endpoints above take 5,000), `undo_batch_update` takes the `restorable` list, an
 `GET /workspaces/:ws/documents/:doc/export/pdf` returns the document as a PDF attachment. It is
 rate-limited, and images that can't be embedded (an external address, another workspace's file, or
 over the size budget) are drawn as a visible placeholder and counted in the
-`x-storyos-export-skipped-images` response header, so nothing is dropped silently. There is no
-"Export to PDF" button in the app yet, and an MCP client can't use this route (the result is binary;
+`x-storyos-export-skipped-images` response header, so nothing is dropped silently. The document page has an
+"Export as PDF" button beside Print (greyed out, with the reason, while the renderer is unavailable), and an MCP client can't use this route (the result is binary;
 read the content with `get_document`).
 
 **It depends on a renderer.** The PDF is made by a separate Gotenberg container. StoryOS doesn't ship
