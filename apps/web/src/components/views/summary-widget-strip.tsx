@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import {
-  BarChart3,
   ChevronDown,
   Copy,
   GripVertical,
@@ -435,39 +434,10 @@ export function SummaryWidgetStrip({
 }
 
 /**
- * The "add a summary widget" control, rendered by the VIEW TOOLBAR rather than
- * by the strip (#698).
- *
- * Styled to match the toolbar's own controls — Filter, Sort, Hide fields, CSV —
- * not the strip's chip. A control that moves into a row should look like the row
- * it moved into; carrying its old styling across is how a toolbar ends up with
- * five different button treatments.
- *
- * No `ml-auto`: that belongs to ExportCsvButton, which is deliberately pushed to
- * the right edge. This joins the left group.
+ * The summary widgets a view has after "Add summary widget" (#698, #964): one more count widget over
+ * the view's rows. It is the view menu's item now (the toolbar ⋯), so this is the config it writes,
+ * not a button; `onPatch({ summary_widgets: newSummaryWidgets(config) })` is the whole action.
  */
-export function AddSummaryWidgetButton({
-  config,
-  onPatch,
-}: {
-  config: ViewConfig;
-  onPatch: (patch: Partial<ViewConfig>) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() =>
-        onPatch({
-          summary_widgets: [
-            ...(config.summary_widgets ?? []),
-            { id: crypto.randomUUID(), type: 'stat', title: '', op: 'count' },
-          ],
-        })
-      }
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
-      title="Add a summary widget over this view's rows"
-    >
-      <BarChart3 className="h-3.5 w-3.5" /> Add widget
-    </button>
-  );
+export function newSummaryWidgets(config: ViewConfig) {
+  return [...(config.summary_widgets ?? []), { id: crypto.randomUUID(), type: 'stat' as const, title: '', op: 'count' as const }];
 }

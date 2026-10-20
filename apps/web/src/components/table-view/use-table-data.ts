@@ -46,6 +46,8 @@ export interface Field {
 
 export interface DatabaseDetail {
   id: string;
+  /** The space this database lives in (the API returns it; #964 reads it for the view menu's "Move to…"). */
+  spaceId?: string;
   /**
    * #400 — the DATABASE's own one-line purpose.
    *
