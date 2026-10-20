@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import type { Field } from './use-table-data';
 import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
-import { choiceDirectionLabels, reorderPositions } from '../views/option-order';
+import { choiceDirectionLabels, reorderedIds } from '../views/option-order';
 
 let draftKey = 0;
 
@@ -143,21 +143,17 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
     onSuccess: invalidate,
   });
 
-  // #963 — one save for a reorder, not one-and-invalidate per option: the API sets ONE option's
-  // position per call and shifts no siblings, so every moved option is written (in parallel), then
-  // the field, its views' rows and a board's columns refetch once. `invalidate` covers both the
-  // database (field.options, the board's "Field order") and the records (the sort that follows it).
+  // #963 — ONE atomic call per drag: POST .../options/reorder takes the full ordered id list (#961), so a
+  // half-applied reorder cannot exist. Then the field, its views' rows and a board's columns refetch once
+  // (`invalidate` covers the database's field.options and the records' sort that follows them).
+  // The path is cast until PR 1149's generated SDK lands on main.
   const reorder = useMutation({
-    mutationFn: async (plan: Array<{ id: string; position: number }>) => {
-      const results = await Promise.all(
-        plan.map((p) =>
-          api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}', {
-            params: { path: { ws, db, field: field.id, option: p.id } },
-            body: { position: p.position } as never,
-          }),
-        ),
+    mutationFn: async (order: string[]) => {
+      const { error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder' as never,
+        { params: { path: { ws, db, field: field.id } }, body: { order } } as never,
       );
-      if (results.some((r: { error?: unknown }) => r.error)) throw new Error('reorder failed');
+      if (error) throw new Error('reorder failed');
     },
     onSettled: invalidate,
     onError: () => toast.error('Could not save the new order'),
@@ -198,12 +194,12 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
   function onDragEnd(event: DragEndEvent) {
     const from = options.findIndex((o) => o.id === event.active.id);
     const to = options.findIndex((o) => o.id === event.over?.id);
-    const plan = reorderPositions(
+    const order = reorderedIds(
       options.map((o) => o.id),
       from,
       to,
     );
-    if (plan.length > 0) reorder.mutate(plan);
+    if (order) reorder.mutate(order);
   }
 
   function addPending() {

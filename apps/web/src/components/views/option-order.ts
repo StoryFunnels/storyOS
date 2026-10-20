@@ -5,21 +5,16 @@
  */
 
 /**
- * Positions to write after dragging option `from` to slot `to`: a clean 0..n-1 sequence, only for the
- * options whose slot actually changed. The API takes ONE option's position per call and shifts no
- * siblings, so every moved option has to be written; writing a clean sequence also repairs a field
- * whose positions had gaps or ties.
+ * The full id order to send after dragging option `from` to slot `to`, or null when nothing moves (same
+ * slot, out of range). The API's atomic reorder (#961) takes the WHOLE list and rewrites a clean
+ * sequence, which also repairs a field whose positions had gaps or ties.
  */
-export function reorderPositions(ids: readonly string[], from: number, to: number): Array<{ id: string; position: number }> {
-  if (from < 0 || to < 0 || from >= ids.length || to >= ids.length || from === to) return [];
+export function reorderedIds(ids: readonly string[], from: number, to: number): string[] | null {
+  if (from < 0 || to < 0 || from >= ids.length || to >= ids.length || from === to) return null;
   const next = [...ids];
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved!);
-  const out: Array<{ id: string; position: number }> = [];
-  next.forEach((id, position) => {
-    if (id !== ids[position]) out.push({ id, position });
-  });
-  return out;
+  return next;
 }
 
 /**
