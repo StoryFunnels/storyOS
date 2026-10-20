@@ -58,10 +58,29 @@ describe('nextSortField — "+ Add" seeds a sensible default', () => {
 });
 
 describe('directionLabel — field-type-aware idioms (nice-to-have AC)', () => {
-  it('uses A→Z / Z→A for text-ish and select fields', () => {
-    for (const type of ['title', 'text', 'url', 'email', 'select']) {
+  it('uses A→Z / Z→A for text-ish fields', () => {
+    for (const type of ['title', 'text', 'url', 'email']) {
       expect(directionLabel(type, 'asc')).toBe('A → Z');
       expect(directionLabel(type, 'desc')).toBe('Z → A');
+    }
+  });
+
+  // #963 — choice fields sort by option POSITION (#961), so "A → Z" was never true for them: the label
+  // names the first and last option instead. (This file used to assert 'A → Z' for `select`; that
+  // assertion was the defect, written down.)
+  it('names the first and last option for select, multi-select and workflow fields', () => {
+    const options = [{ label: 'Low' }, { label: 'Medium' }, { label: 'High' }, { label: 'Urgent' }];
+    for (const type of ['select', 'multi_select', 'workflow']) {
+      expect(directionLabel(type, 'asc', options)).toBe('Low → Urgent');
+      expect(directionLabel(type, 'desc', options)).toBe('Urgent → Low');
+    }
+  });
+
+  it('never prints "A → Z" for a choice field, even with no options to name', () => {
+    for (const type of ['select', 'multi_select', 'workflow']) {
+      expect(directionLabel(type, 'asc')).not.toMatch(/A → Z/);
+      expect(directionLabel(type, 'asc', [{ label: 'Only' }])).toBe('Option order');
+      expect(directionLabel(type, 'desc', [])).toBe('Reverse option order');
     }
   });
 
