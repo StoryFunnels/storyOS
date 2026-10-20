@@ -10,16 +10,14 @@ import {
   FormInput,
   GanttChart,
   Group,
-  Kanban,
-  LayoutDashboard,
   LayoutGrid,
   List as ListIcon,
-  Newspaper,
   Pencil,
   Pin,
   Share2,
   Table2,
   Trash2,
+  createLucideIcon,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -40,19 +38,42 @@ import { GroupByFieldSelect } from './view-toolbar';
 import type { Field } from '../table-view/use-table-data';
 
 /**
+ * #970 — three glyphs redrawn because they fail at 14px, the only size the sidebar and tabs draw
+ * (decision sheet: https://claude.ai/artifact/LCe3CHKSqx9yo4mgdoJwEx). Built with lucide's own factory,
+ * so they take the same props and default stroke as the six lucide icons beside them.
+ * - dashboard: LayoutDashboard is four rectangles, the same glyph as gallery's LayoutGrid. One framed
+ *   surface split unevenly differs structurally.
+ * - feed: Newspaper is a smudge at 14px. A feed is stacked full-width cards: two rectangles.
+ * - board: Kanban's bare strokes read as a bar chart; three columns go solid at 14px. Two columns of
+ *   unequal height stay open and still say "columns".
+ */
+const BoardIcon = createLucideIcon('view-board', [
+  ['rect', { x: '3.5', y: '4.5', width: '7.5', height: '15', rx: '1.8', key: 'b1' }],
+  ['rect', { x: '13', y: '4.5', width: '7.5', height: '11', rx: '1.8', key: 'b2' }],
+]);
+const DashboardIcon = createLucideIcon('view-dashboard', [
+  ['rect', { x: '3', y: '4.5', width: '18', height: '15', rx: '2.4', key: 'd1' }],
+  ['path', { d: 'M11.5 4.5v15M11.5 12h9.5', key: 'd2' }],
+]);
+const FeedIcon = createLucideIcon('view-feed', [
+  ['rect', { x: '3', y: '4', width: '18', height: '6.6', rx: '1.8', key: 'f1' }],
+  ['rect', { x: '3', y: '13.4', width: '18', height: '6.6', rx: '1.8', key: 'f2' }],
+]);
+
+/**
  * #347 — exported so the SIDEBAR draws a view with the same icon its tab does.
  * A second map here is how the two drift; field-surfaces doctrine, applied to
- * views rather than fields.
+ * views rather than fields. The tabs, sidebar, switcher and New view dialog all read it.
  */
 export const VIEW_ICON = {
-  board: Kanban,
+  board: BoardIcon,
   calendar: CalendarDays,
   gallery: LayoutGrid,
   list: ListIcon,
-  feed: Newspaper,
+  feed: FeedIcon,
   timeline: GanttChart,
   form: FormInput,
-  dashboard: LayoutDashboard,
+  dashboard: DashboardIcon,
   table: Table2,
 } as const;
 

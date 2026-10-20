@@ -7,7 +7,8 @@ import { Suspense, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, LayoutDashboard, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
+import { Database as DatabaseIcon, Plus } from 'lucide-react';
+import { VIEW_ICON } from '@/components/views/view-tab';
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
@@ -467,16 +468,16 @@ function NewViewDialog({
         <div className="grid grid-cols-2 gap-2">
           {(
             [
-              { kind: 'table', label: 'Table', Icon: Table2 },
-              { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
-              { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: editableCalendarDateFields(fields).length === 0 ? 'Needs an editable date field' : null },
-              { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
-              { kind: 'list', label: 'List', Icon: ListIcon },
-              { kind: 'feed', label: 'Feed', Icon: Newspaper },
-              { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
-              { kind: 'form', label: 'Form', Icon: FormInput },
-              { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-            ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
+              { kind: 'table', label: 'Table', Icon: VIEW_ICON.table },
+              { kind: 'board', label: 'Board', Icon: VIEW_ICON.board, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
+              { kind: 'calendar', label: 'Calendar', Icon: VIEW_ICON.calendar, need: editableCalendarDateFields(fields).length === 0 ? 'Needs an editable date field' : null },
+              { kind: 'gallery', label: 'Gallery', Icon: VIEW_ICON.gallery },
+              { kind: 'list', label: 'List', Icon: VIEW_ICON.list },
+              { kind: 'feed', label: 'Feed', Icon: VIEW_ICON.feed },
+              { kind: 'timeline', label: 'Timeline', Icon: VIEW_ICON.timeline, need: dateFields.length === 0 ? 'Needs a date field' : null },
+              { kind: 'form', label: 'Form', Icon: VIEW_ICON.form },
+              { kind: 'dashboard', label: 'Dashboard', Icon: VIEW_ICON.dashboard },
+            ] as Array<{ kind: ViewKind; label: string; Icon: (typeof VIEW_ICON)[ViewKind]; need?: string | null }>
           ).map(({ kind, label, Icon, need }) => (
             <button
               key={kind}
