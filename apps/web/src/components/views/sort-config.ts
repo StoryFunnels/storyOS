@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { choiceDirectionLabels } from './option-order';
 import { formulaRefs } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 
@@ -94,7 +95,6 @@ const DIRECTION_LABELS: Record<string, { asc: string; desc: string }> = {
   text: { asc: 'A → Z', desc: 'Z → A' },
   url: { asc: 'A → Z', desc: 'Z → A' },
   email: { asc: 'A → Z', desc: 'Z → A' },
-  select: { asc: 'A → Z', desc: 'Z → A' },
   number: { asc: '1 → 9', desc: '9 → 1' },
   date: { asc: 'Oldest → newest', desc: 'Newest → oldest' },
   created_at: { asc: 'Oldest → newest', desc: 'Newest → oldest' },
@@ -109,7 +109,26 @@ const DIRECTION_LABELS: Record<string, { asc: string; desc: string }> = {
   user: { asc: 'A → Z', desc: 'Z → A' },
 };
 
-export function directionLabel(fieldType: string, direction: 'asc' | 'desc'): string {
+/** Choice fields sort by option POSITION (#961), so their labels come from the real options. */
+const CHOICE_TYPES = new Set(['select', 'multi_select', 'workflow']);
+
+/**
+ * #963 — "A → Z" was false for choice fields (they sorted by option id, effectively random, until
+ * #961) and is still wrong now that they sort by position: the order is the one the field's own
+ * options are in. So the label names the first and the last option ("Low → Urgent"), taken from the
+ * options passed in (position order, as the API returns them). Without two options there is no order
+ * to name, and it says what the order is instead of inventing letters.
+ */
+export function directionLabel(
+  fieldType: string,
+  direction: 'asc' | 'desc',
+  options?: ReadonlyArray<{ label: string }>,
+): string {
+  if (CHOICE_TYPES.has(fieldType)) {
+    const named = choiceDirectionLabels(options ?? []);
+    if (named) return named[direction];
+    return direction === 'asc' ? 'Option order' : 'Reverse option order';
+  }
   const labels = DIRECTION_LABELS[fieldType];
   if (labels) return labels[direction];
   return direction === 'asc' ? 'Ascending' : 'Descending';

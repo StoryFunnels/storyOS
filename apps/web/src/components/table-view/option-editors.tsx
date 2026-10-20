@@ -12,7 +12,6 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
@@ -27,6 +26,7 @@ import { cn } from '@/lib/utils';
 import type { Field } from './use-table-data';
 import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
+import { choiceDirectionLabels, reorderedIds } from '../views/option-order';
 
 let draftKey = 0;
 
@@ -143,6 +143,22 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
     onSuccess: invalidate,
   });
 
+  // #963 — ONE atomic call per drag: POST .../options/reorder takes the full ordered id list (#961), so a
+  // half-applied reorder cannot exist. Then the field, its views' rows and a board's columns refetch once
+  // (`invalidate` covers the database's field.options and the records' sort that follows them).
+  // The path is cast until PR 1149's generated SDK lands on main.
+  const reorder = useMutation({
+    mutationFn: async (order: string[]) => {
+      const { error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder' as never,
+        { params: { path: { ws, db, field: field.id } }, body: { order } } as never,
+      );
+      if (error) throw new Error('reorder failed');
+    },
+    onSettled: invalidate,
+    onError: () => toast.error('Could not save the new order'),
+  });
+
   const removeOption = useMutation({
     mutationFn: async (id: string) => {
       const res = await api.DELETE(
@@ -175,17 +191,15 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
     onSuccess: invalidate,
   });
 
-  async function onDragEnd(event: DragEndEvent) {
+  function onDragEnd(event: DragEndEvent) {
     const from = options.findIndex((o) => o.id === event.active.id);
     const to = options.findIndex((o) => o.id === event.over?.id);
-    if (from < 0 || to < 0 || from === to) return;
-    const next = arrayMove(options, from, to);
-    // Persist a clean 0..n sequence; lists are small.
-    for (let i = 0; i < next.length; i++) {
-      if (next[i]!.id !== options[i]?.id) {
-        await patchOption.mutateAsync({ id: next[i]!.id, position: i });
-      }
-    }
+    const order = reorderedIds(
+      options.map((o) => o.id),
+      from,
+      to,
+    );
+    if (order) reorder.mutate(order);
   }
 
   function addPending() {
@@ -203,9 +217,10 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
     <div className="flex flex-col gap-1.5">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={options.map((o) => o.id)} strategy={verticalListSortingStrategy}>
-          {options.map((option) => (
+          {options.map((option, index) => (
             <SortableOptionRow
               key={option.id}
+              position={index + 1}
               option={option}
               onRecolor={(color) => patchOption.mutate({ id: option.id, color })}
               onSetIcon={(icon) => patchOption.mutate({ id: option.id, icon })}
@@ -232,17 +247,27 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
           <Plus className="h-3.5 w-3.5" />
         </Button>
       </div>
+      {/* #963 — the numbers are this editor's alone: they ARE the sort order and the board's column
+          order, and records never show them. Say so where the numbers are. */}
+      {options.length > 1 && (
+        <p className="pl-6 text-label text-muted">
+          Sorts {choiceDirectionLabels(options)?.asc}. Drag to reorder. Records never see these numbers, only this editor does.
+        </p>
+      )}
     </div>
   );
 }
 
 function SortableOptionRow({
+  position,
   option,
   onRecolor,
   onSetIcon,
   onRename,
   onRemove,
 }: {
+  /** #963 — 1-based place in the order; visible only in this editor. */
+  position: number;
   option: { id: string; label: string; color: string; icon?: string | null };
   onRecolor: (color: string) => void;
   /** #202 — set/clear this option's curated icon. */
@@ -262,11 +287,15 @@ function SortableOptionRow({
       <button
         type="button"
         className="cursor-grab touch-none p-0.5 text-faint hover:text-muted"
+        aria-label={`Drag to reorder ${option.label}`}
         {...attributes}
         {...listeners}
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
+      <span className="w-4 shrink-0 text-right text-label tabular-nums text-muted" aria-label={`Position ${position}`}>
+        {position}
+      </span>
       <OptionAppearance
         icon={option.icon}
         color={option.color}
