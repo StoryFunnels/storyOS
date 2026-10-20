@@ -38,6 +38,7 @@ describe('live Getting-Started state (MN-213)', () => {
       board_view_built: false,
       relation_created: false,
       ai_connected: false,
+      mcp_oauth_connected: false,
       business_pack_installed: false,
     });
   });
