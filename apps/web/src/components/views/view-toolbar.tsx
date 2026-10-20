@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
 import { useViewSearch } from './view-search';
+import { filterButtonState } from './filter-state';
 import { DisplayMenu } from './display-menu';
 import { GroupChip, showsGroupChip, viewGroups } from './group-chip';
 import { buildViewMenu } from './view-menu';
@@ -1087,40 +1088,20 @@ export function FiltersSection({
     [nodes],
   );
   /*
-   * #733 — every condition is a chip, always; pinning promotes rather than
-   * gates (see visibleFilterChips's own comment for why the old ≤2-conditions
-   * cliff was a defect, not a design). #429's original "renders as toolbar
-   * chips without anyone having to find `Pin to toolbar` first" intent is
-   * still true — it's just no longer conditional on staying under three.
+   * #965 — a chip exists only for a condition someone PINNED. Nothing is chipped by default: the Filter
+   * button itself says "something is applied" (yellow), and the panel is one click away. #733's fix
+   * stands (a third condition can never hide another): the chip set depends on `pinned` alone.
    */
   const visibleLeaves = visibleFilterChips(leaves);
-  /**
-   * #426 — the chip counts what is CONFIGURED, and says so when that differs
-   * from what is applied.
-   *
-   * It used to count the saved tree only, so while the panel was open it
-   * under-reported: two conditions built, "1 filter" shown. A chip that
-   * silently under-counts is the same lie as a grid that does not update, in a
-   * smaller form.
-   *
-   * `configuredCount` is every enabled condition the user has built (draft
-   * first, since that is what they are looking at). `appliedCount` is the subset
-   * complete enough to actually run — #345's rule, unchanged. When they differ
-   * the chip shows both rather than the smaller number, which is what makes an
-   * incomplete row (#425) visible instead of merely absent.
-   */
-  const shownLeaves = useMemo(
-    () =>
-      flattenFilterTree(draftGlobal?.nodes ?? nodes).filter(
-        (f): f is typeof f & { node: FilterCondition } => !isFilterGroup(f.node),
-      ),
-    [draftGlobal, nodes],
+  // #426's rule survives in the numbers below: the button counts what the user has BUILT, from the draft
+  // while the panel is open (so it never under-reports what the panel shows), and the panel header says
+  // "N of M applied" when some of it does not run yet (#425, #345).
+  // #965 — what the button says, from what the user is LOOKING at (the draft while the panel is open,
+  // the saved filters otherwise), so it never lags the panel it sits above.
+  const buttonState = filterButtonState(
+    draftGlobal ? buildFilterGroup(draftGlobal.connector, draftGlobal.nodes) : filters,
+    draftPersonal ? buildFilterGroup(draftPersonal.connector, draftPersonal.nodes) : personalFilter,
   );
-  const enabled = shownLeaves.filter((f) => !f.node.disabled);
-  const configuredCount = enabled.length;
-  const appliedCount = enabled.filter((f) => !isIncompleteCondition(f.node)).length;
-  const activeCount = configuredCount;
-  const hasPersonalFilter = Boolean(personalFilter);
 
   function setNodes(next: FilterNode[]) {
     onChange(buildFilterGroup(connector, next));
@@ -1235,39 +1216,34 @@ export function FiltersSection({
           />
         );
       })}
-      {/* #259/#429: a standing indicator so a narrower list is never a mystery —
-          the view's shared filter chip above says what everyone sees; this one
-          says "and I've ALSO narrowed it further, just for me". Both sections
-          are visible the moment the panel opens now, so this just opens it —
-          there's no separate Personal scope to switch into any more. */}
-      {hasPersonalFilter && (
-        <button
-          type="button"
-          onClick={openBuilder}
-          title="A personal filter narrows this view for you only — teammates don't see it"
-          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-label text-ink"
-        >
-          <UserRound className="h-3 w-3" />
-          Personal filter
-        </button>
-      )}
       <span className="relative">
         <button
           type="button"
           onClick={() => (open ? closeBuilder() : openBuilder())}
+          aria-label={
+            buttonState.yellow
+              ? `Filter, ${buttonState.applied} applied${buttonState.personalOn ? ', including your personal filter' : ''}`
+              : 'Filter'
+          }
           className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
-            activeCount ? 'text-ink' : 'text-muted',
+            'flex items-center gap-1 rounded-[var(--radius-control)] border px-1.5 py-1 text-label hover:bg-hover',
+            // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned
+            // included). Disabled and unfinished conditions hide nothing, so they do not turn it on.
+            buttonState.yellow
+              ? 'border-[var(--accent)] bg-accent-soft text-ink'
+              : 'border-transparent text-muted',
           )}
         >
           <ListFilter className="h-3.5 w-3.5" />
-          {configuredCount === 0
-            ? 'Filter'
-            : appliedCount === configuredCount
-              ? `${configuredCount} filter${configuredCount > 1 ? 's' : ''}`
-              : /* Never just the smaller number — "2 · 1 applied" is the only
-                   honest reading when a row is still missing its value. */
-                `${configuredCount} · ${appliedCount} applied`}
+          Filter
+          {/* The count: applied conditions that are not already chips. A pinned one is its own chip. */}
+          {buttonState.buttonCount > 0 && (
+            <span className="tabular-nums text-ink">{buttonState.buttonCount}</span>
+          )}
+          {/* A person mark while the personal filter is on; it replaces the old standing chip (#259). */}
+          {buttonState.personalOn && (
+            <UserRound className="h-3 w-3" aria-hidden />
+          )}
         </button>
         {open && (
           <>
@@ -1286,8 +1262,17 @@ export function FiltersSection({
               popover top to bottom IS reading the effective filter.
             */}
             <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+              {/* #965 — "N of M applied" lives here now, not on the button: M is every condition built
+                  (either section), N the ones that actually run (not disabled, not unfinished). */}
+              {buttonState.configured > 0 && (
+                <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted" aria-live="polite">
+                  {buttonState.applied} of {buttonState.configured} applied
+                </p>
+              )}
               <FilterBuilderPanel
-                sectionLabel="Global"
+                sectionLabel="Everyone"
+                sectionHint="The view's filter. Every viewer sees this."
+
                 fields={fields}
                 members={members}
                 ws={ws}
@@ -1300,7 +1285,7 @@ export function FiltersSection({
               {canUsePersonalScope && (
                 <div className="border-t border-border-default">
                   <FilterBuilderPanel
-                    sectionLabel="Personal"
+                    sectionLabel="Only you"
                     fields={fields}
                     members={members}
                     ws={ws}
@@ -1405,6 +1390,7 @@ export function FilterBuilderPanel({
   onConnectorChange,
   personalScopeHint,
   sectionLabel,
+  sectionHint,
   onClearAll,
 }: {
   fields: Field[];
@@ -1426,6 +1412,8 @@ export function FilterBuilderPanel({
    * (the rollup field-config reuse, MN-295) exactly as they were.
    */
   sectionLabel?: string;
+  /** #965 — one line under the section header saying who sees this section. */
+  sectionHint?: string;
   /** #429 — Global's header gets a "Clear all", matching Fibery's panel. Only
    * meaningful (and only rendered) when there's something to clear. */
   onClearAll?: () => void;
@@ -1493,9 +1481,12 @@ export function FilterBuilderPanel({
         </span>
       </div>
 
+      {sectionHint && (
+        <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">{sectionHint}</p>
+      )}
       {personalScopeHint && (
         <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
-          Narrows the shared view for you only — teammates keep seeing the Global filters above.
+          A personal filter. It narrows this view for you only; teammates don't see it.
         </p>
       )}
 
