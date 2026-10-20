@@ -7,7 +7,7 @@ import type { UserPreferences } from '@/lib/preferences';
 
 /**
  * #742 finding 05 — "views-only mode": hide every database ROW in the sidebar
- * tree while keeping its views (flat siblings since finding 06) visible.
+ * tree while keeping its views visible (flat, since there is then no parent row to nest them under, #931).
  *
  * #775 — the scope is DECIDED: per user, per workspace, stored server-side in the
  * user's preferences (`sidebar.viewsOnlyWorkspaces`, the same shape as
