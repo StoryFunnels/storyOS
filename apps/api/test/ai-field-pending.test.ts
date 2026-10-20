@@ -31,10 +31,10 @@ const inject = (method: string, url: string, payload?: unknown, token = admin.to
 const fakeClient = (text: string): ManagedAiClient => ({ complete: async (): Promise<ManagedAiCompletion> => ({ text, tokensIn: 1, tokensOut: 1 }) });
 const failingClient = (message: string): ManagedAiClient => ({ complete: async () => { throw new Error(message); } });
 
-async function queuedJob(recordId: string, fieldId: string) {
+async function queuedJob(recordId: string, fieldId: string, opts: { notId?: string } = {}) {
   for (let i = 0; i < 60; i++) {
     const rows = await db.query.automationJobs.findMany({ where: and(eq(automationJobs.kind, 'ai_field_recompute'), eq(automationJobs.status, 'queued')) });
-    const match = rows.find((r) => { const p = r.payload as { recordId?: string; fieldId?: string }; return p.recordId === recordId && p.fieldId === fieldId; });
+    const match = rows.find((r) => { const p = r.payload as { recordId?: string; fieldId?: string }; return p.recordId === recordId && p.fieldId === fieldId && r.id !== opts.notId; });
     if (match) return match;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -145,8 +145,12 @@ describe('#925 the pending marker', () => {
     const job1 = await queuedJob(id, f.aiId);
     await new Promise((r) => setTimeout(r, 15));
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${id}`, { values: { [f.depApi]: 'two' } });
-    const markerTwo = (await computed(id))[pendingAtKey(f.aiId)];
-    expect((job1.payload as { pendingAt: string }).pendingAt).not.toBe(markerTwo);
+    // The subscriber enqueues fire-and-forget after the PATCH returns, so reading the marker right here could still see edit one's
+    // (the flake). The marker is written BEFORE its job exists: once edit two's job is queued, edit two's marker is in place.
+    const job2 = await queuedJob(id, f.aiId, { notId: job1.id });
+    const markerTwo = (job2.payload as { pendingAt: string }).pendingAt;
+    expect(markerTwo, 'edit two got its own token').not.toBe((job1.payload as { pendingAt: string }).pendingAt);
+    expect((await computed(id))[pendingAtKey(f.aiId)], 'the record carries edit two\'s marker').toBe(markerTwo);
     // the older job finishes while the newer edit is still waiting
     await (subscriber as unknown as { recompute: (p: unknown, h: unknown) => Promise<unknown> }).recompute(job1.payload, {});
     const mid = await computed(id);
