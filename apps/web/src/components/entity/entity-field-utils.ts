@@ -335,3 +335,17 @@ export function isEmptyBlocks(value: unknown): boolean {
     });
   });
 }
+
+/**
+ * #955 — the Linear mirror's drift notice. `linear_description` is hidden on the record page (it duplicates the editable
+ * description), so the one time a person needs it is when Linear's text CHANGED after import (`description_drift`, #906).
+ * Returns Linear's current text to offer, or null when there is nothing to say: the flag is false/absent, or the mirror's
+ * fields are not on this database. Keyed by api_name because that is the importer's own contract with these two fields.
+ */
+export function linearDriftText(fields: Array<Pick<Field, 'apiName'>>, record: Pick<RecordRow, 'values'>): string | null {
+  const has = (n: string) => fields.some((f) => f.apiName === n);
+  if (!has('description_drift') || !has('linear_description')) return null;
+  if (record.values['description_drift'] !== true) return null;
+  const text = record.values['linear_description'];
+  return typeof text === 'string' ? text : '';
+}

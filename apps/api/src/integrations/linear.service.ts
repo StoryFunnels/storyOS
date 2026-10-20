@@ -586,8 +586,26 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const has = await this.db.query.fields.findFirst({
         where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, f.apiName), isNull(fieldsTable.deletedAt)),
       });
-      if (!has) await this.fields.create(issuesDbId, { display_name: f.display_name, type: f.type, config: {} });
+      if (!has) await this.fields.create(issuesDbId, { display_name: f.display_name, type: f.type, config: f.apiName === 'linear_description' ? { entity_hidden: true } : {} });
     }
+    return this.hideMachineDescription(issuesDbId);
+  }
+
+  /**
+   * #955 — `linear_description` is the importer's copy of Linear's text, kept so the next sync can tell whether the body
+   * drifted (#906). Shown beside the editable description it reads as the same text twice, so it is hidden on the record
+   * page (still readable over the API, MCP and table views). Applied to an existing database ONCE: only when nobody has
+   * decided yet (`entity_hidden` absent), so a person who shows it again is not overruled by the next sync.
+   * Returns whether this call changed anything.
+   */
+  private async hideMachineDescription(issuesDbId: string): Promise<boolean> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, issuesDbId), eq(fieldsTable.apiName, 'linear_description'), isNull(fieldsTable.deletedAt)),
+    });
+    const config = (field?.config ?? {}) as Record<string, unknown>;
+    if (!field || config['entity_hidden'] !== undefined) return false;
+    await this.fields.update(issuesDbId, field.id, { config: { ...config, entity_hidden: true } });
+    return true;
   }
 
   /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
@@ -629,7 +647,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       }
       if (issuesDb && projectsDb && sprintsDb) {
         // #904 incremental upgrade: an older import built State from a fixed list of 7 and kept no status name.
-        await this.syncStatusOptions(issuesDb.id, states);
+        const descriptionHidden = await this.syncStatusOptions(issuesDb.id, states);
         // Incremental upgrade: an older import predates the Labels database.
         let labelsFieldId = labelsDb ? await this.findLabelsFieldId(issuesDb.id, labelsDb.id) : undefined;
         if (!labelsDb) {
@@ -637,7 +655,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           labelsDb = created.labelsDb;
           labelsFieldId = created.labelsFieldId;
         }
-        return { issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId };
+        return { issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId, descriptionHidden };
       }
     }
     space = space ?? // #221: curated ref rather than an emoji (#251).
@@ -678,7 +696,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // #904: the original status name, kept as plain text as well, so a wrong State option is visible, not silent.
       { display_name: 'Linear Status', type: 'text' as const, config: {} },
       // #906: the latest Linear description, and a flag a person or agent clears once they have reconciled it.
-      { display_name: 'Linear Description', type: 'text' as const, config: {} },
+      // #955: machine state for drift detection (#906), not something to read: hidden on the record page from the start.
+      { display_name: 'Linear Description', type: 'text' as const, config: { entity_hidden: true } },
       { display_name: 'Description Drift', type: 'checkbox' as const, config: {} },
       { display_name: 'Assignee (name)', type: 'text' as const, config: {} },
       { display_name: 'Estimate', type: 'number' as const, config: {} },
@@ -699,7 +718,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       cardinality: 'one_to_many', field_a_name: 'Parent Issue', field_b_name: 'Sub-issues',
     });
     const { labelsDb, labelsFieldId } = await this.createLabelsPack(membership, space.id, issuesDb.id);
-    return { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId };
+    return { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden: false };
   }
 
   /** Idempotent re-import by Linear id (MN-066) — now the framework's shared
@@ -937,6 +956,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       comments: { fetched: 0, created: 0, already_present: 0 },
       /** #906 — descriptions whose Linear text changed after import: new text stored, StoryOS body untouched. */
       drift_flagged: 0,
+      /** #955 — existing Issues databases whose `linear_description` this sync hid on the record page (once; empty when nothing changed). */
+      description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
     };
@@ -956,7 +977,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       currentTeam = team.key;
       const data = fetched.get(team.id)!;
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
-      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings);
+      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings);
+      if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');

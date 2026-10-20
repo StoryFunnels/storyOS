@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NOT_INLINE, computedBadgeLabel, hidesWhenEmpty, isEmptyBlocks, isHidden } from './entity-field-utils';
+import { NOT_INLINE, computedBadgeLabel, hidesWhenEmpty, isEmptyBlocks, isHidden, linearDriftText } from './entity-field-utils';
 
 /**
  * #776 — a computed field must never get the ordinary click-to-edit
@@ -131,5 +131,24 @@ describe('hidesWhenEmpty / isHidden — collection default (#783)', () => {
     expect(hidesWhenEmpty(manyToMany())).toBe(true);
     expect(hidesWhenEmpty(manyToMany({ hide_when_empty: false }))).toBe(false);
     expect(hidesWhenEmpty(text())).toBe(false);
+  });
+});
+
+/** #955 — the drift notice shows only when Linear's text actually changed, and only on a Linear mirror. */
+describe('linearDriftText', () => {
+  const mirror = [{ apiName: 'description_drift' }, { apiName: 'linear_description' }];
+  it('offers Linear\'s text when the drift flag is true', () => {
+    expect(linearDriftText(mirror, { values: { description_drift: true, linear_description: 'v2 text' } })).toBe('v2 text');
+  });
+  it('says nothing when the flag is false or absent', () => {
+    expect(linearDriftText(mirror, { values: { description_drift: false, linear_description: 'x' } })).toBeNull();
+    expect(linearDriftText(mirror, { values: { linear_description: 'x' } })).toBeNull();
+  });
+  it('says nothing on a database that is not a Linear mirror, even with a field named like it', () => {
+    expect(linearDriftText([{ apiName: 'description_drift' }], { values: { description_drift: true } })).toBeNull();
+    expect(linearDriftText([], { values: { description_drift: true, linear_description: 'x' } })).toBeNull();
+  });
+  it('a drifted record whose Linear text is empty still offers (empty) text', () => {
+    expect(linearDriftText(mirror, { values: { description_drift: true } })).toBe('');
   });
 });
