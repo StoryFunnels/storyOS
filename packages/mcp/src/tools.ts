@@ -1351,7 +1351,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         sorts: z
           .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
           .optional()
-          .describe('Sort keys by field api_name.'),
+          .describe(
+            'Sort keys by field api_name. A select or workflow field sorts by its OPTION ORDER (the order the field\'s options are arranged in: ' +
+              'Low → Urgent, Triage → Done), not alphabetically by label; desc reverses it. A multi_select sorts by the position of its ' +
+              'FIRST stored value. Records with no value come last.',
+          ),
         limit: z.number().int().min(1).max(200).optional(),
         cursor: z.string().optional().describe('next_cursor from a prior call.'),
         /*
