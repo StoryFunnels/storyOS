@@ -835,6 +835,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a choice field's options in this order (every option, once); writes dense positions 0..n-1 */
+        post: operations["FieldsController_reorderOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}": {
         parameters: {
             query?: never;
@@ -4830,6 +4847,9 @@ export interface components {
             color: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             icon?: string;
         };
+        ReorderOptionsDto: {
+            order: string[];
+        };
         UpdateOptionDto: {
             label?: string;
             /** @enum {string} */
@@ -7951,6 +7971,30 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateOptionDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FieldsController_reorderOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderOptionsDto"];
             };
         };
         responses: {

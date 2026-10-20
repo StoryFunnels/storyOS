@@ -19,6 +19,7 @@ import {
   workspaces,
 } from '../db/schema';
 import { getStorage } from '../attachments/storage';
+import { OPTION_ORDER } from '../fields/option-order';
 
 /**
  * The format version this exporter writes. A future importer keys off this so an
@@ -372,7 +373,7 @@ export class WorkspaceExportService {
             selectOptions.fieldId,
             fieldRows.map((f) => f.id),
           ),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     const optionsByField = new Map<string, typeof options>();

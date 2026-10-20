@@ -10,6 +10,7 @@ import { DatabasesService } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { FieldsService } from './fields.service';
 import { scoreWorkflowCandidate } from './workflow-candidate';
+import { OPTION_ORDER } from './option-order';
 
 /**
  * #598 — find the selects across a workspace that look like a database's lifecycle field, and convert
@@ -49,7 +50,7 @@ export class WorkflowNominationService {
     const optionRows = fieldRows.length
       ? await this.db.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, fieldRows.map((f) => f.id)),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     const labelsByField = new Map<string, string[]>();
