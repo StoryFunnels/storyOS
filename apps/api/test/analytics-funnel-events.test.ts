@@ -187,7 +187,7 @@ describe('#817 workspace_activated — AC1', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ai_connected).toBe(false);
     expect(Object.keys(res.json()).sort()).toEqual(
-      ['ai_connected', 'board_view_built', 'business_pack_installed', 'database_created', 'records_added', 'relation_created', 'teammate_invited'],
+      ['ai_connected', 'board_view_built', 'business_pack_installed', 'database_created', 'mcp_oauth_connected', 'records_added', 'relation_created', 'teammate_invited'],
     );
   });
 
