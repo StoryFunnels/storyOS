@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FilterNode, ViewConfig } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { DB } from '../db/db.module';
@@ -11,6 +11,7 @@ import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { computePublicFieldAllowlist } from './views.service';
+import { OPTION_ORDER } from '../fields/option-order';
 
 /**
  * #535 — a recipient-scope condition that can never match any real row. Used
@@ -104,7 +105,7 @@ export class PublicViewsService {
     const optionRows = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, selectFieldIds),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     const optionsByFieldId = new Map<string, Array<{ id: string; label: string; color: string }>>();

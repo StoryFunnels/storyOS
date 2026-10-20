@@ -1,5 +1,5 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, selectOptions } from '../db/schema';
@@ -15,6 +15,7 @@ import { blockingFields, isEmptyValue, planField } from '../migration-framework/
 import type { DestinationField, FieldPlan } from '../migration-framework/copy-mapping';
 import { buildLabelIndex, pickOption } from '../migration-framework/select-options';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { OPTION_ORDER } from '../fields/option-order';
 
 export interface CopyRecordInput {
   /** #521/#435 — a list from day one: one record and a bulk selection travel
@@ -73,7 +74,7 @@ export class CopyRecordService {
     const options = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, selectFieldIds),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     const optionsByField = new Map<string, Array<{ id: string; label: string }>>();

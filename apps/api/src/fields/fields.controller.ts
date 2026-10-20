@@ -17,6 +17,7 @@ import {
   createFieldSchema,
   createOptionSchema,
   deleteOptionSchema,
+  reorderOptionsSchema,
   updateFieldSchema,
   updateOptionSchema,
 } from '@storyos/schemas';
@@ -33,6 +34,7 @@ class ChangeFieldTypeDto extends createZodDto(changeFieldTypeSchema) {}
 class CreateOptionDto extends createZodDto(createOptionSchema) {}
 class UpdateOptionDto extends createZodDto(updateOptionSchema) {}
 class DeleteOptionDto extends createZodDto(deleteOptionSchema) {}
+class ReorderOptionsDto extends createZodDto(reorderOptionsSchema) {}
 
 @ApiTags('fields')
 @ApiBearerAuth()
@@ -125,6 +127,17 @@ export class FieldsController {
     @Body() body: CreateOptionDto,
   ) {
     return this.fieldsService.addOption(await this.db(req, databaseId), fieldId, body);
+  }
+
+  @Post(':field/options/reorder')
+  @ApiOperation({ summary: 'Put a choice field\'s options in this order (every option, once); writes dense positions 0..n-1' })
+  async reorderOptions(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('field') fieldId: string,
+    @Body() body: ReorderOptionsDto,
+  ) {
+    return this.fieldsService.reorderOptions(await this.db(req, databaseId), fieldId, body.order);
   }
 
   @Patch(':field/options/:option')

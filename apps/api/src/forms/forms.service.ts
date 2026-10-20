@@ -24,6 +24,7 @@ import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
 import { compileFilter } from '../records/query-compiler';
 import { cleanFilterNode } from '../views/views.service';
+import { OPTION_ORDER } from '../fields/option-order';
 
 /** Field types a public form can render/accept (MN-101, MN-224: relation + user;
  *  #710: attachment, multipart-only — see `submit`'s `file` parameter).
@@ -165,7 +166,7 @@ export class FormsService {
     const options = selectIds.length
       ? await this.db.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, selectIds),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     // #303: carry `color`/`icon` so the public form can render the SAME coloured

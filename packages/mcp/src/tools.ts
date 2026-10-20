@@ -849,6 +849,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_field: 'admin',
   change_field_type: 'admin',
   reorder_fields: 'admin',
+  // #961 — same ceiling as the option edits it sits beside (update_field).
+  reorder_options: 'admin',
   create_view: 'admin',
   update_view: 'admin',
   delete_view: 'admin',
@@ -5595,6 +5597,46 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await reorder(ws.id, db.id, order, anyField, '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', 'field');
       return text(detail.fields.map((f) => f.apiName));
+    }),
+  );
+
+  reg(
+    'reorder_options',
+    {
+      title: 'Reorder a choice field\'s options',
+      description:
+        'Set the order of a select / multi_select / workflow field\'s options. Pass option LABELS (or ids) in the desired order; any you leave out ' +
+        'keep their relative order after the ones you name. This one order is the sort order for the field (a sort by it runs first option → last), ' +
+        'the order of a board grouped by it ("Field order"), and the order of every option list.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string(),
+        order: z.array(z.string()).describe('Option labels (or ids) in the desired order.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; order: string[] }>(async ({ workspace, database, field, order }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = anyField(detail, field);
+      const opts = detail.fields.find((f) => f.id === fieldId)?.options ?? [];
+      if (opts.length === 0) throw new Error('That field has no options to reorder.');
+      const named: string[] = [];
+      for (const ref of order) {
+        const hit = opts.find((o) => o.id === ref) ?? opts.find((o) => o.label.toLowerCase() === ref.trim().toLowerCase());
+        if (!hit) throw new Error(`No option "${ref}" on that field. It has: ${opts.map((o) => o.label).join(', ')}.`);
+        if (named.includes(hit.id)) throw new Error(`Option "${hit.label}" is listed twice.`);
+        named.push(hit.id);
+      }
+      const full = [...named, ...opts.filter((o) => !named.includes(o.id)).map((o) => o.id)];
+      const res = await unwrap<Array<{ label: string }>>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+          body: { order: full } as never,
+        }),
+      );
+      return text(res.map((o) => o.label));
     }),
   );
 

@@ -1791,6 +1791,53 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder": {
+      "post": {
+        "operationId": "FieldsController_reorderOptions",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderOptionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Put a choice field's options in this order (every option, once); writes dense positions 0..n-1",
+        "tags": [
+          "fields"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}": {
       "patch": {
         "operationId": "FieldsController_updateOption",
@@ -11680,6 +11727,24 @@
         },
         "required": [
           "label"
+        ]
+      },
+      "ReorderOptionsDto": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "order"
         ]
       },
       "UpdateOptionDto": {
