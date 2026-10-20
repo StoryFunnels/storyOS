@@ -5,7 +5,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
-import { PreferencesService } from '../users/preferences.service';
+import { ViewerStateService } from '../viewer-state/viewer-state.service';
 import { MentionNarrowingService } from '../access/mention-narrowing.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import {
@@ -48,7 +48,7 @@ export class ExportService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
-    private readonly preferences: PreferencesService,
+    private readonly viewerState: ViewerStateService,
     private readonly narrowing: MentionNarrowingService,
   ) {}
 
@@ -106,7 +106,7 @@ export class ExportService {
     // export is "this view, as I see it", and the on-screen table already applies
     // the same override (queryBodyFromConfig). Only meaningful when exporting a
     // specific view; a whole-database export (no viewId) has no view to override.
-    const personalFilter = viewId ? await this.preferences.getViewFilter(currentUserId, databaseId, viewId) : undefined;
+    const personalFilter = viewId ? await this.viewerState.read(currentUserId, 'view_filter', viewId) : undefined;
     const cols = exportColumns(exportFields);
     const query = this.records.query.bind(this.records);
     const labelize = (v: Record<string, unknown>) => this.labelizeValues(v, labels);

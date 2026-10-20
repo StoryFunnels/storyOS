@@ -9,7 +9,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, memberships, spaces, user, views } from '../db/schema';
+import { accessGrants, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -132,6 +132,14 @@ export class MembersService {
     // #945 — grants are keyed by user id, not membership: without this a removed member's grants survived, and a re-invited
     // person silently got the old access back (a restricted database they had been taken off, for instance).
     await this.db.delete(accessGrants).where(and(eq(accessGrants.workspaceId, workspaceId), eq(accessGrants.userId, target.userId)));
+
+    // #973 / ADR-0019 — a removed member's per-viewer state in THIS workspace goes with the membership: their overrides (personal
+    // filters, collection views, pinned tabs), favourites and watched records. Before, all of it outlived the membership and came
+    // back when the person was re-invited, the same surprise #945 closed for grants. NOT notifications: whether they should survive
+    // removal is an open product call (ADR-0019, "Not decided here"), so they are left as they were.
+    await this.db.delete(viewerState).where(and(eq(viewerState.workspaceId, workspaceId), eq(viewerState.userId, target.userId)));
+    await this.db.delete(favorites).where(and(eq(favorites.workspaceId, workspaceId), eq(favorites.userId, target.userId)));
+    await this.db.delete(recordWatchers).where(and(eq(recordWatchers.workspaceId, workspaceId), eq(recordWatchers.userId, target.userId)));
 
     /**
      * #291/#290 — HARD-DELETE this member's personal content.
