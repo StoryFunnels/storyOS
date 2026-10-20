@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
@@ -39,7 +40,7 @@ export const createDatabaseSchema = z.object({
   description: descriptionSchema,
 });
 
-export const updateDatabaseSchema = z.object({
+export const updateDatabaseSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: iconValueSchema.nullable().optional(),
   color: databaseColorSchema.nullable().optional(),
@@ -60,7 +61,7 @@ export const updateDatabaseSchema = z.object({
   description_order: z.number().int().nullable().optional(),
   /** #943 / ADR-0018 — restrict the database to people with an access grant (admins only; admins always see it). */
   restricted: z.boolean().optional(),
-});
+}));
 
 export const deleteDatabaseSchema = z.object({
   /** Must equal the database name — the API-level "type the name to delete". */

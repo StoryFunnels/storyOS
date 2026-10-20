@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } fro
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { atLeastOneField } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole } from '../workspaces/workspace-access.guard';
@@ -12,11 +13,11 @@ import { GroupsService } from './groups.service';
 const createSchema = z.object({ name: z.string().trim().min(1).max(100), color: z.string().max(32).optional() });
 class CreateGroupDto extends createZodDto(createSchema) {}
 
-const updateSchema = z.object({
+const updateSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   color: z.string().max(32).nullable().optional(),
   position: z.number().int().optional(),
-});
+}));
 class UpdateGroupDto extends createZodDto(updateSchema) {}
 
 /**
