@@ -43,7 +43,9 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { CARET_HIT_AREA, markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
+import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
+import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
@@ -2484,14 +2486,11 @@ function FolderSection({
         )}
       </SidebarRow>
       {!collapsed && (
-        /* #380 — same guide line, same offset as a database's nested views.
-           #641 — gap-0.5 added: same zero-gap-between-rows issue as the
-           space's own root list, fixed the same way. */
+        /* #380 — same guide line, same offset as a database's nested views (#931: now literally
+           the same class, SIDEBAR_GUIDE_CLASS). #641 — gap-0.5: zero-gap-between-rows, fixed the
+           same way as the space's own root list. */
         <div
-          // #805 — the guide line is a pseudo-element, not `border-l`: a real
-          // border took 1px of layout and pushed every folder child 1px right
-          // of the artifact's columns (35/55/79 instead of 34/54/78).
-          className="relative flex flex-col gap-0.5 before:pointer-events-none before:absolute before:inset-y-px before:left-px before:w-px before:bg-border-default"
+          className={SIDEBAR_GUIDE_CLASS}
           style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}
         >
           {contentCount === 0 && (
@@ -2636,42 +2635,57 @@ function DatabaseBranch({
   onDeleteView: (view: SidebarView) => void;
   canEdit: boolean;
   isAdmin: boolean;
-  /** #742 finding 05 — hide the database's own row; its views (siblings
-   *  since finding 06) still render below, unaffected. */
+  /** #742 finding 05 — hide the database's own row; its views still render,
+   *  flat, since there is no parent row left to nest them under. */
   viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
+  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id);
+  const activeViewId = isHere ? currentViewId : null;
+  const tint = db.color ? OPTION_COLORS[db.color] : null;
 
+  const renderView = (v: SidebarView) => (
+    <SidebarViewRow
+      key={v.id}
+      ws={ws}
+      view={v}
+      active={isHere && currentViewId === v.id}
+      folders={folders}
+      onMove={onMoveView}
+      onRename={onRenameView}
+      onDelete={onDeleteView}
+      canEdit={canEdit}
+      tint={tint}
+    />
+  );
+
+  // #742 finding 05 — views-only mode hides the database's own row. A view then has no parent row
+  // on screen to nest under, so they render flat at the space edge, all of them, as before.
+  if (viewsOnly) return <Fragment>{views.map(renderView)}</Fragment>;
+
+  // #931 — single-source views nest UNDER their database: one step in, on the same guide line a
+  // folder uses, collapsed by default. A collapsed database still shows its active (and, once
+  // #966 lands, pinned) view, so the tree never hides where you are.
+  const shown = visibleChildViews(views, { expanded, activeViewId });
   return (
     <Fragment>
-      {!viewsOnly && (
-        <DatabaseRow
-          ws={ws}
-          db={db}
-          active={isHere}
-          isAdmin={isAdmin}
-          folders={folders}
-          onMove={onMove}
-          reorderable={canEdit}
-        />
+      <DatabaseRow
+        ws={ws}
+        db={db}
+        active={isHere}
+        isAdmin={isAdmin}
+        folders={folders}
+        onMove={onMove}
+        reorderable={canEdit}
+        expandable={views.length > 0}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+      {shown.length > 0 && (
+        <div className={SIDEBAR_GUIDE_CLASS} style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+          {shown.map(renderView)}
+        </div>
       )}
-      {/* #742 finding 06 — a database's own views render as FLAT SIBLINGS now,
-          not behind an expand/collapse caret. No leaf row has children in the
-          new model, so there is nothing left to expand: depth 0, same as the
-          database beside it, no guide line (that implied nesting). */}
-      {views.map((v) => (
-        <SidebarViewRow
-          key={v.id}
-          ws={ws}
-          view={v}
-          active={isHere && currentViewId === v.id}
-          folders={folders}
-          onMove={onMoveView}
-          onRename={onRenameView}
-          onDelete={onDeleteView}
-          canEdit={canEdit}
-        />
-      ))}
     </Fragment>
   );
 }

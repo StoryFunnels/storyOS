@@ -43,6 +43,7 @@ export function SidebarViewRow({
   onDelete,
   canEdit,
   depth = 0,
+  tint,
 }: {
   ws: string;
   view: SidebarView;
@@ -59,6 +60,8 @@ export function SidebarViewRow({
    * left in the whole tree (SIDEBAR_INDENT_PX[1], a folder's own body), and
    * it always comes from a WRAPPER, never stacked again on the row itself. */
   depth?: SidebarDepth;
+  /** #931 — the owning database's colour (a CSS colour), so a view's glyph says where it comes from. */
+  tint?: string | null;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
   /**
@@ -84,7 +87,8 @@ export function SidebarViewRow({
   const label = (
     <>
       <GlyphSlot>
-        <Icon className="h-3.5 w-3.5 text-muted" />
+        {/* #931 — a lens: a step smaller than a database's glyph, keeping its source colour. */}
+        <Icon className="h-3 w-3 text-muted" style={tint ? { color: tint } : undefined} />
       </GlyphSlot>
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {view.personal && (
@@ -125,11 +129,14 @@ export function SidebarViewRow({
      * the databases beside it: #219's fix had been copied into the document row
      * but view rows arrived later (#347) and never inherited it.
      *
-     * `depth` is passed by the caller because the same component renders at two
-     * levels — nested under a database (2) or at the space root (1).
+     * `depth` is passed by the caller, and it is 0 for every view: a database's views get their
+     * one indent step from the guide-line wrapper in `DatabaseBranch` (#931), a folder's from the
+     * folder body, and a space-level view is a sibling at the space edge. (The "(2) or (1)" this
+     * comment used to describe was the old three-level scale, deleted by #742.)
      */
     <SidebarRow
       depth={depth}
+      lens
       active={active}
       ref={canEdit ? setNodeRef : undefined}
       style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
@@ -138,7 +145,7 @@ export function SidebarViewRow({
       className={isDragging ? 'opacity-50' : undefined}
     >
       {href ? (
-        <Link href={href} className="flex min-w-0 flex-1 items-center gap-2">
+        <Link href={href} title={view.name} className="flex min-w-0 flex-1 items-center gap-2">
           {label}
         </Link>
       ) : (
