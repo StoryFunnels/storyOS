@@ -31,7 +31,7 @@ export function PopoverContent({
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          'z-[var(--z-popover)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)] outline-none',
+          'phone-sheet z-[var(--z-popover)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)] outline-none',
           className,
         )}
         {...props}

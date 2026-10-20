@@ -103,7 +103,7 @@ export function SidebarRowMenu({
              * invisible until hovered, so without it a keyboard user tabs onto a
              * control they cannot see.
              */
-            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 aria-expanded:opacity-100"
+            className="flex shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 aria-expanded:opacity-100 max-md:h-7 max-md:w-7"
             aria-label={`Options for ${label}`}
             // The row is usually a link or a toggle; opening the menu must not
             // also navigate or collapse it.
