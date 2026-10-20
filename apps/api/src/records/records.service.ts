@@ -46,7 +46,7 @@ import {
 import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
-import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
+import { compileFilter, cursorCondition, filterReferencedFields, optionRank, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
 import { withoutStalePending } from './ai-field-state';
@@ -205,6 +205,17 @@ export class RecordsService {
       list.push(option.id);
       optionsByField.set(option.fieldId, list);
     }
+    // #961 — ids in the field's own option order (position, then id so equal positions are still a total order).
+    const optionOrderByField = new Map<string, string[]>();
+    for (const fieldId of optionsByField.keys()) {
+      optionOrderByField.set(
+        fieldId,
+        options
+          .filter((o) => o.fieldId === fieldId)
+          .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .map((o) => o.id),
+      );
+    }
     /**
      * #657 — a relation field's own stored config carries `relation_id`/`side`
      * but not whether IT is the single- or many-valued end; that lives on the
@@ -242,6 +253,7 @@ export class RecordsService {
           ? { ...(f.config ?? {}), multi: multiByFieldId.get(f.id) }
           : ((f.config ?? {}) as Record<string, unknown>),
       option_ids: optionsByField.get(f.id),
+      option_order: optionOrderByField.get(f.id),
     }));
   }
 
@@ -5510,7 +5522,7 @@ function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, Fie
   return ast ? walk(ast) : true;
 }
 
-function extractSortValue(row: RecordRow, def: { id: string; type: string }): unknown {
+function extractSortValue(row: RecordRow, def: { id: string; type: string; option_order?: string[] }): unknown {
   if (def.type === 'id') return row.number;
   if (def.type === 'title') return row.title;
   if (def.type === 'created_at') return row.createdAt.toISOString();
@@ -5522,6 +5534,10 @@ function extractSortValue(row: RecordRow, def: { id: string; type: string }): un
     return raw === undefined ? null : raw;
   }
   const raw = (row.values as Record<string, unknown>)[def.id];
+  // #961 — a choice field sorts by the RANK of its option (see sortExpr), so the keyset cursor must carry the rank, not the id.
+  if (def.type === 'select' || def.type === 'workflow' || def.type === 'multi_select') {
+    return optionRank(def.option_order, def.type === 'multi_select' ? (Array.isArray(raw) ? raw[0] : undefined) : raw);
+  }
   return raw === undefined ? null : raw;
 }
 

@@ -17,6 +17,12 @@ export interface FieldDef {
   config: Record<string, unknown>;
   /** Valid option ids for select/multi_select fields. */
   option_ids?: string[];
+  /**
+   * #961 — the same ids in the field's own option ORDER (position, then id). A sort on a select / workflow / multi_select field
+   * ranks a record by where its value sits in this list: the stored value is an option id, and sorting by the id's text is an
+   * order nobody chose.
+   */
+  option_order?: string[];
 }
 
 export interface ValidationIssue {

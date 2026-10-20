@@ -104,6 +104,8 @@ export const SORTABLE_FIELD_TYPES = [
   'email',
   'select',
   'workflow',
+  // #961 — by the rank of its first stored value (see sortExpr in the API's query-compiler).
+  'multi_select',
   'checkbox',
   'created_at',
   'updated_at',
