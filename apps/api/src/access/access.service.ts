@@ -237,6 +237,31 @@ export class AccessService {
             : cap(await this.effectiveForSpace(realMember, space.id));
       if (role) out.push(grant({ spaceId: space.id }, role));
     }
+    // #943 — a RESTRICTED database inside a bound space. A space grant never opens a restricted database (the restriction is
+    // sticky: only a grant on the database itself does), so the space-level entry above cannot reach it for the token either. The
+    // token's reach there is the owner's real reach, capped at creator, exactly as for a database named in the binding: a member
+    // with a direct grant gets that grant's role, one without gets nothing, an admin gets creator. Without this a token bound to a
+    // space could never see a restricted database its owner is entitled to, whatever the owner was granted.
+    const covered = new Set(databaseRows.map((d) => d.id));
+    const restrictedInside = visibleSpaces.length
+      ? await this.db.query.databases.findMany({
+          where: and(
+            inArray(databases.spaceId, visibleSpaces.map((sp) => sp.id)),
+            eq(databases.restricted, true),
+            notDeleted(databases.deletedAt),
+          ),
+        })
+      : [];
+    for (const database of restrictedInside) {
+      if (covered.has(database.id)) continue;
+      const role =
+        ceiling.realRole === 'guest'
+          ? bestOf((g) => g.databaseId === database.id)
+          : ceiling.realRole === 'admin'
+            ? 'creator'
+            : cap(await this.resolveDatabaseRole(realMember, database));
+      if (role) out.push(grant({ databaseId: database.id }, role));
+    }
     for (const database of databaseRows) {
       const role =
         ceiling.realRole === 'guest'
