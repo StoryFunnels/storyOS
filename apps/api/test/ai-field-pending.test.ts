@@ -9,6 +9,9 @@ import { automationJobs, records as recordsTable } from '../src/db/schema';
 import { JobRunnerService } from '../src/automations/job-runner.service';
 import { AiFieldSubscriber } from '../src/records/ai-field.subscriber';
 import { AI_PENDING_STALE_MS, pendingAtKey, withoutStalePending } from '../src/records/ai-field-state';
+import { aiPendingAt, queryRecordsResponseSchema, recordResponseSchema } from '@storyos/schemas';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ManagedAiClient, ManagedAiCompletion } from '../src/agents/managed-ai-client';
 
 /**
@@ -187,5 +190,47 @@ describe('#925 withoutStalePending (pure)', () => {
     const plain = { x: 1 };
     expect(withoutStalePending(plain, now)).toBe(plain);
     expect(withoutStalePending(undefined, now)).toEqual({});
+  });
+});
+
+describe('#925 the marker is a TYPED field of the record response', () => {
+  it('a served record parses as the documented response, and aiPendingAt reads the marker the API wrote (pending, then settled, then stale)', async () => {
+    const f = await aiField();
+    const id = await settledRecord(f, fakeClient('first'));
+    subscriber.client = fakeClient('second');
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${id}`, { values: { [f.depApi]: 'Acme' } });
+    await queuedJob(id, f.aiId); // in flight
+    const get = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${id}`);
+    const rec = recordResponseSchema.parse(get.json()); // throws if the served shape drifts from the documented one
+    const pendingAt = aiPendingAt(rec.computed_values, f.aiId);
+    expect(pendingAt, 'the typed reader sees the in-flight marker').not.toBeNull();
+    expect(pendingAt).toBe(rec.computed_values[pendingAtKey(f.aiId)]);
+    expect(aiPendingAt(rec.computed_values, f.aiId, Date.parse(pendingAt!) + AI_PENDING_STALE_MS + 1), 'a marker past the cutoff reads as not pending, on the client too').toBeNull();
+    // the query endpoint serves the same record shape
+    const q = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 200 });
+    const page = queryRecordsResponseSchema.parse(q.json());
+    expect(aiPendingAt(page.data.find((r) => r.id === id)!.computed_values, f.aiId)).not.toBeNull();
+    await jobs.tick();
+    const settled = recordResponseSchema.parse((await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${id}`)).json());
+    expect(aiPendingAt(settled.computed_values, f.aiId), 'settled: nothing in flight').toBeNull();
+  });
+
+  it('aiPendingAt: missing, malformed and wrong-typed markers are not pending', () => {
+    expect(aiPendingAt({}, 'f')).toBeNull();
+    expect(aiPendingAt(null, 'f')).toBeNull();
+    expect(aiPendingAt({ 'f:pending_at': 'not a date' }, 'f')).toBeNull();
+    expect(aiPendingAt({ 'f:pending_at': 12345 }, 'f')).toBeNull();
+    const now = Date.now();
+    expect(aiPendingAt({ 'f:pending_at': new Date(now - 1000).toISOString() }, 'f', now)).not.toBeNull();
+  });
+
+  it('the committed OpenAPI documents the record response and the marker (the spec is what the SDK is generated from)', () => {
+    const spec = JSON.parse(readFileSync(join(__dirname, '../../../docs/api/openapi.json'), 'utf8'));
+    const get = spec.paths['/api/v1/workspaces/{ws}/databases/{db}/records/{rec}'].get.responses['200'];
+    expect(JSON.stringify(get)).toContain('RecordResponseDto');
+    const computedValues = spec.components.schemas.RecordResponseDto.properties.computed_values;
+    expect(computedValues.description).toContain('<field_id>:pending_at');
+    const query = spec.paths['/api/v1/workspaces/{ws}/databases/{db}/records/query'].post.responses['201'];
+    expect(JSON.stringify(query)).toContain('QueryRecordsResponseDto');
   });
 });

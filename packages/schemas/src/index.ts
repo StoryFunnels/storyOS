@@ -5,6 +5,7 @@ export * from './descriptions';
 export * from './workspaces';
 export * from './databases';
 export * from './fields';
+export * from './ai-field-state';
 export * from './patch';
 export * from './field-conversions';
 export * from './record-values';

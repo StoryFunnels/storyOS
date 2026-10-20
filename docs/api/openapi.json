@@ -2268,7 +2268,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryRecordsResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2718,7 +2725,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -12105,6 +12119,80 @@
           }
         }
       },
+      "QueryRecordsResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "number": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "nullable": true
+                },
+                "title": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "position": {
+                  "type": "string"
+                },
+                "created_by": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "ISO timestamp"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "ISO timestamp"
+                },
+                "computed_values": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "title",
+                "values",
+                "position",
+                "created_by",
+                "created_at",
+                "updated_at",
+                "computed_values"
+              ]
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "has_more"
+        ]
+      },
       "AggregateRecordsDto__schema0": {
         "anyOf": [
           {
@@ -12458,6 +12546,60 @@
         },
         "required": [
           "record_ids"
+        ]
+      },
+      "RecordResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "position": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "computed_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "title",
+          "values",
+          "position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "computed_values"
         ]
       },
       "UpdateRecordDto": {

@@ -4943,6 +4943,29 @@ export interface components {
             limit: number;
             cursor?: string;
         };
+        QueryRecordsResponseDto: {
+            data: {
+                /** Format: uuid */
+                id: string;
+                number: number | null;
+                title: string;
+                values: {
+                    [key: string]: unknown;
+                };
+                position: string;
+                created_by: string | null;
+                /** @description ISO timestamp */
+                created_at: string;
+                /** @description ISO timestamp */
+                updated_at: string;
+                /** @description Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell "computing" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand. */
+                computed_values: {
+                    [key: string]: unknown;
+                };
+            }[];
+            next_cursor: string | null;
+            has_more: boolean;
+        };
         AggregateRecordsDto__schema0: {
             field: string;
             /** @enum {string} */
@@ -5026,6 +5049,25 @@ export interface components {
         };
         BatchRecordIdsDto: {
             record_ids: string[];
+        };
+        RecordResponseDto: {
+            /** Format: uuid */
+            id: string;
+            number: number | null;
+            title: string;
+            values: {
+                [key: string]: unknown;
+            };
+            position: string;
+            created_by: string | null;
+            /** @description ISO timestamp */
+            created_at: string;
+            /** @description ISO timestamp */
+            updated_at: string;
+            /** @description Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell "computing" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand. */
+            computed_values: {
+                [key: string]: unknown;
+            };
         };
         UpdateRecordDto: {
             values: {
@@ -8246,7 +8288,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["QueryRecordsResponseDto"];
+                };
             };
         };
     };
@@ -8509,7 +8553,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["RecordResponseDto"];
+                };
             };
         };
     };
