@@ -9,7 +9,8 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -1780,7 +1781,7 @@ function SpaceSection({
                     SPACE rather than a database: it composes queries instead of
                     rendering rows of one table. */}
                 <DropdownMenuItem onSelect={() => createSpaceDashboard.mutate()}>
-                  <LayoutDashboard className="mr-2 h-3.5 w-3.5" /> New dashboard
+                  <VIEW_ICON.dashboard className="mr-2 h-3.5 w-3.5" /> New dashboard
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
