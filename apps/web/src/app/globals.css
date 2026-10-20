@@ -45,6 +45,11 @@
   --accent: #d4a017;
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
+  /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
+     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened to 4.56:1. */
+  --accent-text: #8a6700;
+  /* #967 — text ON a gold fill (a count badge): 6.65:1 on --accent, where the off-white --text-on-dark is ~2.2:1. */
+  --text-on-accent: #2a2205;
 
   /*
    * #633 — THE FOCUS RING, as a token at last. design-system.md has promised a
@@ -275,6 +280,7 @@
   --accent: #e0af2b;
   --accent-hover: #f0c247;
   --accent-soft: #332e1c;
+  --accent-text: var(--accent);
 
   /* Status — lifted for contrast on dark */
   --success: #57b37f;
@@ -310,6 +316,8 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-on-accent: var(--text-on-accent);
   --color-success: var(--success);
   --color-error: var(--error);
   --color-warning: var(--warning);

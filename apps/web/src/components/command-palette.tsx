@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Database, FileText, FolderOpen, Home, Keyboard, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound, Sparkles} from 'lucide-react';
+import { Database, FileText, FolderOpen, Home, Keyboard, LayoutTemplate, Package, Plus, Search, Settings, UserPlus, UserRound, Sparkles} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases } from '@/lib/queries';
@@ -238,6 +238,8 @@ export function CommandPalette() {
       ['Ask Tyron', <Sparkles key="tyron" className="h-3.5 w-3.5" />, () => { setOpen(false); openTyron(); }],
       ['Go to Home', <Home key="home" className="h-3.5 w-3.5" />, () => go(`/w/${ws}`)],
       ['Go to My Work', <UserRound key="mywork" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/me`)],
+      // #967 — Business Packs is a sidebar row in the AI section AND a palette entry: the ticket's "reachable from ⌘K".
+      ['Go to Business Packs', <Package key="packs" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/packs`)],
       ...(onDatabasePage
         ? ([['New record here', <Plus key="a" className="h-3.5 w-3.5" />, () => { setOpen(false); window.dispatchEvent(new CustomEvent('storyos:new-record')); }]] as Array<[string, React.ReactNode, () => void]>)
         : []),
