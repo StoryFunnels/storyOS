@@ -107,7 +107,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
     {/* h-screen (not min-h-screen): main must be the scroll container, or every
         view's h-full/overflow-auto and sticky header attach to a scroller that
         never scrolls and the chrome scrolls away with the document (MN-117). */}
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-frame">
       {!authed ? (
         // #486 — same element type (`<div>`, inside the same unconditional
         // shell) on both passes; only its own children differ, which is not a
@@ -139,8 +139,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           // it. The surface belongs on the CONTAINER, not on the rail, so anything else mounted in the drawer is
           // covered too. `md:bg-transparent` keeps desktop exactly as it was (the rail's tint composites over the
           // app shell, which is what makes it read as a tint).
-          'bg-sidebar md:bg-transparent',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          'bg-frame md:bg-transparent',
+          mobileOpen ? 'translate-x-0 shadow-[0_0_36px_rgb(0_0_0/0.26)] md:shadow-none' : '-translate-x-full',
           // Desktop collapse (persistent, per-user): fully removed from the
           // md+ flow rather than animated to width 0, keeping this simple and
           // avoiding an in-between state where a 0-width scroll area exists.
@@ -149,7 +149,16 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       >
         <Sidebar onCloseMobile={() => setMobileOpen(false)} />
       </div>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* #969 — on desktop the page is a raised card set into the frame (8px margin, popover radius, hairline,
+          soft shadow). Collapsed sidebar: the card keeps its own left margin so it never touches the window edge.
+          Phones keep the full-bleed page. */}
+      <div
+        className={cn(
+          'flex min-h-0 min-w-0 flex-1 flex-col',
+          'md:overflow-hidden md:rounded-[var(--radius-popover)] md:border md:border-border-default md:bg-app md:shadow-[var(--shadow-page)]',
+          collapsed ? 'md:m-2' : 'md:my-2 md:mr-2',
+        )}
+      >
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-default bg-card px-4">
           <div className="flex items-center gap-1">
             <button

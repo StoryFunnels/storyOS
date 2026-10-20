@@ -300,7 +300,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     />
     <aside
       style={{ width: sidebarWidth - SIDEBAR_RAIL_W }}
-      className="flex h-full shrink-0 flex-col border-r border-border-default bg-sidebar"
+      className="flex h-full shrink-0 flex-col bg-frame"
     >
       <div className="flex shrink-0 items-stretch">
         <div className="min-w-0 flex-1">
@@ -338,7 +338,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="flex-1 overflow-y-auto pb-2 pt-0.5">
+      <nav className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
         {/* #742 phase 6 — Collections tier: Reviews and Business Packs (both
             without a count or an add button — this app has no count source for
@@ -719,7 +719,7 @@ function SidebarRail({
   const isSkills = pathname === `/w/${ws}/skills` || pathname?.startsWith(`/w/${ws}/skills/`);
 
   return (
-    <div className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-border-default bg-hover/40 py-2">
+    <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
       <RailWorkspaceButton ws={ws} name={workspaceName} />
       <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
       <RailLink href={`/w/${ws}`} title="Home" active={isHome}>

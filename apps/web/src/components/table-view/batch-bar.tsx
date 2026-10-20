@@ -313,7 +313,7 @@ export function BatchBar({
 
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2">
-      <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-border-default bg-card px-4 py-2 shadow-[var(--shadow-panel)]">
+      <div className="pointer-events-auto relative flex items-center gap-2 rounded-[var(--radius-popover)] border border-border-default bg-card px-4 py-2 shadow-[var(--shadow-panel)]">
         <span className="text-body font-medium text-ink">
           {selected.length} selected
           {moreUnloaded && (

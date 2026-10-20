@@ -6,6 +6,9 @@
   /* Surfaces */
   --bg-app: #faf7f1;
   --bg-sidebar: #f4efe5;
+  /* #969 — the chrome the page sits IN. Its own token, not --bg-sidebar: in dark the frame must be DARKER than
+     the page, and re-using --bg-sidebar inverts the depth so the inset page reads as a hole, not a raised card. */
+  --bg-frame: #f4efe5;
   --bg-card: #ffffff;
   --bg-hover: #f5f3ef;
   /**
@@ -156,6 +159,8 @@
   /* Directional, not elevation: a sticky column's right edge and the inbox
      drawer's left edge. Same ink, so they belong here rather than staying the
      last two literals. */
+  /* #969 — the page as a raised card in the frame. */
+  --shadow-page: 0 1px 2px rgb(var(--shadow-ink) / 0.04), 0 4px 18px rgb(var(--shadow-ink) / 0.05);
   --shadow-edge-right: 2px 0 4px -2px rgb(var(--shadow-ink) / 0.12);
   --shadow-edge-left: -8px 0 24px rgb(var(--shadow-ink) / 0.08);
 
@@ -184,9 +189,13 @@
    */
   --scrim: rgb(var(--shadow-ink) / 0.35);
 
-  --radius-control: 6px;
-  --radius-card: 8px;
-  --radius-modal: 12px;
+  /* #969 — TIGHT radius, one named scale: chips, pills and rows 4 · controls and tabs 5 · cards 6 ·
+     popovers, menus, the batch bar and dialogs 8. A circle means a person: avatars, status dots and
+     count badges stay `rounded-full` and are NOT on this scale. */
+  --radius-control: 5px;
+  --radius-card: 6px;
+  --radius-popover: 8px;
+  --radius-modal: var(--radius-popover);
   /* #281: select-value badges and relation-entity chips share this 4px shape —
      deliberately NOT full-pill, so the "solid mini-tag" direction reads as its
      own visual language rather than the generic rounded-pill every other tool uses. */
@@ -247,6 +256,9 @@
   /* Surfaces — warm navy dark, not flat black */
   --bg-app: #0f131b;
   --bg-sidebar: #0b0e15;
+  --bg-frame: #0a0d12;
+  /* #969 — the light-mode page shadow disappears on a dark ground. */
+  --shadow-page: 0 0 0 1px rgb(0 0 0 / 0.25), 0 8px 28px rgb(0 0 0 / 0.35);
   --bg-card: #171c26;
   --bg-hover: #1e2430;
   --bg-active: #28303d;
@@ -296,6 +308,7 @@
 @theme inline {
   --color-app: var(--bg-app);
   --color-sidebar: var(--bg-sidebar);
+  --color-frame: var(--bg-frame);
   --color-card: var(--bg-card);
   --color-hover: var(--bg-hover);
   --color-active: var(--bg-active);
@@ -419,9 +432,10 @@
    * reading test are in the comment above; do not restate them here. */
   --text-reading: 13px;
   --text-reading--line-height: 1.625;
-  --radius-control: 6px;
-  --radius-card: 8px;
-  --radius-modal: 12px;
+  --radius-control: 5px;
+  --radius-card: 6px;
+  --radius-popover: 8px;
+  --radius-modal: var(--radius-popover);
   --radius-chip: 4px;
 }
 
@@ -1074,4 +1088,44 @@ html[data-embed] body {
     position: absolute;
     inset: -13px;
   }
+}
+
+/* #969 — the rail's shaded edge, where the navigation meets the work. It began as an accident (the hidden
+   mobile drawer's own shadow bleeding onto the rail) and Ievgen liked it, so it is now deliberate and the
+   same at every width, in light and dark. */
+.rail-shade {
+  position: relative;
+  z-index: 1;
+}
+.rail-shade::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: 16px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, rgb(var(--shadow-ink) / 0.075));
+}
+:root[data-theme='dark'] .rail-shade::after {
+  background: linear-gradient(to right, transparent, rgb(0 0 0 / 0.4));
+}
+
+/* #969 — a scrollbar that stays usable but stops shouting: invisible until the area is hovered. */
+.scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scroll-quiet:hover {
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scroll-quiet::-webkit-scrollbar {
+  width: 5px;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--radius-chip);
+}
+.scroll-quiet:hover::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
 }
