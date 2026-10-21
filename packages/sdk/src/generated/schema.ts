@@ -403,6 +403,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/ai-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The AI clients I have connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and my personal access tokens for this workspace, with name, method and since when */
+        get: operations["AiConnectionsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ai-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect one of my AI clients (id from the list: oauth:<client> or token:<id>). Needs a signed-in session: an API token or an OAuth client cannot disconnect */
+        delete: operations["AiConnectionsController_disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/billing": {
         parameters: {
             query?: never;
@@ -1405,6 +1439,23 @@ export interface paths {
         head?: never;
         /** Update my preferences (deep-merged) */
         patch: operations["PreferencesController_update"];
+        trace?: never;
+    };
+    "/api/v1/users/me/preferences/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one */
+        patch: operations["PreferencesController_editList"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
@@ -5218,6 +5269,12 @@ export interface components {
                 viewsOnlyWorkspaces?: string[];
             };
         };
+        PreferenceListEditDto: {
+            /** @enum {string} */
+            list: "dismissed_workspaces" | "views_only_workspaces";
+            add?: string[];
+            remove?: string[];
+        };
         CreateRelationDto: {
             /** Format: uuid */
             database_a_id: string;
@@ -7453,6 +7510,44 @@ export interface operations {
             };
         };
     };
+    AiConnectionsController_list: {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiConnectionsController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     BillingController_status: {
         parameters: {
             query?: never;
@@ -9021,6 +9116,27 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PreferencesPatchDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_editList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceListEditDto"];
             };
         };
         responses: {

@@ -7,6 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { DESTRUCTIVE_TOAST_MS, pushUndo } from '@/lib/undo';
@@ -88,9 +89,10 @@ interface RecordsPage {
   has_more: boolean;
 }
 
-export function useDatabase(ws: string, db: string) {
-  return useQuery({
-    queryKey: ['database', ws, db],
+/** The database-detail query, shared by `useDatabase` and by the sidebar's prefetch so they always agree on key + fetcher. */
+export function databaseQuery(ws: string, db: string) {
+  return {
+    queryKey: ['database', ws, db] as const,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}', {
         params: { path: { ws, db } },
@@ -98,9 +100,33 @@ export function useDatabase(ws: string, db: string) {
       if (error) throw error;
       return data as unknown as DatabaseDetail;
     },
+  };
+}
+
+export function useDatabase(ws: string, db: string) {
+  return useQuery({
+    ...databaseQuery(ws, db),
     enabled: Boolean(ws && db),
   });
 }
+
+/**
+ * #998 — warm a database's detail BEFORE the click: the page can show nothing but a skeleton until this answers,
+ * and it is the first of two sequential round trips (the grid's rows need the view it carries). Called on
+ * hover / focus / pointer-down of a sidebar row; a fresh cache entry (30s) is left alone, so hovering does not refetch.
+ */
+export function usePrefetchDatabase(ws: string) {
+  const qc = useQueryClient();
+  return useCallback(
+    (db: string) => {
+      if (!ws || !db) return;
+      void qc.prefetchQuery({ ...databaseQuery(ws, db), staleTime: PREFETCH_STALE_MS });
+    },
+    [qc, ws],
+  );
+}
+
+export const PREFETCH_STALE_MS = 30_000;
 
 /**
  * Icon & color patch for the click-to-change database header (#251). Merges

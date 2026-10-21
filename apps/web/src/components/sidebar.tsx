@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
+import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
@@ -2698,6 +2699,8 @@ function DatabaseRow({
   onToggle?: () => void;
   depth?: SidebarDepth;
 }) {
+  // #998 — warm the database's detail on hover / focus / pointer-down, so the click usually finds it cached.
+  const prefetchDatabase = usePrefetchDatabase(ws);
   const mutations = useSidebarMutations(ws);
   const router = useRouter();
   const [renaming, setRenaming] = useState(false);
@@ -2800,7 +2803,13 @@ function DatabaseRow({
               into a pure disclosure toggle); expanding is a different intent and
               gets its own hit target. Rendered only when there is something to
               expand, which after #381 is the minority of databases. */}
-        <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+        <Link
+          href={`/w/${ws}/d/${db.id}`}
+          onPointerEnter={() => prefetchDatabase(db.id)}
+          onFocus={() => prefetchDatabase(db.id)}
+          onPointerDown={() => prefetchDatabase(db.id)}
+          className="flex min-w-0 flex-1 items-center gap-2"
+        >
           <GlyphSlot>
             <EntityIcon
               icon={db.icon}

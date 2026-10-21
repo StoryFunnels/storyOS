@@ -12,6 +12,18 @@ import {
 /** The groups of the preferences blob a PATCH may write: the keys of `UserPreferences` (see `preferences.controller.ts`'s patch schema). */
 const PATCHABLE = ['notifications', 'regional', 'myWork', 'github', 'activation', 'sidebar'] as const;
 
+/**
+ * The list-valued preferences that are edited by ADDING and REMOVING items (ticket #987), each at a fixed place in the blob. The client
+ * used to send the whole next list, so two tabs each adding a different item raced and one vanished; these are edited atomically instead.
+ */
+export const PREFERENCE_LISTS = {
+  dismissed_workspaces: { group: 'activation', key: 'dismissedWorkspaces' },
+  views_only_workspaces: { group: 'sidebar', key: 'viewsOnlyWorkspaces' },
+} as const;
+export type PreferenceListName = keyof typeof PREFERENCE_LISTS;
+/** Same bound the whole-list PATCH always had, so the blob stays small. */
+const MAX_LIST_ITEMS = 1000;
+
 /** Read/write the per-user preferences blob (#30/#31). */
 @Injectable()
 export class PreferencesService {
@@ -53,6 +65,51 @@ export class PreferencesService {
             (SELECT jsonb_object_agg(e.key, COALESCE(${userPreferences.preferences} -> e.key, '{}'::jsonb) || e.value)
                FROM jsonb_each(${patchJson}::jsonb) AS e),
             '{}'::jsonb)`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ preferences: userPreferences.preferences });
+    return mergePreferences(row?.preferences);
+  }
+
+  /**
+   * Add and/or remove items of one list-valued preference, ATOMICALLY (ticket #987).
+   *
+   * One `INSERT .. ON CONFLICT DO UPDATE` whose new list is computed in SQL from the row as it is at that moment: the stored items that are
+   * not being removed, in their order, then the added items that are not already there (so adding twice is a no-op), de-duplicated. Postgres
+   * re-reads the latest committed row under its lock before evaluating that, so two tabs adding DIFFERENT items cannot lose each other,
+   * which is exactly what replacing the whole list could not guarantee. An item in both `add` and `remove` is removed. If the result would
+   * pass `MAX_LIST_ITEMS` the OLDEST items are dropped, never the ones just added.
+   */
+  async editList(userId: string, list: PreferenceListName, edit: { add?: string[]; remove?: string[] }): Promise<UserPreferences> {
+    const { group, key } = PREFERENCE_LISTS[list];
+    const add = JSON.stringify([...new Set(edit.add ?? [])]);
+    const remove = JSON.stringify([...new Set(edit.remove ?? [])]);
+    const path = `{${group},${key}}`;
+    const current = sql`(CASE WHEN jsonb_typeof(${userPreferences.preferences} #> ${path}::text[]) = 'array' THEN ${userPreferences.preferences} #> ${path}::text[] ELSE '[]'::jsonb END)`;
+    const next = sql`(
+      SELECT COALESCE(jsonb_agg(d.v ORDER BY d.o), '[]'::jsonb) FROM (
+        SELECT t.v, t.o FROM (
+          SELECT u.v, min(u.o) AS o FROM (
+            SELECT e.value AS v, e.ordinality AS o FROM jsonb_array_elements(${current}) WITH ORDINALITY AS e
+            UNION ALL
+            SELECT a.value AS v, 1000000 + a.ordinality AS o FROM jsonb_array_elements(${add}::jsonb) WITH ORDINALITY AS a
+          ) u
+          WHERE u.v NOT IN (SELECT r.value FROM jsonb_array_elements(${remove}::jsonb) AS r)
+          GROUP BY u.v
+        ) t
+        ORDER BY t.o DESC LIMIT ${MAX_LIST_ITEMS}
+      ) d)`;
+    const seed = { [group]: { [key]: (edit.add ?? []).filter((x) => !(edit.remove ?? []).includes(x)).slice(0, MAX_LIST_ITEMS) } };
+    const [row] = await this.db
+      .insert(userPreferences)
+      .values({ userId, preferences: seed, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: {
+          preferences: sql`jsonb_set(
+            ${userPreferences.preferences} || jsonb_build_object(${group}::text, COALESCE(${userPreferences.preferences} -> ${group}::text, '{}'::jsonb)),
+            ${path}::text[], ${next}, true)`,
           updatedAt: new Date(),
         },
       })
