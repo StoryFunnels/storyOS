@@ -10,6 +10,7 @@ import type { SkillExportFormat, SkillSummary, SkillTemplate, SkillVisibility } 
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useMembers } from '@/components/table-view/use-table-data';
@@ -25,7 +26,7 @@ import {
   estimateTokens,
   type Verdict,
 } from './skill-compare';
-import { VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillPageUrl } from './skill-meta';
+import { VISIBILITY_CHIP, VISIBILITY_OPTIONS, audienceProblem, narrowingMessage, narrowsAudience, publicSkillPageUrl } from './skill-meta';
 import { fetchSkillExport, useSkillMutations, useSkills } from './use-skills';
 
 /** What the form holds. Strings only: validation is the schema's, on save. */
@@ -67,6 +68,9 @@ export function draftFromTemplate(t: SkillTemplate | undefined): SkillDraft {
     member_ids: [],
   };
 }
+
+/** The control's order: narrowest audience first, as the prototype draws it, then the public link. */
+const SEGMENT_ORDER: SkillVisibility[] = ['personal', 'members', 'shared', 'public'];
 
 const LIMITS = { name: 100, description: 500, when_to_use: 1000, instructions: 20_000 } as const;
 
@@ -171,8 +175,8 @@ export function SkillEditor({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <div className="flex items-center gap-2 border-b border-border-default px-4 py-3">
+    <div className="w-full max-w-[1080px] px-7 pb-[60px] pt-[22px]">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border-default px-5 py-3">
         <Link
           href={`/w/${ws}/skills`}
           aria-label="Back to Skills"
@@ -180,10 +184,10 @@ export function SkillEditor({
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h1 className="truncate text-title font-bold tracking-tight text-ink">{skill ? skill.name : 'New skill'}</h1>
+        <h1 className="min-w-0 max-w-full truncate text-title font-bold tracking-tight text-ink">{skill ? skill.name : 'New skill'}</h1>
         {skill && <SkillSourceMark source={skill.source} />}
         <span className="text-label text-muted">{skill ? (readOnly ? 'read only' : 'editing') : 'new'}</span>
-        <span className="flex-1" />
+        <span className="flex-1 max-sm:hidden" />
         {skill && <ExportControl ws={ws} id={skill.id} />}
         {skill && !readOnly && (
           <Button variant="destructive" size="sm" onClick={() => void onDelete()} disabled={remove.isPending}>
@@ -198,13 +202,13 @@ export function SkillEditor({
       </div>
 
       {readOnly && (
-        <p className="border-b border-border-default bg-hover px-4 py-2 text-label text-muted">
+        <p className="border-b border-border-default bg-hover px-5 py-2 text-label text-muted">
           Only the author can edit this skill. You can read it, and your AI can find and run it.
         </p>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex min-w-0 flex-col gap-4 p-4">
+      <div className="grid grid-cols-[minmax(0,640px)] max-md:grid-cols-1 xl:grid-cols-[minmax(0,640px)_22rem] xl:gap-6">
+        <div className="flex min-w-0 flex-col gap-4 px-5 py-4">
           <Field label="Name" count={draft.name.length} max={LIMITS.name}>
             <Input value={draft.name} disabled={readOnly} maxLength={LIMITS.name} onChange={(e) => set('name', e.target.value)} />
           </Field>
@@ -260,35 +264,29 @@ export function SkillEditor({
             />
           </Field>
 
-          <fieldset disabled={readOnly} className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-label font-semibold text-ink-secondary">Who can see it</legend>
-            {VISIBILITY_OPTIONS.map((o) => (
+          <div className="flex flex-col gap-1.5" role="group" aria-labelledby="skill-visibility-label">
+            <span id="skill-visibility-label" className="text-label font-semibold text-ink-secondary">
+              Who can see it
+            </span>
+            {/* #997 — the prototype's segmented control. All FOUR audiences stay (it drew three; "Anyone with the
+                link" shipped with #841 and is not dropped), each with the plain-words hint of the chosen one underneath,
+                and each tier's own detail (the people list, the public link) under it. A read-only viewer sees the
+                audience but every segment is disabled. */}
+            <Segmented
+              label="Who can see it"
+              value={draft.visibility}
+              onChange={(v) => !readOnly && set('visibility', v)}
+              options={SEGMENT_ORDER.map((value) => ({ value, label: VISIBILITY_CHIP[value], disabled: readOnly }))}
+              size="default"
+              className="w-full"
+              itemClassName="flex-1"
+            />
+            {VISIBILITY_OPTIONS.filter((o) => o.value === draft.visibility).map((o) => (
               <div key={o.value} className="flex flex-col gap-1.5">
-                <label
-                  className={cn(
-                    'flex items-start gap-2 rounded-[var(--radius-control)] border px-3 py-2',
-                    // A read-only viewer sees the audience but cannot change it: no pointer cursor, no hover, muted.
-                    readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
-                    draft.visibility === o.value
-                      ? 'border-accent bg-accent-soft'
-                      : cn('border-border-default bg-card', !readOnly && 'hover:bg-hover'),
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="visibility"
-                    className="mt-0.5"
-                    disabled={readOnly}
-                    checked={draft.visibility === o.value}
-                    onChange={() => set('visibility', o.value)}
-                  />
-                  <span>
-                    <span className="block text-body font-medium text-ink">{o.label}</span>
-                    <span className="block text-label text-muted">{o.hint}</span>
-                  </span>
-                </label>
-                {/* Each option's own detail sits UNDER that option, so it cannot read as belonging to the card below. */}
-                {o.value === 'members' && draft.visibility === 'members' && (
+                <p className="text-label text-muted">
+                  <span className="font-medium text-ink-secondary">{o.label}.</span> {o.hint}
+                </p>
+                {o.value === 'members' && (
                   <MemberPicker
                     people={people.data ?? []}
                     loading={people.isPending}
@@ -298,12 +296,12 @@ export function SkillEditor({
                     onChange={(ids) => set('member_ids', ids)}
                   />
                 )}
-                {o.value === 'public' && draft.visibility === 'public' && (
+                {o.value === 'public' && (
                   <PublicLink url={publicSkillPageUrl(window.location.origin, skill?.public_token)} saved={skill?.visibility === 'public'} />
                 )}
               </div>
             ))}
-          </fieldset>
+          </div>
 
           {problem && !readOnly && (dirty || !skill) && <p className="text-label text-muted">{problem}</p>}
         </div>
@@ -446,7 +444,7 @@ function MemberPicker({
   const others = people.filter((m) => m.user.id !== ownerId);
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
-    <div className="ml-6 flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2" role="group" aria-label="People who can see this skill">
+    <div className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2" role="group" aria-label="People who can see this skill">
       <p className="text-label font-semibold text-ink-secondary">Share with</p>
       {loading && <p className="text-label text-muted">Loading people…</p>}
       {!loading && others.length === 0 && <p className="text-label text-muted">There is nobody else in this workspace to share it with yet.</p>}
@@ -471,10 +469,10 @@ function PublicLink({ url, saved }: { url: string | null; saved: boolean }) {
     }
   }
   if (!saved || !url) {
-    return <p className="ml-6 text-label text-muted">The link is created when you save.</p>;
+    return <p className="text-label text-muted">The link is created when you save.</p>;
   }
   return (
-    <div className="ml-6 flex items-center gap-2">
+    <div className="flex items-center gap-2">
       <Input readOnly value={url} aria-label="Public link" className="font-mono text-label" onFocus={(e) => e.currentTarget.select()} />
       <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>
         <Copy className="mr-1 h-3 w-3" /> Copy
