@@ -1,4 +1,7 @@
+import { DEFAULT_ENTITY_COLORS as DEFAULT_ENTITY_NAMES, hashId } from '@storyos/schemas';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
+
+export { hashId };
 
 /**
  * #1001 — a database with no colour of its own still gets one.
@@ -16,22 +19,12 @@ import { OPTION_COLORS } from '@/components/table-view/option-colors';
  * sidebars in both themes — the bar for a glyph; the light gold is darker than the prototype's, which is only 2.07:1.
  */
 /**
- * The eight default colours, in HASH ORDER (index = hashId(id) % 8), each as its app token (`--c1`..`--c8`, which have a
- * light and a dark value in globals.css, the prototype's palette) and the picker palette NAME it corresponds to.
- * THE CONTRACT with the server's backfill of stored greys (ticket #1016): the same hash, the same order, so a backfilled
- * database is stored under the name of the colour its default already showed. Changing this list or the hash recolours
- * every workspace, which is why the test pins known ids.
+ * The eight default colours, in HASH ORDER (index = hashId(id) % 8). The hash, the order and the picker NAMES come from
+ * `@storyos/schemas` — ONE definition shared with the API and with the migration that backfills stored greys (ticket
+ * #1016), so a database's default is the same colour in a response and in the sidebar. The web adds only the app TOKEN
+ * for each (`--c1`..`--c8`, with a light and a dark value in globals.css, the prototype's palette).
  */
-export const DEFAULT_ENTITY_PALETTE = [
-  { token: 'c1', name: 'gold' },
-  { token: 'c2', name: 'blue' },
-  { token: 'c3', name: 'green' },
-  { token: 'c4', name: 'red' },
-  { token: 'c5', name: 'purple' },
-  { token: 'c6', name: 'teal' },
-  { token: 'c7', name: 'orange' },
-  { token: 'c8', name: 'brown' },
-] as const;
+export const DEFAULT_ENTITY_PALETTE = DEFAULT_ENTITY_NAMES.map((name, i) => ({ token: `c${i + 1}`, name }));
 export const DEFAULT_ENTITY_COLORS = DEFAULT_ENTITY_PALETTE.map((p) => p.token);
 
 /** A default-colour token key (`c1`..`c8`), as opposed to a picker palette name. */
@@ -46,16 +39,6 @@ export function isEntityToken(color: string | null | undefined): boolean {
 export function entityColor(color: string | null | undefined): string | undefined {
   if (!color) return undefined;
   return isEntityToken(color) ? `var(--${color})` : OPTION_COLORS[color];
-}
-
-/** FNV-1a over UTF-16 code units: tiny, dependency-free, and the same everywhere (no locale, no platform). */
-export function hashId(id: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
 }
 
 /** The default colour NAME for an id. */
