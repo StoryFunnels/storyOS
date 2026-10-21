@@ -149,3 +149,40 @@ describe('#423 — retargeting a condition at another field', () => {
     expect(next).toBeNull();
   });
 });
+
+describe('#991 — short option lists are chips under the rule, long ones a searchable picker', () => {
+  const withOptions = (n: number) =>
+    ({
+      ...(fieldFor('single_select') as object),
+      options: Array.from({ length: n }, (_, i) => ({ id: `o${i}`, label: `Opt ${i}` })),
+    }) as never;
+  const optionsOp = { input: 'options' };
+
+  it('12 options is a chip set; 13 is the picker (the limit is inclusive)', async () => {
+    const { usesChipSet, OPTION_CHIP_LIMIT } = await import('./view-toolbar');
+    expect(OPTION_CHIP_LIMIT).toBe(12);
+    expect(usesChipSet(withOptions(12), optionsOp, MEMBERS)).toBe(true);
+    expect(usesChipSet(withOptions(13), optionsOp, MEMBERS)).toBe(false);
+  });
+
+  it('an operator that takes no options never uses chips', async () => {
+    const { usesChipSet } = await import('./view-toolbar');
+    expect(usesChipSet(withOptions(3), { input: 'text' }, MEMBERS)).toBe(false);
+  });
+
+  it('every chip is an aria-pressed toggle, pressed only for the picked values', async () => {
+    const { OptionChipSet } = await import('./view-toolbar');
+    const html = renderStandalone(
+      createElement(OptionChipSet, {
+        options: [
+          { id: 'a', label: 'A' },
+          { id: 'b', label: 'B' },
+        ],
+        selected: ['b'],
+        onChange: () => {},
+      } as never),
+    );
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html.match(/aria-pressed="false"/g)).toHaveLength(1);
+  });
+});
