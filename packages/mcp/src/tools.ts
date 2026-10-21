@@ -3490,7 +3490,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get field usage',
       description:
-        'What depends on this field, before you delete it: records carrying a value, plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
+        'What depends on this field, before you delete it: records carrying a non-empty value (blank, whitespace-only and never-set records are not counted), plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -3512,7 +3512,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete field',
       description:
-        'Soft-delete a field (records keep their other values). Returns records_with_value. Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
+        'Soft-delete a field (records keep their other values). Returns records_with_value (records holding a non-empty value: blank, whitespace-only and never-set records are not counted). Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -5540,7 +5540,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'change_field_type',
     {
       title: 'Change field type',
-      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. text → select / multi_select / workflow turns each distinct non-empty trimmed value (case-sensitive, one option per value, no splitting on commas) into an option; the preview returns the option list with a record count per option and `empty_records`, a field with more than 200 distinct values is refused, and a workflow target keeps the one-workflow-per-database rule. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. text → select / multi_select / workflow turns each distinct non-empty trimmed value (case-sensitive, one option per value, no splitting on commas) into an option; the preview returns the option list with a record count per option, `empty_records` (EVERY record with no non-empty value: the field never set, null, blank or whitespace) and `total_records` (the option counts plus `empty_records` always add up to it), a field with more than 200 distinct values is refused, and a workflow target keeps the one-workflow-per-database rule. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),

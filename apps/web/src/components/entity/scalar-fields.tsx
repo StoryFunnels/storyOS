@@ -9,7 +9,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, GripVertical, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { aiFieldState } from '@/lib/ai-field-state';
+import { aiFieldState, aiStateSpeaks } from '@/lib/ai-field-state';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, formatNumberValue, isPercentField } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
@@ -274,7 +274,7 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
   // #620 — a failed AI recompute is information even with no value to show; it must not collapse to the
   // empty "—" placeholder. Read from what the API reports (see lib/ai-field-state.ts).
   const aiState = field.type === 'ai' ? aiFieldState(record, field.id) : undefined;
-  const empty = (value === undefined || value === null || value === '') && aiState?.kind !== 'failed';
+  const empty = (value === undefined || value === null || value === '') && !aiStateSpeaks(aiState);
   // Inline-editable when not read-only and not a computed/audit type (NOT_INLINE).
   const editableInline = !readOnly && !NOT_INLINE.has(field.type);
   // #780 — the artifact badges the VALUE, not just the row, so this stays
@@ -323,7 +323,7 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
           <CellDisplay field={field} value={value} aiState={aiState} memberNames={memberNames} memberImages={memberImages} ws={ws} wrap />
         </ClampedValue>
       ) : (
-        <CellDisplay field={field} value={value} aiState={aiState} wrap={aiState?.kind === 'failed'} memberNames={memberNames} memberImages={memberImages} ws={ws} />
+        <CellDisplay field={field} value={value} aiState={aiState} wrap={aiStateSpeaks(aiState)} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
       {badge && <ComputedBadge type={field.type} />}
     </div>

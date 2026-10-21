@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -346,15 +346,6 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         {/* #967 — "Collections" is gone: the AI layer has its own gold section (Skills, Agent runs,
             Business Packs; "Connect your AI" joins once its connected-state endpoint exists). */}
         <SidebarAiSection ws={ws} />
-        {/* Reviews (GitHub PRs) moves to a "Pull requests" tab in My Work (#968). Until that ships it
-            stays reachable HERE, header-less: removing it now would strand a shipped page. #968 removes
-            this row. */}
-        <SidebarRow depth={0} className="hover:bg-hover">
-          <Link href={`/w/${ws}/reviews`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <GlyphSlot><GitPullRequest className="h-3.5 w-3.5" /></GlyphSlot>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
-          </Link>
-        </SidebarRow>
         {/* #641 — 72px of the void between the nav and the tree was Personal's
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
