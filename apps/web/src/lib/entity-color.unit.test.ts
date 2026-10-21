@@ -148,3 +148,19 @@ describe('no surface reads a database colour raw (#1001 AC1)', () => {
     expect(offenders, `Use databaseColor(<db>.color, <db>.id):\n  ${offenders.join('\n  ')}`).toEqual([]);
   });
 });
+
+describe('no surface throws away a colour it was given (#1001, Vera’s review of PR 1207)', () => {
+  // `databaseColor(null, id)` ignores the database's stored colour and draws the id's DEFAULT, so a surface using it shows a
+  // different colour from the sidebar for the same database. The search and recents endpoints return `database_color`.
+  const WEB_SRC = join(import.meta.dirname, '..');
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      return e.isDirectory() ? files(p) : /\.tsx$/.test(p) && !/\.test\./.test(p) ? [p] : [];
+    });
+  it('never calls databaseColor(null, …) when a colour could be passed', () => {
+    const offenders = files(WEB_SRC).filter((f) => /databaseColor\(\s*null\s*,/.test(readFileSync(f, 'utf8')));
+    expect(offenders.map((f) => f.replace(WEB_SRC, 'src'))).toEqual([]);
+  });
+});
+

@@ -38,6 +38,8 @@ interface RecentRecord {
   database_id: string;
   database_name: string;
   database_icon: string | null;
+  /** The owning database's stored colour (the recents endpoint returns it); without it the glyph fell back to the default and could differ from the sidebar's. */
+  database_color?: string | null;
 }
 
 type Tab = 'assigned' | 'created' | 'activity' | 'pull-requests';
@@ -291,7 +293,7 @@ function MyWorkInner() {
                 className="flex items-start gap-2.5 border-b border-border-default px-4 py-3 hover:bg-hover"
               >
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-                  <EntityIcon icon={r.database_icon} color={databaseColor(null, r.database_id)} fallback={<Database className="h-3.5 w-3.5" />} />
+                  <EntityIcon icon={r.database_icon} color={databaseColor(r.database_color, r.database_id)} fallback={<Database className="h-3.5 w-3.5" />} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span data-mw-title className="block truncate text-body font-medium text-ink">{r.title || 'Untitled'}</span>

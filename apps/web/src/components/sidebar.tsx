@@ -63,6 +63,7 @@ import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
 
 interface Favorite {

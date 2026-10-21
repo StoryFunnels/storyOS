@@ -28,6 +28,8 @@ interface RecordHit {
   database_id: string;
   database_name: string;
   database_icon: string | null;
+  /** The owning database's stored colour — the search endpoint has always returned it; ignoring it made ⌘K draw the id's DEFAULT colour where the sidebar draws the stored one. */
+  database_color?: string | null;
 }
 interface PlaceHit {
   kind: 'database' | 'space';
@@ -164,7 +166,7 @@ export function CommandPalette() {
       out.push({
         key: `rec:${hit.id}`,
         group: 'Records',
-        icon: <EntityIcon icon={hit.database_icon} color={databaseColor(null, hit.database_id)} fallback={<FileText className="h-3.5 w-3.5" />} className="text-body" />,
+        icon: <EntityIcon icon={hit.database_icon} color={databaseColor(hit.database_color, hit.database_id)} fallback={<FileText className="h-3.5 w-3.5" />} className="text-body" />,
         label: hit.title || 'Untitled',
         hint: hit.database_name,
         run: () => {
@@ -216,7 +218,7 @@ export function CommandPalette() {
       out.push({
         key: `place:${place.id}`,
         group: 'Places',
-        icon: <EntityIcon icon={place.icon} color={place.kind === 'database' ? databaseColor(null, place.id) : null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-body" />,
+        icon: <EntityIcon icon={place.icon} color={place.kind === 'database' ? databaseColor(place.database_color, place.id) : null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-body" />,
         label: place.name,
         // #517 — a database place shows its owning space, matching the mentions
         // picker's exact breadcrumb (recordBreadcrumb, mention-items.ts:82) so
