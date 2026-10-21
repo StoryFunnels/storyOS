@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentEditor, formatBytes } from './attachment-cell';
 import type { AttachmentValue } from './attachment-cell';
@@ -312,6 +312,29 @@ export function AiFailedCell({ value, reason, wrap }: { value: unknown; reason: 
 }
 
 /**
+ * #620 — an AI field whose recompute is IN FLIGHT (the API's `:pending_at` marker, #925). The last good value, if the
+ * field still holds one, stays visible but dimmed so it cannot be read as current; with none, the cell says "Computing…"
+ * rather than staying blank. The spinner is motion-safe: a person who asked for reduced motion still gets the words.
+ */
+export function AiComputingCell({ value, wrap }: { value: unknown; wrap?: boolean }) {
+  const hasValue = value !== undefined && value !== null && value !== '';
+  return (
+    <span
+      data-ai-state="computing"
+      aria-busy="true"
+      title={hasValue ? 'Recomputing. Showing the last good value until it finishes.' : 'Computing…'}
+      className={cn('flex min-w-0 items-center gap-1.5', wrap ? 'flex-wrap' : 'overflow-hidden')}
+    >
+      {hasValue && <span className={cn('text-body text-ink-secondary opacity-60', wrap ? 'break-words' : 'truncate')}>{String(value)}</span>}
+      <span className="inline-flex shrink-0 items-center gap-1 text-label text-ink-secondary">
+        <Loader2 className="h-3 w-3 shrink-0 motion-safe:animate-spin" aria-hidden />
+        Computing…
+      </span>
+    </span>
+  );
+}
+
+/**
  * The file chips of an attachment value. ONE renderer for an `attachment` field and for a `collect`
  * rollup (ticket #234 / #886), which resolves to the same chip objects gathered across related
  * records: a second copy here is how a rollup rendered as one "Untitled" chip.
@@ -339,7 +362,10 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
-  // #620 — ahead of the empty-cell shortcut: a failed field with no value yet must still say so.
+  // #620 — ahead of the empty-cell shortcut: a failed or computing field with no value yet must still say so.
+  if (field.type === 'ai' && aiState?.kind === 'computing') {
+    return <AiComputingCell value={value} wrap={wrap} />;
+  }
   if (field.type === 'ai' && aiState?.kind === 'failed') {
     return <AiFailedCell value={value} reason={aiState.reason} wrap={wrap} />;
   }

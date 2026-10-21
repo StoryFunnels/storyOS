@@ -7078,7 +7078,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       description:
-        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them; kind:"created" = records they made; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = records they made (assigned_by is null there); kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
         'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
       inputSchema: {
         workspace: z.string(),
