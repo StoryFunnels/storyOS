@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { BarChart3, Check, Copy, Download, FolderInput, Link2, Lock, Pencil, Share2, Trash2 } from 'lucide-react';
+import { BarChart3, Check, Copy, Download, FolderInput, Link2, Lock, Pencil, Share2, Star, Trash2 } from 'lucide-react';
 
 /**
  * #964 — THE VIEW MENU. One list, three doors: the toolbar ⋯, the sidebar row's ⋯, and the tab's ⋯ /
@@ -11,14 +11,15 @@ import { BarChart3, Check, Copy, Download, FolderInput, Link2, Lock, Pencil, Sha
  *   rows on screen); the other two doors do not pass them.
  * - Everything else is offered by every door that can run it.
  *
- * "Pin to tabs" belongs here too, and is deliberately absent: pinned tabs need per-viewer state
- * (#966, waiting on #973). An item that cannot do its job is worse than no item.
+ * "Pin to tabs" / "Unpin from tabs" (#966) is per-viewer state (ADR-0019), so it is offered to everyone who can see the
+ * view, not only editors, and never for a PERSONAL view (the strip draws shared views only).
  * There is no "Save as new view": views auto-save (MN-152), so there is never an unsaved state.
  */
 export type ViewMenuId =
   | 'rename'
   | 'duplicate'
   | 'default'
+  | 'pin'
   | 'link'
   | 'share'
   | 'personal'
@@ -44,6 +45,8 @@ export interface ViewMenuItem {
 export interface ViewMenuTarget {
   name: string;
   isDefault: boolean;
+  /** #966 — in THIS viewer's tab strip. Undefined when the door cannot tell (then the item reads "Pin to tabs"). */
+  pinned?: boolean;
   /** A personal view: private to its owner, never shared and never copied to My Space. */
   personal: boolean;
 }
@@ -56,6 +59,8 @@ export interface ViewMenuHandlers {
   onRename?: () => void;
   onDuplicate?: () => void;
   onSetDefault?: () => void;
+  /** #966 — pin or unpin for THIS viewer; receives the outcome the label promised. */
+  onSetPinned?: (wanted: boolean) => void;
   onCopyLink?: () => void;
   /** Absent for a view type the public page cannot render. */
   onShare?: () => void;
@@ -83,6 +88,16 @@ export function buildViewMenu(target: ViewMenuTarget, h: ViewMenuHandlers): View
         h.onSetDefault && { id: 'default', label: 'Set as default', icon: Check, onSelect: h.onSetDefault },
     );
   }
+  // Per-viewer, so outside the editors-only block: a viewer pins for themself.
+  add(
+    !target.personal &&
+      h.onSetPinned && {
+        id: 'pin',
+        label: target.pinned ? 'Unpin from tabs' : 'Pin to tabs',
+        icon: Star,
+        onSelect: () => h.onSetPinned!(!target.pinned),
+      },
+  );
   add(h.onCopyLink && { id: 'link', label: 'Copy link', icon: Link2, onSelect: h.onCopyLink });
   if (h.canManage) {
     // #527 — never for a PERSONAL view: it is a private window onto shared data.

@@ -1,5 +1,6 @@
 'use client';
 
+import { useViewPins } from './pinned-tabs';
 import { Fragment, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -79,9 +80,13 @@ export function useViewMenuActions(ws: string, db: string | null | undefined) {
   const router = useRouter();
   // `useViewMutations` needs a database id; a space-level view has none and gets no database actions.
   const mutations = useViewMutations(ws, db ?? '');
+  // #966 — the sidebar door reads pins from the cache only (enabled=false): one GET per database row would be
+  // a request storm; the toggle itself reads the server's current list before it writes.
+  const pins = useViewPins(ws, db, false);
   if (!db) return null;
   return {
     mutations,
+    pins,
     duplicate: (viewId: string) =>
       mutations.duplicateView.mutate(viewId, { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) }),
     setDefault: (viewId: string) => mutations.setDefaultView.mutate(viewId),

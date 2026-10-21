@@ -122,7 +122,12 @@ export function SidebarViewRow({
       : []),
   ];
   const menuItems = buildViewMenu(
-    { name: view.name, isDefault: view.is_default, personal: view.personal },
+    {
+      name: view.name,
+      isDefault: view.is_default,
+      personal: view.personal,
+      pinned: viewActions?.pins.isPinned(view.id),
+    },
     {
       canManage: canEdit,
       // The sidebar does not know how many views the database has; the API refuses deleting the last.
@@ -130,6 +135,7 @@ export function SidebarViewRow({
       onRename: onRename ? () => onRename(view) : undefined,
       onDuplicate: viewActions ? () => viewActions.duplicate(view.id) : undefined,
       onSetDefault: viewActions ? () => viewActions.setDefault(view.id) : undefined,
+      onSetPinned: viewActions ? (wanted) => viewActions.pins.setPinned(view.id, wanted) : undefined,
       onCopyLink: viewActions ? () => void viewActions.copyLink(view.id) : undefined,
       onShare:
         viewActions && (view.type === 'table' || view.type === 'board' || view.type === 'dashboard')
