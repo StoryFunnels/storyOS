@@ -44,6 +44,8 @@ import { WorkspacesService } from './workspaces.service';
     ActivationService,
     WorkspaceActivationEventsService,
   ],
-  exports: [WorkspaceAccessGuard, SpacesService, WorkspacesService],
+  // ActivationService (#980): the ONE definition of "an AI client is connected", read by the checklist, the activation event and
+  // the agent-run on-ramp step.
+  exports: [WorkspaceAccessGuard, SpacesService, WorkspacesService, ActivationService],
 })
 export class WorkspacesModule {}
