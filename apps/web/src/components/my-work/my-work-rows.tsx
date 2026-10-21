@@ -33,8 +33,19 @@ function FacetCell({ field, row }: { field: DenseField | null; row: MyWorkRow })
 }
 
 /** The due date as the row reads it: today emphasised, overdue in red, later plain. */
-export function DueText({ due, fmtDate, now }: { due: string | null; fmtDate: (iso: string) => string; now: Date }) {
-  const bucket = dueBucket(due, now);
+export function DueText({
+  due,
+  fmtDate,
+  now,
+  completed = false,
+}: {
+  due: string | null;
+  fmtDate: (iso: string) => string;
+  now: Date;
+  /** #1002 — the record is finished: its date reads plain, never as overdue. */
+  completed?: boolean;
+}) {
+  const bucket = dueBucket(due, now, completed);
   if (bucket === 'none' || !due) return null;
   return (
     <span
@@ -43,7 +54,7 @@ export function DueText({ due, fmtDate, now }: { due: string | null; fmtDate: (i
         'text-meta tabular-nums',
         bucket === 'today' && 'font-semibold text-ink',
         bucket === 'overdue' && 'font-medium text-error',
-        bucket === 'later' && 'text-faint',
+        (bucket === 'later' || bucket === 'done') && 'text-faint',
       )}
     >
       {bucket === 'today' ? 'Today' : fmtDate(due)}
@@ -98,7 +109,7 @@ export function MyWorkRowButton({
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
         {facets.state && <FacetCell field={facets.stateField} row={row} />}
-        <DueText due={facets.due} fmtDate={fmtDate} now={now} />
+        <DueText due={facets.due} fmtDate={fmtDate} now={now} completed={facets.completed} />
       </span>
     </button>
   );
@@ -202,7 +213,7 @@ export function MyWorkPreview({
       <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-2.5 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body">
         <Fact label="State">{facets.state ? <FacetCell field={facets.stateField} row={row} /> : null}</Fact>
         <Fact label="Priority">{facets.priority ? <FacetCell field={facets.priorityField} row={row} /> : null}</Fact>
-        <Fact label="Due">{facets.due ? <DueText due={facets.due} fmtDate={fmtDate} now={now} /> : null}</Fact>
+        <Fact label="Due">{facets.due ? <DueText due={facets.due} fmtDate={fmtDate} now={now} completed={facets.completed} /> : null}</Fact>
         {assigned.kind === 'set' && (
           <Fact label="Assigned by">
             <span>
