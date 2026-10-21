@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { SelectField } from '@/components/ui/select-field';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { qualifiedDatabaseLabel } from '@/lib/database-labels';
+import { useDateFormat } from '@/lib/preferences';
 
 interface Connection {
   id: string;
@@ -89,6 +90,7 @@ async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Pro
 }
 
 export default function GoogleCalendarIntegrationPage() {
+  const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -576,7 +578,7 @@ export default function GoogleCalendarIntegrationPage() {
                       {' · '}
                       {DIRECTION_LABELS[binding.direction]}
                       {binding.last_sync_at
-                        ? ` · synced ${new Date(binding.last_sync_at).toLocaleString()}`
+                        ? ` · synced ${fmt.dateTime(binding.last_sync_at)}`
                         : ''}
                     </p>
                     <Link

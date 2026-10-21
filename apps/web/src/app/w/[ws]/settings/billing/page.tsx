@@ -7,6 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { useDateFormat } from '@/lib/preferences';
 
 /** MN-107 plan catalogue, mirrored for display — prices are fixed and public. */
 const PLAN_LABEL: Record<string, string> = {
@@ -35,6 +36,7 @@ interface BillingStatus {
 }
 
 export default function BillingPage() {
+  const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
 
   const billing = useQuery({
@@ -148,7 +150,7 @@ export default function BillingPage() {
               <p className="text-body text-muted">{PLAN_PRICE[b.plan]}</p>
               {b.currentPeriodEnd && (
                 <p className="mt-1 text-label text-faint">
-                  {b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {new Date(b.currentPeriodEnd).toLocaleDateString()}
+                  {b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {fmt.date(b.currentPeriodEnd)}
                 </p>
               )}
             </div>
