@@ -1,16 +1,18 @@
 'use client';
 
-import { BookOpen, ChevronRight, X } from 'lucide-react';
+import { ArrowRight, BookOpen, X } from 'lucide-react';
 import { useDismissedHints } from '@/lib/dismissed-hints';
 
 /** The stable key stored in the viewer's dismissed-hints list. Changing it would show the card again to everyone. */
 export const RUNS_EXPLAINER_HINT = 'agent-runs-explainer';
-export const RUNS_DOCS_URL = 'https://docs.storyos.dev/concepts/agent-runs/';
+/** #997 — `concepts/agent-runs` describes the Agentic OS Runs DATABASE, not this list. Until a docs page covers
+ *  automation runs (Docs Task #692), the card links the automations concept. */
+export const RUNS_DOCS_URL = 'https://docs.storyos.dev/concepts/automations/';
 
 /**
- * #976 — "what is a run?". Copy matches THIS page's own terms (it lists automation rule runs; source syncs are not
- * in the list yet), so if that changes the copy changes in the same PR (AC4). The status words are the ones the
- * filter chips below use: OK, Failed, Skipped (quota).
+ * #976 / #997 — "What is an automation run?". Copy matches THIS page's own terms; its status words are the page's
+ * one vocabulary (`run-labels.ts`): Awaiting approval, Succeeded, Failed, Skipped (quota). The docs link is a plain
+ * link, not gold: gold means agency (#831) and gold text fails contrast.
  */
 export function RunsExplainerCard({
   collapsed,
@@ -29,18 +31,18 @@ export function RunsExplainerCard({
         onClick={onShow}
         className="mb-4 inline-flex items-center gap-1 text-label text-muted underline-offset-2 hover:text-ink hover:underline"
       >
-        <BookOpen className="h-3.5 w-3.5" /> What are agent runs?
+        <BookOpen className="h-3.5 w-3.5" /> What is an automation run?
       </button>
     );
   }
   return (
     <section
-      aria-label="What are agent runs?"
+      aria-label="What is an automation run?"
       data-testid="runs-explainer"
       className="mb-5 rounded-[var(--radius-card)] border border-border-default bg-card p-4"
     >
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-body font-semibold text-ink">What is a run?</h2>
+        <h2 className="text-body font-semibold text-ink">What is an automation run?</h2>
         <button
           type="button"
           onClick={onHide}
@@ -51,30 +53,31 @@ export function RunsExplainerCard({
         </button>
       </div>
       <p className="mt-1 text-body text-muted">
-        A run is one time an automation rule did its job: a record change, a schedule, or a button.
-        Each row shows which rule, on which record, and how it ended.
+        A run is one time an automation rule did its job — it starts when a record changes, on a schedule, or when
+        you press a button. Every row here is one run: which rule, on which record, and how it ended.
       </p>
       <ul className="mt-2 flex flex-col gap-1 text-body text-muted">
         <li>
-          <strong className="font-medium text-ink">Awaiting approval</strong> — an action is paused
-          until someone approves it (open the run to see it).
+          <strong className="font-medium text-ink">Awaiting approval</strong> — the rule wants to change something
+          and is waiting for you. Nothing happens until you approve; you can also do it from your Inbox.
         </li>
         <li>
-          <strong className="font-medium text-ink">OK</strong> or{' '}
-          <strong className="font-medium text-ink">Failed</strong> — how the run ended.
+          <strong className="font-medium text-ink">Succeeded</strong> /{' '}
+          <strong className="font-medium text-ink">Failed</strong> — open a run to see each step it took, and the
+          error if it failed.
         </li>
         <li>
-          <strong className="font-medium text-ink">Skipped (quota)</strong> — the workspace was out
-          of runs for the month.
+          <strong className="font-medium text-ink">Skipped (quota)</strong> — your plan’s monthly runs were used
+          up, so it didn’t run.
         </li>
       </ul>
       <a
         href={RUNS_DOCS_URL}
         target="_blank"
         rel="noreferrer"
-        className="mt-3 inline-flex items-center gap-0.5 text-label font-medium text-accent hover:underline"
+        className="mt-3 inline-flex items-center gap-0.5 text-label font-medium text-ink underline underline-offset-2 hover:no-underline"
       >
-        Read more in the docs <ChevronRight className="h-3.5 w-3.5" />
+        How automations work <ArrowRight className="h-3.5 w-3.5" />
       </a>
     </section>
   );

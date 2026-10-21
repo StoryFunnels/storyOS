@@ -27,14 +27,21 @@ export function humanizeSlug(slug: string): string {
     .join(' ');
 }
 
+/**
+ * #997 — ONE vocabulary for a run's state, on every surface that shows it (the list pill, the filter, the detail, the
+ * explainer card, Home): Succeeded · Failed · Running · Skipped · Skipped (quota) · Awaiting approval. It replaces
+ * "OK" (filter), "Completed" (rows) and "Waiting for approval" (the card), which were three names for one state.
+ */
 const RUN_STATUS_LABELS: Record<string, string> = {
-  ok: 'Completed',
+  ok: 'Succeeded',
   error: 'Failed',
   running: 'Running',
   skipped: 'Skipped',
-  skipped_quota: 'Skipped — over quota',
-  skipped_cap: 'Skipped — over limit',
-  pending_approval: 'Waiting for approval',
+  skipped_quota: 'Skipped (quota)',
+  skipped_cap: 'Skipped (limit)',
+  pending_approval: 'Awaiting approval',
+  // The API's own run status for a run with a waiting approval (derived, never stored; ticket #1009).
+  awaiting_approval: 'Awaiting approval',
 };
 
 /** Friendly phrase for a whole run's status (e.g. `skipped_quota`). */
@@ -155,5 +162,77 @@ export function formatDuration(ms: number | null | undefined): string {
   if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.round(totalSeconds % 60);
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+/** The filter's options, in the prototype's order. `value` is the API's run status ('' = all); `awaiting_approval` is derived by the API (ticket #1009). */
+export const RUN_STATUS_FILTERS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '', label: 'All statuses' },
+  { value: 'awaiting_approval', label: runStatusLabel('awaiting_approval') },
+  { value: 'ok', label: runStatusLabel('ok') },
+  { value: 'error', label: runStatusLabel('error') },
+  { value: 'running', label: runStatusLabel('running') },
+  { value: 'skipped', label: runStatusLabel('skipped') },
+  { value: 'skipped_quota', label: runStatusLabel('skipped_quota') },
+];
+
+/** The colour family of a status pill / dot: success, failure, waiting on a person, in flight, or skipped. */
+export type RunTone = 'ok' | 'fail' | 'wait' | 'run' | 'skip';
+export function runStatusTone(status: string): RunTone {
+  if (status === 'ok') return 'ok';
+  if (status === 'error') return 'fail';
+  if (status === 'pending_approval' || status === 'awaiting_approval') return 'wait';
+  if (status === 'running') return 'run';
+  return 'skip';
+}
+
+/** One word for a step in the numbered list: "done", "waiting for you", "failed"… */
+export function stepStateWord(status: string): string {
+  switch (status) {
+    case 'succeeded':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'pending_approval':
+      return 'waiting for you';
+    case 'queued':
+      return 'queued';
+    case 'running':
+      return 'running';
+    case 'canceled':
+      return 'canceled';
+    default:
+      return humanizeSlug(status).toLowerCase();
+  }
+}
+
+/**
+ * #997 — when a run started, the way the list reads it ("4 min ago", "yesterday"), falling back to the person's own
+ * date format once it is older than a week. Pure: `now` and the date formatter are passed in.
+ */
+export function startedLabel(iso: string, now: Date, formatDate: (iso: string) => string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '—';
+  const minutes = Math.floor((now.getTime() - then) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  return formatDate(iso);
+}
+
+/**
+ * #997 — the list's narrow Duration column: "0.4 s", "3.1 s", "2m 5s", "—". The detail keeps the long wording
+ * ("under a second") where there is room; this one has 64px.
+ */
+export function formatDurationShort(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 100) return '<0.1 s';
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
