@@ -101,17 +101,17 @@ export function SidebarRowMenu({
           <button
             type="button"
             /**
-             * `focus:opacity-100` matters as much as the hover: the trigger is
-             * invisible until hovered, so without it a keyboard user tabs onto a
-             * control they cannot see.
+             * #994 / #900 — the ⋯ RESTS visible at --faint and darkens on row hover, then on the control itself: a
+             * control you must hover to find does not exist on a touch screen, and a keyboard user tabs onto it seeing it.
+             * (It was `opacity-0 group-hover:opacity-100`.) 17px, the prototype's `.act`.
              */
-            className="flex shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 aria-expanded:opacity-100 max-md:h-7 max-md:w-7"
+            className="flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[3px] text-faint transition-colors group-hover:text-muted hover:bg-border-strong hover:text-ink aria-expanded:text-ink max-md:h-7 max-md:w-7"
             aria-label={`Options for ${label}`}
             // The row is usually a link or a toggle; opening the menu must not
             // also navigate or collapse it.
             onClick={(e) => e.stopPropagation()}
           >
-            <MoreHorizontal className="h-3.5 w-3.5 text-faint" />
+            <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
         </DropdownMenuTrigger>
       </Tooltip>
