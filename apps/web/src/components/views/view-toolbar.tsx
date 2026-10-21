@@ -109,6 +109,7 @@ import {
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
+import { meConditionText } from '@/lib/me-label';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionChip, OptionIcon } from '../table-view/cells';
 
@@ -1058,6 +1059,11 @@ function describeCondition(
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
 ): string {
+  // #928 — Me alone reads in a person's words ("Assigned to me"), by field name; "Me plus others" stays a list.
+  if (isUserField(field)) {
+    const mine = meConditionText(field.displayName, condition.op, condition.value);
+    if (mine) return mine;
+  }
   const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0];
   if (!activeOp) return field.displayName;
