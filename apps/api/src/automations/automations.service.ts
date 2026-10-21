@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { effectiveStatus, waitingCounts } from './run-status';
 import {
   HttpException,
   Inject,
@@ -345,7 +346,16 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       orderBy: [desc(automationRuns.createdAt)],
       limit: 50,
     });
-    return { data: rows };
+    // #1011 — the SAME derived status the workspace run list returns (run-status.ts), so the rule page and the runs page cannot disagree:
+    // a stored-ok run with an approval still waiting reads `awaiting_approval`. Every other column is the stored row, as before.
+    const waiting = await waitingCounts(this.db, rows.map((r) => r.id));
+    return {
+      data: rows.map((r) => ({
+        ...r,
+        status: effectiveStatus(r.status, waiting.get(r.id) ?? 0),
+        awaitingApprovalCount: waiting.get(r.id) ?? 0,
+      })),
+    };
   }
 
   /**
