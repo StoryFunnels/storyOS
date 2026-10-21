@@ -429,7 +429,12 @@ export function ViewToolbar({
       : [];
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
+    <div className="@container min-w-0">
+    {/* #996 — the toolbar NEVER wraps. Beside an open record the view can be ~300px wide, and a wrapped toolbar took
+        three lines of it. It is a container query on the toolbar's own width (not the viewport): the count and the
+        Find / Display labels go first, then the Filter / Sort / New labels, then the Group chip is shortened — the
+        controls keep their icons, so nothing is removed, and the primary row stays one line. */}
+    <div className="flex min-h-9 flex-nowrap items-center gap-1.5 [&_button]:whitespace-nowrap border-b border-border-default bg-app px-3 py-1 @max-[520px]:[&_.tb-count]:hidden @max-[520px]:[&_.tb-find]:hidden @max-[440px]:[&_.tb-display]:hidden @max-[400px]:[&_.tb-fs]:hidden @max-[400px]:[&_.tb-new]:hidden @max-[440px]:[&_.tb-group]:max-w-[5.5rem]">
       {/* #964 — Filter · Sort · [Group] · Find · N of M · Display · ⋯ · New, in that order. The
           left cluster is what narrows and orders the rows; the right is how they look, the view's
           own menu, and the one primary action. */}
@@ -474,7 +479,7 @@ export function ViewToolbar({
         <ViewSearchBox ws={ws} db={db} config={config} personalFilter={personalFilter} />
       )}
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {ws && db && viewType !== 'form' && viewType !== 'dashboard' && (
           <ViewCount ws={ws} db={db} config={config} personalFilter={personalFilter} />
         )}
@@ -513,6 +518,7 @@ export function ViewToolbar({
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
       )}
     </div>
+    </div>
   );
 }
 
@@ -539,7 +545,7 @@ function ViewCount({
   if (total.data === undefined) return null;
   const narrowed = shown.data !== undefined && shown.data !== total.data;
   return (
-    <span className="whitespace-nowrap px-1 text-label tabular-nums text-muted" aria-live="polite">
+    <span className="tb-count whitespace-nowrap px-1 text-label tabular-nums text-muted" aria-live="polite">
       {narrowed ? `${shown.data} of ${total.data}` : String(total.data)}
     </span>
   );
@@ -574,9 +580,9 @@ function NewRecordButton({ ws, db }: { ws: string; db: string }) {
       type="button"
       onClick={() => create.mutate()}
       disabled={create.isPending}
-      className="flex h-7 items-center gap-1 rounded-[var(--radius-control)] bg-primary px-2.5 text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
+      className="flex h-7 items-center gap-1 whitespace-nowrap rounded-[var(--radius-control)] bg-primary px-2.5 text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
     >
-      <Plus className="h-3.5 w-3.5" /> New
+      <Plus className="h-3.5 w-3.5" /> <span className="tb-new">New</span>
     </button>
   );
 }
@@ -1235,7 +1241,7 @@ export function FiltersSection({
           )}
         >
           <ListFilter className="h-3.5 w-3.5" />
-          Filter
+          <span className="tb-fs">Filter</span>
           {/* The count: applied conditions that are not already chips. A pinned one is its own chip. */}
           {buttonState.buttonCount > 0 && (
             <span className="tabular-nums text-ink">{buttonState.buttonCount}</span>
@@ -2357,7 +2363,7 @@ export function SortButton({
         )}
       >
         <ArrowUpDown className="h-3.5 w-3.5" />
-        {sorts.length ? `Sorted by ${sorts.length}` : emptyLabel}
+        <span className="tb-fs">{sorts.length ? `Sorted by ${sorts.length}` : emptyLabel}</span>
       </button>
       {open && (
         <>

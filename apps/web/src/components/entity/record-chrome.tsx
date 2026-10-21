@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Copy, CopyPlus, Eye, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
@@ -119,8 +120,9 @@ export function AddFieldRow({ ws, db }: { ws: string; db: string }) {
   );
 }
 
-/** Star toggle in the header — adds/removes this record from the sidebar Favorites (MN-075). */
-export function StarButton({ ws, rec }: { ws: string; rec: string }) {
+/** The favourite state + toggle of one record, shared by the header button and the ⋯ menu item (#996) so the two
+ *  cannot disagree about whether a record is starred. */
+function useStarred(ws: string, rec: string) {
   const qc = useQueryClient();
   const favorites = useFavorites(ws);
   const starred = (favorites.data ?? []).some((f) => f.target_type === 'record' && f.target_id === rec);
@@ -141,6 +143,12 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['favorites', ws] }),
   });
+  return { starred, toggle };
+}
+
+/** Star toggle in the header — adds/removes this record from the sidebar Favorites (MN-075). */
+export function StarButton({ ws, rec }: { ws: string; rec: string }) {
+  const { starred, toggle } = useStarred(ws, rec);
   return (
     <Tooltip label={starred ? 'Unstar' : 'Star'}>
       <button
@@ -151,6 +159,28 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
         <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
       </button>
     </Tooltip>
+  );
+}
+
+/** #996 — Star as a ⋯ menu item, for the peek header that no longer carries the button. */
+export function StarMenuItem({ ws, rec }: { ws: string; rec: string }) {
+  const { starred, toggle } = useStarred(ws, rec);
+  return (
+    <DropdownMenuItem onSelect={() => toggle.mutate()}>
+      <Star className={cn('mr-2 h-3.5 w-3.5', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />{' '}
+      {starred ? 'Unstar' : 'Star'}
+    </DropdownMenuItem>
+  );
+}
+
+/** #996 — Watch as a ⋯ menu item (the same `useWatchers` the header button uses). */
+export function WatchMenuItem({ ws, db, rec }: { ws: string; db: string; rec: string }) {
+  const { query, toggle } = useWatchers(ws, db, rec);
+  const watching = query.data?.watching ?? false;
+  return (
+    <DropdownMenuItem disabled={toggle.isPending} onSelect={() => toggle.mutate(!watching)}>
+      <Eye className={cn('mr-2 h-3.5 w-3.5', watching && 'text-[var(--accent)]')} /> {watching ? 'Unwatch' : 'Watch'}
+    </DropdownMenuItem>
   );
 }
 
@@ -187,7 +217,10 @@ export function RecordActions({
   canCreate,
   isAdmin,
   onCustomizeFields,
+  extraItems,
 }: {
+  /** #996 — items a header that has dropped its own buttons (the peek) folds in at the top of "This item". */
+  extraItems?: ReactNode;
   /** #936 — when given, the ⋯ menu offers "Customize fields…" (the header's sliders icon moved here). */
   onCustomizeFields?: () => void;
   ws: string;
@@ -261,6 +294,7 @@ export function RecordActions({
         <DropdownMenuContent align="end">
           {/* This record — everyday, non-destructive actions (#197). */}
           <DropdownMenuLabel>This item</DropdownMenuLabel>
+          {extraItems}
           <DropdownMenuItem onSelect={() => void copyRecordLink(ws, db, { id: rec, title: recTitle, number: recNumber })}>
             <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
           </DropdownMenuItem>

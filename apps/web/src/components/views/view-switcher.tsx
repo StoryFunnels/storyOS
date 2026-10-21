@@ -115,7 +115,7 @@ export function ViewSwitcher({
           className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink"
         >
           <span className="max-w-[10rem] truncate">{active?.name ?? 'Views'}</span>
-          <span className="whitespace-nowrap text-faint">
+          <span className="whitespace-nowrap text-faint @max-[520px]:hidden">
             · {shared.length} view{shared.length === 1 ? '' : 's'}
           </span>
           <ChevronDown className="h-3.5 w-3.5" />

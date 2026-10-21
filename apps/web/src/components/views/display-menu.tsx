@@ -170,7 +170,7 @@ export function DisplayMenu({
             className="flex items-center gap-1 rounded-[var(--radius-control)] px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
-            Display
+            <span className="tb-display">Display</span>
           </button>
         </PopoverTrigger>
         <PopoverContent className="max-h-[28rem] w-72 overflow-y-auto p-1">

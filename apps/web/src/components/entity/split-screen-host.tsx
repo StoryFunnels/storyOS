@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
-import { ChevronsLeftRight, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
+import { ChevronsLeftRight, PanelLeftOpen, X } from 'lucide-react';
 import { useMediaQuery } from '@/lib/use-media-query';
 import { cn } from '@/lib/utils';
 import {
@@ -15,6 +15,15 @@ import {
   ratioFromPointer,
   useSplitRatio,
 } from '@/lib/split-pane-ratio';
+import {
+  PEEK_WIDTH_DEFAULT,
+  PEEK_WIDTH_MAX,
+  PEEK_WIDTH_MIN,
+  PEEK_WIDTH_STEP,
+  clampPeekWidth,
+  peekWidthFromPointer,
+  usePeekWidth,
+} from '@/lib/peek-width';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEscapeToClose } from '@/lib/escape-layers';
 import { canGoBackInApp, useTrackAppNavigation } from '@/lib/nav-trail';
@@ -76,21 +85,25 @@ export interface PrimaryPaneControls {
  * `controls` is `undefined` whenever no panel is open — the same signal the render
  * prop used to carry, so a page renders exactly as it did before the split exists.
  */
+/** What the primary pane IS: a record (the record page) or a list (a view, My Work). The two lay out differently
+ *  beside an open record (#996): a list gets a peek of its own width, a record keeps the shared ratio. */
+export type PrimaryKind = 'list' | 'record';
+
 interface SplitPrimary {
   controls?: PrimaryPaneControls;
-  setLabel: (label: string, number?: number | null) => void;
+  setLabel: (label: string, number?: number | null, kind?: PrimaryKind) => void;
 }
 
 const SplitPrimaryContext = createContext<SplitPrimary | null>(null);
 
 /** Registers what the primary pane's rail spine should say, for as long as this
  *  component is mounted. Safe outside a host: it is then a no-op. */
-function useRegisterPrimaryLabel(label: string, number?: number | null) {
+function useRegisterPrimaryLabel(label: string, number: number | null | undefined, kind: PrimaryKind) {
   const primary = useContext(SplitPrimaryContext);
   const setLabel = primary?.setLabel;
   useEffect(() => {
-    setLabel?.(label, number ?? null);
-  }, [setLabel, label, number]);
+    setLabel?.(label, number ?? null, kind);
+  }, [setLabel, label, number, kind]);
   return primary?.controls;
 }
 
@@ -113,8 +126,9 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
   const isDesktop = useMediaQuery('(min-width: 768px)');
   const [state, dispatch] = useReducer(reduceSplit, undefined, emptySplitStack);
   // What the primary pane is, as registered by whichever page is mounted (#462).
-  const [primary, setPrimary] = useState<{ label: string; number?: number | null }>({
+  const [primary, setPrimary] = useState<{ label: string; number?: number | null; kind: PrimaryKind }>({
     label: 'This page',
+    kind: 'list',
   });
 
   /*
@@ -207,7 +221,7 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
             isMaximized: view.primaryMaximized,
           }
         : undefined,
-      setLabel: (label, number) => setPrimary({ label, number }),
+      setLabel: (label, number, kind = 'list') => setPrimary({ label, number, kind }),
     }),
     [showStack, view.primaryMaximized],
   );
@@ -236,7 +250,7 @@ interface SplitAreaState {
   view: ReturnType<typeof selectSplitView>;
   showStack: boolean;
   railed: boolean;
-  primary: { label: string; number?: number | null };
+  primary: { label: string; number?: number | null; kind: PrimaryKind };
   controls?: PrimaryPaneControls;
 }
 
@@ -262,6 +276,17 @@ export function SplitArea({
   const area = useContext(SplitAreaContext);
   const containerRef = useRef<HTMLDivElement>(null);
   const { ratio, setRatio, persist } = useSplitRatio();
+  // #996 — the peek's own width (a record opened beside a LIST), and the width of the row it has to fit in.
+  const peekWidth = usePeekWidth();
+  const [containerW, setContainerW] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setContainerW(el.getBoundingClientRect().width));
+    ro.observe(el);
+    setContainerW(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
 
   // No host above us (a route outside the workspace layout): render the primary
   // plainly. Never throw — a missing provider must degrade, not break the page.
@@ -273,15 +298,21 @@ export function SplitArea({
   // exists in that shared layout — when a pane is maximized or on a rail there's a
   // single pane and the ratio is inert (the pane just fills with flex-1).
   const pairMode = !view.primaryOnRail && view.activePanel !== null;
-  const primaryPaneStyle: CSSProperties | undefined = pairMode
-    ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
-    : undefined;
+  // #996 — a record opened beside a LIST is a PEEK: the record pane is a pixel width sized to the record, the view
+  // keeps ALL the rest. A record beside a RECORD keeps the shared ratio, which is what comparing two is for.
+  const peek = showStack && pairMode && primary.kind === 'list';
+  const peekPx = clampPeekWidth(peekWidth.width, containerW);
+  // Expanded = the record as a full page. The list is gone for the moment, and what stands in for it is NOT a
+  // 32px vertical strip: the record's own header carries a labelled Back (#996 AC8).
+  const expandedList = showStack && view.activePanelMaximized && primary.kind === 'list';
+  const primaryPaneStyle: CSSProperties | undefined =
+    pairMode && !peek ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 } : undefined;
 
   return (
     <div ref={containerRef} className={showStack ? 'flex min-h-0 min-w-0 flex-1' : 'contents'}>
       {/* Primary as a LEFT rail — collapsed independently (#183) or pushed aside
           by a maximized panel (#167). Expand/close both bring it back. */}
-      {railed && (
+      {railed && !expandedList && (
         <Rail
           side="left"
           icon={<PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />}
@@ -329,12 +360,23 @@ export function SplitArea({
       </div>
 
       {/* #208: draggable divider between the two panes of the shared pair. */}
-      {showStack && pairMode && (
+      {showStack && pairMode && !peek && (
         <SplitPaneDivider ratio={ratio} containerRef={containerRef} onResize={setRatio} onCommit={persist} />
+      )}
+      {peek && (
+        <PeekDivider
+          width={peekPx}
+          containerRef={containerRef}
+          onResize={peekWidth.setWidth}
+          onCommit={peekWidth.persist}
+        />
       )}
 
       {showStack && view.activePanel && (
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <div
+          className={cn('flex min-h-0 min-w-0', !peek && 'flex-1')}
+          style={peek ? { flex: `0 0 ${peekPx}px` } : undefined}
+        >
           {/* #780 — was `overflow-y-auto`: RecordDetail now owns its own two
               independent scroll regions (MAIN + the fixed side panel) instead
               of relying on an ancestor to scroll it, the same reasoning
@@ -349,7 +391,10 @@ export function SplitArea({
               as it correctly does in the full-page case. */}
           {/* Each pane gets its OWN boundary: in split screen, one broken record
               must not cost the other one you were comparing it to. */}
-          <ErrorBoundary label="This item">
+          {/* #996 — THE DEAD BAND: the boundary renders a plain <div>, so with no class it was a block child of this flex
+              row and shrank to the record's natural content width (about 720px) however wide the pane was — the blank
+              strip beside the record at 2000px. It has to be a flex item that fills the pane, like the primary's. */}
+          <ErrorBoundary label="This item" className="flex min-h-0 min-w-0 flex-1">
             <RecordDetail
               ws={ws}
               db={view.activePanel.target.db}
@@ -357,6 +402,8 @@ export function SplitArea({
               onClose={() => dispatch({ type: 'close', id: view.activePanel!.id })}
               onCollapse={() => dispatch({ type: 'collapse', id: view.activePanel!.id })}
               isMaximized={view.activePanelMaximized}
+              variant={view.activePanelMaximized ? 'expanded' : 'peek'}
+              backLabel={primary.label}
               onToggleMaximize={() =>
                 dispatch(
                   view.activePanelMaximized
@@ -401,7 +448,7 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
   // only spine in the layout that couldn't tell you what it was, precisely when you
   // need it, since docking is how you park a record to look at something else.
   const primary = useRecordQuery(ws, db, rec);
-  const controls = useRegisterPrimaryLabel(primary.data?.title || 'Untitled', primary.data?.number);
+  const controls = useRegisterPrimaryLabel(primary.data?.title || 'Untitled', primary.data?.number, 'record');
   return (
     <RecordDetail
       ws={ws}
@@ -422,7 +469,7 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
  *   - The rail spine is the surface's own name ("My Work", the database name) — a
  *     list has no record title to borrow.
  *   - A list has no record header to hang the collapse / maximize controls on, so
- *     it draws a thin control strip above itself (`ListPaneChrome`) carrying the
+ *     it used to draw a thin control strip above itself (`ListPaneChrome`, removed by #996) carrying the
  *     SAME three controls, from the same handlers. #199's criterion 3 is that the
  *     list pane collapses to a rail like any other pane, and it does — via
  *     `PRIMARY_ID`, the same path the record page's primary uses.
@@ -440,46 +487,13 @@ export function ListSurface({
   label: string;
   children: ReactNode;
 }) {
-  const controls = useRegisterPrimaryLabel(label);
+  const controls = useRegisterPrimaryLabel(label, null, 'list');
+  /* #996 — no control strip above the list any more. It carried the list's name ("Tasks") a second time, right under
+     the page's own "Tasks" title, plus collapse / maximize controls for a pane that is now simply the rest of the
+     width: the record's peek has its own expand and close, and closing the peek gives the list the whole width back. */
   return (
     <div className={controls ? 'flex h-full min-h-0 flex-col' : 'contents'}>
-      {controls && <ListPaneChrome label={label} controls={controls} />}
       <div className={controls ? 'min-h-0 flex-1 overflow-y-auto' : 'contents'}>{children}</div>
-    </div>
-  );
-}
-
-/**
- * The control strip a list pane gets while a split is open (#199) — the list's
- * equivalent of the record header's split chrome, using the identical icons,
- * tooltips and aria-labels as `record-detail.tsx` so the two panes read as one
- * feature. It appears ONLY inside a split; with no panel open the list renders
- * exactly as it did before this ticket, with no extra bar.
- */
-function ListPaneChrome({ label, controls }: { label: string; controls: PrimaryPaneControls }) {
-  return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-border-default px-3 py-1.5">
-      <span className="truncate text-body font-medium text-muted">{label}</span>
-      <div className="ml-auto flex items-center gap-1">
-        <button
-          type="button"
-          title="Collapse"
-          aria-label="Collapse to rail"
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink"
-          onClick={controls.onCollapse}
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          title={controls.isMaximized ? 'Restore' : 'Maximize'}
-          aria-label={controls.isMaximized ? 'Restore split view' : 'Maximize pane'}
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink"
-          onClick={controls.onToggleMaximize}
-        >
-          {controls.isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-        </button>
-      </div>
     </div>
   );
 }
@@ -571,6 +585,96 @@ function SplitPaneDivider({
       )}
     >
       {/* hairline, brightened on hover / focus / drag */}
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-default transition-colors',
+          'group-hover:bg-border-strong group-focus-visible:bg-[var(--accent)]',
+          active && 'bg-[var(--accent)]',
+        )}
+      />
+    </div>
+  );
+}
+
+/**
+ * #996 — the draggable edge of the record PEEK. The peek is a pixel width on the right and the view takes the rest,
+ * so this edge reports a WIDTH (from the container's right edge), where `SplitPaneDivider` reports a ratio. Same
+ * gestures: drag, double-click / Home to reset, arrow keys to nudge (Left = wider, because the peek is on the right).
+ * The width is remembered per viewer (`usePeekWidth`).
+ */
+function PeekDivider({
+  width,
+  containerRef,
+  onResize,
+  onCommit,
+}: {
+  width: number;
+  containerRef: RefObject<HTMLDivElement | null>;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) {
+  const dragging = useRef(false);
+  const [active, setActive] = useState(false);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      if (!dragging.current) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      onResize(peekWidthFromPointer(e.clientX, rect.right, rect.width));
+    }
+    function onUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      setActive(false);
+      onCommit(widthRef.current);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [containerRef, onResize, onCommit]);
+
+  const nudge = (delta: number) =>
+    onCommit(clampPeekWidth(widthRef.current + delta, containerRef.current?.getBoundingClientRect().width ?? 0));
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the open item"
+      aria-valuemin={PEEK_WIDTH_MIN}
+      aria-valuemax={PEEK_WIDTH_MAX}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        dragging.current = true;
+        setActive(true);
+      }}
+      onDoubleClick={() => onCommit(PEEK_WIDTH_DEFAULT)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          nudge(PEEK_WIDTH_STEP);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          nudge(-PEEK_WIDTH_STEP);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          onCommit(PEEK_WIDTH_DEFAULT);
+        }
+      }}
+      className={cn('group relative -mx-1 w-2 shrink-0 cursor-col-resize touch-none self-stretch', active && 'select-none')}
+    >
       <span
         aria-hidden
         className={cn(

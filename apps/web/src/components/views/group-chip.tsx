@@ -78,7 +78,7 @@ export function GroupChip({
           )}
         >
           <Group className="h-3.5 w-3.5" />
-          {groupField ? `Group: ${groupField.displayName}` : 'Group'}
+          <span className="tb-group max-w-[12rem] truncate">{groupField ? `Group: ${groupField.displayName}` : 'Group'}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="max-h-96 w-64 overflow-y-auto p-1">

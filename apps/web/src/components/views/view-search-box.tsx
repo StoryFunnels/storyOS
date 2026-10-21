@@ -127,7 +127,7 @@ export function ViewSearchBox({
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
       >
         <Search className="h-3.5 w-3.5" />
-        Find
+        <span className="tb-find">Find</span>
       </button>
     );
   }

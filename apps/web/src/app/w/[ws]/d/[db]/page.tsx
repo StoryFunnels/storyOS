@@ -148,7 +148,7 @@ function DatabasePageInner() {
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="@container flex h-full flex-col">
       {/* View tabs */}
       <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
         <h1 className="mr-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold text-ink">
