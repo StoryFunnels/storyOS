@@ -2261,7 +2261,7 @@ function PromptDialog({
   };
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent title={state.title} className="max-w-sm">
+      <DialogContent title={state.title} unsaved className="max-w-sm">
         <div className="flex flex-col gap-3 p-1">
           {state.kind === 'name' && (
             <input
@@ -3213,7 +3213,7 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
           </button>
         </DialogTrigger>
       </Tooltip>
-      <DialogContent title="New group">
+      <DialogContent title="New group" unsaved>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -3246,7 +3246,7 @@ function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string)
           <Plus className="h-3.5 w-3.5" /> New space
         </button>
       </DialogTrigger>
-      <DialogContent title="New space">
+      <DialogContent title="New space" unsaved>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -3286,7 +3286,7 @@ function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string)
 function NewDatabaseDialog({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('');
   return (
-    <DialogContent title="New database">
+    <DialogContent title="New database" unsaved>
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {

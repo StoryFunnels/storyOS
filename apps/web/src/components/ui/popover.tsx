@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLayer } from '@/lib/back-layers';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,7 @@ export function PopoverContent({
         {...props}
       >
         {props.children}
+        <BackLayer />
         <PhoneSheetScrim />
       </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>

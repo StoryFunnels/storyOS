@@ -16,6 +16,7 @@ import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { OPEN_TYRON_EVENT, useTyronPanel } from '@/lib/tyron-panel';
 import { AgentAvatar } from './agent-avatar';
 import { TyronConversation } from './tyron-conversation';
+import { useBackLayer } from '@/lib/back-layers';
 
 /**
  * Tyron's docked panel (#356).
@@ -94,6 +95,8 @@ export function TyronPanel() {
    * Esc is already "clear selection / cancel edit" everywhere else, and having it
    * also destroy a conversation in progress would be a nasty surprise.
    */
+  // #962 — Back leaves FULL, the same step Esc takes.
+  useBackLayer(state === 'full', leaveFull);
   useEffect(() => {
     if (state !== 'full') return;
     const onKey = (e: KeyboardEvent) => {

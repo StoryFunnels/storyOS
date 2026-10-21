@@ -1,5 +1,6 @@
 'use client';
 
+import { useScrollMemory } from '@/lib/scroll-memory';
 import { useInputModality } from '@/lib/input-modality';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -19,6 +20,7 @@ import { TyronPanel } from '@/components/tyron/tyron-panel';
 import { useTyronPanel } from '@/lib/tyron-panel';
 import { peekPendingBuild } from '@/lib/pending-build';
 import { cn } from '@/lib/utils';
+import { useBackLayer } from '@/lib/back-layers';
 
 /** The protected workspace shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
@@ -32,6 +34,10 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   // from storage — so the drawer is guaranteed CLOSED on first paint and a
   // record is readable without the user manually closing it.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // #962 — the back gesture closes the drawer first, rather than navigating away from underneath it.
+  useBackLayer(mobileOpen, () => setMobileOpen(false));
+  // #962 — Back returns to the same place in a list, not the top of it.
+  useScrollMemory();
   // #1018 — a focus ring is for the keyboard, never after a mouse press.
   useInputModality();
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).

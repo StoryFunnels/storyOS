@@ -127,6 +127,35 @@ export function hasOpenElsewhereModifier(event: {
   return Boolean(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
 }
 
+export function sameTarget(a: Pick<SplitTarget, 'db' | 'rec'>, b: Pick<SplitTarget, 'db' | 'rec'>): boolean {
+  return a.db === b.db && a.rec === b.rec;
+}
+
+/** #962 — the URL parameter an open split panel lives in: `?open=<db>:<rec>`, one per panel, in stack order.
+ *  Neither a database nor a record segment can contain a colon (a slug or a UUID), so the first one splits. */
+export const OPEN_PARAM = 'open';
+
+export function parseOpenTargets(values: string[]): SplitTarget[] {
+  const out: SplitTarget[] = [];
+  for (const v of values) {
+    const at = v.indexOf(':');
+    const db = at > 0 ? v.slice(0, at) : '';
+    const rec = at > 0 ? v.slice(at + 1) : '';
+    if (db && rec) out.push({ db, rec });
+  }
+  return out;
+}
+
+/** `search` with its `open` entries replaced by `targets`; every other parameter is kept. Returns a query
+ *  string with its leading `?`, or '' when nothing is left. */
+export function withOpenTargets(search: string, targets: Array<Pick<SplitTarget, 'db' | 'rec'>>): string {
+  const params = new URLSearchParams(search);
+  params.delete(OPEN_PARAM);
+  for (const t of targets) params.append(OPEN_PARAM, `${t.db}:${t.rec}`);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export type SplitAction =
   /** Push a new panel on the right, expanded (#168). Docks older expanded panels
    *  to rails to keep the active pair; a no-op if the same record is already the
@@ -156,6 +185,12 @@ export type SplitAction =
    *  the stack unwinds one level rather than leaving only rails (#168). Closing
    *  `PRIMARY_ID` cannot remove the primary — it restores it to a pane (#184). */
   | { type: 'close'; id: string }
+  /** #962 — make the stack match a list of targets read from the URL: panels whose record is not listed
+   *  close, listed records that are not open open, and a stack that already matches is returned as the SAME
+   *  reference (so syncing from a URL that the stack itself just wrote is a no-op, not a re-render). The URL is
+   *  where a split panel lives (a refresh keeps it, a copied link reopens it, Back closes it); this is how a
+   *  change in the URL reaches the reducer. */
+  | { type: 'sync'; targets: SplitTarget[] }
   /** Drop the entire stack — used by the mobile fallback when the viewport shrinks
    *  below `md` (plan §3.3). */
   | { type: 'reset' };
@@ -323,6 +358,18 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
         panels = panels.map((p) => (p.id === last.id ? { ...p, collapsed: false } : p));
       }
       return { ...state, panels, maximizedId };
+    }
+
+    case 'sync': {
+      const remaining = [...action.targets];
+      let next = state;
+      for (const p of state.panels) {
+        const i = remaining.findIndex((t) => sameTarget(t, p.target));
+        if (i >= 0) remaining.splice(i, 1);
+        else next = reduceSplit(next, { type: 'close', id: p.id });
+      }
+      for (const t of remaining) next = reduceSplit(next, { type: 'open', target: t });
+      return next;
     }
 
     case 'reset':

@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLayer } from '@/lib/back-layers';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquarePlus, MoreHorizontal, History } from 'lucide-react';
@@ -139,6 +140,7 @@ export function ThreadMenu({
 
       {open && (
         <>
+          <BackLayer dismiss={() => setOpen(false)} />
           {/* Click-away. A menu that only closes via its own button strands the
               user when they click into the conversation behind it. */}
           <span className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} aria-hidden />

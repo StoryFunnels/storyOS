@@ -12,6 +12,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useBackLayer } from '@/lib/back-layers';
 
 export type NotificationType =
   | 'assigned'
@@ -251,6 +252,7 @@ export function useUnreadCount(ws: string) {
 /** Inbox (MN-049, #38): the sidebar row opens this right-side panel — All/Unread
  * filter, day-grouped rows, and cursor pagination. */
 export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void }) {
+  useBackLayer(true, onClose); // #962 — Back closes the panel (it is mounted only while open)
   const router = useRouter();
   const qc = useQueryClient();
   const [unreadOnly, setUnreadOnly] = useState(false);

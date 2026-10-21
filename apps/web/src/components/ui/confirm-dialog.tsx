@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { registerDiscardConfirm } from '@/lib/discard-confirm';
 import type { ReactNode } from 'react';
 import { Dialog, DialogContent } from './dialog';
 import { Button } from './button';
@@ -51,6 +52,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       resolver.current = resolve;
     });
   }, []);
+
+  // #962 — Back on a form with unsaved edits asks through this same dialog.
+  useEffect(() => registerDiscardConfirm(confirm), [confirm]);
 
   const settle = useCallback((result: boolean) => {
     resolver.current?.(result);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useBackLayer } from '@/lib/back-layers';
 import { useEffect, useState } from 'react';
 // #254 — the list now comes from the shared registry, so this overlay and the
 // hover tooltips can never drift apart.
@@ -20,6 +21,7 @@ export function ShortcutsOverlay() {
     window.addEventListener(OPEN_SHORTCUTS_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SHORTCUTS_EVENT, onOpen);
   }, []);
+  useBackLayer(open, () => setOpen(false)); // #962
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[var(--z-palette)] bg-[var(--scrim)]" onClick={() => setOpen(false)}>

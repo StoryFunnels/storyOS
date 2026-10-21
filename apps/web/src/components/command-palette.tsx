@@ -16,6 +16,7 @@ import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts'
 import { stepIndex } from '@/lib/list-nav';
 import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
+import { useBackLayer } from '@/lib/back-layers';
 
 interface RecordHit {
   id: string;
@@ -66,6 +67,9 @@ export function CommandPalette() {
   const debounced = useDebounced(query, 150);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // #962 — Back (and the phone back gesture) closes the palette and stays on the page, same as Esc.
+  useBackLayer(open, () => setOpen(false));
 
   const openIt = useCallback(() => {
     // No-op while another dialog is open (focus traps fight otherwise).

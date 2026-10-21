@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Copy, CopyPlus, Eye, FolderInput, History, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
+import { backOrParent } from '@/lib/nav-trail';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -217,8 +218,13 @@ export function RecordActions({
   canCreate,
   isAdmin,
   onCustomizeFields,
+  onGone,
   extraItems,
 }: {
+  /** #962 — what to do once this record no longer exists: a split panel closes itself. On the full page it is
+   *  left unset and the one back rule runs, which steps BACK past the dead record rather than pushing onto a
+   *  page that cannot show it. */
+  onGone?: () => void;
   /** #996 — items a header that has dropped its own buttons (the peek) folds in at the top of "This item". */
   extraItems?: ReactNode;
   /** #936 — when given, the ⋯ menu offers "Customize fields…" (the header's sliders icon moved here). */
@@ -266,7 +272,8 @@ export function RecordActions({
     },
     onSuccess: () => {
       toast.success('Record moved to trash');
-      router.push(`/w/${ws}/d/${db}`);
+      if (onGone) onGone();
+      else backOrParent(router, `/w/${ws}/d/${db}`);
       // Drop the deleted record's queries (don't refetch a 404); refresh the list.
       qc.removeQueries({ predicate: (query) => Array.isArray(query.queryKey) && query.queryKey.includes(rec) });
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });

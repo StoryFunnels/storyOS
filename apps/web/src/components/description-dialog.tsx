@@ -50,7 +50,7 @@ export function DescriptionDialogContent({
   const draft = describeDraft(value);
 
   return (
-    <DialogContent title={`Describe ${name}`}>
+    <DialogContent title={`Describe ${name}`} unsaved>
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {

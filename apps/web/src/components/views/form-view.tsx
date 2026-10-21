@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLayer } from '@/lib/back-layers';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
@@ -686,6 +687,7 @@ function FormFieldsSidebar({
 
   return (
     <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" role="dialog" aria-label="Form fields">
+      <BackLayer dismiss={onClose} />
       <div className="absolute inset-0 bg-[var(--scrim)]" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full w-80 flex-col gap-4 overflow-y-auto border-l border-border-default bg-card p-4">
         <div className="flex items-center justify-between">

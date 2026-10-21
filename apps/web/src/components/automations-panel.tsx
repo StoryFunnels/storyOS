@@ -26,6 +26,7 @@ import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+import { useBackLayer } from '@/lib/back-layers';
 
 /* #738 — stable identity across renders. */
 const ACTIONS_VIEW_OPTIONS = [
@@ -122,6 +123,7 @@ export function AutomationsPanel({
   db: string;
   onClose: () => void;
 }) {
+  useBackLayer(true, onClose); // #962 — mounted only while open
   const qc = useQueryClient();
   const confirm = useConfirm();
   const database = useDatabase(ws, db);

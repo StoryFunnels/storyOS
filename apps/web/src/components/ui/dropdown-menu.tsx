@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLayer } from '@/lib/back-layers';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,7 @@ export function DropdownMenuContent({ className, ...props }: ComponentProps<type
         {...props}
       >
         {props.children}
+        <BackLayer />
         <PhoneSheetScrim />
       </Dropdown.Content>
     </Dropdown.Portal>

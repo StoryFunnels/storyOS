@@ -76,7 +76,7 @@ export function QuickAddFab() {
           if (!next) setQuery('');
         }}
       >
-        <DialogContent title="New item" className="max-w-sm">
+        <DialogContent title="New item" unsaved className="max-w-sm">
           <Input
             autoFocus
             placeholder="Search databases…"
