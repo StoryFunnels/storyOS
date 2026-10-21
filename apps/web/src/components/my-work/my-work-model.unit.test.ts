@@ -125,3 +125,39 @@ describe('saved per-database filters keep applying, and always show a chip (#968
     expect(filterChips(GROUPS, { d1: { filters: two } })[0]?.label).toBe('Issues · 2 filters');
   });
 });
+
+import { ASSIGNED_BY_UNRECORDED, assignedByLine } from './my-work-model';
+
+describe('#968 follow-up: assignedByLine follows #979’s rule for null', () => {
+  const by = { id: 'u1', name: 'Bea', kind: 'user' as const };
+
+  it('names who set you, and when', () => {
+    expect(assignedByLine({ assigned_by: by, assigned_at: '2026-10-20T10:00:00Z' }, 'assigned')).toEqual({
+      kind: 'set',
+      name: 'Bea',
+      byAgent: false,
+      at: '2026-10-20T10:00:00Z',
+    });
+  });
+
+  it('marks an agent as an agent', () => {
+    const line = assignedByLine({ assigned_by: { id: 'a1', name: 'Triage Bot', kind: 'agent' }, assigned_at: null }, 'assigned');
+    expect(line).toMatchObject({ kind: 'set', byAgent: true, at: null });
+  });
+
+  it('null says what null means instead of a blank or an invented name', () => {
+    const line = assignedByLine({ assigned_by: null, assigned_at: null }, 'assigned');
+    expect(line).toEqual({ kind: 'unrecorded', explanation: ASSIGNED_BY_UNRECORDED });
+    expect(ASSIGNED_BY_UNRECORDED).toMatch(/created or imported/);
+    expect(ASSIGNED_BY_UNRECORDED).toMatch(/not in its history/);
+  });
+
+  it('an older server that omits the keys reads the same as null', () => {
+    expect(assignedByLine({}, 'assigned').kind).toBe('unrecorded');
+  });
+
+  it('the Created tab has no assigner (you made it), so the row is not drawn, even if a value slipped through', () => {
+    expect(assignedByLine({ assigned_by: null, assigned_at: null }, 'created')).toEqual({ kind: 'hidden' });
+    expect(assignedByLine({ assigned_by: by, assigned_at: '2026-10-20T10:00:00Z' }, 'created')).toEqual({ kind: 'hidden' });
+  });
+});

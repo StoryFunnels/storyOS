@@ -398,6 +398,7 @@ function MyWorkInner() {
                 <MyWorkPreview
                   ws={ws}
                   row={previewRow}
+                  tab={tab === 'created' ? 'created' : 'assigned'}
                   onBack={() => setSelectedKey(null)}
                   fmtDate={fmtDate}
                   now={now}

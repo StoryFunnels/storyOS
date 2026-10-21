@@ -15,7 +15,7 @@ import {
   type DenseField,
   type MyWorkDbConfig,
 } from './group-config';
-import { dueBucket, type MyWorkRow } from './my-work-model';
+import { assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
 
 export const rowKey = (row: Pick<MyWorkRow, 'dbId' | 'record'>) => `${row.dbId}:${row.record.id}`;
 
@@ -157,6 +157,7 @@ export function SectionHeader({
 export function MyWorkPreview({
   ws,
   row,
+  tab,
   onBack,
   fmtDate,
   now,
@@ -165,6 +166,8 @@ export function MyWorkPreview({
 }: {
   ws: string;
   row: MyWorkRow;
+  /** Which list the row came from: "Assigned by" only means something on Assigned. */
+  tab: 'assigned' | 'created';
   onBack: () => void;
   fmtDate: (iso: string) => string;
   now: Date;
@@ -174,6 +177,7 @@ export function MyWorkPreview({
   const { record, database, facets, fields, config } = row;
   const shown = new Set([facets.stateField?.id, facets.priorityField?.id, facets.dueField?.id]);
   const extra = visibleFields(fields, config).filter((f) => !shown.has(f.id) && record.values[f.api_name] != null);
+  const assigned = assignedByLine(record, tab);
   return (
     <div className="mx-auto max-w-2xl">
       <button type="button" onClick={onBack} className="mb-3 flex items-center gap-1 text-body text-muted hover:text-ink md:hidden">
@@ -198,6 +202,22 @@ export function MyWorkPreview({
         <Fact label="State">{facets.state ? <FacetCell field={facets.stateField} row={row} /> : null}</Fact>
         <Fact label="Priority">{facets.priority ? <FacetCell field={facets.priorityField} row={row} /> : null}</Fact>
         <Fact label="Due">{facets.due ? <DueText due={facets.due} fmtDate={fmtDate} now={now} /> : null}</Fact>
+        {assigned.kind === 'set' && (
+          <Fact label="Assigned by">
+            <span>
+              {assigned.name}
+              {assigned.byAgent && (
+                <span className="ml-1.5 rounded-full bg-hover px-1.5 py-0.5 text-meta font-medium text-muted">agent</span>
+              )}
+              {assigned.at && <span className="text-muted"> · {fmtDate(assigned.at)}</span>}
+            </span>
+          </Fact>
+        )}
+        {assigned.kind === 'unrecorded' && (
+          <Fact label="Assigned by">
+            <span className="text-muted">{assigned.explanation}</span>
+          </Fact>
+        )}
         {extra.map((f) => (
           <Fact key={f.id} label={f.display_name}>
             <CellDisplay field={toField(f)} value={record.values[f.api_name]} memberNames={memberNames} memberImages={memberImages} />
