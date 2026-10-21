@@ -16,7 +16,8 @@ export function RunStatusPill({ status, className }: { status: string; className
   return (
     <span
       className={cn(
-        'inline-flex h-[19px] items-center whitespace-nowrap rounded-full px-[7px] text-micro font-semibold',
+        // #997 — the prototype's `.stp`: 19px tall, 4px radius (`--r-pill` is 4px in its TIGHT theme), 10px / 650. Not a full pill.
+        'inline-flex h-[19px] items-center whitespace-nowrap rounded-[var(--radius-chip)] px-[7px] text-micro font-[650]',
         PILL_TONE[runStatusTone(status)],
         className,
       )}

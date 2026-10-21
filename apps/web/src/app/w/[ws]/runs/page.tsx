@@ -45,7 +45,7 @@ export default function RunsPage() {
         )}
       >
         <header className="mx-5 mb-3">
-          <h1 className="m-0 text-[22px] font-bold leading-tight tracking-[-0.01em] text-ink">Automation runs</h1>
+          <h1 className="m-0 text-[22px] font-bold leading-[27px] tracking-[-0.01em] text-ink">Automation runs</h1>
           {quota.data && (
             <p className="mt-1 text-body text-muted">
               {quota.data.limit === null ? (
@@ -71,7 +71,7 @@ export default function RunsPage() {
         </div>
 
         {waiting > 0 && (
-          <div className="mx-5 mb-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--accent)_35%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] px-2.5 py-2 text-body text-ink">
+          <div className="mx-5 mb-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--accent)_35%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] px-2.5 py-2 text-label leading-[normal]! text-ink">
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent">
               {waiting}
             </span>
@@ -101,7 +101,7 @@ export default function RunsPage() {
           </select>
         </div>
 
-        <div className="mx-5 grid grid-cols-[1fr_130px_80px_64px] items-center gap-2.5 border-b border-border-default py-1.5 text-meta font-semibold text-muted max-[600px]:grid-cols-[1fr_110px] max-[600px]:[&>span:nth-child(n+3)]:hidden">
+        <div className="mx-5 grid grid-cols-[1fr_130px_80px_64px] items-center gap-2.5 border-b border-border-default py-1.5 text-meta leading-[normal]! font-semibold text-muted max-[600px]:grid-cols-[1fr_110px] max-[600px]:[&>span:nth-child(n+3)]:hidden">
           <span>Rule / item</span>
           <span>Status</span>
           <span>Started</span>
@@ -117,7 +117,7 @@ export default function RunsPage() {
             type="button"
             onClick={() => setSelectedRunId(run.id)}
             className={cn(
-              'grid w-full grid-cols-[1fr_130px_80px_64px] items-center gap-2.5 border-b border-border-default px-5 py-[9px] text-left text-label hover:bg-hover max-[600px]:grid-cols-[1fr_110px] max-[600px]:[&>span:nth-child(n+3)]:hidden',
+              'grid w-full grid-cols-[1fr_130px_80px_64px] items-center gap-2.5 border-b border-border-default px-5 py-[9px] text-left text-label leading-[normal]! hover:bg-hover max-[600px]:grid-cols-[1fr_110px] max-[600px]:[&>span:nth-child(n+3)]:hidden',
               run.id === selectedRunId && 'bg-active',
             )}
           >
