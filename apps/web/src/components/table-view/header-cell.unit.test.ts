@@ -41,7 +41,7 @@ function render(f: never, props: Over = {}) {
         null,
         createElement(
           SortableContext,
-          { items: [(f as { id: string }).id] },
+          { items: [(f as { id: string }).id] } as never,
           createElement(HeaderCell, {
             ws: 'w',
             db: 'd',
