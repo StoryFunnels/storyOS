@@ -35,7 +35,7 @@ import {
 } from './form-fields';
 import type { FormFieldCfg } from './form-fields';
 import { embedSnippet } from '@/lib/embed-mode';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 
 /** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
  * (config.form.fields) and their order — the generic Cards popover no longer
@@ -674,6 +674,16 @@ function FormFieldsSidebar({
     commit(reorderFieldSelection(selectedIds, formCfgs, from, to));
   };
 
+  // #985 — a form field is announced by the label the visitor sees, never its uuid.
+  const formDrag = useDragPresentation(
+    (id) => {
+      const f = selectable.find((x) => x.id === id);
+      return cfgByField.get(id)?.label?.trim() || f?.displayName;
+    },
+    { onDragEnd },
+    selectedIds,
+  );
+
   return (
     <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" role="dialog" aria-label="Form fields">
       <div className="absolute inset-0 bg-[var(--scrim)]" onClick={onClose} />
@@ -694,7 +704,7 @@ function FormFieldsSidebar({
               No fields yet — add one below.
             </p>
           )}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...formDrag.contextProps}>
             <SortableContext items={selectedIds} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1.5">
                 {selected.map((field, i) => (

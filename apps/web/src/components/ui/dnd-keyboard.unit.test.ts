@@ -10,6 +10,10 @@ import { describe, expect, it } from 'vitest';
  * Space/arrows do nothing), and nothing fails to compile. So this reads the source: every file that mounts a DndContext
  * either uses the shared hook or is on the EXCLUDED list below WITH its reason. A new surface cannot be added silently.
  *
+ * #985 — and a keyboard drag is only usable if it SAYS what is happening. dnd-kit's stock announcements substitute the
+ * sortable id, and every sortable here is keyed by a uuid ("Picked up 3f74…"). So each non-excluded DndContext must also
+ * spread `useDragPresentation(...).contextProps` (names + position, never an id; the fallback is the word "item").
+ *
  * The exclusions are the genuinely two-dimensional ones: `sortableKeyboardCoordinates` assumes a one-dimensional list
  * (arrow keys step to the previous/next item), and writing a coordinate getter for a grid, a calendar or a time axis was
  * ruled out of scope for #815.
@@ -63,6 +67,29 @@ describe('keyboard-operable sortable lists (#815)', () => {
 
   it('no non-excluded surface builds its own PointerSensor-only sensors', () => {
     const bad = withDnd.filter((f) => !EXCLUDED[f.rel] && /useSensors\(\s*useSensor\(PointerSensor/.test(f.text)).map((f) => f.rel);
+    expect(bad).toEqual([]);
+  });
+
+  it('every non-excluded DndContext announces by NAME: it spreads useDragPresentation contextProps (#985)', () => {
+    const silent: string[] = [];
+    for (const f of withDnd) {
+      if (EXCLUDED[f.rel]) continue;
+      for (const m of f.text.matchAll(/<DndContext[\s>]/g)) {
+        // The context's own props: from the tag to the first child (the SortableContext), so a later context's props are not read.
+        const after = f.text.slice(m.index!);
+        const child = after.search(/<SortableContext|<\/DndContext/);
+        const props = after.slice(0, child === -1 ? 700 : child);
+        if (!/contextProps/.test(props)) silent.push(`${f.rel}:${f.text.slice(0, m.index!).split('\n').length}`);
+      }
+    }
+    expect(silent, 'these DndContexts announce raw uuids to screen readers: spread useDragPresentation(label, handlers, ids).contextProps').toEqual([]);
+  });
+
+  it('a surface that uses useDragPresentation resolves a label (never falls back to the id)', () => {
+    // The labeller must return a readable name; `(id) => id` or String(id) is the uuid bug under another name.
+    const bad = withDnd
+      .filter((f) => /useDragPresentation\(\s*\(id\)\s*=>\s*(id|String\(id\))\s*[,)]/.test(f.text))
+      .map((f) => f.rel);
     expect(bad).toEqual([]);
   });
 });

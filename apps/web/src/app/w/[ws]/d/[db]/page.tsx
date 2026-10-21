@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { Database as DatabaseIcon } from 'lucide-react';
@@ -137,6 +137,13 @@ function DatabasePageInner() {
     );
     if (next) pins.reorder(next);
   }
+  // #985 — a view tab is announced by its NAME ("Picked up Board, position 2 of 4"), never its uuid.
+  const viewDrag = useDragPresentation(
+    (id) => views.find((v) => v.id === id)?.name,
+    { onDragEnd: onViewDragEnd },
+    // "position N of M" counts the tabs that can be dragged: the pinned ones in the strip.
+    strip.filter((t) => t.pinned).map((t) => t.view.id),
+  );
 
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
@@ -189,8 +196,11 @@ function DatabasePageInner() {
             (MN-230b); min-w-0 lets this flex item shrink below content size so
             overflow-x-auto actually kicks in rather than pushing the row wide. */}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <DndContext sensors={viewSensors} collisionDetection={closestCenter} onDragEnd={onViewDragEnd}>
-            <SortableContext items={strip.filter((t) => t.pinned).map((t) => t.view.id)} strategy={horizontalListSortingStrategy}>
+          <DndContext sensors={viewSensors} collisionDetection={closestCenter} {...viewDrag.contextProps}>
+            <SortableContext
+              items={strip.filter((t) => t.pinned).map((t) => t.view.id)}
+              strategy={horizontalListSortingStrategy}
+            >
               {strip.map(({ view, pinned }) => (
                 <ViewTab
                   key={view.id}

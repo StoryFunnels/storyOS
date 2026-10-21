@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { DndContext, closestCenter } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
@@ -22,7 +21,7 @@ import type { TileOp } from './dashboard-tiles';
 import { andFilterNodes } from './filter-config';
 import type { FilterNode } from './filter-config';
 import type { ViewConfig } from './use-view-state';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 
 export type SummaryWidget = NonNullable<ViewConfig['summary_widgets']>[number];
 
@@ -152,6 +151,24 @@ function WidgetChart({ type, series }: { type: 'bar' | 'line' | 'pie'; series: A
   );
 }
 
+/**
+ * The name a widget carries on screen: its own title, else what it computes ("Count", "Sum of Effort", "Count by Priority").
+ * ONE function, because the card draws it AND a keyboard drag announces it (#985); two copies would let the spoken name drift
+ * from the visible one.
+ */
+export function widgetTitle(widget: SummaryWidget, fields: Field[]): string {
+  const fieldLabel = fields.find((f) => f.apiName === widget.field_api_name)?.displayName;
+  const groupLabel = fields.find((f) => f.apiName === widget.group_by_field_api_name)?.displayName;
+  return (
+    widget.title ||
+    (widget.type === 'stat'
+      ? widget.op === 'count'
+        ? 'Count'
+        : `${opLabel(widget.op)} of ${fieldLabel ?? '…'}`
+      : `${opLabel(widget.op)} by ${groupLabel ?? '…'}`)
+  );
+}
+
 function WidgetCard({
   widget,
   ws,
@@ -182,15 +199,7 @@ function WidgetCard({
   const { loading, stat, series } = useWidgetValue(ws, db, widget, viewFilter, fields);
   const numberFields = fields.filter((f) => f.type === 'number');
   const groupableFields = fields.filter((f) => GROUPABLE_TYPES.has(f.type));
-  const fieldLabel = fields.find((f) => f.apiName === widget.field_api_name)?.displayName;
-  const groupLabel = fields.find((f) => f.apiName === widget.group_by_field_api_name)?.displayName;
-  const title =
-    widget.title ||
-    (widget.type === 'stat'
-      ? widget.op === 'count'
-        ? 'Count'
-        : `${opLabel(widget.op)} of ${fieldLabel ?? '…'}`
-      : `${opLabel(widget.op)} by ${groupLabel ?? '…'}`);
+  const title = widgetTitle(widget, fields);
 
   return (
     <div
@@ -377,6 +386,24 @@ export function SummaryWidgetStrip({
   const widgets = config.summary_widgets ?? [];
   const sensors = useSortableSensors();
   /* Declared above the early return below — hooks cannot sit behind a branch. */
+  // #985 — a widget is announced by its title ("Picked up Count by Priority, position 2 of 3"), never its uuid.
+  const widgetDrag = useDragPresentation(
+    (id) => {
+      const w = widgets.find((x) => x.id === id);
+      return w ? widgetTitle(w, fields) : undefined;
+    },
+    {
+      onDragEnd: (e) => {
+        const { active, over } = e;
+        if (!over || active.id === over.id) return;
+        const from = widgets.findIndex((w) => w.id === active.id);
+        const to = widgets.findIndex((w) => w.id === over.id);
+        if (from === -1 || to === -1) return;
+        onPatch({ summary_widgets: arrayMove(widgets, from, to) });
+      },
+    },
+    widgets.map((w) => w.id),
+  );
   const [justDuplicated, setJustDuplicated] = useState<string | null>(null);
 
   /* #698 — no widgets, no strip. It used to render a full-width row carrying
@@ -400,18 +427,9 @@ export function SummaryWidgetStrip({
     setJustDuplicated(id);
   }
 
-  function onDragEnd(e: DragEndEvent) {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const from = widgets.findIndex((w) => w.id === active.id);
-    const to = widgets.findIndex((w) => w.id === over.id);
-    if (from === -1 || to === -1) return;
-    setWidgets(arrayMove(widgets, from, to));
-  }
-
   return (
     <div className="flex shrink-0 flex-wrap items-stretch gap-2 border-b border-border-default px-3 py-2">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} {...widgetDrag.contextProps}>
         <SortableContext items={widgets.map((w) => w.id)} strategy={horizontalListSortingStrategy}>
           {widgets.map((widget) => (
             <WidgetCard
