@@ -682,6 +682,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_personal_views: 'read',
   get_personal_filter: 'read',
   set_personal_filter: 'write',
+  // #986 — per-viewer state, like the personal filter: writes only for the identity the token belongs to.
+  get_pinned_tabs: 'read',
+  set_pinned_tabs: 'write',
+  get_dismissed_hints: 'read',
+  set_dismissed_hints: 'write',
   get_personal_collection_filter: 'read',
   set_personal_collection_filter: 'write',
   duplicate_view: 'admin',
@@ -6638,6 +6643,107 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text({ view: v.name, personal_filter: mapped, visible_to: 'you only' });
       },
     ),
+  );
+
+  reg(
+    'get_pinned_tabs',
+    {
+      title: 'Get my pinned view tabs',
+      description:
+        "The views the CALLING identity keeps pinned in a database's tab strip, in their order. Per person: a teammate's pins are separate and invisible here. A view that was trashed since, or that you can no longer see, is left out of the answer.",
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const res = await unwrap<{ view_ids: string[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/pinned-tabs', { params: { path: { ws: ws.id, db: db.id } } as never }),
+      );
+      const names = new Map(((detail as unknown as { views?: Array<{ id: string; name: string }> }).views ?? []).map((v) => [v.id, v.name]));
+      return text({ pinned: res.view_ids.map((id) => ({ id, name: names.get(id) ?? null })), visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'set_pinned_tabs',
+    {
+      title: 'Set my pinned view tabs',
+      description:
+        "Replace the views YOU keep pinned in a database's tab strip, in the order given (at most 50; a view may appear once). Pass clear:true to unpin everything. " +
+        'You may pin a shared view or your own personal view, not someone else\'s personal view. It writes for the identity this token belongs to and cannot change anyone else\'s tabs, and it never changes the views themselves.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        views: z.array(z.string()).optional().describe('View names or ids, in the order they should appear. Omit with clear:true.'),
+        clear: z.boolean().optional().describe('Unpin every view.'),
+      },
+    },
+    handle<{ workspace: string; database: string; views?: string[]; clear?: boolean }>(async ({ workspace, database, views, clear }) => {
+      if (!clear && !views) throw new Error('Pass `views` (an ordered list), or clear: true to unpin everything.');
+      if (clear && views) throw new Error('Pass either `views` or clear: true, not both.');
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const path = { ws: ws.id, db: db.id };
+      if (clear) {
+        await unwrap(client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/pinned-tabs', { params: { path } as never }));
+        return text({ pinned: [], visible_to: 'you only' });
+      }
+      const detail = await getDetail(ws.id, db.id);
+      const resolved = (views ?? []).map((v) => resolveView(detail, v));
+      const res = await unwrap<{ view_ids: string[] }>(
+        client.PUT('/api/v1/workspaces/{ws}/databases/{db}/pinned-tabs', {
+          params: { path } as never,
+          body: { view_ids: resolved.map((v) => v.id) } as never,
+        }),
+      );
+      return text({ pinned: res.view_ids.map((id) => ({ id, name: resolved.find((v) => v.id === id)?.name ?? null })), visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'get_dismissed_hints',
+    {
+      title: 'Get my dismissed hints',
+      description:
+        'The ids of the one-time hint cards (short explainers the product shows once) the CALLING identity has dismissed in this workspace. Per person and per workspace: a teammate\'s dismissals do not appear here.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ hint_ids: string[] }>(
+        client.GET('/api/v1/workspaces/{ws}/dismissed-hints', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ dismissed: res.hint_ids, visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'set_dismissed_hints',
+    {
+      title: 'Set my dismissed hints',
+      description:
+        'Replace the list of hint cards YOU have dismissed in this workspace (a hint id is letters, digits and . _ : - up to 100 characters; at most 200; no repeats). This REPLACES the list, so read get_dismissed_hints first and send it back with your change. Pass clear:true to show every hint again. It affects only the identity this token belongs to.',
+      inputSchema: {
+        workspace: z.string(),
+        hint_ids: z.array(z.string()).optional().describe('The full list of dismissed hint ids. Omit with clear:true.'),
+        clear: z.boolean().optional().describe('Show every hint again.'),
+      },
+    },
+    handle<{ workspace: string; hint_ids?: string[]; clear?: boolean }>(async ({ workspace, hint_ids, clear }) => {
+      if (!clear && !hint_ids) throw new Error('Pass `hint_ids` (the full list), or clear: true to show every hint again.');
+      if (clear && hint_ids) throw new Error('Pass either `hint_ids` or clear: true, not both.');
+      const ws = await resolveWorkspace(client, workspace);
+      const path = { ws: ws.id };
+      if (clear) {
+        await unwrap(client.DELETE('/api/v1/workspaces/{ws}/dismissed-hints', { params: { path } as never }));
+        return text({ dismissed: [], visible_to: 'you only' });
+      }
+      const res = await unwrap<{ hint_ids: string[] }>(
+        client.PUT('/api/v1/workspaces/{ws}/dismissed-hints', { params: { path } as never, body: { hint_ids } as never }),
+      );
+      return text({ dismissed: res.hint_ids, visible_to: 'you only' });
+    }),
   );
 
   reg(

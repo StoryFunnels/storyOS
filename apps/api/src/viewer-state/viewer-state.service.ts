@@ -33,7 +33,7 @@ export class ViewerStateService {
       if (expectedDatabaseId) await this.databases.assertAccess(membership, expectedDatabaseId, 'viewer');
       throw new NotFoundException(entry.missing);
     }
-    await this.databases.assertAccess(membership, target.databaseId, 'viewer');
+    if (target.databaseId) await this.databases.assertAccess(membership, target.databaseId, 'viewer');
     return target;
   }
 
@@ -51,7 +51,7 @@ export class ViewerStateService {
     const target = resolved ?? (await entry.resolve(this.db, targetId));
     if (!target) return undefined;
     const data = row.data as ViewerStateData<K>;
-    return (entry.present ? await (entry.present as (db: Db, t: ResolvedTarget, d: unknown) => Promise<unknown>)(this.db, target, data) : data) as ViewerStateData<K> | undefined;
+    return (entry.present ? await (entry.present as (db: Db, t: ResolvedTarget, d: unknown, u: string) => Promise<unknown>)(this.db, target, data, userId) : data) as ViewerStateData<K> | undefined;
   }
 
   /** Set (or replace) my override: validated by the kind, then ONE atomic upsert on this override's own row. */
@@ -59,7 +59,7 @@ export class ViewerStateService {
     const target = await this.reach(membership, kind, targetId, expectedDatabaseId);
     const entry = VIEWER_STATE_KINDS[kind];
     const parsed = entry.schema.parse(data) as ViewerStateData<K>;
-    if (entry.validate) await (entry.validate as (db: Db, t: ResolvedTarget, d: unknown) => Promise<void>)(this.db, target, parsed);
+    if (entry.validate) await (entry.validate as (db: Db, t: ResolvedTarget, d: unknown, u: string) => Promise<void>)(this.db, target, parsed, membership.userId);
     await this.db
       .insert(viewerState)
       .values({ userId: membership.userId, workspaceId: target.workspaceId, kind, targetId, data: parsed, updatedAt: new Date() })
