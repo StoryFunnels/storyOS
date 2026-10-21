@@ -17,6 +17,7 @@ import type {
   PackAgent,
   PackAgentUpdate,
   PackAiNeed,
+  PackDatabaseGains,
   PackConnection,
   PackDerivedField,
   PackExportRequest,
@@ -41,6 +42,7 @@ import { fields as fieldsTable, packInstallItems, packInstalls, sources, workspa
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
+import { decideField, decideState, relationExists } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
@@ -1084,6 +1086,13 @@ export class PacksService {
       views.push({ name: label, action });
     }
 
+    // #982 — what a REUSED database gains: decided by the same functions the install runs (agents/plan-decisions.ts).
+    const gainsByDb = await this.databaseGains(membership, manifest, liveByName, views);
+    for (const item of databases) {
+      const gains = item.action === 'create' ? undefined : gainsByDb.get(norm(item.name));
+      if (gains) item.gains = gains;
+    }
+
     const automations: PackPreviewItem[] = [];
     for (const planned of manifest.automations) {
       const label = `${planned.database}.${planned.name}`;
@@ -1227,6 +1236,95 @@ export class PacksService {
       }
     }
     return provenance;
+  }
+
+  /**
+   * What the install would ADD to each database that already exists (#982), and what it would leave alone and why.
+   *
+   * It replays the install's order against live state — fields, relations, states, derived fields, then views — keeping a simulated field
+   * list per database, so a field an earlier step creates is seen by a later step exactly as the install would see it. Every decision is
+   * `agents/plan-decisions.ts`, the module `ArchitectService` and the install call to decide, so the answer cannot be a second opinion.
+   */
+  private async databaseGains(
+    membership: Membership,
+    manifest: PackManifest,
+    liveByName: Map<string, { id: string; name: string }>,
+    viewItems: PackPreviewItem[],
+  ): Promise<Map<string, PackDatabaseGains>> {
+    type SimField = { displayName: string; type: string; options?: Array<{ label: string }> };
+    const sim = new Map<string, SimField[]>();
+    const gains = new Map<string, PackDatabaseGains>();
+    for (const d of manifest.databases) {
+      const live = liveByName.get(norm(d.name));
+      if (!live) continue;
+      const detail = await this.databases.get(membership, live.id);
+      sim.set(norm(d.name), ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options })));
+      gains.set(norm(d.name), { fields: [], options: [], views: [], not_applied: [] });
+    }
+    const add = (db: string, name: string, type: string, options?: Array<{ label: string }>) => {
+      const fields = sim.get(norm(db));
+      if (!fields) return;
+      fields.push({ displayName: name, type, options });
+      gains.get(norm(db))!.fields.push({ name, type });
+    };
+
+    for (const d of manifest.databases) {
+      const fields = sim.get(norm(d.name));
+      if (!fields) continue;
+      for (const f of d.fields) {
+        const decision = decideField(fields, f.name, f.type);
+        if (decision.action === 'create') add(d.name, f.name, f.type, f.options);
+        else if (decision.clash) {
+          gains.get(norm(d.name))!.not_applied.push({
+            kind: 'field',
+            name: `${d.name}.${f.name}`,
+            reason: `A "${f.name}" field already exists as ${decision.clash.live_type}; the pack wants ${decision.clash.planned_type}, so it is kept as it is.`,
+          });
+        }
+      }
+    }
+
+    for (const r of manifest.relations) {
+      const from = sim.get(norm(r.from));
+      // The relation exists when the "from" database is live and already has that relation field; otherwise it is created, adding a field
+      // on each side that is a live database (a side that is itself created has no gains entry to report on).
+      if (from && relationExists(from, r.from_field)) continue;
+      add(r.from, r.from_field, 'relation');
+      if (r.to_field) add(r.to, r.to_field, 'relation');
+    }
+
+    for (const st of manifest.states) {
+      const fields = sim.get(norm(st.database));
+      if (!fields) continue;
+      const decision = decideState(fields, st.field, st.options);
+      if (decision.action === 'create') add(st.database, st.field, 'select', st.options);
+      else if (decision.action === 'blocked') {
+        gains.get(norm(st.database))!.not_applied.push({
+          kind: 'state',
+          name: `${st.database}.${st.field}`,
+          reason: `"${st.field}" already exists as ${decision.live_type}, but a workflow state must be a select field: the install would stop here.`,
+          blocks_install: true,
+        });
+      } else if (decision.options_to_add.length > 0) {
+        gains.get(norm(st.database))!.options.push({ field: st.field, labels: decision.options_to_add });
+        const existing = fields.find((f) => norm(f.displayName) === norm(st.field));
+        if (existing) existing.options = [...(existing.options ?? []), ...decision.options_to_add.map((label) => ({ label }))];
+      }
+    }
+
+    for (const df of manifest.derived_fields) {
+      const fields = sim.get(norm(df.database));
+      if (!fields) continue;
+      if (decideField(fields, df.name, df.type).action === 'create') add(df.database, df.name, df.type);
+    }
+
+    // `viewItems` is one item per planned view, in manifest order: read the database off the manifest, never by splitting the
+    // "<database>.<view>" label (a database name may contain a dot).
+    manifest.views.forEach((planned, i) => {
+      if (viewItems[i]?.action !== 'create') return;
+      gains.get(norm(planned.database))?.views.push(planned.name);
+    });
+    return gains;
   }
 
   private parseManifest(rawManifest: unknown): PackManifest {
@@ -1938,8 +2036,8 @@ export class PacksService {
       const dbId = this.resolveDb(dbIds, planned.database, `The ${planned.type} field "${label}"`);
       const live = await this.liveFields(membership, dbId);
       const existing = live.find((f) => norm(f.displayName) === norm(planned.name));
-      if (existing) {
-        result.derived_fields.push({ name: label, action: 'reused', id: existing.id });
+      if (decideField(live, planned.name, planned.type).action === 'reuse') {
+        result.derived_fields.push({ name: label, action: 'reused', id: existing!.id });
         continue;
       }
       const config = deref(planned.config, refToId, `The ${planned.type} field "${label}"`);

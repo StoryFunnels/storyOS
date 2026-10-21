@@ -485,10 +485,38 @@ export const packAgentUpdateSchema = z.object({
 });
 export type PackAgentUpdate = z.infer<typeof packAgentUpdateSchema>;
 
+/**
+ * #982 — what installing (or updating to) this pack would ADD to a database that already exists, so "Projects: reuse existing" can say
+ * "adds the Budget field and a Board view". Present only on a database item whose `action` is `reuse` or `collision` (a `create`d
+ * database gains everything, which says nothing). Computed with the same decision functions the install runs
+ * (`agents/plan-decisions.ts`), in the install's order, so the preview and the result cannot disagree.
+ *
+ *   fields       fields the install would add (name + type): plain, state (select), relation and derived (formula/rollup) fields
+ *   options      options it would add to an existing select that is a workflow state, per field
+ *   views        views it would add (a view that already exists, including the default "All records", is not listed)
+ *   not_applied  what the pack asks for that it will NOT do to what is there, with the reason: a field that exists with another
+ *                type is kept as it is; a workflow state that exists as a non-select field STOPS the install (`blocks_install`)
+ */
+export const packDatabaseGainsSchema = z.object({
+  fields: z.array(z.object({ name: z.string(), type: z.string() })),
+  options: z.array(z.object({ field: z.string(), labels: z.array(z.string()) })),
+  views: z.array(z.string()),
+  not_applied: z.array(
+    z.object({
+      kind: z.enum(['field', 'state']),
+      name: z.string(),
+      reason: z.string(),
+      blocks_install: z.boolean().optional(),
+    }),
+  ),
+});
+export type PackDatabaseGains = z.infer<typeof packDatabaseGainsSchema>;
+
 export const packPreviewItemSchema = z.object({
   name: z.string(),
   action: z.enum(['create', 'reuse', 'collision']),
   agent_update: packAgentUpdateSchema.optional(),
+  gains: packDatabaseGainsSchema.optional(),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 
