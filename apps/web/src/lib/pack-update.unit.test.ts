@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { itemEffect, releaseNotes, versionsBetween, type PackVersion } from './pack-update';
+import type { PackDatabaseGains } from '@storyos/schemas';
+import { gainsSentences, itemEffect, releaseNotes, versionsBetween, type PackVersion } from './pack-update';
 
 const v = (version: string, changelog?: string): PackVersion => ({
   version,
@@ -45,32 +46,76 @@ describe('releaseNotes', () => {
 });
 
 describe('itemEffect: states what install does today', () => {
-  it('an agent with no agent_update (not made by an earlier install of this pack) is kept as it is', () => {
-    // #977 shipped agent updates; the sentence for an agent THIS pack installed comes from `agentEffect` instead.
-    expect(itemEffect('agent', 'reuse')).toBe(
-      'Agent: already in your workspace, and not made by this pack. Kept as it is.',
-    );
+  const gains = (over: Partial<PackDatabaseGains> = {}): PackDatabaseGains => ({
+    fields: [],
+    options: [],
+    views: [],
+    not_applied: [],
+    ...over,
   });
-  it('a reused database keeps what is there and adds only missing fields', () => {
-    expect(itemEffect('database', 'reuse')).toMatch(
-      /Kept as it is, except fields the pack needs that are missing are added/,
-    );
+
+  it('a NEW item carries no note at all: the dialog says "All new" once instead of per row', () => {
+    for (const k of ['database', 'view', 'automation', 'agent'] as const)
+      expect(itemEffect(k, 'create')).toBeNull();
+  });
+  it('an agent with no agent_update (not made by an earlier install of this pack) is left exactly as it is', () => {
+    expect(itemEffect('agent', 'reuse')).toBe('Already yours — left exactly as it is.');
   });
   it('a reused view or automation is left alone', () => {
-    expect(itemEffect('view', 'reuse')).toBe('Already there. Kept as it is.');
-    expect(itemEffect('automation', 'reuse')).toBe('Already there. Kept as it is.');
+    expect(itemEffect('view', 'reuse')).toBe('Already there — kept as it is.');
+    expect(itemEffect('automation', 'reuse')).toBe('Already there — kept as it is.');
   });
-  it('a new item will be created, whatever it is', () => {
-    for (const k of ['database', 'view', 'automation', 'agent'] as const)
-      expect(itemEffect(k, 'create')).toBe('Will be created.');
+  it('a reused database names the fields it gains, from the preview', () => {
+    const g = gains({
+      fields: [
+        { name: 'Health', type: 'select' },
+        { name: 'Industry', type: 'text' },
+        { name: 'Monthly Value', type: 'number' },
+      ],
+    });
+    expect(itemEffect('database', 'reuse', g)).toBe(
+      'Already in your workspace — kept as it is. Adds 3 fields it needs: Health, Industry, Monthly Value.',
+    );
   });
-  it('a collision hands the choice to the person', () => {
+  it('one gained field reads as a field, not "1 fields"', () => {
+    expect(itemEffect('database', 'reuse', gains({ fields: [{ name: 'Budget', type: 'number' }] }))).toMatch(
+      /Adds the Budget field\./,
+    );
+  });
+  it('says so when a reused database gains nothing, rather than staying silent', () => {
+    expect(itemEffect('database', 'reuse', gains())).toBe(
+      'Already in your workspace — kept as it is. Nothing to add.',
+    );
+  });
+  it('names added options and views', () => {
+    const g = gains({ options: [{ field: 'Status', labels: ['Won', 'Lost'] }], views: ['Board'] });
+    expect(gainsSentences(g)).toEqual(['Adds Won and Lost to Status.', 'Adds the Board view.']);
+  });
+  it('says what it will NOT apply, with the reason, and does not soften a blocker', () => {
+    const g = gains({
+      not_applied: [
+        { kind: 'field', name: 'Priority', reason: 'it exists as a number' },
+        { kind: 'state', name: 'Stage', reason: 'it is not a select', blocks_install: true },
+      ],
+    });
+    expect(gainsSentences(g)).toEqual([
+      'Not applied: Priority — it exists as a number',
+      'Can’t install: Stage — it is not a select',
+    ]);
+  });
+  it('a database collision says nothing of yours is removed, and still reports what it adds', () => {
+    const g = gains({ fields: [{ name: 'Budget', type: 'number' }] });
+    const s = itemEffect('database', 'collision', g)!;
+    expect(s).toMatch(/nothing in it is removed/);
+    expect(s).toMatch(/Adds the Budget field/);
+  });
+  it('a non-database collision hands the choice to the person', () => {
     expect(itemEffect('view', 'collision')).toMatch(/You choose/);
   });
-  it('never offers Keep mine / Take update: those arrive with #977', () => {
+  it('never offers Keep mine / Take update: those live in agentEffect', () => {
     for (const k of ['database', 'view', 'automation', 'agent'] as const)
       for (const a of ['create', 'reuse', 'collision'] as const)
-        expect(itemEffect(k, a)).not.toMatch(/keep mine|take update/i);
+        expect(itemEffect(k, a) ?? '').not.toMatch(/keep mine|take update/i);
   });
 });
 
