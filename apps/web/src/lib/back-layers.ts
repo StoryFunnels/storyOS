@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
+import { askToDiscard } from './discard-confirm';
 import { GUARD_KEY, installHistoryTracking, isGuardState, traversed } from './nav-trail';
 import type { Traversal } from './nav-trail';
 
@@ -42,7 +44,9 @@ const PASS_WINDOW_MS = 400;
 
 export function createBackLayers(env: BackLayersEnv) {
   interface Layer {
-    dismiss: () => void;
+    /** Closes the layer. A layer that may need to ask first (unsaved edits) returns a promise: `false` means the
+     *  person chose to keep it open, so Back is consumed and the layer stays. */
+    dismiss: () => void | Promise<boolean>;
   }
   const layers: Layer[] = [];
   /** We stepped over a guard and the traversal we caused has not landed yet: the entry it lands on is the page
@@ -56,7 +60,7 @@ export function createBackLayers(env: BackLayersEnv) {
   };
 
   /** Returns the unregister function. */
-  function register(dismiss: () => void): () => void {
+  function register(dismiss: Layer['dismiss']): () => void {
     const layer: Layer = { dismiss };
     layers.push(layer);
     if (!env.onGuard()) env.pushGuard();
@@ -71,17 +75,28 @@ export function createBackLayers(env: BackLayersEnv) {
       // Back, from the guard, onto the page's real entry: that Back belongs to the layer.
       if (t.dir === 'back' && t.leftGuard && !t.onGuard) {
         const before = layers.length;
-        layers[layers.length - 1]!.dismiss();
-        env.schedule(() => {
-          if (layers.length === 0) return;
-          if (layers.length < before) {
-            // One closed, others remain: put the guard back for the next Back.
-            if (!env.onGuard()) env.pushGuard();
-          } else {
-            // It ignored the dismissal. Back goes through rather than doing nothing.
-            env.step('back');
-          }
-        }, DISMISS_GRACE_MS);
+        const settle = () =>
+          env.schedule(() => {
+            if (layers.length === 0) return;
+            if (layers.length < before) {
+              // One closed, others remain: put the guard back for the next Back.
+              if (!env.onGuard()) env.pushGuard();
+            } else {
+              // It ignored the dismissal. Back goes through rather than doing nothing.
+              env.step('back');
+            }
+          }, DISMISS_GRACE_MS);
+        const result = layers[layers.length - 1]!.dismiss();
+        if (result instanceof Promise) {
+          void result.then((closed) => {
+            // Kept open on purpose: the Back was the person's question, answered "no" — the guard goes back up.
+            if (!closed) {
+              if (!env.onGuard()) env.pushGuard();
+              return;
+            }
+            settle();
+          });
+        } else settle();
       }
       return;
     }
@@ -133,20 +148,40 @@ function shared() {
  * it defaults to Escape, which is right for anything Radix draws. Hand-rolled layers (the
  * mobile drawer, ⌘K, the Tyron panel) pass their own close.
  */
-export function useBackLayer(active = true, dismiss?: () => void): void {
-  const latest = useRef(dismiss);
+export function useBackLayer(active = true, dismiss?: () => void, isDirty?: () => boolean): void {
+  const latest = useRef({ dismiss, isDirty });
   useEffect(() => {
-    latest.current = dismiss;
+    latest.current = { dismiss, isDirty };
   });
   useEffect(() => {
     if (!active) return;
-    return shared().register(() => (latest.current ?? dispatchEscape)());
+    return shared().register(async () => {
+      const { dismiss: close, isDirty: dirty } = latest.current;
+      // #962 (r): a form with unsaved edits asks before Back closes it. Only forms with a Save button say they can
+      // be dirty; anything that autosaves never does, so it never asks.
+      if (dirty?.() && !(await askToDiscard())) return false;
+      (close ?? dispatchEscape)();
+      return true;
+    });
   }, [active]);
 }
 
 /** `useBackLayer` as a component, for the inside of a layer's content: it mounts exactly
  *  while the content does, so a Radix `Content` needs no open-state plumbing. */
-export function BackLayer({ dismiss }: { dismiss?: () => void }) {
-  useBackLayer(true, dismiss);
+export function BackLayer({ dismiss, guard }: { dismiss?: () => void; guard?: RefObject<HTMLElement | null> }) {
+  // `guard` is the form's container: anything typed or changed inside it makes it dirty, until it closes.
+  const dirty = useRef(false);
+  useEffect(() => {
+    const el = guard?.current;
+    if (!el) return;
+    const mark = () => (dirty.current = true);
+    el.addEventListener('input', mark);
+    el.addEventListener('change', mark);
+    return () => {
+      el.removeEventListener('input', mark);
+      el.removeEventListener('change', mark);
+    };
+  }, [guard]);
+  useBackLayer(true, dismiss, guard ? () => dirty.current : undefined);
   return null;
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import { useMediaQuery } from '@/lib/use-media-query';
+import { useBackLayer } from '@/lib/back-layers';
 import Link from 'next/link';
 import { isTypingTarget } from '@/lib/shortcuts';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -218,6 +220,10 @@ function MyWorkInner() {
   // Desktop previews the first row so the right pane is never empty; under md the list shows until a row is tapped.
   const previewRow = activeRow ?? view.queue[0] ?? null;
   const showDetail = activeRow !== null;
+  // #962 (s) — below md the preview REPLACES the list, so it is a step in the page: Back returns to the list. Above md
+  // the preview sits beside the list and selecting is just browsing — Back leaves the page.
+  const isMdUp = useMediaQuery('(min-width: 768px)');
+  useBackLayer(showDetail && !isMdUp, () => setSelectedKey(null));
   const selectionOf = (row: MyWorkRow): 'explicit' | 'implicit' | false =>
     previewRow && rowKey(previewRow) === rowKey(row) ? (activeRow ? 'explicit' : 'implicit') : false;
 

@@ -182,7 +182,7 @@ export function AddFieldDialog({
   const isSelect = type === 'select' || type === 'multi_select' || type === 'workflow';
 
   return (
-    <DialogContent title="Add field" className="max-w-2xl">
+    <DialogContent title="Add field" unsaved className="max-w-2xl">
       <form
         className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto px-1 py-0.5"
         onSubmit={(e) => {

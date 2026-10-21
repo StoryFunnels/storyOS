@@ -178,7 +178,6 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
       window.history.replaceState({ ...asState(window.history.state), [PANEL_ENTRY]: true }, '');
     }
     if (isDesktop) dispatch({ type: 'sync', targets: urlTargets });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- urlKey stands for urlTargets
   }, [urlKey, isDesktop]);
 
   const writeTargets = (next: ReturnType<typeof emptySplitStack>, how: 'push' | 'replace') => {
@@ -221,7 +220,6 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
       restore: () => dispatch({ type: 'restore' }),
       close: (id: string) => closePanel(id),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- writeTargets / closePanel read refs only
     [isDesktop],
   );
 
@@ -299,7 +297,6 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
   // (what a page registers).
   const area = useMemo<SplitAreaState>(
     () => ({ ws, state, dispatch, closePanel, view, showStack, railed, primary, controls: primaryApi.controls }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- closePanel reads refs only
     [ws, state, view, showStack, railed, primary, primaryApi.controls],
   );
 

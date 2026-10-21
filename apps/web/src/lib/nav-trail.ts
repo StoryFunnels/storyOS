@@ -138,6 +138,11 @@ export function canGoBackInApp(): boolean {
   return tracker?.canGoBack() ?? false;
 }
 
+/** A stable id for the history entry the browser is on (its stamped index), for per-entry memory like scroll. */
+export function currentEntryId(): number {
+  return tracker?.index() ?? 0;
+}
+
 /** How the browser just moved, for the `popstate` being handled. */
 export function traversed(): Traversal {
   return lastTraversal;

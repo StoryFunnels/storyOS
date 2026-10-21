@@ -86,7 +86,7 @@ export function EditFieldDialog({
   const typeMeta = FIELD_TYPES.find((t) => t.value === field.type);
 
   return (
-    <DialogContent title={`Edit "${field.displayName}"`} className="max-w-lg">
+    <DialogContent title={`Edit "${field.displayName}"`} unsaved className="max-w-lg">
       <form
         className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto px-1 py-0.5"
         onSubmit={(e) => {

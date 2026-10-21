@@ -41,7 +41,7 @@ describe('createBackLayers — Back closes the topmost overlay first (#962)', ()
     const w = world();
     const closed: string[] = [];
     let unregisterTop = () => {};
-    w.layers.register(() => closed.push('lower'));
+    w.layers.register(() => void closed.push('lower'));
     unregisterTop = w.layers.register(() => {
       closed.push('top');
       unregisterTop();
@@ -123,5 +123,35 @@ describe('createBackLayers — Back closes the topmost overlay first (#962)', ()
     w.layers.register(() => {});
     w.layers.onPopState({ dir: 'back', leftGuard: false, onGuard: false });
     expect(w.timers).toEqual([]);
+  });
+});
+
+describe('a layer that asks before closing (unsaved edits, #962 r)', () => {
+  const settled = () => new Promise((r) => setTimeout(r, 0));
+
+  it('"Keep editing" consumes the Back, keeps the layer, and puts the guard back — the page is not left', async () => {
+    const w = world();
+    w.layers.register(async () => false);
+    w.setOnGuard(false);
+    w.layers.onPopState(back());
+    await settled();
+    w.flush();
+    expect(w.log).toEqual(['pushGuard', 'pushGuard']); // opened, then re-guarded
+    expect(w.layers.size()).toBe(1);
+  });
+
+  it('"Discard" closes it like any other layer', async () => {
+    const w = world();
+    let un = () => {};
+    un = w.layers.register(async () => {
+      un();
+      return true;
+    });
+    w.setOnGuard(false);
+    w.layers.onPopState(back());
+    await settled();
+    w.flush();
+    expect(w.log).toEqual(['pushGuard']);
+    expect(w.layers.size()).toBe(0);
   });
 });

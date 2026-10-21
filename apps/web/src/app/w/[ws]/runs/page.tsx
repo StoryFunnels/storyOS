@@ -1,7 +1,9 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { backOrParent } from '@/lib/nav-trail';
+import { useUrlParam } from '@/lib/url-state';
 import { Input } from '@/components/ui/input';
 import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
@@ -25,9 +27,26 @@ import { formatDurationShort, RUN_STATUS_FILTERS, startedLabel } from '@/lib/run
 export default function RunsPage() {
   const { ws } = useParams<{ ws: string }>();
   const fmt = useDateFormat();
-  const [status, setStatus] = useState('');
-  const [q, setQ] = useState('');
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const router = useRouter();
+  // #962 — the page is a PLACE with state in its URL. The selected run is a place (it pushes, so Back returns to the
+  // list and the run has a link); the status filter and the search are edits (they replace, so Back never undoes
+  // them, and they are still there when Back returns).
+  const [status, setStatusParam] = useUrlParam('status');
+  const [urlQ, setQParam] = useUrlParam('q');
+  const [runParam, setRunParam] = useUrlParam('run');
+  const selectedRunId = runParam || null;
+  const setSelectedRunId = (id: string | null) => {
+    if (id) setRunParam(id, 'push');
+    else backOrParent(router, `/w/${ws}/runs`);
+  };
+  const setStatus = (v: string) => setStatusParam(v, 'replace');
+  // Typing is local and written to the URL a beat later: a router.replace per keystroke would re-render the page.
+  const [q, setQ] = useState(urlQ);
+  useEffect(() => {
+    if (q === urlQ) return;
+    const t = setTimeout(() => setQParam(q, 'replace'), 300);
+    return () => clearTimeout(t);
+  }, [q, urlQ, setQParam]);
 
   const runs = useRunsList(ws, status, q);
   const quota = useQuota(ws);

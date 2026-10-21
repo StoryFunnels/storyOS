@@ -129,7 +129,7 @@ function NewPersonalViewDialog({
         if (!o) reset();
       }}
     >
-      <DialogContent title="New personal view">
+      <DialogContent title="New personal view" unsaved>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {

@@ -1,5 +1,6 @@
 'use client';
 
+import { useScrollMemory } from '@/lib/scroll-memory';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -34,6 +35,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   // #962 — the back gesture closes the drawer first, rather than navigating away from underneath it.
   useBackLayer(mobileOpen, () => setMobileOpen(false));
+  // #962 — Back returns to the same place in a list, not the top of it.
+  useScrollMemory();
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.

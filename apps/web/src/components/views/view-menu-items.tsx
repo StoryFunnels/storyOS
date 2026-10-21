@@ -120,7 +120,7 @@ export function RenameViewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title="Rename view">
+        <DialogContent title="Rename view" unsaved>
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {
