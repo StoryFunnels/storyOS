@@ -5,6 +5,7 @@ import {
   dueBucket,
   facetsFor,
   filterChips,
+  isCompletedState,
   pickFacetFields,
   sortRows,
   type MyWorkGroup,
@@ -159,5 +160,95 @@ describe('#968 follow-up: assignedByLine follows #979’s rule for null', () => 
   it('the Created tab has no assigner (you made it), so the row is not drawn, even if a value slipped through', () => {
     expect(assignedByLine({ assigned_by: null, assigned_at: null }, 'created')).toEqual({ kind: 'hidden' });
     expect(assignedByLine({ assigned_by: by, assigned_at: '2026-10-20T10:00:00Z' }, 'created')).toEqual({ kind: 'hidden' });
+  });
+});
+
+describe('a finished record is not overdue and never sorts first (#1002)', () => {
+  // A workflow whose LAST option is the terminal state, plus a "Done"-labelled option in a flow where it is not last.
+  const flow: DenseField = {
+    id: 'w', api_name: 'state', display_name: 'State', type: 'workflow',
+    options: [opt('t', 'Todo'), opt('d', 'Doing', 'blue'), opt('x', 'Done', 'green'), opt('c', 'Canceled')],
+  };
+  const fields: DenseField[] = [flow, { id: 'du', api_name: 'due', display_name: 'Due date', type: 'date' }];
+  const now = new Date(2026, 9, 21, 15, 0, 0);
+  const rowFor = (title: string, state: string | null, due: string | null, updated = '2026-10-01T00:00:00Z') => ({
+    record: { id: title, title, number: null, updated_at: updated, values: { state, due } },
+    facets: facetsFor(fields, { state, due }),
+  });
+
+  it('open + overdue: red, and first (earliest due)', () => {
+    const r = rowFor('open-overdue', 't', '2026-10-10');
+    expect(r.facets.completed).toBe(false);
+    expect(dueBucket(r.facets.due, now, r.facets.completed)).toBe('overdue');
+  });
+
+  it('done + past due: NOT overdue (plain), flagged completed', () => {
+    const r = rowFor('done-past', 'x', '2026-09-01');
+    expect(r.facets.completed).toBe(true);
+    expect(dueBucket(r.facets.due, now, r.facets.completed)).toBe('done');
+  });
+
+  it('done + no date: nothing to show, completed', () => {
+    const r = rowFor('done-nodate', 'x', null);
+    expect(r.facets.completed).toBe(true);
+    expect(dueBucket(r.facets.due, now, r.facets.completed)).toBe('none');
+  });
+
+  it('open + no date: open, nothing to show', () => {
+    const r = rowFor('open-nodate', 'd', null);
+    expect(r.facets.completed).toBe(false);
+    expect(dueBucket(r.facets.due, now, r.facets.completed)).toBe('none');
+  });
+
+  it('sorts every open record before every finished one, whatever the dates — the done+past-due row is never first', () => {
+    const rows = [
+      rowFor('done-past', 'x', '2026-09-01'),
+      rowFor('open-nodate', 'd', null),
+      rowFor('done-nodate', 'x', null, '2026-10-20T00:00:00Z'),
+      rowFor('open-overdue', 't', '2026-10-10'),
+      rowFor('open-later', 't', '2026-11-01'),
+      rowFor('canceled-past', 'c', '2026-08-01'),
+    ];
+    expect(sortRows(rows, 'due').map((r) => r.record.title)).toEqual([
+      'open-overdue',
+      'open-later',
+      'open-nodate',
+      'canceled-past',
+      'done-past',
+      'done-nodate',
+    ]);
+  });
+
+  it('the old behaviour was the bug: ignoring completion puts done+past-due first', () => {
+    const rows = [rowFor('open-overdue', 't', '2026-10-10'), rowFor('done-past', 'x', '2026-09-01')];
+    const ignoring = [...rows].sort((a, b) => Date.parse(a.facets.due!) - Date.parse(b.facets.due!));
+    expect(ignoring[0]!.record.title).toBe('done-past');
+    expect(sortRows(rows, 'due')[0]!.record.title).toBe('open-overdue');
+  });
+});
+
+describe('isCompletedState (#1002): the best the data allows, deliberately narrow', () => {
+  const wf: DenseField = { id: 'w', api_name: 's', display_name: 'State', type: 'workflow', options: [opt('a', 'Backlog'), opt('b', 'Review'), opt('c', 'Shipped it')] };
+  const sel: DenseField = { id: 's', api_name: 's', display_name: 'Status', type: 'select', options: [opt('a', 'Low'), opt('b', 'High')] };
+  it('a finished label counts, case and surrounding space aside', () => {
+    const f: DenseField = { ...wf, options: [opt('a', 'Open'), opt('b', '  closed ')] };
+    expect(isCompletedState(f, 'b')).toBe(true);
+    expect(isCompletedState(f, 'a')).toBe(false);
+  });
+  it('the LAST option of a workflow is its terminal state, whatever it is called', () => {
+    expect(isCompletedState(wf, 'c')).toBe(true);
+    expect(isCompletedState(wf, 'b')).toBe(false);
+  });
+  it('a plain select\'s last option is just its last option — not promoted', () => {
+    expect(isCompletedState(sel, 'b')).toBe(false);
+  });
+  it('no state, no field, an unknown id, a one-option workflow: open', () => {
+    expect(isCompletedState(wf, null)).toBe(false);
+    expect(isCompletedState(null, 'c')).toBe(false);
+    expect(isCompletedState(wf, 'zzz')).toBe(false);
+    expect(isCompletedState({ ...wf, options: [opt('a', 'Only')] }, 'a')).toBe(false);
+  });
+  it('reads a multi-valued stored array by its first element, like the state pill does', () => {
+    expect(isCompletedState(wf, ['c'])).toBe(true);
   });
 });

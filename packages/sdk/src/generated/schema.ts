@@ -403,6 +403,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/ai-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The AI clients I have connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and my personal access tokens for this workspace, with name, method and since when */
+        get: operations["AiConnectionsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ai-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect one of my AI clients (id from the list: oauth:<client> or token:<id>). Needs a signed-in session: an API token or an OAuth client cannot disconnect */
+        delete: operations["AiConnectionsController_disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/billing": {
         parameters: {
             query?: never;
@@ -1407,6 +1441,23 @@ export interface paths {
         patch: operations["PreferencesController_update"];
         trace?: never;
     };
+    "/api/v1/users/me/preferences/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one */
+        patch: operations["PreferencesController_editList"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
         parameters: {
             query?: never;
@@ -1784,6 +1835,23 @@ export interface paths {
         };
         /** List approvals for this workspace, optionally filtered by status */
         get: operations["ApprovalsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many approvals match (status=pending means waiting: pending and not expired) — an exact count, unlike the list, which is capped at 100 rows */
+        get: operations["ApprovalsController_count"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3821,7 +3889,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every automation run in the workspace, newest first — rule runs today (source syncs pending #239) */
+        /** Every automation run in the workspace, newest first — rule runs today (source syncs pending #239). status is ok (Succeeded), error (Failed), running (Running), skipped (Skipped), skipped_quota (Skipped (quota)) or awaiting_approval (Awaiting approval: at least one action is waiting for a person); awaiting_approval_count says how many */
         get: operations["RunsController_list"];
         put?: never;
         post?: never;
@@ -3842,6 +3910,23 @@ export interface paths {
         get: operations["RunsController_detail"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs/{id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run again: run this run's rule once more on the same trigger record, as a NEW run (the original is untouched), against the record as it is now */
+        post: operations["RunsController_rerunWhole"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5183,6 +5268,12 @@ export interface components {
             sidebar?: {
                 viewsOnlyWorkspaces?: string[];
             };
+        };
+        PreferenceListEditDto: {
+            /** @enum {string} */
+            list: "dismissed_workspaces" | "views_only_workspaces";
+            add?: string[];
+            remove?: string[];
         };
         CreateRelationDto: {
             /** Format: uuid */
@@ -7419,6 +7510,44 @@ export interface operations {
             };
         };
     };
+    AiConnectionsController_list: {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiConnectionsController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     BillingController_status: {
         parameters: {
             query?: never;
@@ -8998,6 +9127,27 @@ export interface operations {
             };
         };
     };
+    PreferencesController_editList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceListEditDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     AttachmentsController_list: {
         parameters: {
             query?: never;
@@ -9697,6 +9847,25 @@ export interface operations {
         };
     };
     ApprovalsController_list: {
+        parameters: {
+            query: {
+                status: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_count: {
         parameters: {
             query: {
                 status: string;
@@ -12787,6 +12956,25 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_rerunWhole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -40,6 +40,16 @@ export class ApprovalsController {
     return this.approvals.list(req.membership, status);
   }
 
+  @Get('count')
+  @RequiresScope('read')
+  @ApiOperation({
+    summary:
+      'How many approvals match (status=pending means waiting: pending and not expired) — an exact count, unlike the list, which is capped at 100 rows',
+  })
+  count(@Req() req: WorkspaceRequest, @Query('status') status?: string) {
+    return this.approvals.count(req.membership, status);
+  }
+
   @Post(':id/approve')
   @RequiresScope('admin')
   @ApiOperation({ summary: "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)" })

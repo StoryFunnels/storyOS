@@ -856,6 +856,66 @@
         ]
       }
     },
+    "/api/v1/me/ai-connections": {
+      "get": {
+        "operationId": "AiConnectionsController_list",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The AI clients I have connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and my personal access tokens for this workspace, with name, method and since when",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/me/ai-connections/{id}": {
+      "delete": {
+        "operationId": "AiConnectionsController_disconnect",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disconnect one of my AI clients (id from the list: oauth:<client> or token:<id>). Needs a signed-in session: an API token or an OAuth client cannot disconnect",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/billing": {
       "get": {
         "operationId": "BillingController_status",
@@ -3361,6 +3421,36 @@
         ]
       }
     },
+    "/api/v1/users/me/preferences/lists": {
+      "patch": {
+        "operationId": "PreferencesController_editList",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceListEditDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
       "get": {
         "operationId": "AttachmentsController_list",
@@ -4632,6 +4722,30 @@
           }
         },
         "summary": "List approvals for this workspace, optionally filtered by status",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals/count": {
+      "get": {
+        "operationId": "ApprovalsController_count",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "How many approvals match (status=pending means waiting: pending and not expired) — an exact count, unlike the list, which is capped at 100 rows",
         "tags": [
           "approvals"
         ]
@@ -9532,7 +9646,7 @@
             "description": ""
           }
         },
-        "summary": "Every automation run in the workspace, newest first — rule runs today (source syncs pending #239)",
+        "summary": "Every automation run in the workspace, newest first — rule runs today (source syncs pending #239). status is ok (Succeeded), error (Failed), running (Running), skipped (Skipped), skipped_quota (Skipped (quota)) or awaiting_approval (Awaiting approval: at least one action is waiting for a person); awaiting_approval_count says how many",
         "tags": [
           "runs"
         ]
@@ -9557,6 +9671,30 @@
           }
         },
         "summary": "Run detail: trigger context, per-action attempts/artifacts, approval linkage",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs/{id}/rerun": {
+      "post": {
+        "operationId": "RunsController_rerunWhole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Run again: run this run's rule once more on the same trigger record, as a NEW run (the original is untouched), against the record as it is now",
         "tags": [
           "runs"
         ]
@@ -13049,6 +13187,39 @@
             }
           }
         }
+      },
+      "PreferenceListEditDto": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "string",
+            "enum": [
+              "dismissed_workspaces",
+              "views_only_workspaces"
+            ]
+          },
+          "add": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "remove": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        },
+        "required": [
+          "list"
+        ]
       },
       "CreateRelationDto": {
         "type": "object",

@@ -9,6 +9,7 @@ import { VIEW_ICON } from '@/components/views/view-tab';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GlyphSlot, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
+import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -66,6 +67,9 @@ export function SidebarViewRow({
   tint?: string | null;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
+  // #998 — a view of a database opens that database's page: warm its detail before the click.
+  const prefetchDatabase = usePrefetchDatabase(ws);
+  const warm = view.database_id ? () => prefetchDatabase(view.database_id!) : undefined;
   /**
    * #369 — views are draggable now. They were not, so a view could only be moved
    * through its menu while a database beside it could be dragged: two ways to do
@@ -170,7 +174,14 @@ export function SidebarViewRow({
       className={isDragging ? 'opacity-50' : undefined}
     >
       {href ? (
-        <Link href={href} title={view.name} className="flex min-w-0 flex-1 items-center gap-2">
+        <Link
+          href={href}
+          title={view.name}
+          onPointerEnter={warm}
+          onFocus={warm}
+          onPointerDown={warm}
+          className="flex min-w-0 flex-1 items-center gap-2"
+        >
           {label}
         </Link>
       ) : (

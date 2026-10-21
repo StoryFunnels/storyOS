@@ -51,6 +51,7 @@ import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 import { boardGroupIsReadOnly } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
+import { databaseColor } from '@/lib/entity-color';
 
 const NO_VALUE = '__none__';
 
@@ -995,7 +996,7 @@ export function CardFieldChip({
             key={chip.id}
             title={chip.title}
             className="max-w-32"
-            color={field.relation?.target_database_color}
+            color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)}
           />
         ))}
       </>

@@ -19,6 +19,7 @@ import { DbColorMarker, type LinkChip } from './relation-cell';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * #274 — an optional per-action condition (#245's backend): this action runs only
@@ -869,7 +870,7 @@ function RelationSetValuePicker({
         ) : (
           chips.map((chip) => (
             <span key={chip.id} className="flex items-center gap-1 truncate">
-              <DbColorMarker color={relation.target_database_color} />
+              <DbColorMarker color={databaseColor(relation.target_database_color, relation.target_database_id)} />
               <span className="truncate">{chip.title || 'Untitled'}</span>
             </span>
           ))
@@ -913,7 +914,7 @@ function RelationSetValuePicker({
               {(results.data ?? []).map((row) => (
                 <EntityPickerRow
                   key={row.id}
-                  icon={<DbColorMarker color={relation.target_database_color} />}
+                  icon={<DbColorMarker color={databaseColor(relation.target_database_color, relation.target_database_id)} />}
                   title={row.title || 'Untitled'}
                   idChip={row.number ?? null}
                   onClick={() => toggle(row)}

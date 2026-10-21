@@ -753,12 +753,16 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
+  // #1008 — read-only: names and dates of the caller's connected AI clients. Disconnecting is human-only and is not a tool (coverage.ts).
+  list_ai_connections: 'read',
   get_staged_action: 'read',
   setup_agents: 'admin',
   run_agent: 'admin',
   delegate_to_agent: 'admin',
   create_agent_trigger: 'admin',
   rerun_action: 'admin',
+  // #1009 — the whole-run "Run again": it re-fires the rule (comments, emails, HTTP calls), so it sits at the same admin ceiling as rerun_action.
+  rerun_run: 'admin',
   /*
    * #438 — the whole sources area, not just visibility.
    *
@@ -6329,11 +6333,45 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'rerun_run',
+    {
+      title: 'Run a run again',
+      description:
+        "Run the SAME rule once more on the SAME trigger record, as a NEW run: the original run and everything it did are left as they were. It runs against the record as it is NOW (a run does not keep the record's earlier values), through the same engine as a real trigger, so the rule's condition, the plan's run allowance and any approval gates apply again: a gated action asks for approval again. It repeats whatever the rule does (comments, emails, HTTP calls), so use it deliberately. Refused when the run had no trigger record (a webhook delivery or a schedule: no payload is kept), when the rule is a 'record linked' rule, when the rule is disabled, or when its condition no longer matches the record (nothing runs). To retry only a failed action with its original inputs, use rerun_action instead.",
+      inputSchema: { workspace: z.string(), run: z.string().describe('Run id (from get_runs).') },
+    },
+    handle<{ workspace: string; run: string }>(async ({ workspace, run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/runs/{id}/rerun', { params: { path: { ws: ws.id, id: run } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_ai_connections',
+    {
+      title: 'List my connected AI clients',
+      description:
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). An OAuth connection reaches every workspace the person belongs to; a token only this one. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/me/ai-connections', { params: { query: { workspace_id: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'rerun_action',
     {
       title: 'Re-run a failed action',
       description:
-        "Retry ONE failed action from a run, with its original frozen inputs — so it repeats what it was actually asked to do, not what the record says now. Use it after fixing the cause (a bad credential, a missing field). Get the action's index from get_run. It re-runs a single action, never the whole run.",
+        "Retry ONE failed action from a run, with its original frozen inputs — so it repeats what it was actually asked to do, not what the record says now. Use it after fixing the cause (a bad credential, a missing field). Get the action's index from get_run. It re-runs a single action, never the whole run: for that use rerun_run.",
       inputSchema: {
         workspace: z.string(),
         run: z.string().describe('Run id (from get_runs).'),
@@ -7305,6 +7343,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List approvals',
       description:
         'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each. ' +
+        'Returns { approvals, total }: the list is capped at 100 rows, `total` is the exact number matching (status=pending counts only those still waiting: pending and not expired). ' +
         'Read-only: approving or rejecting happens in the app Inbox, not via MCP, so a human always makes that call.',
       inputSchema: {
         workspace: z.string(),
@@ -7314,12 +7353,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     handle<{ workspace: string; status?: 'pending' | 'approved' | 'rejected' | 'expired' }>(
       async ({ workspace, status }) => {
         const ws = await resolveWorkspace(client, workspace);
-        const res = await unwrap<unknown>(
-          client.GET('/api/v1/workspaces/{ws}/approvals', {
-            params: { path: { ws: ws.id }, query: status ? { status } : undefined },
-          } as never),
-        );
-        return text(res);
+        const query = status ? { status } : undefined;
+        const [approvals, count] = await Promise.all([
+          unwrap<unknown[]>(client.GET('/api/v1/workspaces/{ws}/approvals', { params: { path: { ws: ws.id }, query } } as never)),
+          unwrap<{ total: number }>(client.GET('/api/v1/workspaces/{ws}/approvals/count', { params: { path: { ws: ws.id }, query } } as never)),
+        ]);
+        return text({ approvals, total: count.total });
       },
     ),
   );
@@ -7394,14 +7433,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Get runs',
       description:
         "MN-264: this is how you answer \"why didn't my automation fire / post go out?\" — every automation rule run in the " +
-        'workspace, newest first, with status (ok/error/skipped/skipped_quota/running), the triggering record, and a per-action ' +
+        'workspace, newest first, with status (ok = Succeeded, error = Failed, running, skipped, skipped_quota = Skipped (quota), awaiting_approval = at least one action is waiting for a person to approve it; awaiting_approval_count says how many), the triggering record, and a per-action ' +
         "summary (kind + status of each external action attempted). NOTE: this covers RULE runs only — a workspace's source syncs " +
         "(#239) aren't unioned in yet, so this can't yet answer questions about a source's sync history — see list_sources for " +
-        "that. Read-only: re-running a failed action happens in the app Runs page, not via MCP.",
+        "that. Read-only: to run one again use rerun_run (the whole run) or rerun_action (one failed action).",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         status: z
-          .enum(['ok', 'error', 'skipped', 'skipped_quota', 'running'])
+          .enum(['ok', 'error', 'skipped', 'skipped_quota', 'running', 'awaiting_approval'])
           .optional()
           .describe('Filter by status; omit for all.'),
         limit: z.number().int().min(1).max(200).optional().describe('Max rows (default 50).'),

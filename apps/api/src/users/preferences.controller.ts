@@ -4,7 +4,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
-import { PreferencesService } from './preferences.service';
+import { PREFERENCE_LISTS, PreferencesService } from './preferences.service';
 
 const notificationTogglesSchema = z
   .object({
@@ -105,6 +105,17 @@ const preferencesPatchSchema = z.object({
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 
+// #987: add and remove items of a list-valued preference, applied atomically. An id is a workspace id; capped like the whole-list patch.
+const listItems = z.array(z.string().min(1).max(100)).max(1000);
+const preferenceListEditSchema = z
+  .object({
+    list: z.enum(Object.keys(PREFERENCE_LISTS) as [keyof typeof PREFERENCE_LISTS, ...Array<keyof typeof PREFERENCE_LISTS>]),
+    add: listItems.optional(),
+    remove: listItems.optional(),
+  })
+  .refine((v) => (v.add?.length ?? 0) + (v.remove?.length ?? 0) > 0, { message: 'Give at least one item to add or remove' });
+class PreferenceListEditDto extends createZodDto(preferenceListEditSchema) {}
+
 /** Personal preferences (#30/#31): notification toggles now, regional formats next. */
 @ApiTags('users')
 @ApiBearerAuth()
@@ -123,5 +134,14 @@ export class PreferencesController {
   @ApiOperation({ summary: 'Update my preferences (deep-merged)' })
   update(@Req() req: AuthedRequest, @Body() body: PreferencesPatchDto) {
     return this.preferences.update(req.user.id, body);
+  }
+
+  @Patch('lists')
+  @ApiOperation({
+    summary:
+      'Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one',
+  })
+  editList(@Req() req: AuthedRequest, @Body() body: PreferenceListEditDto) {
+    return this.preferences.editList(req.user.id, body.list, { add: body.add, remove: body.remove });
   }
 }

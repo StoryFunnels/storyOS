@@ -46,7 +46,7 @@ export class RunsController {
   @RequiresScope('read')
   @ApiOperation({
     summary:
-      'Every automation run in the workspace, newest first — rule runs today (source syncs pending #239)',
+      'Every automation run in the workspace, newest first — rule runs today (source syncs pending #239). status is ok (Succeeded), error (Failed), running (Running), skipped (Skipped), skipped_quota (Skipped (quota)) or awaiting_approval (Awaiting approval: at least one action is waiting for a person); awaiting_approval_count says how many',
   })
   async list(
     @Req() req: WorkspaceRequest,
@@ -78,6 +78,16 @@ export class RunsController {
   @ApiOperation({ summary: 'Run detail: trigger context, per-action attempts/artifacts, approval linkage' })
   async detail(@Req() req: WorkspaceRequest, @Param('id') id: string) {
     return this.runs.detail(req.membership.workspaceId, req.membership, id);
+  }
+
+  @Post(':id/rerun')
+  @RequiresScope('write')
+  @ApiOperation({
+    summary:
+      'Run again: run this run\'s rule once more on the same trigger record, as a NEW run (the original is untouched), against the record as it is now',
+  })
+  async rerunWhole(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+    return this.runs.rerunWhole(req.membership.workspaceId, req.membership, id);
   }
 
   @Post(':id/actions/:index/rerun')

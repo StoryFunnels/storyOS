@@ -14,6 +14,7 @@ import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { useDateFormat } from '@/lib/preferences';
 
 interface GithubConfig {
   repos: string[];
@@ -557,6 +558,7 @@ function IgnoredDeliveriesNotice({
 }: {
   ignored: GithubConfig['ignored_deliveries'];
 }) {
+  const fmt = useDateFormat();
   if (!ignored || (ignored.repos.length === 0 && ignored.other_count === 0)) return null;
   return (
     <div
@@ -569,7 +571,7 @@ function IgnoredDeliveriesNotice({
         {ignored.repos.map((r) => (
           <li key={r.repo}>
             <strong>{r.repo}</strong> — {r.count} {r.count === 1 ? 'delivery' : 'deliveries'}, last{' '}
-            {new Date(r.last_seen_at).toLocaleString()}
+            {fmt.dateTime(r.last_seen_at)}
           </li>
         ))}
         {ignored.other_count > 0 && <li>…and {ignored.other_count} more from other repositories</li>}

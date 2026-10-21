@@ -24,6 +24,7 @@ import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
+import { DatabasePageSkeleton } from '@/components/views/database-page-skeleton';
 import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
@@ -51,6 +52,7 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { databaseColor } from '@/lib/entity-color';
 
 function DatabasePageInner() {
   const confirm = useConfirm();
@@ -145,7 +147,7 @@ function DatabasePageInner() {
     strip.filter((t) => t.pinned).map((t) => t.view.id),
   );
 
-  if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
+  if (database.isLoading) return <DatabasePageSkeleton ws={ws} db={db} />;
 
   return (
     <div className="@container flex h-full flex-col">
@@ -156,10 +158,10 @@ function DatabasePageInner() {
             database.data?.icon && (
               <EntityIconChip
                 icon={database.data.icon}
-                color={database.data.color ?? null}
+                color={databaseColor(database.data.color, database.data.id)}
                 size={15}
                 fallback={null}
-                className={database.data.color ? 'h-6 w-6' : undefined}
+                className="h-6 w-6"
               />
             )
           ) : (
@@ -173,10 +175,10 @@ function DatabasePageInner() {
                 >
                   <EntityIconChip
                     icon={database.data?.icon}
-                    color={database.data?.color ?? null}
+                    color={databaseColor(database.data?.color, database.data?.id)}
                     size={15}
-                    fallback={<DatabaseIcon className="h-3.5 w-3.5 text-faint" />}
-                    className={cn('h-6 w-6', !database.data?.color && 'border border-transparent')}
+                    fallback={<DatabaseIcon className="h-3.5 w-3.5" />}
+                    className="h-6 w-6"
                   />
                 </button>
               </DropdownMenuTrigger>

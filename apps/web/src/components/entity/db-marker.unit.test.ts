@@ -8,6 +8,12 @@ describe('hasDbMarker (#811)', () => {
     }
   });
 
+  // #1001: a database with an id always has a colour to wear, so it always has a mark.
+  it('draws a mark for a database that has an id but neither icon nor colour (its stable default colour)', () => {
+    expect(hasDbMarker(null, null, 'db-1')).toBe(true);
+    expect(hasDbMarker(undefined, undefined, undefined)).toBe(false);
+  });
+
   // What the rule must KEEP: a configured database still gets its mark.
   it('draws the mark when there is an icon, a colour, or both', () => {
     expect(hasDbMarker('set:rocket', null)).toBe(true);

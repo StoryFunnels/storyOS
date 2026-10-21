@@ -6,11 +6,9 @@ import {
   ArrowUpDown,
   EyeOff,
   FilterX,
-  GripVertical,
   ListFilter,
   MoreHorizontal,
-  Pin,
-  PinOff,
+  Snowflake,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -33,11 +31,11 @@ import type { ViewConfig } from '../views/use-view-state';
 import {
   buildFilterGroup,
   clearConditionsForField,
-  conditionPathsForField,
   filterConditions,
   filterConnector,
 } from '../views/filter-config';
 import { MAX_SORTS, isSortableFormula } from '../views/sort-config';
+import { appliedConditionsOnField } from '../views/filter-state';
 
 export function HeaderCell({
   ws,
@@ -118,8 +116,10 @@ export function HeaderCell({
   // nothing on the header indicated one was active, so a narrowed table read as
   // "the filter silently did nothing". Counts conditions at any depth, and the
   // clear is one action rather than a trip to the toolbar's builder.
+  // #992 — only APPLIED conditions mark the header, the same rule as the Filter button (a disabled or
+  // unfinished condition hides nothing, so it must not look like a filtered column).
   const filteredCount = useMemo(
-    () => (config ? conditionPathsForField(filterConditions(config.filters), field.apiName).length : 0),
+    () => (config ? appliedConditionsOnField(config.filters as never, field.apiName) : 0),
     [config, field.apiName],
   );
   const isFiltered = filteredCount > 0;
@@ -156,8 +156,10 @@ export function HeaderCell({
   // requires !readOnly, and canFilter/canSort/canHide are independent of
   // readOnly today (a view-level permission, not a schema one) — same as
   // before this change, not something this ticket alters.
-  const hasMenu = canManage || canFilter || canSort || canHide;
+  const hasMenu = canManage || canFilter || canSort || canHide || canConfigureTitle || Boolean(isFirst && onTogglePin);
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
+  // The rule number beside the arrow, shown only when more than one rule exists (prototype `.hdir sup`).
+  const rank = currentSort && config && config.sorts.length > 1 ? config.sorts.indexOf(currentSort) + 1 : null;
   const sortLabel = !currentSort
     ? 'Sort by this field'
     : currentSort.direction === 'asc'
@@ -223,14 +225,12 @@ export function HeaderCell({
         vacatedSlotClass(sortable.isDragging),
       )}
     >
-      {/* The whole name is the drag handle, not just the (hover-only) grip icon —
-          a 12px opacity-0 grip was too hard to grab, so reorder felt broken (MN-225). */}
-      {/* #413 — the listeners moved to the cell above; this span is now just
-          layout for the grip, the name and the filter marker. */}
+      {/* The label is the drag handle (the whole header carries the listeners, #413) — there is no grip icon to
+          draw: the prototype's `.hsort` is just `cursor: grab`, and keyboard reorder rides the same sortable
+          attributes on the cell (#815). #999: this header used to hold up to FOUR controls spread across the cell
+          by `justify-between` — a freeze button, the column menu, and for the title column a SECOND menu whose only
+          item was "Configure name…". It now holds the label, two small marks, and ONE ⋯ at the right edge. */}
       <span className="flex min-w-0 items-center gap-1">
-        {reorderable && (
-          <GripVertical className="-ml-1 h-3 w-3 shrink-0 text-faint opacity-0 group-hover/header:opacity-100" />
-        )}
         {/* #930 — the record-number column is sized to its 3-digit values, and "ID" plus
             the always-reserved pin button left room for one letter ("I."). It reads "#",
             with the full name on hover, so the header can never be cut mid-word. */}
@@ -240,6 +240,20 @@ export function HeaderCell({
           </span>
         ) : (
           <span className="truncate">{field.displayName}</span>
+        )}
+        {/* The sort direction and its rank, inline, only when this column is sorted (prototype `.hdir`). */}
+        {currentSort && (
+          <span
+            className="shrink-0 font-bold text-accent-text"
+            title={
+              currentSort.direction === 'asc'
+                ? `Sorted ascending${rank ? `, rule ${rank}` : ''}`
+                : `Sorted descending${rank ? `, rule ${rank}` : ''}`
+            }
+          >
+            {currentSort.direction === 'asc' ? '↑' : '↓'}
+            {rank && <sup className="ml-px text-[8px]">{rank}</sup>}
+          </span>
         )}
         {/* #224: always visible, not hover-gated — an active filter is state the
             user needs to see without hunting for it. */}
@@ -255,20 +269,13 @@ export function HeaderCell({
             <ListFilter className="h-3 w-3" />
           </span>
         )}
+        {/* The freeze mark: shown only on the frozen column, never as a button — Freeze / Unfreeze is in the menu. */}
+        {isFirst && pinned && (
+          <span className="shrink-0 text-accent-text" title="Frozen">
+            <Snowflake className="h-2.5 w-2.5" aria-label="Frozen" />
+          </span>
+        )}
       </span>
-      {isFirst && onTogglePin && (
-        <Tooltip label={pinned ? 'Unfreeze' : 'Freeze'}>
-          <button
-            className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink focus-visible:opacity-100 group-hover/header:opacity-100"
-            aria-label={pinned ? 'Unfreeze column' : 'Freeze column'}
-            /* #413 — see the note on the menu triggers: pinning is not a drag. */
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onTogglePin}
-          >
-            {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-          </button>
-        </Tooltip>
-      )}
       {hasMenu && (
         <DropdownMenu>
           <Tooltip label="Options">
@@ -279,7 +286,8 @@ export function HeaderCell({
                    the resize handle has carried since MN-225. */
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={`Options for ${field.displayName}`}
-                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100 aria-expanded:opacity-100"
+                /* #999/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. */
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink focus-visible:text-ink aria-expanded:bg-hover aria-expanded:text-ink"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -290,6 +298,9 @@ export function HeaderCell({
                 ops a system field genuinely must not offer (read_only per
                 system-fields.ts) — gated on canManage individually now, not by
                 the whole menu's presence. */}
+            {/* MN-131 — the title is not a normal managed field, but its name mode is configured through the same
+                edit dialog; that entry used to be a second ⋯ menu on its own (#999). */}
+            {canConfigureTitle && <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>}
             {canManage && <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>}
             {canManage && <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>}
             {field.type === 'relation' && onAddLookup && (
@@ -310,6 +321,13 @@ export function HeaderCell({
                 <FilterX className="mr-2 h-3.5 w-3.5" /> Clear filter on this field
               </DropdownMenuItem>
             )}
+            {/* Freeze belongs to the first column only (the frozen block is the first column). It was a
+                separate hover-only button in the header; it is a menu item now, with the mark beside the label. */}
+            {isFirst && onTogglePin && (
+              <DropdownMenuItem onSelect={onTogglePin}>
+                <Snowflake className="mr-2 h-3.5 w-3.5" /> {pinned ? 'Unfreeze column' : 'Freeze column'}
+              </DropdownMenuItem>
+            )}
             {canHide && (
               <DropdownMenuItem onSelect={hideField}>
                 <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide field
@@ -320,27 +338,6 @@ export function HeaderCell({
                 Delete field
               </DropdownMenuItem>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-      {canConfigureTitle && (
-        <DropdownMenu>
-          <Tooltip label="Options">
-            <DropdownMenuTrigger asChild>
-              <button
-                /* #413 — the cell is the drag handle now, so every control inside
-                   it must keep its own gesture off the reorder sensor. Same guard
-                   the resize handle has carried since MN-225. */
-                onPointerDown={(e) => e.stopPropagation()}
-                aria-label={`Options for ${field.displayName}`}
-                className="rounded p-0.5 opacity-0 hover:bg-active focus-visible:opacity-100 group-hover/header:opacity-100 aria-expanded:opacity-100"
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-          </Tooltip>
-          <DropdownMenuContent>
-            <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NUMBER_SYSTEM_FIELD_ID,
   countHiddenFields,
+  gutterShowsPosition,
   isFieldVisible,
   isNumberColumnHidden,
   toggleFieldVisibility,
@@ -81,5 +82,20 @@ describe('countHiddenFields — the picker\'s "N hidden" trigger label', () => {
   it('never counts the number field when it is not a candidate (a real number field row exists)', () => {
     const candidates = new Set(['a']);
     expect(countHiddenFields([NUMBER_SYSTEM_FIELD_ID], candidates)).toBe(0);
+  });
+});
+
+describe('gutterShowsPosition (#1004): one number per row', () => {
+  it('shows no position while the ID column is rendered — the ID IS the number', () => {
+    expect(gutterShowsPosition([{ type: 'id' }, { type: 'title' }, { type: 'text' }])).toBe(false);
+  });
+  it('keeps the position when the ID column is hidden, so the table is never unnumbered', () => {
+    expect(gutterShowsPosition([{ type: 'title' }, { type: 'text' }])).toBe(true);
+  });
+  it('an empty field list (nothing rendered yet) shows the position rather than nothing', () => {
+    expect(gutterShowsPosition([])).toBe(true);
+  });
+  it('only the id type counts: a number FIELD is not the record number', () => {
+    expect(gutterShowsPosition([{ type: 'number' }, { type: 'title' }])).toBe(true);
   });
 });
