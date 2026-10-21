@@ -41,6 +41,8 @@ import {
   ArrowUpDown,
   Check,
   CircleHelp,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Eye,
   EyeOff,
@@ -100,12 +102,14 @@ import {
   ungroupNodeAt,
   updateNodeAt,
   visibleFilterChips,
+  MAX_FILTER_CONDITIONS,
+  MAX_FILTER_DEPTH,
 } from './filter-config';
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
-import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
+import { OPTION_COLORS, OptionChip, OptionIcon } from '../table-view/cells';
 
 /**
  * Op menu per field type — mirrors the API op×type matrix.
@@ -455,7 +459,6 @@ export function ViewToolbar({
           <SortButton
             fields={augmented}
             sorts={config.sorts}
-            emptyLabel="Manual order"
             nulls={config.sorts_nulls}
             onChange={(sorts) => onPatch({ sorts })}
             onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
@@ -677,30 +680,36 @@ export function AddFilterButton({
   fields,
   onAdd,
   label = 'Filter',
+  icon = 'filter',
+  disabled = false,
 }: {
   fields: Field[];
   onAdd: (field: Field) => void;
   label?: string;
+  /** #991 — the filter panel's "+ Add filter" row uses a plus, the collection sections keep the funnel. */
+  icon?: 'filter' | 'plus';
+  disabled?: boolean;
 }) {
+  const AddIcon = icon === 'plus' ? Plus : ListFilter;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink">
-          <ListFilter className="h-3.5 w-3.5" /> {label}
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <button
+          type="button"
+          disabled={disabled}
+          className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+        >
+          <AddIcon className="h-3.5 w-3.5" /> {label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="max-h-64 overflow-y-auto">
         {fields.map((field) => {
           const Icon = fieldTypeIcon(field.type);
           return (
-            <button
-              key={field.id}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body text-ink hover:bg-hover"
-              onClick={() => onAdd(field)}
-            >
+            <DropdownMenuItem key={field.id} onSelect={() => onAdd(field)}>
               <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
               {field.displayName}
-            </button>
+            </DropdownMenuItem>
           );
         })}
       </DropdownMenuContent>
@@ -739,6 +748,21 @@ export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
  * A member (user field) has no option row and therefore no icon/colour; those
  * entries simply omit both.
  */
+/**
+ * #991 — ONE look for every control in a condition row: field, operator and value. It is Dara's `.sel` (25px,
+ * 1px border, the control radius, 12px type), so a value that is a button, an input or a select reads as the
+ * same kind of thing as the two selects beside it. An unfinished row dashes the border (`unfinishedCtl`) so the
+ * eye finds the control that is missing its value.
+ */
+const FILTER_CTL =
+  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong focus-visible:border-accent';
+const unfinishedCtl = (on: boolean) => (on ? 'border-dashed' : '');
+/** A row's inline action (eye, pin, ⋯, ✕): 22px, resting at --faint, never hover-only (#900). */
+const ROW_ICON_BTN =
+  'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink';
+/** Above this many options a value is a searchable picker that fills the row; at or below it every option shows as a chip. */
+export const OPTION_CHIP_LIMIT = 12;
+
 /** #215: an option's colour as a `currentColor` tint for its icon, so the icon
  *  carries the same colour cue the chip's fill does. No colour (a member entry)
  *  means inherit, which is what the surrounding text already uses. */
@@ -770,6 +794,8 @@ export function FilterValueEditor({
   condition,
   onChange,
   compact = false,
+  fill = false,
+  unfinished = false,
 }: {
   field: Field;
   members: Array<{ id: string; name: string }>;
@@ -779,18 +805,25 @@ export function FilterValueEditor({
   onChange: (condition: FilterCondition) => void;
   /** The old inline-chip look uses the chip's own background/borderless inputs. */
   compact?: boolean;
+  /** #991 — the condition ROW's value: fills the rest of the line with the same look as the selects beside it. */
+  fill?: boolean;
+  /** #991 — the row is missing its value: the control's border dashes. */
+  unfinished?: boolean;
 }) {
   const boxed = compact
     ? 'bg-card text-ink outline-none'
-    : 'rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink outline-none';
+    : fill
+      ? cn('w-full min-w-0', FILTER_CTL, unfinishedCtl(unfinished))
+      : 'rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink outline-none';
 
   const optionSource = optionSourceFor(field, members);
 
   if (activeOp.input === 'text') {
     return (
       <input
-        className={cn(compact ? 'w-24' : 'w-24', boxed)}
+        className={cn(fill ? '' : 'w-24', boxed)}
         value={String(condition.value ?? '')}
+        placeholder={fill ? 'Enter a value…' : undefined}
         onChange={(e) => onChange({ ...condition, value: e.target.value })}
       />
     );
@@ -798,9 +831,10 @@ export function FilterValueEditor({
   if (activeOp.input === 'number') {
     return (
       <input
-        className={cn('w-16', boxed)}
+        className={cn(fill ? '' : 'w-16', boxed)}
         inputMode="decimal"
         value={String(condition.value ?? '')}
+        placeholder={fill ? 'Enter a number…' : undefined}
         onChange={(e) => onChange({ ...condition, value: Number(e.target.value) })}
       />
     );
@@ -810,6 +844,7 @@ export function FilterValueEditor({
       <DateFilterInput
         value={condition.value == null ? null : String(condition.value)}
         boxed={boxed}
+        fill={fill}
         onChange={(v) => onChange({ ...condition, value: v ?? '' })}
       />
     );
@@ -842,11 +877,16 @@ export function FilterValueEditor({
     );
   }
   if (activeOp.input === 'options') {
+    // A short list shows EVERY option as a toggleable chip under the rule (rendered by the row, `OptionChipSet`),
+    // so the person clicks options directly; a long one is a searchable picker that fills the row.
+    if (fill && optionSource.length <= OPTION_CHIP_LIMIT) return null;
     return (
       <OptionMultiPick
         options={optionSource}
         selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
         onChange={(ids) => onChange({ ...condition, value: ids })}
+        fill={fill}
+        unfinished={unfinished}
       />
     );
   }
@@ -862,7 +902,7 @@ export function FilterValueEditor({
         value={typeof condition.value === 'string' ? condition.value : ''}
         onChange={(e) => onChange({ ...condition, value: e.target.value || null })}
       >
-        <option value="">pick…</option>
+        <option value="">{fill ? 'Choose…' : 'pick…'}</option>
         {optionSource.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
@@ -878,12 +918,69 @@ export function FilterValueEditor({
         field={field}
         selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
         onChange={(ids) => onChange({ ...condition, value: ids })}
+        fill={fill}
+        unfinished={unfinished}
       />
     ) : (
       <span className="text-muted">unavailable</span>
     );
   }
   return null;
+}
+
+/** #991 — whether a condition's value is a row of chips UNDER the rule rather than a control IN it. */
+export function usesChipSet(field: Field, activeOp: { input: string }, members: Array<{ id: string; name: string }>): boolean {
+  return activeOp.input === 'options' && optionSourceFor(field, members).length <= OPTION_CHIP_LIMIT;
+}
+
+/**
+ * #991 — every option of a short list as a toggleable chip, so a person clicks the values directly instead of
+ * opening a "pick…" dropdown (Dara's `.minichip`). A chip carries the option's own colour; one that is picked
+ * also takes the accent border and tint. Wraps onto further lines rather than clipping.
+ */
+export function OptionChipSet({
+  options,
+  selected,
+  onChange,
+  unfinished,
+}: {
+  options: Array<{ id: string; label: string; icon?: string | null; color?: string }>;
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  unfinished?: boolean;
+}) {
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+  return (
+    <div role="group" aria-label="Values" className="flex min-w-0 flex-wrap gap-1">
+      {options.map((option) => {
+        const on = selected.includes(option.id);
+        const tint = option.color ? OPTION_COLORS[option.color] : undefined;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => toggle(option.id)}
+            style={on && tint ? { backgroundColor: `${tint}22` } : undefined}
+            className={cn(
+              'inline-flex h-[21px] max-w-full items-center gap-1 rounded-full border px-2 text-micro font-semibold',
+              on
+                ? 'border-[color-mix(in_srgb,var(--accent)_55%,transparent)] text-ink'
+                : 'border-border-default bg-card text-muted hover:border-border-strong hover:text-ink',
+              !on && unfinished && 'border-dashed',
+            )}
+          >
+            <span className="flex items-center" style={optionTint(option.color)}>
+              <OptionIcon icon={option.icon} />
+            </span>
+            <span className="truncate">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Date value control for a `before`/`after`/`on` filter — the app's own DatePicker
@@ -893,10 +990,13 @@ export function FilterValueEditor({
 function DateFilterInput({
   value,
   boxed,
+  fill = false,
   onChange,
 }: {
   value: string | null;
   boxed: string;
+  /** #991 — the condition row's own value: fills the line, with a chevron like the selects beside it. */
+  fill?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -919,13 +1019,14 @@ function DateFilterInput({
    * against this `relative` span. Which is what the span is for — keep it.
    */
   return (
-    <span className="relative inline-block">
+    <span className={cn('relative', fill ? 'block w-full min-w-0' : 'inline-block')}>
       <button
         type="button"
-        className={cn(boxed, !value && 'text-muted')}
+        className={cn(boxed, !value && 'text-muted', fill && 'flex items-center justify-between gap-2 text-left')}
         onClick={() => setEditing((v) => !v)}
       >
-        {value ? value.slice(0, 10) : 'pick date…'}
+        <span className="truncate">{value ? value.slice(0, 10) : fill ? 'Pick a date…' : 'pick date…'}</span>
+        {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
       </button>
       {editing && (
         <DatePicker
@@ -1261,18 +1362,21 @@ export function FiltersSection({
               it is now always both, stacked, each labelled — reading the
               popover top to bottom IS reading the effective filter.
             */}
-            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
-              {/* #965 — "N of M applied" lives here now, not on the button: M is every condition built
-                  (either section), N the ones that actually run (not disabled, not unfinished). */}
-              {buttonState.configured > 0 && (
-                <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted" aria-live="polite">
-                  {buttonState.applied} of {buttonState.configured} applied
-                </p>
-              )}
+            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+              {/* #991 — Dara's header bar: "FILTER" in small mono caps on the left, "N of M applied" on the right.
+                  #965 — M is every condition built (either section), N the ones that actually run (not disabled,
+                  not unfinished). */}
+              <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
+                <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-faint">Filter</span>
+                {buttonState.configured > 0 && (
+                  <span className="text-micro text-faint" aria-live="polite">
+                    {buttonState.applied} of {buttonState.configured} applied
+                  </span>
+                )}
+              </div>
               <FilterBuilderPanel
                 sectionLabel="Everyone"
-                sectionHint="The view's filter. Every viewer sees this."
-
+                sectionHint="the view’s filter — every viewer sees this"
                 fields={fields}
                 members={members}
                 ws={ws}
@@ -1286,6 +1390,7 @@ export function FiltersSection({
                 <div className="border-t border-border-default">
                   <FilterBuilderPanel
                     sectionLabel="Only you"
+                    sectionHint="a personal filter — teammates don’t see it"
                     fields={fields}
                     members={members}
                     ws={ws}
@@ -1457,105 +1562,109 @@ export function FilterBuilderPanel({
   };
   const filterDrag = useDragPresentation(filterLabel, { onDragEnd }, flat.map((f) => f.id));
 
+  const startField = fields.find((f) => opsForField(f).length > 0);
+  const atCap = flat.length >= MAX_FILTER_CONDITIONS;
+  function addGroup() {
+    if (!startField) return;
+    const first = opsForField(startField)[0]!;
+    const group = buildFilterGroup('and', [{ field: startField.apiName, op: first.op, value: defaultValueFor(first.input) }]);
+    if (group) onNodesChange([...nodes, group]);
+  }
+  const clear = onClearAll ?? (() => onNodesChange([]));
+  const emptyText = personalScopeHint ? 'Nothing narrowed just for you.' : 'No filters on this view.';
+
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-        <span className="text-meta font-semibold uppercase tracking-wider text-muted">
-          {sectionLabel ?? 'Filters'}
-        </span>
-        <span className="flex items-center gap-2">
-          {onClearAll && nodes.length > 0 && (
-            <button type="button" onClick={onClearAll} className="text-meta text-muted hover:text-ink">
-              Clear all
-            </button>
-          )}
-          <a
-            href="https://docs.storyos.dev/concepts/views/#filters--sorts"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-faint hover:text-ink"
-            title="How filters work on views"
-          >
-            <CircleHelp className="h-3.5 w-3.5" />
-          </a>
-        </span>
+    <section className="px-3 py-2" aria-label={sectionLabel ?? 'Filters'}>
+      {/* #991 — Dara's section head: the title and its one-line subtitle on the SAME line, the help as one small (?). */}
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <h3 className="text-label font-semibold text-ink">{sectionLabel ?? 'Filters'}</h3>
+        {sectionHint && <span className="min-w-0 truncate text-micro text-faint">{sectionHint}</span>}
+        <a
+          href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto flex shrink-0 items-center self-center text-faint hover:text-ink"
+          title="How filters work on views"
+          aria-label="How filters work on views"
+        >
+          <CircleHelp className="h-3 w-3" />
+        </a>
       </div>
 
-      {sectionHint && (
-        <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">{sectionHint}</p>
-      )}
-      {personalScopeHint && (
-        <p className="border-b border-border-default px-3 py-1.5 text-meta text-muted">
-          A personal filter. It narrows this view for you only; teammates don't see it.
-        </p>
-      )}
-
       {nodes.length === 0 ? (
-        <div className="px-3 py-6 text-center">
-          <p className="mb-2 text-label text-muted">
-            {personalScopeHint
-              ? 'No personal filter yet — narrow this view down further, just for you.'
-              : 'No filters yet — narrow this view down to what matters.'}
-          </p>
-          <div className="flex justify-center">
-            <AddFilterButton fields={fields} onAdd={addCondition} label="Add your first filter" />
-          </div>
-        </div>
+        <p className="py-0.5 text-label text-faint">{emptyText}</p>
       ) : (
-        <div className="max-h-80 overflow-y-auto p-1">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} {...filterDrag.contextProps}>
-            <SortableContext items={flat.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-              {nodes.map((node, i) => (
-                <FilterNodeRow
-                  key={i}
-                  path={[i]}
-                  node={node}
-                  fields={fields}
-                  members={members}
-                  ws={ws}
-                  connector={connector}
-                  isFirst={i === 0}
-                  onConnectorChange={onConnectorChange}
-                  rootNodes={nodes}
-                  onRootChange={onNodesChange}
-                />
-              ))}
-            </SortableContext>
-            <DragPreview>
-              {filterDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
-                  {filterLabel(filterDrag.activeId) ?? ''}
-                </div>
-              )}
-            </DragPreview>
-          </DndContext>
-        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} {...filterDrag.contextProps}>
+          <SortableContext items={flat.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+            {nodes.map((node, i) => (
+              <FilterNodeRow
+                key={i}
+                path={[i]}
+                node={node}
+                fields={fields}
+                members={members}
+                ws={ws}
+                connector={connector}
+                isFirst={i === 0}
+                onConnectorChange={onConnectorChange}
+                rootNodes={nodes}
+                onRootChange={onNodesChange}
+              />
+            ))}
+          </SortableContext>
+          <DragPreview>
+            {filterDrag.activeId && (
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
+                {filterLabel(filterDrag.activeId) ?? ''}
+              </div>
+            )}
+          </DragPreview>
+        </DndContext>
       )}
 
-      {nodes.length > 0 && (
-        <div className="border-t border-border-default p-1">
-          <AddFilterButton fields={fields} onAdd={addCondition} label="Add condition" />
-        </div>
-      )}
-
-    </div>
+      {/* #991 — one small row per section: + Add filter, + Add filter group, × Clear (when there is something to clear). */}
+      <div className="mt-1 flex flex-wrap items-center gap-0.5">
+        <AddFilterButton fields={fields} onAdd={addCondition} label="Add filter" icon="plus" disabled={atCap} />
+        <button
+          type="button"
+          onClick={addGroup}
+          disabled={atCap || !startField}
+          className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add filter group
+        </button>
+        {nodes.length > 0 && (
+          <button
+            type="button"
+            onClick={clear}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-error"
+          >
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
+/**
+ * The prototype's `conjBtn`: ONE small "and ⌄" button that flips and ⇄ or when clicked (it sets the whole container's
+ * connector), not a two-segment toggle. 19px tall, 3px padding, the current word and a 9px chevron — it fits the 40px
+ * lead column the segmented pair overflowed.
+ */
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
+  const next: FilterConnector = value === 'and' ? 'or' : 'and';
   return (
-    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
-      {(['and', 'or'] as const).map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
-        >
-          {c}
-        </button>
-      ))}
-    </span>
+    <button
+      type="button"
+      onClick={() => onChange(next)}
+      aria-label={`Match ${value === 'and' ? 'all' : 'any'} of these — click to match ${next === 'and' ? 'all' : 'any'} instead`}
+      title={`Click to switch to “${next}”`}
+      className="inline-flex h-[19px] items-center gap-px rounded-[4px] border border-border-default bg-card px-[3px] text-micro text-muted hover:border-border-strong hover:text-ink"
+    >
+      {value}
+      <ChevronDown className="h-[9px] w-[9px]" aria-hidden />
+    </button>
   );
 }
 
@@ -1590,6 +1699,7 @@ function FilterNodeRow({
     return (
       <GroupRow
         path={path}
+        index={path[path.length - 1]!}
         node={node}
         fields={fields}
         members={members}
@@ -1605,6 +1715,7 @@ function FilterNodeRow({
   return (
     <ConditionRow
       path={path}
+      index={path[path.length - 1]!}
       condition={node}
       fields={fields}
       members={members}
@@ -1622,23 +1733,61 @@ function FilterNodeRow({
   );
 }
 
-/** A nested group's row (MN-258): its own header (Where/connector, drag handle,
- * "…" menu) plus its children rendered recursively inside an indented box, each
- * with the group's OWN connector — "A and (B or C)" is a top-level `and` row and
- * a nested `or` group in exactly this shape. */
+/** The lead column of a rule (Dara's `.conj`): the drag grip, then "Where" on the first row, the And/Or toggle
+ * on the second (it sets the whole container's connector), and the plain word after that. The grip rests at
+ * --faint and is always drawn: a handle that only exists on hover does not exist on a touch screen (#900). */
+function RuleLead({
+  index,
+  connector,
+  onConnectorChange,
+  dragProps,
+}: {
+  index: number;
+  connector: FilterConnector;
+  onConnectorChange: (next: FilterConnector) => void;
+  dragProps: Record<string, unknown>;
+}) {
+  return (
+    <div className="relative flex w-10 shrink-0 items-center justify-end">
+      <button
+        type="button"
+        {...dragProps}
+        className="absolute -left-3 top-1/2 shrink-0 -translate-y-1/2 cursor-grab touch-none rounded text-faint hover:text-muted focus-visible:text-ink"
+        title="Drag to reorder"
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+      {index === 0 ? (
+        <span className="text-right text-micro text-faint">Where</span>
+      ) : index === 1 ? (
+        <ConnectorToggle value={connector} onChange={onConnectorChange} />
+      ) : (
+        <span className="text-right text-micro text-faint">{connector}</span>
+      )}
+    </div>
+  );
+}
+
+/** A nested group's row (MN-258): Dara's tinted, bordered box with a tiny "GROUP" header and its own ⋯, the
+ * children rendered recursively inside it (each row with the group's OWN connector: "A and (B or C)" is a
+ * top-level `and` and a nested `or` group in exactly this shape), and its own add row. A nested group is a
+ * shade darker than its parent. */
 function GroupRow({
   path,
+  index,
   node,
   fields,
   members,
   ws,
   connector,
-  isFirst,
+  isFirst: _isFirst,
   onConnectorChange,
   rootNodes,
   onRootChange,
 }: {
   path: number[];
+  index: number;
   node: FilterGroup;
   fields: Field[];
   members: Array<{ id: string; name: string }>;
@@ -1654,65 +1803,86 @@ function GroupRow({
   });
   const children = nodeChildren(node);
   const innerConnector = nodeConnector(node);
+  const total = flattenFilterTree(rootNodes).length;
+  const startField = fields.find((f) => opsForField(f).length > 0);
+  // A new group here would sit one level below this one: levels are capped at 3 (MAX_FILTER_DEPTH), so a group
+  // that is already level 3 (path length 3) cannot hold another.
+  const canAddGroup = path.length < MAX_FILTER_DEPTH && total < MAX_FILTER_CONDITIONS && Boolean(startField);
+  const write = (nextChildren: FilterNode[]) =>
+    onRootChange(updateNodeAt(rootNodes, path, () => buildFilterGroup(innerConnector, nextChildren)!));
+  const starter = (f: Field): FilterNode => {
+    const first = opsForField(f)[0]!;
+    return { field: f.apiName, op: first.op, value: defaultValueFor(first.input) };
+  };
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group relative rounded px-1 py-1.5',
+        'group relative flex items-start gap-1 py-0.5',
         // #656 — the dragged content now floats in the shared DragPreview
         // overlay, so this slot never competes for stacking order; it only
         // needs to mark itself as vacated (#409/#631).
         vacatedSlotClass(isDragging),
       )}
     >
-      <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          {...attributes}
-          {...listeners}
-          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted focus-visible:opacity-100 group-hover:opacity-100"
-          title="Drag to reorder"
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
+      <div className="pt-1.5">
+        <RuleLead index={index} connector={connector} onConnectorChange={onConnectorChange} dragProps={{ ...attributes, ...listeners }} />
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="mb-1">
-            {isFirst ? (
-              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
-            ) : (
-              <ConnectorToggle value={connector} onChange={onConnectorChange} />
-            )}
-          </div>
-
-          <div className="rounded border border-dashed border-border-default py-1 pl-2 pr-1">
-            {children.map((child, j) => (
-              <FilterNodeRow
-                key={j}
-                path={[...path, j]}
-                node={child}
-                fields={fields}
-                members={members}
-                ws={ws}
-                connector={innerConnector}
-                isFirst={j === 0}
-                onConnectorChange={(next) =>
-                  onRootChange(updateNodeAt(rootNodes, path, () => buildFilterGroup(next, children)!))
-                }
-                rootNodes={rootNodes}
-                onRootChange={onRootChange}
-              />
-            ))}
-          </div>
+      <div
+        className={cn(
+          'min-w-0 flex-1 rounded-[var(--radius-card)] border border-border-default px-1.5 pb-1 pt-0.5',
+          path.length >= 2 ? 'bg-active' : 'bg-hover',
+        )}
+      >
+        <div className="mb-0.5 flex items-center justify-between">
+          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">Group</span>
+          <GroupMenu
+            onDuplicate={() => onRootChange(duplicateNodeAt(rootNodes, path))}
+            onUngroup={() => onRootChange(ungroupNodeAt(rootNodes, path))}
+            onRemove={() => onRootChange(removeNodeCascade(rootNodes, path))}
+          />
         </div>
-
-        <GroupMenu
-          onDuplicate={() => onRootChange(duplicateNodeAt(rootNodes, path))}
-          onUngroup={() => onRootChange(ungroupNodeAt(rootNodes, path))}
-          onRemove={() => onRootChange(removeNodeCascade(rootNodes, path))}
-        />
+        {children.map((child, j) => (
+          <FilterNodeRow
+            key={j}
+            path={[...path, j]}
+            node={child}
+            fields={fields}
+            members={members}
+            ws={ws}
+            connector={innerConnector}
+            isFirst={j === 0}
+            onConnectorChange={(next) =>
+              onRootChange(updateNodeAt(rootNodes, path, () => buildFilterGroup(next, children)!))
+            }
+            rootNodes={rootNodes}
+            onRootChange={onRootChange}
+          />
+        ))}
+        <div className="flex flex-wrap items-center gap-0.5 pl-0.5">
+          <AddFilterButton
+            fields={fields}
+            onAdd={(f) => write([...children, starter(f)])}
+            label="Add filter"
+            icon="plus"
+            disabled={total >= MAX_FILTER_CONDITIONS}
+          />
+          {canAddGroup && (
+            <button
+              type="button"
+              onClick={() => {
+                const inner = buildFilterGroup('and', [starter(startField!)]);
+                if (inner) write([...children, inner]);
+              }}
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add group
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1720,12 +1890,13 @@ function GroupRow({
 
 function ConditionRow({
   path,
+  index,
   condition,
   fields,
   members,
   ws,
   connector,
-  isFirst,
+  isFirst: _isFirst,
   onConnectorChange,
   onChange,
   onDuplicate,
@@ -1735,6 +1906,7 @@ function ConditionRow({
   onTurnIntoGroup,
 }: {
   path: number[];
+  index: number;
   condition: FilterCondition;
   fields: Field[];
   members: Array<{ id: string; name: string }>;
@@ -1758,166 +1930,186 @@ function ConditionRow({
   if (!field) return null;
   const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
-  const Icon = fieldTypeIcon(field.type);
   const defaultLabel = describeCondition(field, condition, members);
+  const unfinished = isIncompleteCondition(condition) && !condition.disabled;
+  const chipSet = usesChipSet(field, activeOp, members);
+  const dim = condition.disabled ? 'opacity-45' : '';
+  // Inside a group the row is narrower, so its two selects give up width to the value.
+  const nested = path.length > 1;
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group relative rounded px-1 py-1.5',
+        'group relative rounded py-0.5',
         // #656 — the dragged content now floats in the shared DragPreview
         // overlay, so this slot never competes for stacking order; it only
         // needs to mark itself as vacated (#409/#631).
         vacatedSlotClass(isDragging),
       )}
     >
-      <div className="flex items-start gap-1.5">
-        <button
-          {...attributes}
-          {...listeners}
-          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
-          title="Drag to reorder"
+      {/* #991 — ONE line: lead · field · operator · value (fills the rest) · eye / pin / ⋯ / ✕. On a phone the
+          value drops to its own full-width line (#972) and the actions stay on the first. */}
+      <div className="flex flex-wrap items-center gap-x-[5px] gap-y-1">
+        <RuleLead index={index} connector={connector} onConnectorChange={onConnectorChange} dragProps={{ ...attributes, ...listeners }} />
+
+        {condition.icon && (
+          <EntityIcon icon={condition.icon} color={null} size={13} fallback={null} />
+        )}
+        <select
+          aria-label="Field"
+          className={cn(FILTER_CTL, 'w-20 shrink-0 truncate', unfinishedCtl(unfinished), dim)}
+          value={condition.field}
+          onChange={(e) => {
+            const nextField = fields.find((f) => f.apiName === e.target.value);
+            if (!nextField) return;
+            const next = remapConditionToField(condition, nextField);
+            if (next) onChange(next);
+          }}
         >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
-
-        {/*
-          #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
-          looks identical to an enabled one is SILENT WRONGNESS - the user
-          reads a filter that is not the filter being applied - so its state
-          has to be visible, not merely reachable." This used to be reachable
-          only through the "..." menu's Disable/Enable item (a state nobody
-          would notice without opening it); it's a persistent toggle on the
-          row now, and the menu item is gone rather than duplicated.
-        */}
-        <button
-          type="button"
-          onClick={() => onChange({ ...condition, disabled: !condition.disabled })}
-          className={cn('mt-1.5 shrink-0 rounded p-0.5 hover:bg-hover', condition.disabled ? 'text-faint' : 'text-ink')}
-          title={condition.disabled ? 'Disabled — click to enable' : 'Enabled — click to disable'}
+          {fields.map((f) => (
+            <option key={f.id} value={f.apiName}>
+              {f.displayName}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Operator"
+          className={cn(FILTER_CTL, 'w-[100px] shrink-0 !text-muted', unfinishedCtl(unfinished), dim)}
+          value={condition.op}
+          onChange={(e) => {
+            const nextOp = ops.find((o) => o.op === e.target.value)!;
+            onChange({ ...condition, op: nextOp.op, value: defaultValueFor(nextOp.input) });
+          }}
         >
-          {condition.disabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-        </button>
-
-        <div className="min-w-0 flex-1">
-          <div className="mb-1">
-            {isFirst ? (
-              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Where</span>
-            ) : (
-              <ConnectorToggle value={connector} onChange={onConnectorChange} />
-            )}
-          </div>
-          <div className={cn('flex flex-wrap items-center gap-1', condition.disabled && 'opacity-50')}>
-            <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 shrink-0 text-faint" />} />
-            <select
-              className="max-w-28 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
-              value={condition.field}
-              onChange={(e) => {
-                const nextField = fields.find((f) => f.apiName === e.target.value);
-                if (!nextField) return;
-                const next = remapConditionToField(condition, nextField);
-                if (next) onChange(next);
-              }}
-            >
-              {fields.map((f) => (
-                <option key={f.id} value={f.apiName}>
-                  {f.displayName}
-                </option>
-              ))}
-            </select>
-            <select
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
-              value={condition.op}
-              onChange={(e) => {
-                const nextOp = ops.find((o) => o.op === e.target.value)!;
-                onChange({ ...condition, op: nextOp.op, value: defaultValueFor(nextOp.input) });
-              }}
-            >
-              {ops.map((o) => (
-                <option key={o.op} value={o.op}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            {/* in a phone sheet the value takes its own line (#972); `contents` leaves desktop exactly as it was */}
-            <div className="min-w-0 max-md:basis-full md:contents">
-              <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} />
-            </div>
-          </div>
-
-          {editingLabel && (
-            <div className="mt-1.5 flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
-              <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
-                <Tooltip label="Change icon">
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
-                      aria-label="Change icon"
-                    >
-                      <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
-                    </button>
-                  </PopoverTrigger>
-                </Tooltip>
-                <PopoverContent align="start" className="p-2" onClick={(e) => e.stopPropagation()}>
-                  <IconColorPicker
-                    icon={condition.icon ?? null}
-                    color={null}
-                    onChange={(patch) => {
-                      if ('icon' in patch) onChange({ ...condition, icon: patch.icon ?? undefined });
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-              <input
-                autoFocus
-                className="h-6 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink outline-none"
-                placeholder={defaultLabel}
-                value={condition.label ?? ''}
-                onChange={(e) => onChange({ ...condition, label: e.target.value || undefined })}
-              />
-              <button
-                type="button"
-                className="text-meta text-muted hover:text-ink"
-                onClick={() => {
-                  setEditingLabel(false);
-                  setPickingIcon(false);
-                }}
-              >
-                Done
-              </button>
-            </div>
-          )}
-          {/*
-            #425 — an unfinished condition says so, instead of looking valid.
-            
-            A row with no value is KEPT (the persistence path has always
-            preserved it — the schema accepts it, cleanFilterNode keeps it,
-            buildFilterGroup keeps it) but it is excluded from the query by
-            #345's rule. Unlabelled, that is indistinguishable from a condition
-            that is simply not working, which is the ambiguity #426 is about.
-            
-            `is_empty` / `not_empty` legitimately carry no value and must never
-            be marked — isIncompleteCondition already encodes that, so this
-            reads it rather than re-deriving emptiness here.
-          */}
-          {isIncompleteCondition(condition) && !condition.disabled && (
-            <p className="mt-0.5 text-meta text-warning">Needs a value — not applied yet</p>
-          )}
+          {ops.map((o) => (
+            <option key={o.op} value={o.op}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {/* A chip set renders UNDER the rule, so the value slot collapses to a spacer and the actions stay on the line. */}
+        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
+          <FilterValueEditor
+            field={field}
+            members={members}
+            ws={ws}
+            activeOp={activeOp}
+            condition={condition}
+            onChange={onChange}
+            fill
+            unfinished={unfinished}
+          />
         </div>
-
-        <ConditionMenu
-          condition={condition}
-          onDuplicate={onDuplicate}
-          onPin={onPin}
-          onEditNameIcon={() => setEditingLabel((v) => !v)}
-          onRemove={onRemove}
-          canTurnIntoGroup={canTurnIntoGroup}
-          onTurnIntoGroup={onTurnIntoGroup}
-        />
+        <div className="ml-auto flex shrink-0 items-center gap-px max-md:order-3">
+          {/*
+            #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
+            looks identical to an enabled one is SILENT WRONGNESS - the user
+            reads a filter that is not the filter being applied - so its state
+            has to be visible, not merely reachable." A persistent toggle on the
+            row, never only in the "..." menu.
+          */}
+          <button
+            type="button"
+            onClick={() => onChange({ ...condition, disabled: !condition.disabled })}
+            className={cn(ROW_ICON_BTN, condition.disabled ? 'text-faint' : 'text-muted')}
+            title={condition.disabled ? 'Turn back on' : 'Turn off — keep it, stop applying it'}
+            aria-label={condition.disabled ? 'Turn this condition back on' : 'Turn this condition off'}
+          >
+            {condition.disabled ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+          </button>
+          <button
+            type="button"
+            onClick={onPin}
+            className={cn(ROW_ICON_BTN, condition.pinned && 'text-accent-text')}
+            title={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar as a chip'}
+            aria-label={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar'}
+            aria-pressed={Boolean(condition.pinned)}
+          >
+            <Pin className="h-3 w-3" />
+          </button>
+          <ConditionMenu
+            condition={condition}
+            onDuplicate={onDuplicate}
+            onPin={onPin}
+            onEditNameIcon={() => setEditingLabel((v) => !v)}
+            onRemove={onRemove}
+            canTurnIntoGroup={canTurnIntoGroup}
+            onTurnIntoGroup={onTurnIntoGroup}
+          />
+          <button type="button" onClick={onRemove} className={cn(ROW_ICON_BTN, 'hover:text-error')} title="Remove" aria-label="Remove">
+            <X className="h-3 w-3" />
+          </button>
+        </div>
       </div>
+
+      {/* A short list of options is chips UNDER the rule, so the values are one click each (Dara's `.chipset`). */}
+      {chipSet && (
+        <div className={cn('mt-1 pl-[45px]', dim)}>
+          <OptionChipSet
+            options={optionSourceFor(field, members)}
+            selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
+            onChange={(ids) => onChange({ ...condition, value: ids })}
+            unfinished={unfinished}
+          />
+        </div>
+      )}
+
+      {editingLabel && (
+        <div className="mt-1.5 ml-[45px] flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
+          <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
+            <Tooltip label="Change icon">
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
+                  aria-label="Change icon"
+                >
+                  <EntityIcon icon={condition.icon} color={null} size={13} fallback={<ListFilter className="h-3.5 w-3.5 text-faint" />} />
+                </button>
+              </PopoverTrigger>
+            </Tooltip>
+            <PopoverContent align="start" className="p-2" onClick={(e) => e.stopPropagation()}>
+              <IconColorPicker
+                icon={condition.icon ?? null}
+                color={null}
+                onChange={(patch) => {
+                  if ('icon' in patch) onChange({ ...condition, icon: patch.icon ?? undefined });
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+          <input
+            autoFocus
+            className="h-6 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink outline-none"
+            placeholder={defaultLabel}
+            value={condition.label ?? ''}
+            onChange={(e) => onChange({ ...condition, label: e.target.value || undefined })}
+          />
+          <button
+            type="button"
+            className="text-meta text-muted hover:text-ink"
+            onClick={() => {
+              setEditingLabel(false);
+              setPickingIcon(false);
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+      {/*
+        #425 — an unfinished condition says so, instead of looking valid. A row with no value is KEPT (the
+        persistence path has always preserved it) but it is excluded from the query by #345's rule; unlabelled,
+        that is indistinguishable from a condition that is simply not working (#426). `is_empty` / `not_empty`
+        legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
+        #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
+      */}
+      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning">not applied yet — needs a value</p>}
+      {condition.label && !editingLabel && (
+        <p className="mt-0.5 pl-[45px] text-meta text-muted">named “{condition.label}”</p>
+      )}
     </div>
   );
 }
@@ -1946,7 +2138,7 @@ function ConditionMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink" title="More">
+        <button type="button" className={ROW_ICON_BTN} title="More" aria-label="More">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
@@ -1993,7 +2185,7 @@ function GroupMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink" title="More">
+        <button type="button" className={ROW_ICON_BTN} title="More" aria-label="More">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
@@ -2024,10 +2216,15 @@ function OptionMultiPick({
   options,
   selected,
   onChange,
+  fill = false,
+  unfinished = false,
 }: {
   options: Array<{ id: string; label: string; icon?: string | null; color?: string }>;
   selected: string[];
   onChange: (ids: string[]) => void;
+  /** #991 — a condition row's value: a bordered control that fills the line, chips wrapping inside it. */
+  fill?: boolean;
+  unfinished?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -2040,23 +2237,35 @@ function OptionMultiPick({
   }
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
+    <span
+      className={cn(
+        'flex flex-wrap items-center gap-1',
+        fill
+          ? cn('min-h-[25px] w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-[2px] hover:border-border-strong', unfinishedCtl(unfinished))
+          : 'inline-flex',
+      )}
+    >
       {selectedOptions.map((option) => (
-        <span
-          key={option.id}
-          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink"
-        >
-          {/* #215: through the shared OptionIcon, tinted with the option's own
-              colour — not a re-implementation of "how do I draw an icon ref". */}
-          <span className="flex items-center" style={optionTint(option.color)}>
-            <OptionIcon icon={option.icon} />
-          </span>
-          <span className="max-w-32 truncate">{option.label}</span>
+        <span key={option.id} className={cn('inline-flex max-w-full items-center gap-0.5', fill && 'rounded-[var(--radius-chip)]')}>
+          {fill ? (
+            // #991 — through the shared OptionChip, so a picked value is the same coloured chip a cell draws.
+            <OptionChip option={{ id: option.id, label: option.label, color: option.color ?? 'gray', icon: option.icon }} />
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink">
+              {/* #215: through the shared OptionIcon, tinted with the option's own
+                  colour — not a re-implementation of "how do I draw an icon ref". */}
+              <span className="flex items-center" style={optionTint(option.color)}>
+                <OptionIcon icon={option.icon} />
+              </span>
+              <span className="max-w-32 truncate">{option.label}</span>
+            </span>
+          )}
           <button
             type="button"
             onClick={() => toggle(option.id)}
             className="text-faint hover:text-error"
             title="Remove"
+            aria-label={`Remove ${option.label}`}
           >
             <X className="h-3 w-3" />
           </button>
@@ -2064,8 +2273,19 @@ function OptionMultiPick({
       ))}
       <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-muted')}>
-            {selected.length ? '+ add' : 'pick…'}
+          <button
+            type="button"
+            className={cn(
+              'text-left',
+              fill
+                ? 'flex min-w-[6rem] flex-1 items-center justify-between gap-2 px-1 text-label text-muted hover:text-ink'
+                : selected.length
+                  ? 'text-muted hover:text-ink'
+                  : 'text-muted',
+            )}
+          >
+            <span className="truncate">{selected.length ? '+ add' : fill ? 'Choose…' : 'pick…'}</span>
+            {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 p-0">
@@ -2117,11 +2337,16 @@ function RecordPicker({
   field,
   selected,
   onChange,
+  fill = false,
+  unfinished = false,
 }: {
   ws: string;
   field: Field;
   selected: string[];
   onChange: (ids: string[]) => void;
+  /** #991 — a condition row's value: a bordered control that fills the line, with a chevron. */
+  fill?: boolean;
+  unfinished?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -2175,7 +2400,7 @@ function RecordPicker({
   });
 
   const titleFor = (id: string) => titles[id] || 'Untitled';
-  const label = selected.length === 0 ? 'pick…' : selected.map(titleFor).join(', ');
+  const label = selected.length === 0 ? (fill ? 'Choose…' : 'pick…') : selected.map(titleFor).join(', ');
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -2191,9 +2416,15 @@ function RecordPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-muted')}
+          className={cn(
+            fill
+              ? cn('flex w-full min-w-0 items-center justify-between gap-2 text-left', FILTER_CTL, unfinishedCtl(unfinished))
+              : 'max-w-40 truncate text-left',
+            selected.length ? 'text-ink' : 'text-muted',
+          )}
         >
-          {label}
+          <span className="truncate">{label}</span>
+          {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0" onClick={(e) => e.stopPropagation()}>
@@ -2270,7 +2501,7 @@ export function SortButton({
   showNulls = true,
   emptyLabel = 'Sort',
 }: {
-  /** #930 — what the button says while no sort is set. A record view passes "Manual order": with no sort the server returns position order, and a bare "Sort" left a list that runs 925, 924, 919, 915… looking unordered. */
+  /** #992 — the button always says "Sort" by default (the count and active style carry the state, as on Filter). #930's "Manual order" label is retired. */
   emptyLabel?: string;
   fields: Field[];
   sorts: SortSpec[];
@@ -2353,30 +2584,27 @@ export function SortButton({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
-          sorts.length ? 'text-ink' : 'text-muted',
+          sorts.length ? 'bg-accent-soft text-ink' : 'text-muted',
         )}
+        aria-label={sorts.length ? `${emptyLabel}, ${sorts.length} applied` : emptyLabel}
       >
         <ArrowUpDown className="h-3.5 w-3.5" />
-        {sorts.length ? `Sorted by ${sorts.length}` : emptyLabel}
+        {/* #992 — always "Sort" (Ievgen), with the count and the active style when sorts exist, like the Filter button. */}
+        {emptyLabel}
+        {sorts.length > 0 && (
+          <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_22%,transparent)] px-1 text-micro font-bold tabular-nums text-ink">
+            {sorts.length}
+          </span>
+        )}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
-          <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
-            <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-              {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
-                  order lives in the Filter panel's Groups section. The old label is
-                  why this was filed as a bug rather than a missing feature. */}
-              <span className="text-meta font-semibold uppercase tracking-wider text-muted">Sort cards</span>
-              <a
-                href="https://docs.storyos.dev/concepts/views/#filters--sorts"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-faint hover:text-ink"
-                title="How sorting works on views"
-              >
-                <CircleHelp className="h-3.5 w-3.5" />
-              </a>
+          <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[27.5rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
+              {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
+              <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort</span>
+              {sorts.length > 1 && <span className="text-micro text-faint">first rule wins, the rest break ties</span>}
             </div>
 
             {hasUnsortableComputedFields && (
@@ -2386,19 +2614,9 @@ export function SortButton({
             )}
 
             {sorts.length === 0 ? (
-              <div className="px-3 py-6 text-center">
-                <p className="mb-2 text-label text-muted">No sort yet — items show in manual order.</p>
-                <button
-                  type="button"
-                  onClick={addSort}
-                  disabled={sortableFields.length === 0}
-                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-label text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add your first sort
-                </button>
-              </div>
+              <p className="px-3 py-3 text-label text-faint">No sort yet — items show in manual order.</p>
             ) : (
-              <div className="max-h-64 overflow-y-auto p-1">
+              <div className="max-h-64 overflow-y-auto px-2 py-1">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} {...sortDrag.contextProps}>
                   <SortableContext items={sorts.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
                     {sorts.map((sort, i) => (
@@ -2410,6 +2628,7 @@ export function SortButton({
                         fields={sortableFields}
                         onChange={(next) => updateAt(i, next)}
                         onRemove={() => removeAt(i)}
+                        onMove={(d) => onChange(reorderSorts(sorts, i, i + d))}
                       />
                     ))}
                   </SortableContext>
@@ -2424,28 +2643,47 @@ export function SortButton({
               </div>
             )}
 
-            {sorts.length > 0 && (
-              <div className="border-t border-border-default p-2">
-                {showNulls && (
-                  <div className="mb-1.5 flex items-center justify-between px-1">
-                    <span className="text-meta text-muted">Empty values</span>
-                    <EmptyPlacementToggle
-                      value={nulls ?? 'last'}
-                      onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
-                    />
-                  </div>
-                )}
-                {canAddMore && (
+            <div className="border-t border-border-default p-2">
+              {sorts.length > 0 && showNulls && (
+                <div className="mb-1.5 flex items-center gap-3 px-1">
+                  <span className="shrink-0 text-meta text-muted">Empty values</span>
+                  <EmptyPlacementToggle
+                    value={nulls ?? 'last'}
+                    onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-2 px-1">
+                <button
+                  type="button"
+                  onClick={addSort}
+                  disabled={!canAddMore}
+                  title={sorts.length >= MAX_SORTS ? `Up to ${MAX_SORTS} sorts per view` : undefined}
+                  className="flex items-center gap-1 rounded py-1 text-label text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" /> Add sort
+                </button>
+                {sorts.length > 0 && (
                   <button
                     type="button"
-                    onClick={addSort}
-                    className="flex items-center gap-1 rounded px-1 py-1 text-label text-muted hover:text-ink"
+                    onClick={() => onChange([])}
+                    className="flex items-center gap-1 rounded py-1 text-label text-muted hover:text-error"
                   >
-                    <Plus className="h-3 w-3" /> Add sort
+                    <X className="h-3 w-3" /> Clear all
                   </button>
                 )}
+                {sorts.length >= MAX_SORTS && <span className="text-micro text-faint">Up to {MAX_SORTS} sorts per view</span>}
+                <span className="flex-1" />
+                <a
+                  href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-label text-muted underline decoration-border-strong underline-offset-2 hover:text-ink"
+                >
+                  How sorting works
+                </a>
               </div>
-            )}
+            </div>
           </div>
         </>
       )}
@@ -2454,7 +2692,7 @@ export function SortButton({
 }
 
 /** Whole-sort empty-values placement (MN-252) — a two-button segmented toggle,
- * reusing ConnectorToggle's exact visual pattern (border/rounded/uppercase pill). */
+ * reusing the same segmented visual pattern as the other two-state toggles. */
 function EmptyPlacementToggle({
   value,
   onChange,
@@ -2463,18 +2701,18 @@ function EmptyPlacementToggle({
   onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
+    <span className="flex flex-1 gap-0.5 rounded-md bg-hover p-0.5 text-micro font-semibold uppercase leading-none">
       {(
         [
-          ['last', 'Bottom'],
-          ['first', 'Top'],
+          ['first', 'First'],
+          ['last', 'Last'],
         ] as const
       ).map(([v, label]) => (
         <button
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+          className={cn('flex-1 rounded px-1.5 py-1', value === v ? 'bg-card text-ink shadow-sm' : 'text-muted hover:text-ink')}
         >
           {label}
         </button>
@@ -2494,6 +2732,7 @@ function SortRow({
   fields,
   onChange,
   onRemove,
+  onMove,
 }: {
   index: number;
   sort: SortSpec;
@@ -2501,6 +2740,7 @@ function SortRow({
   fields: Field[];
   onChange: (next: SortSpec) => void;
   onRemove: () => void;
+  onMove: (delta: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(index),
@@ -2524,51 +2764,68 @@ function SortRow({
         vacatedSlotClass(isDragging),
       )}
     >
-      <div className="flex items-start gap-1.5">
+      <div className="flex items-center gap-1.5">
         <button
           {...attributes}
           {...listeners}
-          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          className="shrink-0 cursor-grab text-faint hover:text-muted"
           title="Drag to reorder precedence"
+          aria-label={`Reorder ${field?.displayName ?? 'sort'}`}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-
-        <div className="min-w-0 flex-1">
-          <div className="mb-1">
-            <span className="text-meta font-semibold uppercase tracking-wider text-muted">
-              {index === 0 ? 'Sort by' : 'Then by'}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-1">
-            <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
-            <select
-              className="max-w-28 flex-1 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
-              value={sort.field}
-              onChange={(e) => onChange({ ...sort, field: e.target.value })}
-            >
-              {options.map((f) => (
-                <option key={f.id} value={f.apiName}>
-                  {f.displayName}
-                </option>
-              ))}
-            </select>
-            <select
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-muted"
-              value={sort.direction}
-              onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
-            >
-              <option value="asc">{directionLabel(field?.type ?? 'text', 'asc', field?.options)}</option>
-              <option value="desc">{directionLabel(field?.type ?? 'text', 'desc', field?.options)}</option>
-            </select>
-          </div>
-        </div>
-
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent-soft text-micro font-bold tabular-nums text-ink">
+          {index + 1}
+        </span>
+        <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>
+        <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
+        <select
+          className="h-[25px] w-20 shrink-0 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
+          value={sort.field}
+          onChange={(e) => onChange({ ...sort, field: e.target.value })}
+          aria-label="Sort field"
+        >
+          {options.map((f) => (
+            <option key={f.id} value={f.apiName}>
+              {f.displayName}
+            </option>
+          ))}
+        </select>
+        <select
+          className="h-[25px] min-w-0 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-muted"
+          value={sort.direction}
+          onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
+          aria-label="Sort direction"
+        >
+          <option value="asc">{directionLabel(field?.type ?? 'text', 'asc', field?.options)}</option>
+          <option value="desc">{directionLabel(field?.type ?? 'text', 'desc', field?.options)}</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => onMove(-1)}
+          disabled={index === 0}
+          title="Move up"
+          aria-label="Move sort up"
+          className="shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink disabled:opacity-30"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onMove(1)}
+          disabled={index === sorts.length - 1}
+          title="Move down"
+          aria-label="Move sort down"
+          className="shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink disabled:opacity-30"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={onRemove}
-          className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
+          className="shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
           title="Remove sort"
+          aria-label="Remove sort"
         >
           <X className="h-3.5 w-3.5" />
         </button>

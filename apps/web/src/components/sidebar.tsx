@@ -45,7 +45,7 @@ import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
-import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
+import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
@@ -62,6 +62,7 @@ import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { databaseColor } from '@/lib/entity-color';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -282,17 +283,24 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     useSidebarNavWidth();
 
   return (
-    <div className="relative flex h-full shrink-0">
+    <div className="relative isolate flex h-full shrink-0">
+    {/*
+     * #1000 — `isolate`: the sidebar's own stacking context. Its sticky space headers sit at z-20 / z-30, and the resize
+     * line's hit area (`SidebarResizeHandle`, below) overlaps the panel's right edge; at z-10 the headers painted OVER the
+     * line, so mid-drag it had a notch at every pinned space header. Isolated, those numbers are local to the sidebar,
+     * and the handle can outrank them without joining the page's scale (z-overlay-backdrop is 40).
+     */}
     {/*
      * #742 phase 6 — rail + panel (Direction B). Two axes, one rule each: the
      * RAIL is StoryOS's own surfaces (Home, Inbox, My Work, Runs, Settings —
      * fixed, five items, never grows with a workspace's spaces), the PANEL is
      * this workspace's contents (Collections, Groups, Spaces). Search and Ask
      * Tyron merge into the panel's one ⌘K box rather than each keeping a rail
-     * slot; Reviews and Business Packs become Collections rows in the panel
-     * rather than rail icons — see the artifact's own nav-IA mapping, ticket
-     * #742 comment 2026-09-28T15:33:58Z, restated there because it had lived
-     * only in an artifact before and cost a round trip.
+     * slot; Business Packs becomes a row in the panel rather than a rail icon
+     * (see the artifact's own nav-IA mapping, ticket #742 comment
+     * 2026-09-28T15:33:58Z, restated there because it had lived only in an
+     * artifact before and cost a round trip). Reviews is no longer a sidebar
+     * row at all: it is the "Pull requests" tab of My Work (#968).
      */}
     <SidebarRail
       ws={ws}
@@ -566,7 +574,7 @@ function SidebarResizeHandle({
       }}
       className={cn(
         'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch md:block',
-        '-mx-2 w-4 z-10',
+        '-mx-2 w-4 z-40',
         dragging && 'select-none',
       )}
     >
@@ -925,7 +933,7 @@ function HiddenSection({
             <HiddenRow key={`s-${s.id}`} icon={s.icon} color={s.color} name={s.name} onUnhide={() => onUnhide('space', s.id)} />
           ))}
           {databases.map((d) => (
-            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={d.color} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
+            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={databaseColor(d.color, d.id)} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
           ))}
         </div>
       )}
@@ -951,7 +959,7 @@ function HiddenRow({
             these rows' icons sat 20px left of everything else */}
         <span aria-hidden className="-mr-0 block w-3 shrink-0" />
         <GlyphSlot>
-          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5" />} />
         </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
@@ -1020,7 +1028,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
         setDropRef(node);
         setSortRef(node);
       }}
-      // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
+      // #742 phase 6 — sticky, opaque (bg-frame, the panel's own colour, #1000), and above the space
       // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
       // rows deep you still read which group you're in" is the artifact's own
       // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
@@ -1038,7 +1046,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       // row; there is no group-collapse feature to put in `caret` here.
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-sidebar active:cursor-grabbing',
+        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-frame active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
       draggable
@@ -1226,7 +1234,6 @@ function SpaceSection({
    */
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
-  const menuOpen = addMenuOpen || optionsMenuOpen;
   /**
    * #211 — the New-database dialog is shared by the space's "+" and by every
    * folder's menu, so it carries the destination rather than each caller owning a
@@ -1681,13 +1688,13 @@ function SpaceSection({
         // it doesn't also pad out the void above the FIRST space). This stays
         // small and close to its label rather than double-counting that gap.
         //
-        // #742 phase 6 — sticky and opaque (bg-sidebar), pinned right below
+        // #742 phase 6 — sticky and opaque (bg-frame, the panel's own colour, #1000), pinned right below
         // this space's own group band (stickyTop is 0 or GROUP_BAND_H — see
         // the SpaceSection prop doc) so at real scale (52 nodes) you still
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
         style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
-        className="group sticky z-20 h-6 cursor-grab touch-none bg-sidebar active:cursor-grabbing"
+        className="group sticky z-20 h-6 cursor-grab touch-none bg-frame active:cursor-grabbing"
         draggable
         {...attributes}
         {...listeners}
@@ -1726,21 +1733,11 @@ function SpaceSection({
         ) : (
           <Link
             href={`/w/${ws}/s/${space.id}`}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.09em] text-muted hover:text-ink-secondary"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.07em] text-muted hover:text-ink-secondary"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {space.icon ? (
-              <GlyphSlot>
-                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
-              </GlyphSlot>
-            ) : (
-              /* #742 finding 08 — glyph vocabulary: a space with no custom
-                 icon gets a coloured letter mark, same primitive Groups
-                 already use, rather than rendering nothing at all. A
-                 space WITH a custom icon keeps it — this never overrides
-                 a deliberate choice. */
-              <LetterMark name={space.name} color={space.color} />
-            )}
+            {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
+            <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
           </Link>
         )}
@@ -1751,16 +1748,16 @@ function SpaceSection({
             paginated, so this is the real number, not a count of loaded rows
             (the #755 lie). */}
         {!renaming && topLevelRows > 0 && (
-          <span className={cn(ROW_COUNT, 'group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
-            {topLevelRows}
-          </span>
+          <span className={ROW_COUNT}>{topLevelRows}</span>
         )}
+        {/* #994 / #900 — the + and ⋯ rest visible at --faint beside the count (the prototype's `.acts`), darkening on row
+            hover; they used to appear only on hover/focus, swapped for the count. */}
         {canEdit && (
-          <span className={cn('items-center gap-0.5', menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex')}>
+          <span className="ml-1.5 flex items-center gap-px">
             <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -1819,7 +1816,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -2396,12 +2393,9 @@ function FolderSection({
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
-        {/* The ⋯ button reserves its slot even while invisible, so the count slides over
-            it (-mr-3.5 = that slot's width, measured) to share the space header's right
-            edge, and steps aside on hover/focus exactly as the space count does. */}
-        {contentCount > 0 && (
-          <span className={cn(ROW_COUNT, '-mr-3.5 group-focus-within:hidden group-hover:hidden')}>{contentCount}</span>
-        )}
+        {/* #994 — the ⋯ now rests visible, so the count sits BESIDE it (the prototype's `Marketing  9  ··`) instead of sliding
+            under it and stepping aside on hover. */}
+        {contentCount > 0 && <span className={cn(ROW_COUNT, 'mr-1.5')}>{contentCount}</span>}
         {canEdit && (
           <SidebarRowMenu
             label={folder.name}
@@ -2617,8 +2611,8 @@ function DatabaseBranch({
   viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
-  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id);
   const activeViewId = isHere ? currentViewId : null;
+  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id, activeViewId);
   const tint = db.color ? OPTION_COLORS[db.color] : null;
 
   const renderView = (v: SidebarView) => (
@@ -2643,13 +2637,13 @@ function DatabaseBranch({
   // #931 — single-source views nest UNDER their database: one step in, on the same guide line a
   // folder uses, collapsed by default. A collapsed database still shows its active (and, once
   // #966 lands, pinned) view, so the tree never hides where you are.
-  const shown = visibleChildViews(views, { expanded, activeViewId });
+  const shown = visibleChildViews(views, { expanded });
   return (
     <Fragment>
       <DatabaseRow
         ws={ws}
         db={db}
-        active={isHere}
+        active={databaseRowActive({ isHere, expanded, activeViewShown: activeViewId !== null && shown.some((v) => v.id === activeViewId) })}
         isAdmin={isAdmin}
         folders={folders}
         onMove={onMove}
@@ -2811,10 +2805,12 @@ function DatabaseRow({
           className="flex min-w-0 flex-1 items-center gap-2"
         >
           <GlyphSlot>
+            {/* #1001 — no `text-muted` on the fallback glyph: it overrides the colour the icon's wrapper hands down, so every database drew
+                the same grey whatever colour it had. */}
             <EntityIcon
               icon={db.icon}
-              color={db.color}
-              fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+              color={databaseColor(db.color, db.id)}
+              fallback={<Database className="h-3.5 w-3.5" />}
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
@@ -3042,22 +3038,38 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
  * (nobody has customized this one yet), not a value to paper over.
  */
 /** One style for every row count (space header, folder header): what a row holds, faint, aligned right. */
+/** #994 — a space header's + and ⋯: 17px, faint at rest, muted on row hover, ink on the control (the prototype's `.act`). */
+const SPACE_ACT =
+  'flex h-[17px] w-[17px] items-center justify-center rounded-[3px] text-faint group-hover:text-muted hover:bg-border-strong hover:text-ink';
+
 const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
 
-function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+function LetterMark({
+  name,
+  color,
+  icon,
+  className,
+}: {
+  name: string;
+  color?: string | null;
+  /** #994 — a CHOSEN icon sits inside the mark instead of the two letters, so no icon a person picked is lost. */
+  icon?: string | null;
+  className?: string;
+}) {
   const letter = markInitials(name);
   return (
     <span
       className={cn(
-        /* Two letters do not fit 16px at text-micro (5 of 6 overflowed): the box is
-           20px (fixed, so every row's label lines up) and pulled back by -mr-1 so the label stays aligned. */
-        'flex h-4 w-5 shrink-0 items-center justify-center -mr-1 rounded text-[9px] font-semibold leading-none tracking-tighter text-[var(--text-on-dark)]',
+        /* #994 — the prototype's `.mark`: an 18px rounded square (`--r-mark`, 4px) in the space's colour, the two
+           letters in 10px / 600 / -0.05em, white. -mr-0.5 keeps the label aligned with the 16px glyph slots. */
+        'flex h-[18px] w-[18px] shrink-0 items-center justify-center -mr-0.5 rounded-[var(--radius-chip)] text-[10px] font-semibold leading-none tracking-[-0.05em] text-[var(--text-on-dark)]',
         className,
       )}
-      style={{ backgroundColor: color ?? 'var(--text-faint)' }}
+      // `color` is an option-colour NAME; the raw name is a CSS keyword with different (and unreadable) values.
+      style={{ backgroundColor: color ? (OPTION_COLORS[color] ?? color) : 'var(--text-faint)' }}
       aria-hidden
     >
-      {letter}
+      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className="text-[12px]" /> : letter}
     </span>
   );
 }

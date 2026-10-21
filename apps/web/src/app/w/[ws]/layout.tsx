@@ -165,6 +165,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
               type="button"
               onClick={() => setMobileOpen(true)}
               title="Open sidebar"
+              aria-label="Open navigation"
               className="rounded p-1.5 text-muted hover:bg-hover hover:text-ink md:hidden"
             >
               <Menu className="h-4 w-4" />

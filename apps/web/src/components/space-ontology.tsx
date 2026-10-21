@@ -10,6 +10,7 @@ import { buildOntologyView, pickCentre } from './space-ontology-layout';
 import { Dialog } from './ui/dialog';
 import { AddFieldDialog } from './table-view/add-field-dialog';
 import type { OntologyChip, OntologyGroup } from './space-ontology-layout';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * #636 — the ontology diagram: ONE database at the centre, everything it
@@ -236,7 +237,7 @@ function CentreChip({
     <span className="order-1 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app py-1.5 pl-2.5 pr-1.5 @min-[640px]:order-none @min-[640px]:col-start-2 @min-[640px]:row-start-2">
       <EntityIcon
         icon={database.icon}
-        color={database.color}
+        color={databaseColor(database.color, database.id)}
         fallback={<DatabaseIcon size={14} />}
       />
       <span className="truncate text-body font-medium text-ink">{database.name}</span>

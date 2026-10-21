@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { listAfterEdit } from './preferences';
 import {
   buildActivationSteps,
   completedCount,
@@ -7,7 +8,6 @@ import {
   isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
-  withWorkspaceDismissed,
   type OnboardingState,
 } from './activation';
 
@@ -108,14 +108,8 @@ describe('per-workspace dismissal helpers', () => {
     expect(isWorkspaceDismissed(undefined, 'w1')).toBe(false);
   });
 
-  it('appends a workspace to the dismissed list without duplicating', () => {
-    expect(withWorkspaceDismissed(undefined, 'w1')).toEqual(['w1']);
-    expect(withWorkspaceDismissed(['w1'], 'w2')).toEqual(['w1', 'w2']);
-    expect(withWorkspaceDismissed(['w1'], 'w1')).toEqual(['w1']);
-  });
-
   it('does not hide another workspace when one is dismissed', () => {
-    const dismissed = withWorkspaceDismissed(undefined, 'w1');
+    const dismissed = listAfterEdit(undefined, { add: ['w1'] });
     expect(isWorkspaceDismissed(dismissed, 'w1')).toBe(true);
     expect(isWorkspaceDismissed(dismissed, 'w2')).toBe(false);
   });

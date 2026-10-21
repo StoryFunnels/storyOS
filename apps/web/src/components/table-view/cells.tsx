@@ -261,6 +261,7 @@ interface DisplayProps {
 // (MN-135). Imported for CellDisplay's own use, and re-exported so existing
 // importers don't churn.
 import { cellToText, isPercentField, isPercentNumberField, richTextPreview } from './cell-text';
+import { databaseColor } from '@/lib/entity-color';
 export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
 
 /**
@@ -419,7 +420,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
             chips={[chip]}
             ws={ws}
             targetDb={chip.database_id}
-            color={field.relation?.target_database_color}
+            color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)}
           />
         );
       }
@@ -449,7 +450,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
           chips={(value as LinkChip[]) ?? []}
           ws={ws}
           targetDb={field.relation?.target_database_id}
-          color={field.relation?.target_database_color}
+          color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)}
         />
       );
     case 'checkbox':
@@ -491,10 +492,10 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
     case 'date':
     case 'created_at':
     case 'updated_at': {
-      const d = new Date(String(value));
-      if (Number.isNaN(d.getTime())) return <span className="truncate text-body">{String(value)}</span>;
-      // System timestamps carry a time; plain date fields show the day only.
-      const shown = field.type === 'date' ? fmt.date(d) : fmt.dateTime(d);
+      if (Number.isNaN(new Date(String(value)).getTime())) return <span className="truncate text-body">{String(value)}</span>;
+      // System timestamps carry a time; plain date fields show the day only. The raw value goes to the formatter, which
+      // knows a day-only string is a calendar day and not an instant (#1005).
+      const shown = field.type === 'date' ? fmt.date(value) : fmt.dateTime(value);
       return <span className="truncate text-body tabular-nums text-ink-secondary">{shown}</span>;
     }
     case 'color':
@@ -621,7 +622,7 @@ export interface ViewRow {
  * time), matching how the formula engine preserves the two shapes.
  */
 export function formatDateValue(
-  fmt: { date: (d: Date) => string; dateTime: (d: Date) => string },
+  fmt: { date: (v: unknown) => string; dateTime: (v: unknown) => string },
   value: unknown,
 ): string | null {
   if (typeof value !== 'string' && !(value instanceof Date)) return null;
@@ -629,7 +630,8 @@ export function formatDateValue(
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return null;
   const midnightUtc = raw.length <= 10 || /T00:00:00(\.000)?Z?$/.test(raw);
-  return midnightUtc ? fmt.date(d) : fmt.dateTime(d);
+  // The raw string goes through, so a day-only value stays the calendar day it names (#1005).
+  return midnightUtc ? fmt.date(raw) : fmt.dateTime(raw);
 }
 
 /** created_at/updated_at are date-typed system fields — usable anywhere a date is (MN-150). */

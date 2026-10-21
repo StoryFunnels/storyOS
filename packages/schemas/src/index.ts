@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export * from './colors';
+export * from './entity-color';
 export * from './descriptions';
 export * from './workspaces';
 export * from './databases';

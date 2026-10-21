@@ -45,6 +45,8 @@ export interface Facets {
   priority: FacetOption | null;
   /** The raw date as stored, or null. */
   due: string | null;
+  /** #1002 — the state is a finished one (see `isCompletedState`). A finished record is never "overdue" and sorts after open ones. */
+  completed: boolean;
 }
 
 const DUE_NAME = /(^|\W)(due|deadline)(\W|$)|due.?date|target.?date/i;
@@ -68,6 +70,29 @@ export function pickFacetFields(fields: DenseField[]): Pick<Facets, 'stateField'
   return { stateField, priorityField, dueField };
 }
 
+/** The labels that mean "finished" — the same vocabulary the done-style automation recipes already use (automation-recipes.ts). */
+const COMPLETED_LABEL = /^(done|complete|completed|closed|shipped|resolved|cancell?ed|archived)$/i;
+
+/**
+ * #1002 — is this state a finished one?
+ *
+ * There is NO state-category data in the model today: a workflow option is a label, a colour, an icon and a position
+ * (`select_options`), so "use the workflow's state categories" has nothing to read. Until options carry a category (a
+ * schema change, filed on the ticket), this is the best the data allows and it is deliberately narrow: a label from the
+ * finished vocabulary, or the LAST option of a WORKFLOW field (the terminal state of an ordered flow; a plain select's
+ * last option is just its last option, so it is not promoted). A record with no state is open.
+ */
+export function isCompletedState(field: DenseField | null, raw: unknown): boolean {
+  if (!field) return false;
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (v == null || v === '') return false;
+  const options = field.options ?? [];
+  const opt = options.find((o) => o.id === v);
+  if (!opt) return false;
+  if (COMPLETED_LABEL.test(opt.label.trim())) return true;
+  return field.type === 'workflow' && options.length > 1 && options[options.length - 1]!.id === opt.id;
+}
+
 function optionOf(field: DenseField | null, raw: unknown): FacetOption | null {
   if (!field) return null;
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -86,6 +111,7 @@ export function facetsFor(fields: DenseField[], values: Record<string, unknown>)
     state: optionOf(stateField, stateField ? values[stateField.api_name] : null),
     priority: optionOf(priorityField, priorityField ? values[priorityField.api_name] : null),
     due: typeof rawDue === 'string' && rawDue !== '' ? rawDue : null,
+    completed: isCompletedState(stateField, stateField ? values[stateField.api_name] : null),
   };
 }
 
@@ -100,9 +126,11 @@ function dayKey(d: Date): string {
  * Where a due date sits relative to today, in the viewer's local calendar. A bare `YYYY-MM-DD` is a CALENDAR
  * day (no time zone), so it is compared as text; a full timestamp is read in local time.
  */
-export type DueBucket = 'overdue' | 'today' | 'later' | 'none';
-export function dueBucket(due: string | null, now: Date): DueBucket {
+export type DueBucket = 'overdue' | 'today' | 'later' | 'none' | 'done';
+export function dueBucket(due: string | null, now: Date, completed = false): DueBucket {
   if (!due) return 'none';
+  // #1002 — a finished record has no deadline left to miss: its date is history, shown plain, never red.
+  if (completed) return 'done';
   const day = /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : (() => {
     const d = new Date(due);
     return Number.isNaN(d.getTime()) ? null : dayKey(d);
@@ -151,12 +179,14 @@ function dueStamp(due: string | null): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** The merged list's order. Due date: earliest first, rows with no due date after every dated one, newest-updated first among ties. */
+/** The merged list's order. Due date: open records first, earliest due first, rows with no due date after every dated one, newest-updated first among ties; finished records follow, ordered the same way. */
 export function sortRows<T extends { record: MyWorkRecord; facets: Facets }>(rows: T[], key: MyWorkSortKey): T[] {
   const byUpdated = (a: T, b: T) => Date.parse(b.record.updated_at) - Date.parse(a.record.updated_at);
   return [...rows].sort((a, b) => {
     if (key === 'title') return (a.record.title || '').localeCompare(b.record.title || '') || byUpdated(a, b);
     if (key === 'updated') return byUpdated(a, b);
+    // #1002 — finished records go AFTER every open one (never first), each group in the order below.
+    if (a.facets.completed !== b.facets.completed) return a.facets.completed ? 1 : -1;
     const da = dueStamp(a.facets.due);
     const db = dueStamp(b.facets.due);
     if (da !== null && db !== null) return da - db || byUpdated(a, b);

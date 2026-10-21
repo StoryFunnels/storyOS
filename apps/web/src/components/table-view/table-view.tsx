@@ -46,6 +46,7 @@ import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/recor
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { withSystemFields } from '../views/system-fields';
 import { atLeast } from '@/lib/access';
+import { gutterShowsPosition } from './number-column';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
 import { ViewQueryError } from '../views/query-error';
@@ -897,7 +898,7 @@ export function TableView({
             : {}),
         }}
         className={cn(
-          'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
+          'group/cell relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
           isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
           pinned && colIndex < frozenCount
             ? cn(
@@ -1023,7 +1024,16 @@ export function TableView({
           field.type !== 'id' &&
           field.type !== 'title' &&
           !NO_EDITOR.has(field.type) ? (
-          <EmptyFieldAffordance field={field} editable />
+          // #1004 — blank at rest: the prompt shows only on hover or keyboard focus of THIS cell (the cursor cell is
+          // the focused one; on touch a tap puts the cursor there, #900). The cell still owns the click.
+          <EmptyFieldAffordance
+            field={field}
+            editable
+            className={cn(
+              'transition-opacity',
+              isCursor ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100',
+            )}
+          />
         ) : field.type === 'title' && hierarchyInfo ? (
           // #233 — the expand caret + indent live ONLY on the title cell, the
           // one column every row renders regardless of view config, matching
@@ -1354,14 +1364,19 @@ export function TableView({
                         </span>
                       )}
                       <span className="relative flex h-5 min-w-[1.5rem] items-center justify-center [@media(hover:none)]:gap-1">
-                        <span
-                          className={cn(
-                            'flex items-center gap-0.5 text-meta tabular-nums text-faint',
-                            selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
-                          )}
-                        >
-                          {item.index + 1}
-                        </span>
+                        {/* #1004 — ONE number per row. While the record's ID column is showing, IT is the number and
+                            this slot holds only the row actions; with the ID hidden, the slot keeps the row's position
+                            so a database never has no numbering at all. */}
+                        {gutterShowsPosition(fields) && (
+                          <span
+                            className={cn(
+                              'flex items-center gap-0.5 text-meta tabular-nums text-faint',
+                              selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
+                            )}
+                          >
+                            {item.index + 1}
+                          </span>
+                        )}
                         {/* The labelled "Open" affordance on the title cell is the single way
                             to expand a row (#90) — no duplicate icon here. */}
                         {!readOnly && (

@@ -86,3 +86,12 @@ export function emptyViewCause(c: {
   // Narrowed by something we cannot attribute (e.g. a count still loading): the safe, true reading.
   return c.hasViewFilter ? 'filters' : c.hasPersonal ? 'personal' : null;
 }
+
+/**
+ * #992 — how many APPLIED conditions of the view's filter are on one field, for the column header's gold mark.
+ * The header must follow the Filter button's rule (above): a disabled or unfinished condition hides nothing, so
+ * a column whose only condition is "State is none of [ ]" (0 of 1 applied) carries no mark. Counts at any depth.
+ */
+export function appliedConditionsOnField(view: FilterNode | undefined, apiName: string): number {
+  return leaves(view).filter((c) => c.field === apiName && isApplied(c)).length;
+}

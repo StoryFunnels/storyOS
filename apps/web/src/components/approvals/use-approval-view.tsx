@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { approvalView, decidedSummary, type ApprovalRow, type ApprovalView } from './approval-state';
+import { useDateFormat } from '@/lib/preferences';
 
 /**
  * One request per list, shared by every row on screen (keys are workspace-scoped, not row-scoped).
@@ -41,6 +42,7 @@ export function useApprovalView(ws: string, approvalId: string | null | undefine
 
 /** The decided state, shown where the Approve/Reject buttons would be. */
 export function DecidedApproval({ ws, view }: { ws: string; view: Extract<ApprovalView, { kind: 'decided' }> }) {
+  const fmt = useDateFormat();
   const members = useMembers(ws, true);
   const nameOf = (id: string) => members.data?.find((m) => m.user.id === id)?.user.name;
   const Icon = view.status === 'approved' ? Check : view.status === 'rejected' ? X : null;
@@ -51,7 +53,7 @@ export function DecidedApproval({ ws, view }: { ws: string; view: Extract<Approv
       className="mt-2 flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-2.5 py-2 text-label font-medium text-ink-secondary"
     >
       {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-      {decidedSummary(view, nameOf, (iso) => new Date(iso).toLocaleDateString(), members.isSuccess)}
+      {decidedSummary(view, nameOf, (iso) => fmt.date(iso), members.isSuccess)}
     </p>
   );
 }

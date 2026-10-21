@@ -200,3 +200,38 @@ describe('#1009 Run again', () => {
     expect(await runsOf(r.id), 'none of the refused calls ran anything').toHaveLength(1);
   });
 });
+
+describe('#1011 one status vocabulary: the rule page\'s history and the runs page agree', () => {
+  const ruleRuns = async (ruleId: string) => ((await own('GET', `/workspaces/${ws}/databases/${dbA}/automations/${ruleId}/runs`)).json().data as Array<{ id: string; status: string; awaitingApprovalCount: number; effects: unknown }>);
+
+  it('GET /automations/:id/runs reads the same status as GET /runs for the same run, before and after the approval is decided', async () => {
+    const r = await rule(dbA);
+    const rec = await newRecord(dbA, 'Rule page');
+    const [fromList] = await runsOf(r.id);
+    const [fromRule] = await ruleRuns(r.id);
+    expect(fromRule!.id).toBe(fromList!.id);
+    expect(fromRule).toMatchObject({ status: 'awaiting_approval', awaitingApprovalCount: 1 });
+    expect(fromRule!.status).toBe(fromList!.status);
+    const approval = await approvalOf(rec, r.id);
+    expect((await own('POST', `/workspaces/${ws}/approvals/${approval.id}/approve`)).statusCode).toBe(201);
+    const [afterList] = await runsOf(r.id);
+    const [afterRule] = await ruleRuns(r.id);
+    expect(afterRule).toMatchObject({ status: 'ok', awaitingApprovalCount: 0 });
+    expect(afterRule!.status).toBe(afterList!.status);
+  });
+
+  it('every other status is as stored, the stored columns are still there, and it is one derivation for both endpoints', async () => {
+    const r = await rule(dbA, { actions: [{ type: 'add_comment', body_template: 'plain' }] });
+    await newRecord(dbA, 'Plain rule page');
+    const [run] = await ruleRuns(r.id);
+    expect(run).toMatchObject({ status: 'ok', awaitingApprovalCount: 0 });
+    expect(Object.keys(run!)).toEqual(expect.arrayContaining(['id', 'automationId', 'triggerRecordId', 'effects', 'durationMs', 'createdAt']));
+    const errored = randomUUID();
+    await db.insert(automationRuns).values({ id: errored, automationId: r.id, workspaceId: ws, triggerRecordId: null, status: 'error', error: 'boom', depth: 0, durationMs: 1 });
+    expect((await ruleRuns(r.id)).find((x) => x.id === errored)!.status).toBe('error');
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../src/automations/automations.service.ts', import.meta.url), 'utf8');
+    expect(src, 'the rule history must use the shared derivation').toContain("from './run-status'");
+    expect(src).not.toMatch(/AWAITING_APPROVAL|'awaiting_approval'/);
+  });
+});
