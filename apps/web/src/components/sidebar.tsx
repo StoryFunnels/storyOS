@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { DndContext, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, pointerWithin, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -60,6 +60,7 @@ import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row'
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -167,7 +168,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   }
   const ungroupedSpaces = visibleSpaces.filter((s) => !s.groupId || !spacesByGroup.has(s.groupId));
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSortableSensors();
 
   /**
    * #742 phase 5 — a container (a group's own area, or the ungrouped zone)
@@ -1110,7 +1111,7 @@ function SpaceSection({
   const mutations = useSidebarMutations(ws);
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
-  const dbSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const dbSensors = useSortableSensors();
   /**
    * #369 — collision detection that lets a CONTAINER win.
    *

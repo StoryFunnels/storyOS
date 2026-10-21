@@ -2,13 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -27,6 +21,7 @@ import type { Field } from './use-table-data';
 import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
 import { choiceDirectionLabels, reorderedIds } from '../views/option-order';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 let draftKey = 0;
 
@@ -115,7 +110,7 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
   const { invalidate } = useFieldMutations(ws, db);
   const options = field.options ?? [];
   const [pending, setPending] = useState('');
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSortableSensors();
 
   const addOption = useMutation({
     mutationFn: async (label: string) => {

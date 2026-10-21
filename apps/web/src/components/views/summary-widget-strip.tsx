@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -22,6 +22,7 @@ import type { TileOp } from './dashboard-tiles';
 import { andFilterNodes } from './filter-config';
 import type { FilterNode } from './filter-config';
 import type { ViewConfig } from './use-view-state';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 export type SummaryWidget = NonNullable<ViewConfig['summary_widgets']>[number];
 
@@ -374,7 +375,7 @@ export function SummaryWidgetStrip({
   onPatch: (patch: Partial<ViewConfig>) => void;
 }) {
   const widgets = config.summary_widgets ?? [];
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   /* Declared above the early return below — hooks cannot sit behind a branch. */
   const [justDuplicated, setJustDuplicated] = useState<string | null>(null);
 

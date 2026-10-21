@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -91,6 +91,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import type { RecordRow } from '@/components/table-view/use-table-data';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 
 /**
@@ -343,7 +344,7 @@ export function RecordDetail({
   const [showHidden, setShowHidden] = useState(false);
 
   const setFieldConfig = useSetFieldConfig(ws, db);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSortableSensors();
 
   /**
    * #310 — reorder a body list that mixes fields with the description block. One
