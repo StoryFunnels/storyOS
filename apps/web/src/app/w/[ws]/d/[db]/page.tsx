@@ -32,11 +32,13 @@ import { defaultTableHiddenFieldIds } from './default-table-columns';
 import {
   EMPTY_CONFIG,
   queryBodyFromConfig,
+  useClearPersonalFilter,
   useViewMutations,
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
-import { useViewSearch } from '@/components/views/view-search';
+import { setViewSearch, useViewSearch } from '@/components/views/view-search';
+import { EmptyViewNotice, useEmptyViewCause } from '@/components/views/empty-view-notice';
 import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -76,6 +78,9 @@ function DatabasePageInner() {
 
   const search = useViewSearch(db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
+  // #965 — WHY a record-grid view is empty: filters, the personal filter, or Find, never "add your first".
+  const emptyCause = useEmptyViewCause(ws, db, config, personalFilter);
+  const clearPersonal = useClearPersonalFilter(ws, db);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   // #527 — the view being published/managed, or null when the dialog is closed.
@@ -359,7 +364,17 @@ function DatabasePageInner() {
       )}
 
       <div className="min-h-0 flex-1">
-        {activeView?.type === 'board' ? (
+        {emptyCause.cause && emptyCause.cause !== 'empty' && activeView && ['table', 'board', 'gallery', 'list', 'feed'].includes(activeView.type) ? (
+          <EmptyViewNotice
+            cause={emptyCause.cause}
+            total={emptyCause.total}
+            search={emptyCause.search}
+            hasViewFilter={emptyCause.hasViewFilter}
+            onClearFilters={() => patch({ filters: undefined })}
+            onClearPersonal={() => clearPersonal.mutate(activeView.id)}
+            onClearSearch={() => setViewSearch(db, '')}
+          />
+        ) : activeView?.type === 'board' ? (
           <BoardView
             ws={ws}
             db={db}

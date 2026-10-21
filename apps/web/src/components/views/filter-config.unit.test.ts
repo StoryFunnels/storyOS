@@ -588,43 +588,39 @@ describe('#224 per-column filter helpers', () => {
 });
 
 /**
- * #733 — the old rule (`leaves.length <= 2 ? leaves : leaves.filter(pinned)`)
- * meant a THIRD filter condition made the first two vanish, because nobody
- * had pinned anything until that exact moment. Confirmed live before this fix
- * existed. Every leaf must always be a chip; pinning only reorders.
+ * #965 REPLACES #733's rule. #733: "every condition is always a chip" (it fixed a third condition hiding
+ * the first two). #965 (Ievgen, 10-20): no condition chips by default, the Filter button turns yellow
+ * instead, and a chip exists only for a condition someone PINNED. #733's defect stays fixed because the
+ * chip set no longer depends on how many conditions there are, only on `pinned`.
+ *
+ * (This block used to assert that three unpinned conditions are ALL chips. That assertion was #733's
+ * defence; kept under #965 it would have specified the opposite of the decision.)
  */
-describe('visibleFilterChips — #733: a filter chip is never gated on staying under three conditions', () => {
+describe('visibleFilterChips — #965: a chip only for a pinned condition', () => {
   const leaf = (id: string, pinned = false) => ({ id, node: cond({ field: id, pinned }) });
 
-  it('shows all three-plus conditions as chips, not just pinned ones — the exact defect this ticket fixes', () => {
-    const leaves = [leaf('a'), leaf('b'), leaf('c')];
-    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'b', 'c']);
+  it('nothing is chipped by default: unpinned conditions are not chips, however few or many', () => {
+    expect(visibleFilterChips([leaf('a')])).toEqual([]);
+    expect(visibleFilterChips([leaf('a'), leaf('b'), leaf('c'), leaf('d')])).toEqual([]);
   });
 
-  it('a fourth condition stays visible too — no cliff reappears further out', () => {
-    const leaves = [leaf('a'), leaf('b'), leaf('c'), leaf('d')];
-    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'b', 'c', 'd']);
-  });
-
-  it('pinning promotes to the front rather than gating visibility (AC2)', () => {
-    const leaves = [leaf('a'), leaf('b', true), leaf('c'), leaf('d', true)];
-    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['b', 'd', 'a', 'c']);
-  });
-
-  it('preserves each group’s original relative order — pinning promotes, it does not shuffle', () => {
+  it('pinned conditions are chips, in the filter\'s own order', () => {
     const leaves = [leaf('a', true), leaf('b'), leaf('c', true), leaf('d')];
-    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'c', 'b', 'd']);
+    expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['a', 'c']);
   });
 
-  it('one or two conditions still show in full, matching pre-#733 behavior for the common case (AC5)', () => {
-    expect(visibleFilterChips([leaf('a')]).map((f) => f.id)).toEqual(['a']);
-    expect(visibleFilterChips([leaf('a'), leaf('b')]).map((f) => f.id)).toEqual(['a', 'b']);
+  it('#733 stays fixed: adding more conditions never hides a pinned one, at three or at ten', () => {
+    const pinned = leaf('p', true);
+    for (const extra of [0, 1, 2, 3, 10]) {
+      const leaves = [pinned, ...Array.from({ length: extra }, (_, i) => leaf(`u${i}`))];
+      expect(visibleFilterChips(leaves).map((f) => f.id)).toEqual(['p']);
+    }
   });
 
-  it('an existing deliberately-pinned view keeps behaving as before — pinned conditions still show (AC3)', () => {
-    const leaves = [leaf('a', true), leaf('b'), leaf('c'), leaf('d')];
-    const ids = visibleFilterChips(leaves).map((f) => f.id);
-    expect(ids).toContain('a');
-    expect(ids).toHaveLength(4);
+  it('unpinning removes exactly that chip', () => {
+    const before = [leaf('a', true), leaf('b', true)];
+    const after = [leaf('a', true), leaf('b', false)];
+    expect(visibleFilterChips(before).map((f) => f.id)).toEqual(['a', 'b']);
+    expect(visibleFilterChips(after).map((f) => f.id)).toEqual(['a']);
   });
 });
