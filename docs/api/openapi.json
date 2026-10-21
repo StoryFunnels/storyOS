@@ -4727,6 +4727,30 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/approvals/count": {
+      "get": {
+        "operationId": "ApprovalsController_count",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "How many approvals match (status=pending means waiting: pending and not expired) — an exact count, unlike the list, which is capped at 100 rows",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
       "post": {
         "operationId": "ApprovalsController_approve",
@@ -9622,7 +9646,7 @@
             "description": ""
           }
         },
-        "summary": "Every automation run in the workspace, newest first — rule runs today (source syncs pending #239)",
+        "summary": "Every automation run in the workspace, newest first — rule runs today (source syncs pending #239). status is ok (Succeeded), error (Failed), running (Running), skipped (Skipped), skipped_quota (Skipped (quota)) or awaiting_approval (Awaiting approval: at least one action is waiting for a person); awaiting_approval_count says how many",
         "tags": [
           "runs"
         ]
@@ -9647,6 +9671,30 @@
           }
         },
         "summary": "Run detail: trigger context, per-action attempts/artifacts, approval linkage",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs/{id}/rerun": {
+      "post": {
+        "operationId": "RunsController_rerunWhole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Run again: run this run's rule once more on the same trigger record, as a NEW run (the original is untouched), against the record as it is now",
         "tags": [
           "runs"
         ]
