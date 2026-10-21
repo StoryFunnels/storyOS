@@ -11,10 +11,15 @@ describe('workspace settings nav by role (ticket #875)', () => {
     expect(l).toContain('API tokens');
     expect(l).not.toContain('Integrations');
   });
-  it('an ADMIN keeps everything, Integrations included (the door is added, nothing moves)', () => {
+  it('an ADMIN keeps everything, Integrations included; #967 moved Connect your AI to just after Members', () => {
     expect(labels('admin', true)).toEqual([
-      'General', 'Members', 'Billing', 'Integrations', 'Connect your AI', 'API tokens', 'Export', 'Trash', 'Audit log', 'Governance',
+      'General', 'Members', 'Connect your AI', 'Billing', 'Integrations', 'API tokens', 'Export', 'Trash', 'Audit log', 'Governance',
     ]);
+  });
+  it('#967: Connect your AI sits right after Members for an admin, and right after General for a member', () => {
+    const admin = labels('admin', true);
+    expect(admin.indexOf('Connect your AI')).toBe(admin.indexOf('Members') + 1);
+    expect(labels('member')).toEqual(['General', 'Connect your AI', 'API tokens']);
   });
   it('a GUEST sees neither Connect your AI nor API tokens nor Integrations (matches the credential they cannot mint)', () => {
     const l = labels('guest');

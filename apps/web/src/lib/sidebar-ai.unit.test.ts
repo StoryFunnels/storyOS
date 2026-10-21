@@ -19,3 +19,33 @@ describe('goldCountLabel (#967)', () => {
     expect(goldCountLabel(1000)).toBe('1000');
   });
 });
+
+import { isAiConnected, shouldAnnounceMove, showConnectAiRow } from './sidebar-ai';
+
+describe('#967 Connect your AI row', () => {
+  it('connected = ai_connected OR mcp_oauth_connected (Otto\'s final definition): any connected AI counts', () => {
+    expect(isAiConnected({ ai_connected: true })).toBe(true);
+    expect(isAiConnected({ mcp_oauth_connected: true })).toBe(true);
+    expect(isAiConnected({ ai_connected: false, mcp_oauth_connected: false })).toBe(false);
+  });
+
+  it('a key an older server omits reads as false, and no answer reads as not connected-yet-known', () => {
+    expect(isAiConnected({})).toBe(false);
+    expect(isAiConnected(undefined)).toBe(false);
+  });
+
+  it('shows only on a real "not connected"; loading and errors show nothing (no flash, no nagging)', () => {
+    expect(showConnectAiRow(false)).toBe(true);
+    expect(showConnectAiRow(true)).toBe(false);
+    expect(showConnectAiRow(undefined)).toBe(false);
+  });
+
+  it('the toast fires once, on a known not-connected -> connected change, and never again', () => {
+    expect(shouldAnnounceMove(false, true, false)).toBe(true);
+    expect(shouldAnnounceMove(false, true, true)).toBe(false); // already shown, stored per viewer
+    expect(shouldAnnounceMove(true, true, false)).toBe(false); // was already connected: no change to announce
+    expect(shouldAnnounceMove(undefined, true, false)).toBe(false); // first look: nothing was seen to disappear
+    expect(shouldAnnounceMove(false, false, false)).toBe(false);
+    expect(shouldAnnounceMove(false, true, undefined)).toBe(false); // the viewer's list is not loaded yet
+  });
+});
