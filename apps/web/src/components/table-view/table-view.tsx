@@ -4,7 +4,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
-import { ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { DndContext, closestCenter } from '@dnd-kit/core';
@@ -12,12 +12,14 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { aiFieldState } from '@/lib/ai-field-state';
+import { aiFieldState, aiStateSpeaks } from '@/lib/ai-field-state';
 import { useShortcut, useWithShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
+import { SelectionReadout } from './selection-readout';
+import { summarizeSelection } from './selection-summary';
 import { EditFieldDialog } from './edit-field-dialog';
 import { HeaderCell } from './header-cell';
 import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
@@ -635,6 +637,24 @@ export function TableView({
     commitEdit(row, target, value);
   }
 
+  // #580 — the throwaway readout: a pure function of the selected rectangle, recomputed client-side
+  // as it changes and gone the moment the range is. One cell is a cursor, not a selection.
+  const selectionSummary = useMemo(() => {
+    if (!rangeBounds) return null;
+    const { r0, r1, c0, c1 } = rangeBounds;
+    if (r0 === r1 && c0 === c1) return null;
+    const cells: Array<{ field: Field; value: unknown }> = [];
+    for (let r = r0; r <= r1; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      for (let c = c0; c <= c1; c++) {
+        const field = fields[c];
+        if (field) cells.push({ field, value: fieldValue(row, field) });
+      }
+    }
+    return summarizeSelection(cells);
+  }, [rangeBounds, rows, fields]);
+
   // MN-285: copy every cell in the selected range as a TSV block (system
   // clipboard) + the raw {field,value} grid (in-app, for exact same-type paste).
   function copyRange() {
@@ -997,8 +1017,8 @@ export function TableView({
             onPressed={() => updateRecord.reset()}
           />
         ) : isEmptyCellValue(valueOf(row, field)) &&
-          // #620 — a failed AI recompute with no value yet is shown as failed, not as an "Add" ghost.
-          !(field.type === 'ai' && aiFieldState(row, field.id).kind === 'failed') &&
+          // #620 — a failed or computing AI field with no value yet says so, not an "Add" ghost.
+          !(field.type === 'ai' && aiStateSpeaks(aiFieldState(row, field.id))) &&
           !readOnly &&
           field.type !== 'id' &&
           field.type !== 'title' &&
@@ -1298,45 +1318,73 @@ export function TableView({
                       #739 for list/feed, which still merge it into their own
                       gutter and haven't been re-skinned yet.
                     */}
-                    <span
-                      className={cn(
-                        'flex items-center gap-0.5 text-meta tabular-nums text-faint',
-                        selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
-                      )}
-                    >
-                      {item.index + 1}
-                    </span>
-                    <div
-                      className={cn(
-                        'absolute inset-0 flex items-center justify-center gap-0.5',
-                        selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                      )}
-                    >
+                    {/*
+                      #971 — the checkbox RESTS visible, at --faint, and goes full on hover, keyboard focus or
+                      checked: selecting must not be a thing you discover by hovering (#900). The slot beside it
+                      is unchanged — the row number at rest, the trash on hover (and on every row while a
+                      selection is active, as before). The trash stays hover-only on purpose.
+                    */}
+                    <div className="flex items-center justify-center gap-1.5">
                       {!readOnly && (
-                        <input
-                          type="checkbox"
-                          className="h-3 w-3 cursor-pointer"
-                          checked={selected.has(row.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSelect(item.index, (e.nativeEvent as MouseEvent).shiftKey);
-                          }}
-                          readOnly
-                        />
+                        <span className="relative flex h-3 w-3 shrink-0">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${noun}`}
+                            className={cn(
+                              'peer h-3 w-3 cursor-pointer appearance-none rounded-[3px] border bg-transparent',
+                              'checked:border-accent checked:bg-accent',
+                              // faint at rest; full on row hover, keyboard focus, checked, or while selecting
+                              selected.size > 0
+                                ? 'border-ink/60'
+                                : 'border-faint group-hover:border-ink focus-visible:border-ink',
+                              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
+                            )}
+                            checked={selected.has(row.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSelect(item.index, (e.nativeEvent as MouseEvent).shiftKey);
+                            }}
+                            readOnly
+                          />
+                          <Check
+                            aria-hidden
+                            strokeWidth={3}
+                            className="pointer-events-none absolute inset-0 h-3 w-3 text-on-accent opacity-0 peer-checked:opacity-100"
+                          />
+                        </span>
                       )}
-                      {/* The labelled "Open" affordance on the title cell is the single way
-                          to expand a row (#90) — no duplicate icon here. */}
-                      {!readOnly && (
-                        <Tooltip label="Delete">
-                          <button
-                            aria-label={`Delete ${noun}`}
-                            className="rounded p-0.5 text-faint hover:text-error"
-                            onClick={() => deleteRecord.mutate(row.id)}
+                      <span className="relative flex h-5 min-w-[1.5rem] items-center justify-center [@media(hover:none)]:gap-1">
+                        <span
+                          className={cn(
+                            'flex items-center gap-0.5 text-meta tabular-nums text-faint',
+                            selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
+                          )}
+                        >
+                          {item.index + 1}
+                        </span>
+                        {/* The labelled "Open" affordance on the title cell is the single way
+                            to expand a row (#90) — no duplicate icon here. */}
+                        {!readOnly && (
+                          <div
+                            className={cn(
+                              // on touch there is no hover to swap the number for the trash (#933 keeps the trash
+                              // always visible), so the two sit side by side instead of overlapping
+                              'absolute inset-0 flex items-center justify-center [@media(hover:none)]:static [@media(hover:none)]:inset-auto',
+                              selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                            )}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </Tooltip>
-                      )}
+                            <Tooltip label="Delete">
+                              <button
+                                aria-label={`Delete ${noun}`}
+                                className="rounded p-0.5 text-faint hover:text-error"
+                                onClick={() => deleteRecord.mutate(row.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </Tooltip>
+                          </div>
+                        )}
+                      </span>
                     </div>
                   </div>
                   {/* #251 Column virtualization: frozen always, non-frozen windowed.
@@ -1391,6 +1439,7 @@ export function TableView({
         </div>
       </div>
 
+      {selectionSummary && <SelectionReadout summary={selectionSummary} />}
       {!readOnly && selected.size > 0 && (
         <BatchBar
           ws={ws}

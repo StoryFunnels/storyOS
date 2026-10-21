@@ -1,17 +1,16 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
-import type { FilterNode } from '@storyos/schemas';
+import { Inject, Injectable } from '@nestjs/common';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, userPreferences, views } from '../db/schema';
-import { notDeleted } from '../db/soft-delete';
-import { assertFilterFieldsLive, cleanFilterNode } from '../views/views.service';
+import { userPreferences } from '../db/schema';
 import {
   DEFAULT_PREFERENCES,
   mergePreferences,
-  type CollectionViewConfig,
   type UserPreferences,
 } from './preferences.constants';
+
+/** The groups of the preferences blob a PATCH may write: the keys of `UserPreferences` (see `preferences.controller.ts`'s patch schema). */
+const PATCHABLE = ['notifications', 'regional', 'myWork', 'github', 'activation', 'sidebar'] as const;
 
 /** Read/write the per-user preferences blob (#30/#31). */
 @Injectable()
@@ -25,201 +24,40 @@ export class PreferencesService {
     return mergePreferences(row?.preferences);
   }
 
-  /** Deep-merge a partial patch over the stored (or default) preferences and upsert. */
+  /**
+   * Merge a partial patch into the stored preferences, ATOMICALLY (ticket #981).
+   *
+   * This used to read the whole blob, spread the patch over it and write ALL of it back, so two PATCHes for two different keys (a
+   * notification toggle in one tab, a date format in another) raced: the later write put back the blob it had read before the other
+   * landed and one vanished. It is now ONE statement — `INSERT .. ON CONFLICT DO UPDATE` whose new value is computed in SQL from the row
+   * as it is at that moment: for each group the patch names, `stored.group || patch.group`. Postgres takes the row lock and re-reads the
+   * latest committed version before evaluating that expression, so two writes to different groups — or to different keys of the same
+   * group — can no longer lose each other. (A version check with retry would have worked too; it costs a loop and a failure mode, and this
+   * needs neither.)
+   *
+   * The merge rule is the one the old code had: one level deep, per group (`{...stored.group, ...patch.group}`), so `myWork` replaces the
+   * config of each database the patch names and keeps the rest. Only the groups the patch names are touched, and only the groups in
+   * `PATCHABLE` are accepted. Defaults are applied on READ (`mergePreferences`), not baked into the stored blob.
+   */
   async update(userId: string, patch: DeepPartial<UserPreferences>): Promise<UserPreferences> {
-    const current = await this.get(userId);
-    const next: UserPreferences = {
-      notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
-      regional: { ...current.regional, ...(patch.regional ?? {}) },
-      // Merge per-database: a patch replaces the config for the databases it names.
-      // (Controller-validated values are full configs, never undefined.)
-      myWork: { ...current.myWork, ...(patch.myWork ?? {}) } as UserPreferences['myWork'],
-      github: { ...current.github, ...(patch.github ?? {}) },
-      // Activation checklist dismissal (#155): a patch replaces the whole
-      // dismissed-workspaces list (the client sends the full next list), else the
-      // current one is carried through untouched — same reconstruct-safe rule as
-      // the keys above so an unrelated patch can't silently wipe it.
-      activation: { ...current.activation, ...(patch.activation ?? {}) },
-      // Sidebar display prefs (#775): same reconstruct-safe merge, so an unrelated
-      // patch can never silently switch views-only mode back off.
-      sidebar: { ...current.sidebar, ...(patch.sidebar ?? {}) },
-      // viewFilters (#259) is never part of this generic patch — it's managed by
-      // the dedicated personal-filter endpoint (views/:view/personal-filter) so it
-      // gets the view/field existence checks that live there. Carry it through
-      // unchanged so an unrelated patch (e.g. a notification toggle) can never
-      // silently wipe a personal filter override.
-      viewFilters: current.viewFilters,
-      // collectionFilters (#736) is never part of this generic patch either, for
-      // the same reason viewFilters isn't — it's managed by the dedicated
-      // fields/:field/personal-collection-view endpoint, which gets the field
-      // existence/type check that lives there.
-      collectionFilters: current.collectionFilters,
-    };
-    await this.db
+    const groups: Record<string, unknown> = {};
+    for (const key of PATCHABLE) if (patch[key] !== undefined) groups[key] = patch[key];
+    const patchJson = JSON.stringify(groups);
+    const [row] = await this.db
       .insert(userPreferences)
-      .values({ userId, preferences: next, updatedAt: new Date() })
+      .values({ userId, preferences: groups, updatedAt: new Date() })
       .onConflictDoUpdate({
         target: userPreferences.userId,
-        set: { preferences: next, updatedAt: new Date() },
-      });
-    return next;
-  }
-
-  /** The view row scoped to its database — 404 if missing/mismatched, same guard
-   * every other view-scoped endpoint uses (ViewsService). */
-  private async liveView(databaseId: string, viewId: string) {
-    const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), notDeleted(views.deletedAt)),
-    });
-    if (!view) throw new NotFoundException('View not found');
-    return view;
-  }
-
-  private async liveApiNames(databaseId: string): Promise<Set<string>> {
-    const live = await this.db.query.fields.findMany({
-      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
-      columns: { apiName: true },
-    });
-    return new Set(live.map((f) => f.apiName));
-  }
-
-  /**
-   * Personal filter override for one view (#259): narrows the shared view's
-   * results for THIS user only. Cleaned at read time exactly like
-   * `cleanViewConfig` cleans a view's own filters — dead field refs (the field
-   * was deleted since the override was set) are pruned rather than persisted
-   * forever or allowed to crash the query. Nothing is written back here; the
-   * stored blob still carries the stale reference until the user next edits
-   * their override, same as a view's own filters never get proactively
-   * rewritten on field deletion either — the shared config's existing cleanup
-   * pattern (databases.service.ts's `get()`) is a defensive READ, not a write.
-   */
-  async getViewFilter(userId: string, databaseId: string, viewId: string): Promise<FilterNode | undefined> {
-    await this.liveView(databaseId, viewId);
-    const stored = (await this.get(userId)).viewFilters[viewId];
-    if (!stored) return undefined;
-    const liveNames = await this.liveApiNames(databaseId);
-    return cleanFilterNode(stored, liveNames) as FilterNode | undefined;
-  }
-
-  /** Validates the view exists and every condition references a live field
-   * (422 otherwise, mirroring ViewsService's own filter validation), then
-   * upserts the override. */
-  async setViewFilter(
-    userId: string,
-    databaseId: string,
-    viewId: string,
-    filter: FilterNode,
-  ): Promise<FilterNode | undefined> {
-    await this.liveView(databaseId, viewId);
-    const liveNames = await this.liveApiNames(databaseId);
-    assertFilterFieldsLive(filter, liveNames);
-
-    const current = await this.get(userId);
-    const next: UserPreferences = { ...current, viewFilters: { ...current.viewFilters, [viewId]: filter } };
-    await this.db
-      .insert(userPreferences)
-      .values({ userId, preferences: next, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userPreferences.userId,
-        set: { preferences: next, updatedAt: new Date() },
-      });
-    return next.viewFilters[viewId];
-  }
-
-  /**
-   * Clears this user's override for one view. Idempotent (a second clear, or
-   * clearing an override that was never set, is a no-op — not a 404) since the
-   * client's "remove my personal filter" action shouldn't care which state it
-   * started from.
-   */
-  async clearViewFilter(userId: string, databaseId: string, viewId: string): Promise<void> {
-    await this.liveView(databaseId, viewId);
-    const current = await this.get(userId);
-    if (!(viewId in current.viewFilters)) return;
-    const rest = { ...current.viewFilters };
-    delete rest[viewId];
-    const next: UserPreferences = { ...current, viewFilters: rest };
-    await this.db
-      .insert(userPreferences)
-      .values({ userId, preferences: next, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userPreferences.userId,
-        set: { preferences: next, updatedAt: new Date() },
-      });
-  }
-
-  /** The relation field row scoped to its database — 404 if missing/mismatched/wrong
-   * type, same "existence guard" shape `liveView` gives view-scoped endpoints. Only
-   * relation fields have an embedded collection to override. */
-  private async liveRelationField(databaseId: string, fieldId: string) {
-    const field = await this.db.query.fields.findFirst({
-      where: and(eq(fields.id, fieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
-    });
-    if (!field || field.type !== 'relation') throw new NotFoundException('Relation field not found');
-    return field;
-  }
-
-  /**
-   * Personal collection-view override for one embedded relation (#736): narrows/
-   * sorts/colors the shared collection's results for THIS user only. Unlike
-   * `getViewFilter`, this is NOT cleaned of dead field refs at read time — the
-   * collection query it feeds already degrades a stale field reference safely
-   * rather than crashing (#305's rule, applied in collection-section.tsx the same
-   * way a saved view's own filters are), so there is no separate cleanup to do
-   * here that the read path doesn't already cover.
-   */
-  async getCollectionView(
-    userId: string,
-    databaseId: string,
-    fieldId: string,
-  ): Promise<CollectionViewConfig | undefined> {
-    await this.liveRelationField(databaseId, fieldId);
-    return (await this.get(userId)).collectionFilters[fieldId];
-  }
-
-  /** Validates the field exists on this database and is a relation, then upserts
-   * the override — the client always sends the full config for the field it's
-   * patching, mirroring `setViewFilter`'s whole-value replace. */
-  async setCollectionView(
-    userId: string,
-    databaseId: string,
-    fieldId: string,
-    config: CollectionViewConfig,
-  ): Promise<CollectionViewConfig> {
-    await this.liveRelationField(databaseId, fieldId);
-    const current = await this.get(userId);
-    const next: UserPreferences = {
-      ...current,
-      collectionFilters: { ...current.collectionFilters, [fieldId]: config },
-    };
-    await this.db
-      .insert(userPreferences)
-      .values({ userId, preferences: next, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userPreferences.userId,
-        set: { preferences: next, updatedAt: new Date() },
-      });
-    return next.collectionFilters[fieldId]!;
-  }
-
-  /** Clears this user's override for one embedded collection, falling back to the
-   * field's own shared `config.collection_view` default. Idempotent, same as
-   * `clearViewFilter` — a second clear, or clearing one never set, is a no-op. */
-  async clearCollectionView(userId: string, databaseId: string, fieldId: string): Promise<void> {
-    await this.liveRelationField(databaseId, fieldId);
-    const current = await this.get(userId);
-    if (!(fieldId in current.collectionFilters)) return;
-    const rest = { ...current.collectionFilters };
-    delete rest[fieldId];
-    const next: UserPreferences = { ...current, collectionFilters: rest };
-    await this.db
-      .insert(userPreferences)
-      .values({ userId, preferences: next, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userPreferences.userId,
-        set: { preferences: next, updatedAt: new Date() },
-      });
+        set: {
+          preferences: sql`${userPreferences.preferences} || COALESCE(
+            (SELECT jsonb_object_agg(e.key, COALESCE(${userPreferences.preferences} -> e.key, '{}'::jsonb) || e.value)
+               FROM jsonb_each(${patchJson}::jsonb) AS e),
+            '{}'::jsonb)`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ preferences: userPreferences.preferences });
+    return mergePreferences(row?.preferences);
   }
 
   /** Notification toggles for many users at once, defaulted — used by NotificationsService. */

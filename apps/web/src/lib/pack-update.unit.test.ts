@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest';
+import { itemEffect, releaseNotes, versionsBetween, type PackVersion } from './pack-update';
+
+const v = (version: string, changelog?: string): PackVersion => ({
+  version,
+  changelog,
+  published_at: '2026-10-01T00:00:00Z',
+});
+
+describe('versionsBetween (#978)', () => {
+  const all = [v('1.0'), v('1.1'), v('1.4'), v('1.5'), v('1.10')];
+  it('returns the versions an update crosses, newest first, excluding the installed one', () => {
+    expect(versionsBetween(all, '1.1', '1.5').map((x) => x.version)).toEqual(['1.5', '1.4']);
+  });
+  it('compares dotted numbers, not text: 1.10 is after 1.9', () => {
+    expect(versionsBetween([v('1.9'), v('1.10')], '1.9', '1.10').map((x) => x.version)).toEqual([
+      '1.10',
+    ]);
+  });
+  it('excludes versions beyond the target', () => {
+    expect(versionsBetween(all, '1.4', '1.5').map((x) => x.version)).toEqual(['1.5']);
+  });
+  it('is empty when nothing is newer', () => {
+    expect(versionsBetween(all, '1.10', '1.10')).toEqual([]);
+  });
+});
+
+describe('releaseNotes', () => {
+  it('splits the newest version from the earlier ones it skipped over', () => {
+    const n = releaseNotes([v('1.4', 'four'), v('1.5', 'five'), v('1.3', 'old')], '1.3', '1.5');
+    expect(n.latest?.version).toBe('1.5');
+    expect(n.earlier.map((x) => x.version)).toEqual(['1.4']);
+    expect(n.noNotes).toBe(false);
+  });
+  it('says there are no notes when every crossed version is blank or missing a changelog', () => {
+    expect(releaseNotes([v('1.5'), v('1.4', '   ')], '1.3', '1.5').noNotes).toBe(true);
+  });
+  it('a built-in pack has no version data at all: no latest, no notes', () => {
+    const n = releaseNotes(undefined, '1.0', '1.1');
+    expect(n).toEqual({ latest: null, earlier: [], noNotes: true });
+  });
+  it('still has notes when only an earlier version wrote one', () => {
+    expect(releaseNotes([v('1.5'), v('1.4', 'only this')], '1.3', '1.5').noNotes).toBe(false);
+  });
+});
+
+describe('itemEffect: states what install does today', () => {
+  it('an agent with no agent_update (not made by an earlier install of this pack) is kept as it is', () => {
+    // #977 shipped agent updates; the sentence for an agent THIS pack installed comes from `agentEffect` instead.
+    expect(itemEffect('agent', 'reuse')).toBe(
+      'Agent: already in your workspace, and not made by this pack. Kept as it is.',
+    );
+  });
+  it('a reused database keeps what is there and adds only missing fields', () => {
+    expect(itemEffect('database', 'reuse')).toMatch(
+      /Kept as it is, except fields the pack needs that are missing are added/,
+    );
+  });
+  it('a reused view or automation is left alone', () => {
+    expect(itemEffect('view', 'reuse')).toBe('Already there. Kept as it is.');
+    expect(itemEffect('automation', 'reuse')).toBe('Already there. Kept as it is.');
+  });
+  it('a new item will be created, whatever it is', () => {
+    for (const k of ['database', 'view', 'automation', 'agent'] as const)
+      expect(itemEffect(k, 'create')).toBe('Will be created.');
+  });
+  it('a collision hands the choice to the person', () => {
+    expect(itemEffect('view', 'collision')).toMatch(/You choose/);
+  });
+  it('never offers Keep mine / Take update: those arrive with #977', () => {
+    for (const k of ['database', 'view', 'automation', 'agent'] as const)
+      for (const a of ['create', 'reuse', 'collision'] as const)
+        expect(itemEffect(k, a)).not.toMatch(/keep mine|take update/i);
+  });
+});
+
+import type { PackAgentUpdate } from '@storyos/schemas';
+import {
+  agentEffect,
+  agentResolutions,
+  changedFieldsText,
+  changesWhatItMayDo,
+} from './pack-update';
+
+const upd = (over: Partial<PackAgentUpdate>): PackAgentUpdate => ({
+  status: 'will_update',
+  changed_fields: ['instructions'],
+  ...over,
+});
+
+describe('#978 AC3 — agent effects come from the preview API', () => {
+  it('will_update says it will be updated and names what changes', () => {
+    const e = agentEffect(upd({ status: 'will_update', changed_fields: ['goal', 'instructions'] }));
+    expect(e.headline).toBe(
+      'Agent: will be updated to this version (goal and instructions change).',
+    );
+    expect(e.needsChoice).toBe(false);
+  });
+
+  it('unchanged says there is nothing to do', () => {
+    expect(agentEffect(upd({ status: 'unchanged', changed_fields: [] })).headline).toMatch(
+      /already matches/,
+    );
+  });
+
+  it('edited_needs_choice asks, and says why for an edit and for an unknown origin', () => {
+    const edited = agentEffect(upd({ status: 'edited_needs_choice', reason: 'edited' }));
+    expect(edited.needsChoice).toBe(true);
+    expect(edited.headline).toMatch(/You’ve changed this agent/);
+    expect(edited.detail).toMatch(/differs in its instructions/);
+    const legacy = agentEffect(upd({ status: 'edited_needs_choice', reason: 'unknown_origin' }));
+    expect(legacy.detail).toMatch(/installed before changes were tracked/);
+    expect(legacy.detail).toMatch(/your version is kept/);
+  });
+
+  it('lists changed fields in plain words, and calls out the ones that change what the agent may do', () => {
+    expect(changedFieldsText(['instructions', 'scopes', 'approval_policy'])).toBe(
+      'instructions, what it may access and when it asks for approval',
+    );
+    expect(changedFieldsText(['goal'])).toBe('goal');
+    expect(changesWhatItMayDo(['goal', 'instructions'])).toBe(false);
+    expect(changesWhatItMayDo(['scopes'])).toBe(true);
+    expect(changesWhatItMayDo(['approval_policy'])).toBe(true);
+  });
+});
+
+describe('#978 AC3 — only an explicit "Take update" on an edited agent becomes a resolution', () => {
+  const agents = [
+    { name: 'Triage', agent_update: upd({ status: 'edited_needs_choice' }) },
+    { name: 'Digest', agent_update: upd({ status: 'will_update' }) },
+    { name: 'Plain' },
+    { name: 'Same', agent_update: upd({ status: 'unchanged', changed_fields: [] }) },
+  ];
+
+  it('defaults to Keep mine: no choices means no resolutions at all', () => {
+    expect(agentResolutions(agents, {})).toEqual({});
+    expect(agentResolutions(agents, { Triage: 'keep' })).toEqual({});
+  });
+
+  it('sends update for the edited agent the person chose to update', () => {
+    expect(agentResolutions(agents, { Triage: 'update' })).toEqual({
+      Triage: { action: 'update' },
+    });
+  });
+
+  it('never sends update for an agent that is not edited_needs_choice (the API refuses it with a 422)', () => {
+    expect(agentResolutions(agents, { Digest: 'update', Plain: 'update', Same: 'update' })).toEqual(
+      {},
+    );
+  });
+});

@@ -4,19 +4,15 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useState } from 'react';
 import {
   CalendarDays,
-  Check,
   ChevronDown,
-  Copy,
   FormInput,
   GanttChart,
-  Group,
   LayoutGrid,
   List as ListIcon,
-  Pencil,
   Pin,
-  Share2,
+  Star,
   Table2,
-  Trash2,
+  X,
   createLucideIcon,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
@@ -24,18 +20,14 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { ViewSummary, useViewMutations } from './use-view-state';
-import { GroupByFieldSelect } from './view-toolbar';
-import type { Field } from '../table-view/use-table-data';
+import { buildViewMenu } from './view-menu';
+import type { ViewMenuHandlers } from './view-menu';
+import { ViewMenuItems } from './view-menu-items';
 
 /**
  * #970 — three glyphs redrawn because they fail at 14px, the only size the sidebar and tabs draw
@@ -88,35 +80,70 @@ export function ViewTab({
   canManage,
   canDelete,
   mutations,
-  fields,
   onNavigate,
   onDelete,
   onDuplicated,
   onShare,
+  onCopyLink,
+  moves,
+  pinned,
+  onSetPinned,
 }: {
   view: ViewSummary;
   isActive: boolean;
   canManage: boolean;
   canDelete: boolean;
   mutations: ReturnType<typeof useViewMutations>;
-  /** #515 — only needed for board/list views, to offer "Change grouping…". */
-  fields: Field[];
   onNavigate: () => void;
   onDelete: () => void;
   onDuplicated: (id: string) => void;
   /** #527 — absent for view types the public page can't render yet (#555:
    *  board/dashboard need backend support the public endpoint doesn't have). */
   onShare?: () => void;
+  /** #964 — the shared view menu's "Copy link" and "Move to…" entries, supplied by the page. */
+  onCopyLink?: () => void;
+  moves?: ViewMenuHandlers['moves'];
+  /** #966 — this tab is in the viewer's own strip. False for the active view shown only because it is active. */
+  pinned: boolean;
+  /** #966 — pin or unpin for THIS viewer. */
+  onSetPinned: (wanted: boolean) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   // #927 — the options menu is also opened by right-clicking the tab, so it is reachable without finding the chevron.
   const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState(view.name);
-  const [regrouping, setRegrouping] = useState(false);
-  const [groupDraft, setGroupDraft] = useState(view.config.group_by_field_id ?? '');
   const Icon = VIEW_ICON[view.type] ?? Table2;
   // Only editors may reorder; renaming (inline input) also suspends the drag.
-  const sortable = useSortable({ id: view.id, disabled: !canManage || renaming });
+  // #966 — a drag reorders YOUR pinned tabs, so it needs no edit permission; the transient active tab cannot be moved.
+  const sortable = useSortable({ id: view.id, disabled: !pinned || renaming });
+
+  // #964 — the ONE view menu (view-menu.ts), shared with the toolbar ⋯ and the sidebar ⋯. This tab is
+  // two of its doors: the chevron, and a right-click or long-press anywhere on the tab (#927).
+  const menuItems = buildViewMenu(
+    {
+      name: view.name,
+      isDefault: Boolean(view.isDefault),
+      personal: Boolean(view.ownerUserId),
+      pinned,
+    },
+    {
+      canManage,
+      canDelete,
+      onRename: () => {
+        setDraft(view.name);
+        setRenaming(true);
+      },
+      onDuplicate: () =>
+        mutations.duplicateView.mutate(view.id, { onSuccess: (v) => onDuplicated(v.id) }),
+      onSetDefault: () => mutations.setDefaultView.mutate(view.id),
+      onSetPinned,
+      onCopyLink,
+      onShare,
+      onCopyToPersonal: () => mutations.copyViewToPersonal.mutate(view.id),
+      moves,
+      onDelete,
+    },
+  );
 
   function commitRename() {
     const name = draft.trim();
@@ -128,9 +155,12 @@ export function ViewTab({
   return (
     <div
       ref={sortable.setNodeRef}
-      style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
+      style={{
+        transform: CSS.Transform.toString(sortable.transform),
+        transition: sortable.transition,
+      }}
       onContextMenu={(e) => {
-        if (!canManage || renaming) return;
+        if (menuItems.length === 0 || renaming) return;
         e.preventDefault();
         setMenuOpen(true);
       }}
@@ -167,10 +197,10 @@ export function ViewTab({
         </span>
       ) : (
         <button
-          className={cn('flex items-center gap-1.5', canManage && 'touch-none')}
+          className={cn('flex items-center gap-1.5', pinned && 'touch-none')}
           onClick={onNavigate}
           type="button"
-          {...(canManage ? { ...sortable.attributes, ...sortable.listeners } : {})}
+          {...(pinned ? { ...sortable.attributes, ...sortable.listeners } : {})}
         >
           <Icon className="h-3.5 w-3.5" />
           <span className="whitespace-nowrap">{view.name}</span>
@@ -178,20 +208,33 @@ export function ViewTab({
         </button>
       )}
 
-      {canManage && !renaming && (
+      {/* #966 / #900 — no hover-only control in the strip. The ACTIVE tab carries two real controls that rest
+          visible at --faint: unpin (✕) when it is one of your pins, or pin (star) when it is only shown because it
+          is active; and its options chevron. Every OTHER tab opens the same view menu from a right-click or a
+          long-press, and from the switcher, so nothing here waits for a pointer to hover. */}
+      {isActive && !renaming && (
+        <button
+          type="button"
+          onClick={() => onSetPinned(!pinned)}
+          aria-label={pinned ? `Unpin ${view.name} from tabs` : `Pin ${view.name} to tabs`}
+          title={pinned ? 'Unpin from tabs' : 'Pin to tabs'}
+          className="rounded p-1 text-faint hover:bg-active hover:text-ink"
+        >
+          {pinned ? <X className="h-3.5 w-3.5" /> : <Star className="h-3.5 w-3.5" />}
+        </button>
+      )}
+      {menuItems.length > 0 && !renaming && (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <Tooltip label="View options">
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                // Inactive tabs keep the trigger out of the way (it is the right-click / long-press target, and
+                // the menu is one tap from the switcher), but it is never opacity-0-until-hover: it is simply
+                // not drawn, so a touch user is never promised a control that only a mouse can reveal.
                 className={cn(
-                  'rounded p-1 hover:bg-active hover:text-ink focus-visible:opacity-100',
-                  // #927 — the ACTIVE tab's control is a real control at full opacity (it was a faint 12px chevron at
-                  // 70%); inactive tabs reveal theirs on hover, on keyboard focus, and always on a touch device (see
-                  // the (hover: none) rule in globals.css).
-                  isActive
-                    ? 'text-muted'
-                    : 'text-faint opacity-0 group-hover/tab:opacity-100 aria-expanded:opacity-100',
+                  'rounded p-1 text-muted hover:bg-active hover:text-ink',
+                  !isActive && 'sr-only',
                 )}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="View options"
@@ -200,123 +243,10 @@ export function ViewTab({
               </button>
             </DropdownMenuTrigger>
           </Tooltip>
-          <DropdownMenuContent align="start" className="w-44">
-            <DropdownMenuItem
-              onSelect={() => {
-                setDraft(view.name);
-                setRenaming(true);
-              }}
-            >
-              <Pencil className="mr-2 h-3.5 w-3.5" />
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() =>
-                mutations.duplicateView.mutate(view.id, { onSuccess: (v) => onDuplicated(v.id) })
-              }
-            >
-              <Copy className="mr-2 h-3.5 w-3.5" />
-              Duplicate
-            </DropdownMenuItem>
-            {/* #515 — the only way to change WHICH field an existing board/list
-                groups by; previously that was set once at creation, never after. */}
-            {(view.type === 'board' || view.type === 'list') && (
-              <DropdownMenuItem
-                onSelect={() => {
-                  setGroupDraft(view.config.group_by_field_id ?? '');
-                  setRegrouping(true);
-                }}
-              >
-                <Group className="mr-2 h-3.5 w-3.5" />
-                Change grouping…
-              </DropdownMenuItem>
-            )}
-            {!view.isDefault && (
-              <DropdownMenuItem onSelect={() => mutations.setDefaultView.mutate(view.id)}>
-                <Check className="mr-2 h-3.5 w-3.5" />
-                Set as default
-              </DropdownMenuItem>
-            )}
-            {/*
-              #527 — never offered for a PERSONAL view (view.ownerUserId set):
-              a personal view is a private window onto shared data, and #554
-              found the server's own share/unshare guard does not check
-              ownership at all. Hiding this is a client-side courtesy only —
-              it does not fix #554 — but there's no reason to make the gap
-              easier to hit from the UI while the real fix is still open.
-            */}
-            {onShare && !view.ownerUserId && (
-              <DropdownMenuItem onSelect={onShare}>
-                <Share2 className="mr-2 h-3.5 w-3.5" />
-                Share…
-              </DropdownMenuItem>
-            )}
-            {/*
-              #293 — fork a SHARED view into a private personal copy, never
-              sync'd back (personal-space.md's answer to "publishing is
-              one-way"). Never offered for a view that's already personal —
-              its owner reaches "publish" from personal-section.tsx instead,
-              which this tab-bar never renders a personal view into.
-            */}
-            {!view.ownerUserId && (
-              <DropdownMenuItem onSelect={() => mutations.copyViewToPersonal.mutate(view.id)}>
-                <Copy className="mr-2 h-3.5 w-3.5" />
-                Copy to My Space
-              </DropdownMenuItem>
-            )}
-            {canDelete && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-error" onSelect={onDelete}>
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Delete
-                </DropdownMenuItem>
-              </>
-            )}
+          <DropdownMenuContent align="start" className="w-52">
+            <ViewMenuItems items={menuItems} />
           </DropdownMenuContent>
         </DropdownMenu>
-      )}
-      {(view.type === 'board' || view.type === 'list') && (
-        <Dialog open={regrouping} onOpenChange={setRegrouping}>
-          {regrouping && (
-            <DialogContent title={`Change grouping — "${view.name}"`}>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor={`regroup-${view.id}`}>
-                    Group by{view.type === 'list' ? ' (optional)' : ''}
-                  </Label>
-                  <GroupByFieldSelect
-                    id={`regroup-${view.id}`}
-                    viewType={view.type}
-                    fields={fields}
-                    value={groupDraft}
-                    onChange={setGroupDraft}
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <DialogClose asChild>
-                    <Button type="button" variant="secondary">
-                      Cancel
-                    </Button>
-                  </DialogClose>
-                  <Button
-                    type="button"
-                    disabled={view.type === 'board' && !groupDraft}
-                    onClick={() => {
-                      const isDateField = fields.find((f) => f.id === groupDraft)?.type === 'date';
-                      mutations.regroupView.mutate(
-                        { id: view.id, config: view.config, groupByFieldId: groupDraft, isDateField },
-                        { onSuccess: () => setRegrouping(false) },
-                      );
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          )}
-        </Dialog>
       )}
     </div>
   );

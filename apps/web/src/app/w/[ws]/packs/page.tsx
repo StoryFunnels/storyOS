@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
 
 /**
@@ -38,6 +39,18 @@ import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-
  * exact same `install`/`preview` endpoints as a built-in one, just given a
  * different manifest.
  */
+
+import type { DiffLine, PackAgentUpdate } from '@storyos/schemas';
+import {
+  agentEffect,
+  agentResolutions,
+  changedFieldsText,
+  changesWhatItMayDo,
+  itemEffect,
+  releaseNotes,
+  type AgentChoice,
+  type PackItemKind,
+} from '@/lib/pack-update';
 
 type PackSource = 'registry' | 'marketplace';
 
@@ -76,6 +89,8 @@ interface MarketplaceEntry extends MarketplaceCard {
 interface PreviewItem {
   name: string;
   action: 'create' | 'reuse' | 'collision';
+  /** #977 — what an update does to an agent this pack installed earlier (only on a reused agent). */
+  agent_update?: PackAgentUpdate;
 }
 interface UnmetRequirement {
   kind: 'connection' | 'ai';
@@ -94,7 +109,8 @@ interface PreviewResult {
 }
 interface InstalledEntity {
   name: string;
-  action: 'created' | 'reused' | 'skipped';
+  /** `updated` (#977): a reused agent brought up to this version. */
+  action: 'created' | 'reused' | 'updated' | 'skipped';
   id: string;
 }
 interface InstallResult {
@@ -140,8 +156,6 @@ const PACK_FILTERS = [
   { value: 'other', label: 'Other' },
 ] as const;
 
-
-
 function useRegistry() {
   return useQuery({
     queryKey: ['packs-registry'],
@@ -170,9 +184,12 @@ function useInstalledPacks(ws: string) {
   return useQuery({
     queryKey: ['packs-installed', ws],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/packs/installed' as never, {
-        params: { path: { ws } },
-      } as never);
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/packs/installed' as never,
+        {
+          params: { path: { ws } },
+        } as never,
+      );
       if (error) throw error;
       return data as unknown as InstallSummary[];
     },
@@ -224,25 +241,222 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
       : action === 'create'
         ? 'bg-accent-soft text-[var(--accent)]'
         : 'bg-hover text-muted';
-  const label = action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
+  const label =
+    action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
   return (
-    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${style}`}>{label}</span>
+    <span
+      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-meta font-medium ${style}`}
+    >
+      {label}
+    </span>
   );
 }
 
-function PreviewSection({ title, items }: { title: string; items: PreviewItem[] }) {
+function PreviewSection({
+  title,
+  kind,
+  items,
+  choices,
+  onChoice,
+}: {
+  title: string;
+  kind: PackItemKind;
+  items: PreviewItem[];
+  /** #978 AC3 — the agent choices (Keep mine / Take update), by agent name. */
+  choices?: Record<string, AgentChoice>;
+  onChoice?: (name: string, choice: AgentChoice) => void;
+}) {
   if (items.length === 0) return null;
   return (
     <div>
       <p className="mb-1.5 text-meta font-medium uppercase tracking-wider text-muted">{title}</p>
-      <div className="flex flex-col gap-1">
-        {items.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-2 text-body">
-            <span className="text-ink-secondary">{item.name}</span>
-            <ActionBadge action={item.action} />
+      <div className="flex flex-col gap-2">
+        {items.map((item) => {
+          const agent =
+            kind === 'agent' && item.agent_update ? agentEffect(item.agent_update) : null;
+          return (
+            <div key={item.name} className="flex items-start justify-between gap-2 text-body">
+              <span className="min-w-0 flex-1">
+                <span className="block text-ink-secondary">{item.name}</span>
+                {/* #978 — what installing will really do. For an agent this pack installed it comes from the
+                    preview's own `agent_update` (#977), never a guess; everything else from lib/pack-update.ts. */}
+                <span className="block text-label text-muted">
+                  {agent ? agent.headline : itemEffect(kind, item.action)}
+                </span>
+                {agent?.detail && (
+                  <span className="block text-label text-muted">{agent.detail}</span>
+                )}
+                {agent?.needsChoice && item.agent_update && (
+                  <AgentChoiceControl
+                    name={item.name}
+                    update={item.agent_update}
+                    choice={choices?.[item.name] ?? 'keep'}
+                    onChoice={(c) => onChoice?.(item.name, c)}
+                  />
+                )}
+              </span>
+              <ActionBadge action={item.action} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** One section of a line diff: "-" is what the agent says now (yours), "+" what the pack's update says. Never colour alone. */
+function DiffBlock({ label, lines }: { label: string; lines: DiffLine[] }) {
+  return (
+    <div className="mt-1.5">
+      <p className="text-meta font-medium uppercase tracking-wider text-muted">{label}</p>
+      <div className="mt-0.5 max-h-56 overflow-auto rounded-[var(--radius-control)] border border-border-default bg-card font-mono text-label">
+        {lines.map((l, i) => (
+          <div
+            key={i}
+            className={cn(
+              'flex gap-2 whitespace-pre-wrap px-2 py-0.5',
+              l.op === 'add' && 'bg-success/10 text-ink',
+              l.op === 'remove' && 'bg-error/10 text-ink',
+              l.op === 'same' && 'text-muted',
+            )}
+          >
+            <span aria-hidden className="w-3 shrink-0 select-none text-muted">
+              {l.op === 'add' ? '+' : l.op === 'remove' ? '−' : ' '}
+            </span>
+            <span className="min-w-0 break-words">
+              <span className="sr-only">
+                {l.op === 'add' ? 'Added: ' : l.op === 'remove' ? 'Removed: ' : ''}
+              </span>
+              {l.text || ' '}
+            </span>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * #978 AC3 — an agent the person changed: Keep mine (the default, and what the API does without a resolution) or take
+ * the pack's update, with the diff one tap away. A change to what the agent may access, or when it asks for approval,
+ * is said out loud: it changes what the agent is allowed to do, not just what it says.
+ */
+function AgentChoiceControl({
+  name,
+  update,
+  choice,
+  onChoice,
+}: {
+  name: string;
+  update: PackAgentUpdate;
+  choice: AgentChoice;
+  onChoice: (choice: AgentChoice) => void;
+}) {
+  const [showDiff, setShowDiff] = useState(false);
+  const hasDiff = Boolean(update.diff?.goal?.length || update.diff?.instructions?.length);
+  return (
+    <span className="mt-1.5 block">
+      <span className="flex flex-wrap items-center gap-2">
+        <Select
+          size="sm"
+          aria-label={`What to do with ${name}`}
+          value={choice}
+          onChange={(e) => onChoice(e.target.value as AgentChoice)}
+        >
+          <option value="keep">Keep mine</option>
+          <option value="update">Take the pack’s update</option>
+        </Select>
+        {hasDiff && (
+          <button
+            type="button"
+            onClick={() => setShowDiff((v) => !v)}
+            aria-expanded={showDiff}
+            className="text-label font-medium text-accent hover:underline"
+          >
+            {showDiff ? 'Hide changes' : 'Show changes'}
+          </button>
+        )}
+      </span>
+      {changesWhatItMayDo(update.changed_fields) && (
+        <span className="mt-1 block text-label text-warning">
+          Taking the update also changes what this agent is allowed to do:{' '}
+          {changedFieldsText(
+            update.changed_fields.filter((f) => f === 'scopes' || f === 'approval_policy'),
+          )}
+          .
+        </span>
+      )}
+      {showDiff && update.diff && (
+        <span className="block">
+          {update.diff.goal?.length ? (
+            <DiffBlock label="Goal: yours → the pack’s" lines={update.diff.goal} />
+          ) : null}
+          {update.diff.instructions?.length ? (
+            <DiffBlock label="Instructions: yours → the pack’s" lines={update.diff.instructions} />
+          ) : null}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * #978 (part 1) — the update header: "v1.4 → v1.5", when it was published, and what changed in every version the update
+ * crosses. A pack with no author notes (every built-in pack, and any marketplace pack whose author wrote none) says so
+ * rather than leaving the space blank.
+ */
+function UpdateHeader({
+  from,
+  to,
+  versions,
+}: {
+  from: string;
+  to: string;
+  versions: Array<{ version: string; changelog?: string; published_at: string }> | undefined;
+}) {
+  const notes = releaseNotes(versions, from, to);
+  return (
+    <div
+      className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3"
+      data-testid="pack-update-header"
+    >
+      <p className="text-prose font-semibold text-ink">
+        v{from} → v{to}
+        {notes.latest && (
+          <span className="ml-2 text-label font-normal text-muted">
+            published {new Date(notes.latest.published_at).toLocaleDateString()}
+          </span>
+        )}
+      </p>
+      {notes.noNotes ? (
+        <p className="mt-1.5 text-body text-muted">No notes from the author.</p>
+      ) : (
+        <div className="mt-2 flex flex-col gap-2">
+          {notes.latest && (
+            <div>
+              <p className="text-label font-semibold text-ink">
+                What’s new in {notes.latest.version}
+              </p>
+              <p className="whitespace-pre-line text-body text-ink-secondary">
+                {notes.latest.changelog?.trim() || 'No notes from the author.'}
+              </p>
+            </div>
+          )}
+          {notes.earlier.length > 0 && (
+            <div>
+              <p className="text-label font-semibold text-ink">Earlier versions</p>
+              <div className="flex flex-col gap-1">
+                {notes.earlier.map((v) => (
+                  <p key={v.version} className="whitespace-pre-line text-body text-ink-secondary">
+                    <span className="font-medium text-ink">{v.version}</span> —{' '}
+                    {v.changelog?.trim() || 'No notes from the author.'}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -266,7 +480,10 @@ function CollisionResolver({
         {entries.map(({ name: label, reuseOnly }) => {
           const resolution = resolutions[label] ?? { action: 'reuse' };
           return (
-            <div key={label} className="flex flex-col gap-1.5 rounded-[var(--radius-control)] bg-card p-2">
+            <div
+              key={label}
+              className="flex flex-col gap-1.5 rounded-[var(--radius-control)] bg-card p-2"
+            >
               <p className="text-body text-ink">{label}</p>
               {/* #569 — a database collision only ever accepts "reuse" server-side
                   (renaming would desync the manifest's symbolic $db refs); no
@@ -285,7 +502,10 @@ function CollisionResolver({
                     size="sm"
                     value={resolution.action}
                     onChange={(e) =>
-                      onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
+                      onChange(label, {
+                        ...resolution,
+                        action: e.target.value as Resolution['action'],
+                      })
                     }
                   >
                     <option value="reuse">Reuse the existing one</option>
@@ -297,7 +517,9 @@ function CollisionResolver({
                       className="h-8"
                       placeholder="New name"
                       value={resolution.rename_to ?? ''}
-                      onChange={(e) => onChange(label, { ...resolution, rename_to: e.target.value })}
+                      onChange={(e) =>
+                        onChange(label, { ...resolution, rename_to: e.target.value })
+                      }
                     />
                   )}
                 </div>
@@ -314,22 +536,36 @@ function InstallDialog({
   ws,
   slug,
   source = 'registry',
+  installed,
   onOpenChange,
 }: {
   ws: string;
   slug: string;
   source?: PackSource;
+  /** #978 — this workspace's install of the pack, if any: when it has an update waiting, the dialog is an UPDATE dialog. */
+  installed?: InstallSummary;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Frozen when the dialog opens: installing refetches the installed list, which would otherwise flip this to "not an
+  // update" under the result screen.
+  const [update] = useState(() =>
+    installed?.update_available && installed.latest_version
+      ? { from: installed.version, to: installed.latest_version }
+      : null,
+  );
   const qc = useQueryClient();
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
+  // #978 AC3 — an agent the person changed defaults to Keep mine; only an explicit 'update' reaches the API.
+  const [agentChoices, setAgentChoices] = useState<Record<string, AgentChoice>>({});
   const [result, setResult] = useState<InstallResult | null>(null);
 
   const entry = useQuery({
     queryKey: ['pack-entry', source, slug],
     queryFn: async () => {
       const path =
-        source === 'marketplace' ? '/api/v1/packs/marketplace/{slug}' : '/api/v1/packs/registry/{slug}';
+        source === 'marketplace'
+          ? '/api/v1/packs/marketplace/{slug}'
+          : '/api/v1/packs/registry/{slug}';
       const { data, error } = await api.GET(path as never, { params: { path: { slug } } } as never);
       if (error) throw error;
       return data as unknown as RegistryEntry | MarketplaceEntry;
@@ -355,10 +591,16 @@ function InstallDialog({
       const payload = Object.fromEntries(
         entries.map(({ name }) => [name, resolutions[name] ?? { action: 'reuse' }]),
       );
-      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/packs/install' as never, {
-        params: { path: { ws } },
-        body: { manifest: entry.data!.manifest, resolutions: payload } as never,
-      } as never);
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/packs/install' as never,
+        {
+          params: { path: { ws } },
+          body: {
+            manifest: entry.data!.manifest,
+            resolutions: { ...payload, ...agentResolutions(preview.data!.agents, agentChoices) },
+          } as never,
+        } as never,
+      );
       if (error) throw error;
       return data as unknown as InstallResult;
     },
@@ -387,25 +629,67 @@ function InstallDialog({
     [...r.databases, ...r.views, ...r.automations, ...r.agents, ...r.skills].filter(
       (i) => i.action === 'created',
     );
+  // #978 AC3 — what an update did to agents, from the install result itself (`updated`) and from the choice the person
+  // made for an agent they had changed (Keep mine sends no resolution, so the API reports it as plain `reused`).
+  const updatedAgents = (r: InstallResult) => r.agents.filter((a) => a.action === 'updated');
+  const keptAgents = (preview.data?.agents ?? []).filter(
+    (a) => a.agent_update?.status === 'edited_needs_choice' && agentChoices[a.name] !== 'update',
+  );
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent title={entry.data?.name ?? 'Install pack'} className="max-w-xl">
+      <DialogContent
+        title={
+          entry.data
+            ? update
+              ? `Update ${entry.data.name}`
+              : entry.data.name
+            : update
+              ? 'Update pack'
+              : 'Install pack'
+        }
+        className="max-w-xl"
+      >
         {result ? (
           <div className="flex flex-col gap-4">
             <p className="text-body text-ink-secondary">
-              {result.name} v{result.version} is installed. Here’s what you got:
+              {update
+                ? `${result.name} is now v${result.version}. Here’s what changed:`
+                : `${result.name} v${result.version} is installed. Here’s what you got:`}
             </p>
             <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-              {created(result).length === 0 ? (
-                <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
+              {created(result).length === 0 &&
+              updatedAgents(result).length === 0 &&
+              keptAgents.length === 0 ? (
+                <p className="text-body text-muted">
+                  Everything already existed — nothing new was created.
+                </p>
               ) : (
-                created(result).map((item) => (
-                  <div key={`${item.name}-${item.id}`} className="flex items-center gap-2 text-body">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
-                    <span className="text-ink-secondary">{item.name}</span>
-                  </div>
-                ))
+                <>
+                  {created(result).map((item) => (
+                    <div
+                      key={`${item.name}-${item.id}`}
+                      className="flex items-center gap-2 text-body"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                      <span className="text-ink-secondary">{item.name}</span>
+                    </div>
+                  ))}
+                  {updatedAgents(result).map((item) => (
+                    <div key={`updated-${item.id}`} className="flex items-center gap-2 text-body">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                      <span className="text-ink-secondary">
+                        {item.name} — agent updated to this version
+                      </span>
+                    </div>
+                  ))}
+                  {keptAgents.map((item) => (
+                    <div key={`kept-${item.name}`} className="flex items-center gap-2 text-body">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-muted" />
+                      <span className="text-ink-secondary">{item.name} — kept your version</span>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
             {result.unmet.length > 0 && (
@@ -416,7 +700,10 @@ function InstallDialog({
                     <p key={u.name} className="text-label text-muted">
                       {u.detail}{' '}
                       {u.kind === 'connection' && (
-                        <Link href={`/w/${ws}/settings/connections`} className="underline underline-offset-2">
+                        <Link
+                          href={`/w/${ws}/settings/connections`}
+                          className="underline underline-offset-2"
+                        >
                           Connect {u.name}
                         </Link>
                       )}
@@ -430,7 +717,10 @@ function InstallDialog({
                 Close
               </Button>
               {firstDbId && (
-                <Button type="button" onClick={() => (window.location.href = `/w/${ws}/d/${firstDbId}`)}>
+                <Button
+                  type="button"
+                  onClick={() => (window.location.href = `/w/${ws}/d/${firstDbId}`)}
+                >
                   Go to my new space
                 </Button>
               )}
@@ -444,6 +734,15 @@ function InstallDialog({
               </div>
             ) : preview.data ? (
               <>
+                {update && (
+                  <UpdateHeader
+                    from={update.from}
+                    to={update.to}
+                    versions={
+                      entry.data && 'versions' in entry.data ? entry.data.versions : undefined
+                    }
+                  />
+                )}
                 <p className="text-body text-ink-secondary">{entry.data?.summary}</p>
                 {entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] && (
                   <img
@@ -460,10 +759,26 @@ function InstallDialog({
                   </ul>
                 )}
                 <div className="flex max-h-[40vh] flex-col gap-3 overflow-y-auto">
-                  <PreviewSection title="Databases" items={preview.data.databases} />
-                  <PreviewSection title="Views" items={preview.data.views} />
-                  <PreviewSection title="Automations" items={preview.data.automations} />
-                  <PreviewSection title="Agents" items={preview.data.agents} />
+                  <PreviewSection
+                    title="Databases"
+                    kind="database"
+                    items={preview.data.databases}
+                  />
+                  <PreviewSection title="Views" kind="view" items={preview.data.views} />
+                  <PreviewSection
+                    title="Automations"
+                    kind="automation"
+                    items={preview.data.automations}
+                  />
+                  <PreviewSection
+                    title="Agents"
+                    kind="agent"
+                    items={preview.data.agents}
+                    choices={agentChoices}
+                    onChoice={(name, choice) =>
+                      setAgentChoices((prev) => ({ ...prev, [name]: choice }))
+                    }
+                  />
                 </div>
                 {preview.data.unmet.length > 0 && (
                   <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
@@ -495,6 +810,8 @@ function InstallDialog({
                       <span className="flex items-center gap-1.5">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing…
                       </span>
+                    ) : update ? (
+                      `Update to v${update.to}`
                     ) : (
                       'Install pack'
                     )}
@@ -554,7 +871,12 @@ function InstalledRow({
       </div>
       <div className="flex items-center gap-2">
         {pack.update_available && (
-          <Button type="button" variant="secondary" size="sm" onClick={() => onUpdate(pack.slug, source)}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => onUpdate(pack.slug, source)}
+          >
             <Sparkles className="h-3.5 w-3.5" /> Update to v{pack.latest_version}
           </Button>
         )}
@@ -563,7 +885,11 @@ function InstalledRow({
           variant="secondary"
           disabled={uninstall.isPending}
           onClick={() => {
-            if (window.confirm(`Uninstall ${pack.name}? Anything you've changed since install is kept.`)) {
+            if (
+              window.confirm(
+                `Uninstall ${pack.name}? Anything you've changed since install is kept.`,
+              )
+            ) {
               uninstall.mutate();
             }
           }}
@@ -614,7 +940,10 @@ export default function PacksPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-10">
-      <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-label text-muted hover:text-ink">
+      <Link
+        href={`/w/${ws}`}
+        className="mb-4 flex items-center gap-1 text-label text-muted hover:text-ink"
+      >
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
       <div className="mb-1 flex items-center justify-between">
@@ -631,12 +960,15 @@ export default function PacksPage() {
         )}
       </div>
       <p className="mb-8 text-sm text-muted">
-        A whole running system in one click — databases, views, automations and agents, ready to use.
+        A whole running system in one click — databases, views, automations and agents, ready to
+        use.
       </p>
 
       {(installed.data?.length ?? 0) > 0 && (
         <div className="mb-8">
-          <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">Installed</p>
+          <p className="mb-2 text-label font-semibold uppercase tracking-wider text-muted">
+            Installed
+          </p>
           <div className="flex flex-col gap-2">
             {installed.data!.map((pack) => (
               <InstalledRow
@@ -817,6 +1149,7 @@ export default function PacksPage() {
           ws={ws}
           slug={open.slug}
           source={open.source}
+          installed={installedBySlug.get(open.slug)}
           onOpenChange={(isOpen) => !isOpen && setOpen(null)}
         />
       )}

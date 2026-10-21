@@ -12,7 +12,6 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
   activityEvents,
-  apiTokens,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
@@ -37,6 +36,7 @@ import {
 } from '../automations/approvals.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { ActivationService } from '../workspaces/activation.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
 import { CommentsService } from '../comments/comments.service';
 import type { CommentSegment } from '../comments/comments.service';
@@ -182,6 +182,8 @@ export class AgentsService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     /** MN-168: the non-AI allowance a run_class='non_ai' run is checked and counted against. */
     private readonly entitlements: EntitlementsService,
+    /** #980: the ONE definition of "an AI client is connected" (a person's token OR a hosted-MCP OAuth connection). */
+    private readonly activation: ActivationService,
     /** MN-188/MN-189: the prepaid-credit ledger a run_class='storyos_ai' run decrements. */
     private readonly aiCredits: AiCreditsService,
     /** #44: posts a delegated run's outcome back onto the record it was delegated on. */
@@ -737,21 +739,6 @@ export class AgentsService implements OnModuleInit {
     );
   }
 
-  /**
-   * The real precondition YourOwnAiRuntime checks (#205 item 1): does this
-   * workspace have at least one live (non-revoked) API token — the same
-   * "Connect your AI" on-ramp onboarding.controller.ts's `ai_connected`
-   * signals, i.e. a credential an external MCP client could actually use to
-   * reach this workspace. A revoked token doesn't count — it isn't a working
-   * on-ramp any more, whatever onboarding's separate progress checklist says.
-   */
-  private async hasLiveApiToken(workspaceId: string): Promise<boolean> {
-    const row = await this.db.query.apiTokens.findFirst({
-      columns: { id: true },
-      where: and(eq(apiTokens.workspaceId, workspaceId), isNull(apiTokens.revokedAt)),
-    });
-    return Boolean(row);
-  }
 
   /**
    * Re-check a parked run's original owner against current membership and
@@ -1045,7 +1032,7 @@ export class AgentsService implements OnModuleInit {
     // on (YourOwnAiRuntime). Only queried for that runtime — every other run
     // class has no use for it, so it never costs them a query.
     const aiConnected =
-      runtime.runClass === 'your_own_ai' ? await this.hasLiveApiToken(workspaceId) : false;
+      runtime.runClass === 'your_own_ai' ? await this.activation.aiConnected(workspaceId) : false;
 
     const triggerIds = await this.optionIdsByLabel(runsDb.id, 'trigger');
     const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');

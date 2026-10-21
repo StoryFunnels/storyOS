@@ -1123,6 +1123,35 @@ export const userPreferences = pgTable('user_preferences', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * ADR-0019 / #973 — one row per PER-VIEWER OVERRIDE of a shared object: "this person's personal filter on that view", "this person's
+ * view of that embedded collection", "this person's pinned tabs on that database". `kind` says which, `target_id` is the shared
+ * object, `data` is the (small) override, validated by the kind's registry entry (`viewer-state/viewer-state.kinds.ts`).
+ *
+ * One ROW per override is the point: these used to live in one jsonb blob per user and every write was a read-modify-write of the
+ * whole blob, so two concurrent writes for different views silently dropped one (98 of 100 rounds in the #973 reproduction). Two
+ * rows cannot touch each other. Workspace-scoped (`workspace_id`, cascade) so removing someone from a workspace, or deleting it,
+ * takes ONLY that workspace's overrides with it. `user_id` is text, matching the auth tables (no FK, like favorites).
+ */
+export const viewerState = pgTable(
+  'viewer_state',
+  {
+    userId: text('user_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    targetId: uuid('target_id').notNull(),
+    data: jsonb('data').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.kind, t.targetId] }),
+    index('viewer_state_workspace_user_idx').on(t.workspaceId, t.userId),
+    index('viewer_state_target_idx').on(t.kind, t.targetId),
+  ],
+);
+
 /** Per-user stars on a record or database, surfaced in the sidebar (MN-075). */
 export const favorites = pgTable(
   'favorites',
@@ -2301,6 +2330,15 @@ export const packInstallItems = pgTable(
     entityId: uuid('entity_id').notNull(),
     action: packInstallItemAction('action').notNull(),
     contentHash: text('content_hash'),
+    /**
+     * #977 — AGENTS only: which pack version this agent's pack-defined content (goal, instructions, scopes, approval policy) came
+     * from, and a hash of that content as the pack shipped it. An update compares the LIVE agent's content to `source_hash`: equal means
+     * the person never changed it, so the update applies automatically; different means they edited it (Keep mine by default). Null on
+     * every agent installed before this was recorded: its origin is unknown, so it is treated as edited and never overwritten.
+     * (`content_hash` above is a different thing: the whole record, for uninstall's modified-since-install check.)
+     */
+    packVersion: text('pack_version'),
+    sourceHash: text('source_hash'),
     ...timestamps,
   },
   (t) => [

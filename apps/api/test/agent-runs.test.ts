@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
@@ -6,6 +9,8 @@ import { AgentsService } from '../src/agents/agents.service';
 import { EntitlementsService } from '../src/billing/entitlements.service';
 import { AiCreditsService } from '../src/billing/ai-credits.service';
 import { TokensService } from '../src/tokens/tokens.service';
+import { connectTestDb } from './helpers/db';
+import { oauthAccessToken } from '../src/db/auth-schema';
 import {
   ManagedAiRuntime,
   NonAiRuntime,
@@ -15,6 +20,7 @@ import {
 import type { AgentRuntime } from '../src/agents/agent-runtime';
 import type { ManagedAiClient } from '../src/agents/managed-ai-client';
 
+const { db } = connectTestDb();
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
 let member: { token: string; email: string };
@@ -734,6 +740,70 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
         // this describe rely on there being no OTHER live token around.
         await tokens.revoke(userId, created.id);
       }
+    });
+
+    describe('#980 one shared definition of "connected": a token OR a hosted-MCP OAuth connection', () => {
+      const connectedSteps = async (name: string) => {
+        const agent = await createAgent(name, { enabled: true, scopes: ['read'], aiMode: 'Your own AI', goal: 'Draft replies' });
+        const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+        expect(res.statusCode, res.body).toBe(201);
+        return plainText(res.json().values.steps);
+      };
+      const oauthRow = async (userId: string, expiresInMs: number) => {
+        const id = `oauth-${Math.random().toString(36).slice(2)}`;
+        const at = new Date(Date.now() + expiresInMs);
+        await db.insert(oauthAccessToken).values({ id, userId, clientId: null, accessTokenExpiresAt: at, refreshTokenExpiresAt: at, scopes: 'storyos.mcp' });
+        return id;
+      };
+
+      it('OAuth only (no personal token) is connected: the create-a-token step is NOT shown', async () => {
+        const userId = await adminUserId();
+        const row = await oauthRow(userId, 3_600_000);
+        try {
+          const steps = await connectedSteps('OAuth-only BYO bot');
+          expect(steps).toContain('byo_ai.handoff');
+          expect(steps).not.toContain('byo_ai.not_connected');
+        } finally {
+          await db.delete(oauthAccessToken).where(eq(oauthAccessToken.id, row));
+        }
+      });
+
+      it('both a token and an OAuth connection: connected; neither: the step is shown, and it names both routes', async () => {
+        const tokens = app.get(TokensService);
+        const userId = await adminUserId();
+        const created = await tokens.create(userId, wsId, 'both-routes token');
+        const row = await oauthRow(userId, 3_600_000);
+        try {
+          expect(await connectedSteps('Both-routes BYO bot')).toContain('byo_ai.handoff');
+        } finally {
+          await tokens.revoke(userId, created.id);
+          await db.delete(oauthAccessToken).where(eq(oauthAccessToken.id, row));
+        }
+        const steps = await connectedSteps('Neither BYO bot');
+        expect(steps).toContain('byo_ai.not_connected');
+        expect(steps).toMatch(/no live API token/i);
+        expect(steps, 'the on-ramp text no longer tells an OAuth user to create a token as the only way').toMatch(/OAuth/);
+      });
+
+      it('a revoked (deleted) or expired OAuth connection does not count', async () => {
+        const userId = await adminUserId();
+        const expired = await oauthRow(userId, -60_000);
+        try {
+          expect(await connectedSteps('Expired-OAuth BYO bot'), 'expired').toContain('byo_ai.not_connected');
+        } finally {
+          await db.delete(oauthAccessToken).where(eq(oauthAccessToken.id, expired));
+        }
+        const row = await oauthRow(userId, 3_600_000);
+        await db.delete(oauthAccessToken).where(eq(oauthAccessToken.id, row)); // revoking deletes the row
+        expect(await connectedSteps('Revoked-OAuth BYO bot'), 'revoked').toContain('byo_ai.not_connected');
+      });
+
+      it('there is no second definition: AgentsService reads ActivationService, not the api_tokens table', () => {
+        const src = readFileSync(join(__dirname, '../src/agents/agents.service.ts'), 'utf8');
+        expect(src).not.toContain('hasLiveApiToken');
+        expect(src).not.toMatch(/\bapiTokens\b/);
+        expect(src).toContain('this.activation.aiConnected');
+      });
     });
 
     it('a revoked token does not count as connected', async () => {

@@ -3295,6 +3295,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/pinned-tabs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My pinned view tabs for this database, in my order (views since trashed or no longer visible to me are left out) */
+        get: operations["PinnedTabsController_get"];
+        /** Set (or replace) my pinned view tabs for this database: shared views, or my own personal views, in the order given */
+        put: operations["PinnedTabsController_set"];
+        post?: never;
+        /** Clear my pinned view tabs for this database */
+        delete: operations["PinnedTabsController_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/dismissed-hints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The hints I have dismissed in this workspace */
+        get: operations["DismissedHintsController_get"];
+        /** Set (or replace) the list of hints I have dismissed in this workspace */
+        put: operations["DismissedHintsController_set"];
+        post?: never;
+        /** Show every hint again: clear my dismissed list for this workspace */
+        delete: operations["DismissedHintsController_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/spaces/{space}/views": {
         parameters: {
             query?: never;
@@ -6532,6 +6570,12 @@ export interface components {
         SetPersonalFilterDto: {
             filter: components["schemas"]["SetPersonalFilterDto__schema0"];
         };
+        SetPinnedTabsDto: {
+            view_ids: string[];
+        };
+        SetDismissedHintsDto: {
+            hint_ids: string[];
+        };
         CreateSpaceViewDto: {
             name: string;
             type: string;
@@ -6669,7 +6713,7 @@ export interface components {
             resolutions?: {
                 [key: string]: {
                     /** @enum {string} */
-                    action: "reuse" | "rename" | "skip";
+                    action: "reuse" | "rename" | "skip" | "update";
                     rename_to?: string;
                 };
             };
@@ -11935,6 +11979,128 @@ export interface operations {
             path: {
                 db: string;
                 view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PinnedTabsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PinnedTabsController_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPinnedTabsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PinnedTabsController_clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DismissedHintsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ws: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DismissedHintsController_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ws: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDismissedHintsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DismissedHintsController_clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ws: string;
             };
             cookie?: never;
         };

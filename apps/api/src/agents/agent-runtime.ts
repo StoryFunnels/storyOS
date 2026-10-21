@@ -228,10 +228,10 @@ export class NonAiRuntime implements AgentRuntime {
  * It still makes NO model call — by construction, that absence is the entire
  * reason your-own-AI is unmetered (MN-188): the tool-driving loop runs
  * entirely in an external MCP client (Claude Desktop, ChatGPT connectors, or
- * any MCP-compatible client) that the workspace has connected with its own
- * API token, never in this process. What is real here, versus NonAiRuntime's
+ * any MCP-compatible client) that the workspace has connected (an API token or an
+ * OAuth connection), never in this process. What is real here, versus NonAiRuntime's
  * generic advisory, is that it checks the actual precondition that on-ramp
- * requires (`ctx.aiConnected` — a live workspace API token) and reports
+ * requires (`ctx.aiConnected` — the shared "an AI client is connected" fact: a person's live API token OR a live hosted-MCP OAuth connection, #980) and reports
  * honestly on which side of it the workspace is: either exactly what is
  * missing before an external AI can drive this agent at all, or the concrete
  * goal/instructions/scope handoff that AI needs once it is connected.
@@ -261,12 +261,12 @@ export class YourOwnAiRuntime implements AgentRuntime {
     if (!ctx.aiConnected) {
       yield {
         tool: 'byo_ai.not_connected',
-        summary: 'No workspace API token found — your own AI has nothing to connect to yet',
+        summary: 'No connected AI found — your own AI has nothing to connect to yet',
         detail:
-          'This agent is set to "Your own AI", but this workspace has no live API token ' +
-          '(Settings → API tokens — "Connect your AI"). Create one and point an MCP client at it ' +
-          '(Claude Desktop, ChatGPT connectors, or any MCP-compatible client) before this agent can ' +
-          'actually be driven. Nothing was invoked — creating the token is the next real step.',
+          'This agent is set to "Your own AI", but nothing is connected to this workspace: no live API token ' +
+          'and no MCP connection (Claude, ChatGPT or another MCP client signed in through OAuth). ' +
+          'Connect your AI — create a token under Settings → API tokens, or add the connector in your client — ' +
+          'before this agent can actually be driven. Nothing was invoked — connecting is the next real step.',
       };
       return;
     }

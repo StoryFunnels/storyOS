@@ -382,22 +382,18 @@ export function pathFromId(id: string): number[] {
 }
 
 /**
- * #733 — which leaf conditions render as toolbar chips, and in what order.
+ * Which leaf conditions render as toolbar chips: ONLY the ones someone pinned on purpose (MN-253 `pinned`).
  *
- * Previously: `leaves.length <= 2 ? leaves : leaves.filter(f => f.node.pinned)`.
- * At exactly three conditions the presentation flips from "show everything" to
- * "show only what's pinned" — and nobody has pinned anything, because until
- * that exact moment they never needed to. Adding a filter is what hid the
- * filters. Confirmed live: a third condition made the first two vanish.
+ * #965 (Ievgen, 10-20: "make the filter button yellow if it's on", no condition chips by default)
+ * REPLACES #733's "every condition is always a chip". #733 was right about the defect and this keeps its
+ * fix: the old rule (`leaves.length <= 2 ? leaves : leaves.filter(pinned)`) made a THIRD condition hide
+ * the first two, because the chip set depended on how many conditions there were. The chip set here
+ * depends on nothing but `pinned`, so adding a condition can never hide another one. What was a safety
+ * net (chip every condition) is now the Filter button itself: yellow while anything is applied, with
+ * the panel one click away. A pinned condition keeps its chip and its one-click unpin (✕).
  *
- * Every leaf is now always a chip — pinning stops being the only way a
- * condition stays visible past a size threshold. It keeps a real job: a
- * pinned condition sorts first, so in a denser filter it's still the one you
- * see without opening the panel (#429's original "promote to the toolbar"
- * intent, now additive rather than exclusive). Both groups keep their
- * original relative order — pinning promotes, it doesn't shuffle.
+ * Order is the filter's own order: pinning shows a condition, it does not reshuffle the others.
  */
 export function visibleFilterChips<T extends { node: FilterNode }>(leaves: T[]): T[] {
-  const isPinned = (f: T) => Boolean((f.node as { pinned?: boolean }).pinned);
-  return [...leaves.filter(isPinned), ...leaves.filter((f) => !isPinned(f))];
+  return leaves.filter((f) => Boolean((f.node as { pinned?: boolean }).pinned));
 }
