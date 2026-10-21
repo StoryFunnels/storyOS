@@ -2330,6 +2330,15 @@ export const packInstallItems = pgTable(
     entityId: uuid('entity_id').notNull(),
     action: packInstallItemAction('action').notNull(),
     contentHash: text('content_hash'),
+    /**
+     * #977 — AGENTS only: which pack version this agent's pack-defined content (goal, instructions, scopes, approval policy) came
+     * from, and a hash of that content as the pack shipped it. An update compares the LIVE agent's content to `source_hash`: equal means
+     * the person never changed it, so the update applies automatically; different means they edited it (Keep mine by default). Null on
+     * every agent installed before this was recorded: its origin is unknown, so it is treated as edited and never overwritten.
+     * (`content_hash` above is a different thing: the whole record, for uninstall's modified-since-install check.)
+     */
+    packVersion: text('pack_version'),
+    sourceHash: text('source_hash'),
     ...timestamps,
   },
   (t) => [

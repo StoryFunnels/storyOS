@@ -390,7 +390,8 @@ export type PackUnmetRequirement = z.infer<typeof packUnmetRequirementSchema>;
  */
 const installedEntitySchema = z.object({
   name: z.string(),
-  action: z.enum(['created', 'reused', 'skipped']),
+  /** `updated` (#977): a reused agent whose pack-defined content was brought up to this version. */
+  action: z.enum(['created', 'reused', 'updated', 'skipped']),
   id: z.string(),
 });
 
@@ -455,9 +456,39 @@ export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
  * as either always-safe or always-a-collision, and both are wrong half the
  * time.
  */
+/**
+ * #977 — what an UPDATE would do to an AGENT this pack installed earlier. Only present on an agent preview item whose `action` is
+ * `reuse` (the agent exists and an earlier install of this pack made it).
+ *
+ *   will_update          the agent is unchanged since the pack installed it: the update applies automatically
+ *   edited_needs_choice  the person changed it (or its origin is unknown, so it is treated as changed): Keep mine is the default,
+ *                        or take the update; `diff` shows the instructions and goal as they are now against the pack's version
+ *   unchanged            the pack's version is what the agent already says: nothing to do
+ *
+ * `changed_fields` names which pack-defined parts differ (goal, instructions, scopes, approval_policy); a change to scopes or
+ * approval_policy is a change to what the agent may do and is listed here so it is never applied silently.
+ */
+export const packAgentUpdateSchema = z.object({
+  status: z.enum(['will_update', 'edited_needs_choice', 'unchanged']),
+  changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy'])),
+  /** Why it is `edited_needs_choice`: the person changed it, or it was installed before the origin was recorded (treated as changed). */
+  reason: z.enum(['edited', 'unknown_origin']).optional(),
+  /** The line diff, current -> pack, for each changed TEXT field; present only for `edited_needs_choice`. */
+  diff: z
+    .object({
+      goal: z.array(z.object({ op: z.enum(['same', 'add', 'remove']), text: z.string() })).optional(),
+      instructions: z.array(z.object({ op: z.enum(['same', 'add', 'remove']), text: z.string() })).optional(),
+    })
+    .optional(),
+  /** The pack version this agent came from, when known. */
+  installed_version: z.string().nullable().optional(),
+});
+export type PackAgentUpdate = z.infer<typeof packAgentUpdateSchema>;
+
 export const packPreviewItemSchema = z.object({
   name: z.string(),
   action: z.enum(['create', 'reuse', 'collision']),
+  agent_update: packAgentUpdateSchema.optional(),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 
@@ -505,7 +536,11 @@ export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
  */
 export const packInstallResolutionSchema = z
   .object({
-    action: z.enum(['reuse', 'rename', 'skip']),
+    /**
+     * `update` (#977): for an agent preview marked `edited_needs_choice`, TAKE the pack's version over the person's edits. Without
+     * it an edited agent is left as it is (Keep mine). Meaningless, and refused, for anything else.
+     */
+    action: z.enum(['reuse', 'rename', 'skip', 'update']),
     rename_to: z.string().min(1).max(200).optional(),
   })
   .refine((v) => v.action !== 'rename' || Boolean(v.rename_to), {
