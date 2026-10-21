@@ -1,5 +1,6 @@
 'use client';
 
+import { RunsExplainer } from '@/components/runs/runs-explainer';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -160,6 +161,7 @@ export default function RunsPage() {
         Every automation rule run in this workspace, newest first. Source syncs (MN-260) will join this
         list once that ships — for now this is rule runs only.
       </p>
+      <RunsExplainer ws={ws} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {STATUS_FILTERS.map((f) => (
