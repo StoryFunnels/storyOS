@@ -195,6 +195,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /build-info': publicRoute('AppController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'GET /healthz': publicRoute('HealthController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'PATCH /api/v1/users/me/preferences': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
+  'PATCH /api/v1/users/me/preferences/lists': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'PATCH /api/v1/workspaces/:ws': adminOnly(),
   'PATCH /api/v1/workspaces/:ws/action-gates/:id': workspaceLevel('UNAUDITED: no access primitive referenced in action-gates/ — audit whether it can return scoped content'),
   'PATCH /api/v1/workspaces/:ws/databases/:db': scoped('assertAccess + visibleRecordIds + effectiveForDatabase', 'databases/databases.controller.ts'),

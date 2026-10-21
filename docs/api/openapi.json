@@ -3361,6 +3361,36 @@
         ]
       }
     },
+    "/api/v1/users/me/preferences/lists": {
+      "patch": {
+        "operationId": "PreferencesController_editList",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceListEditDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
       "get": {
         "operationId": "AttachmentsController_list",
@@ -13049,6 +13079,39 @@
             }
           }
         }
+      },
+      "PreferenceListEditDto": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "string",
+            "enum": [
+              "dismissed_workspaces",
+              "views_only_workspaces"
+            ]
+          },
+          "add": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "remove": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        },
+        "required": [
+          "list"
+        ]
       },
       "CreateRelationDto": {
         "type": "object",

@@ -1407,6 +1407,23 @@ export interface paths {
         patch: operations["PreferencesController_update"];
         trace?: never;
     };
+    "/api/v1/users/me/preferences/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one */
+        patch: operations["PreferencesController_editList"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
         parameters: {
             query?: never;
@@ -5183,6 +5200,12 @@ export interface components {
             sidebar?: {
                 viewsOnlyWorkspaces?: string[];
             };
+        };
+        PreferenceListEditDto: {
+            /** @enum {string} */
+            list: "dismissed_workspaces" | "views_only_workspaces";
+            add?: string[];
+            remove?: string[];
         };
         CreateRelationDto: {
             /** Format: uuid */
@@ -8987,6 +9010,27 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PreferencesPatchDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_editList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceListEditDto"];
             };
         };
         responses: {
