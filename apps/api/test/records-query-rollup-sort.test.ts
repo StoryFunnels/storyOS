@@ -3,6 +3,11 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
+import { connectTestDb } from './helpers/db';
+import { records } from '../src/db/schema';
+import { inArray } from 'drizzle-orm';
+
+const { db: rawDb } = connectTestDb();
 
 /**
  * MN-267: sorting by a rollup field. Unlike formula (MN-260 — same-record
@@ -61,6 +66,23 @@ async function pollUntilTitlesMatch(payload: Record<string, unknown>, expectedPr
   return titles; // let the assertion below fail with a readable diff
 }
 
+/**
+ * #897 — wait for the SETTLED values, not for a plausible order. The old poll returned as soon as the sort prefix matched, which a
+ * transient state can satisfy (Alpha is 2, then 6, and both sort between Beta and Gamma); the exact stored values cannot be
+ * satisfied by a transient state. (The out-of-order persistence that made this flaky is fixed and pinned by
+ * rollup-recompute-order.test.ts; this only makes the wait itself deterministic.)
+ */
+async function settleRollupValues(rollupFieldId: string, memberIds: Record<string, string>, expected: Record<string, number | null>): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    const rows = await rawDb.query.records.findMany({ where: inArray(records.id, Object.values(memberIds)), columns: { id: true, computedValues: true } });
+    const byId = new Map(rows.map((r) => [r.id, (r.computedValues as Record<string, unknown>)[rollupFieldId] ?? null]));
+    const done = Object.entries(expected).every(([name, want]) => (byId.get(memberIds[name]!) ?? null) === want);
+    if (done) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error('rollup values never settled');
+}
+
 beforeAll(async () => {
   app = await createTestApp();
   subscriber = app.get(MembersProjectionSubscriber);
@@ -99,6 +121,7 @@ beforeAll(async () => {
     config: { relation_field_id: timeoffFieldId, op: 'sum', target_field_api_name: 'days' },
   });
   expect(rollup.statusCode, rollup.body).toBe(201);
+  const rollupFieldId = rollup.json().id as string;
 
   // Beta(0) < Alpha(6) < Gamma(15), Delta/Epsilon unlinked (→ null) — same
   // shape as records-query-formula-sort.test.ts's fixture, deliberately, so
@@ -123,7 +146,8 @@ beforeAll(async () => {
   await addTimeOff('Gamma', 15);
 
   // Linking is the case-(b) cascade (this record's own relation link-set
-  // changed) — fire-and-forget, so give it a moment to land before any test runs.
+  // changed) — fire-and-forget, so wait for the exact settled values before any test runs.
+  await settleRollupValues(rollupFieldId, members, { Beta: 0, Alpha: 6, Gamma: 15, Delta: null, Epsilon: null });
   await pollUntilTitlesMatch({ sorts: [{ field: 'days_used', direction: 'asc' }] }, ['Beta', 'Alpha', 'Gamma']);
 });
 
