@@ -11958,6 +11958,16 @@
                 "icon": {
                   "type": "string",
                   "maxLength": 120
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "backlog",
+                    "unstarted",
+                    "started",
+                    "completed",
+                    "canceled"
+                  ]
                 }
               },
               "required": [
@@ -12061,6 +12071,16 @@
           "icon": {
             "type": "string",
             "maxLength": 120
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "unstarted",
+              "started",
+              "completed",
+              "canceled"
+            ]
           }
         },
         "required": [
@@ -12116,6 +12136,18 @@
           "icon": {
             "type": "string",
             "maxLength": 120,
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "unstarted",
+              "started",
+              "completed",
+              "canceled",
+              null
+            ],
             "nullable": true
           },
           "position": {

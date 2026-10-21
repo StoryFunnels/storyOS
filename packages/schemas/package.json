@@ -22,6 +22,10 @@
       "types": "./dist/colors.d.ts",
       "default": "./dist/colors.js"
     },
+    "./state-category": {
+      "types": "./dist/state-category.d.ts",
+      "default": "./dist/state-category.js"
+    },
     "./icons": {
       "types": "./dist/icons.d.ts",
       "default": "./dist/icons.js"
