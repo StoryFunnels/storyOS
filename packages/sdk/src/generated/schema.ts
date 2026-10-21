@@ -4944,6 +4944,8 @@ export interface components {
                 label: string;
                 color?: string;
                 icon?: string;
+                /** @enum {string} */
+                category?: "backlog" | "unstarted" | "started" | "completed" | "canceled";
             }[];
         };
         UpdateFieldDto: {
@@ -4969,6 +4971,8 @@ export interface components {
              */
             color: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             icon?: string;
+            /** @enum {string} */
+            category?: "backlog" | "unstarted" | "started" | "completed" | "canceled";
         };
         ReorderOptionsDto: {
             order: string[];
@@ -4978,6 +4982,8 @@ export interface components {
             /** @enum {string} */
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             icon?: string | null;
+            /** @enum {string|null} */
+            category?: "backlog" | "unstarted" | "started" | "completed" | "canceled" | null;
             position?: number;
         };
         DeleteOptionDto: {

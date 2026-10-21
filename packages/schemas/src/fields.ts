@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stateCategorySchema } from './state-category';
 import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
@@ -687,6 +688,8 @@ export const createFieldSchema = z
           color: z.string().optional(),
           // #202: optional curated icon ref (`set:<name>` / `brand:<slug>`).
           icon: z.string().max(120).optional(),
+          /** #1014 — a workflow/select option's state category; omitted on a workflow field it is inferred from the label and position. */
+          category: stateCategorySchema.optional(),
         }),
       )
       .optional(),
@@ -723,6 +726,8 @@ export const createOptionSchema = z.object({
   color: z.enum(OPTION_COLORS).default('gray'),
   // #202: optional curated icon ref (`set:<name>` / `brand:<slug>`).
   icon: z.string().max(120).optional(),
+  /** #1014 — workflow / select options only; omitted on a workflow field it is inferred from the label. */
+  category: stateCategorySchema.optional(),
 });
 
 export const updateOptionSchema = atLeastOneField(z.object({
@@ -730,6 +735,8 @@ export const updateOptionSchema = atLeastOneField(z.object({
   color: z.enum(OPTION_COLORS).optional(),
   // #202: nullable so an icon can be cleared (null) or set; omit to leave unchanged.
   icon: z.string().max(120).nullish(),
+  /** #1014 — change a workflow / select option's state category; `null` clears it on a select option (a workflow option always has one). */
+  category: stateCategorySchema.nullish(),
   position: z.number().int().optional(),
 }));
 
