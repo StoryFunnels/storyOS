@@ -8,7 +8,10 @@ import { oauthAccessToken } from '../db/auth-schema';
 export interface ActivationState {
   records_added: boolean;
   teammate_invited: boolean;
+  /** An AI client is connected, by EITHER route: a live personal access token a person minted, or a live hosted-MCP OAuth connection (#967 / #817). */
   ai_connected: boolean;
+  /** Just the OAuth route of `ai_connected` (hosted MCP: claude.ai, Claude Desktop, ChatGPT). Carried so the event can say which half held. */
+  ai_oauth_connected: boolean;
   /** #13's definition: a real record AND (a teammate invited OR an AI client connected). */
   activated: boolean;
 }
@@ -74,7 +77,7 @@ export class ActivationService {
   }
 
   /**
-   * An AI/MCP client is connected: a live (not revoked) token a PERSON minted.
+   * An AI/MCP client is connected through a personal access token: a live (not revoked) token a PERSON minted.
    *
    * Tyron mints an ordinary token for every turn it takes (`origin: 'agent'`, no
    * `agent_id`) and revokes it when the turn ends. Counting those would mark a
@@ -83,7 +86,7 @@ export class ActivationService {
    * important stage. A token minted for a configured Agent (`agent_id` set) is a
    * real connected client and does count.
    */
-  async aiConnected(workspaceId: string): Promise<boolean> {
+  async aiTokenConnected(workspaceId: string): Promise<boolean> {
     return this.exists(
       this.db
         .select({ one: sql`1` })
@@ -114,8 +117,8 @@ export class ActivationService {
    * not expired" is exactly "not revoked and still usable". This is per USER across workspaces, because that is what an OAuth
    * grant is: someone who connected Claude can reach every workspace they belong to, so each of them reads as connected.
    *
-   * Deliberately a SEPARATE fact from `ai_connected`, which feeds the `workspace_activated` funnel (#817): widening that
-   * definition would move a funnel number, and that is Mira's decision on ticket #13, not an API side effect.
+   * It is also the OAuth half of `ai_connected` (which now counts either route, #817), kept as its own fact so the checklist can
+   * show it and the activation event can say which half held.
    */
   async mcpOauthConnected(workspaceId: string): Promise<boolean> {
     const now = new Date();
@@ -132,12 +135,25 @@ export class ActivationService {
     );
   }
 
+  /**
+   * An AI client is connected, by either route. #817 originally counted only personal access tokens, which undercounts activation:
+   * hosted OAuth is how most people connect an AI (ticket #967), and an OAuth connection writes no `api_tokens` row. Product-owner
+   * ruling 2026-10-21: the funnel counts a hosted-MCP OAuth connection too, so this is `token OR oauth`. Tyron's own per-turn
+   * tokens still do not count (see `aiTokenConnected`).
+   */
+  async aiConnected(workspaceId: string): Promise<boolean> {
+    const [token, oauth] = await Promise.all([this.aiTokenConnected(workspaceId), this.mcpOauthConnected(workspaceId)]);
+    return token || oauth;
+  }
+
   async evaluate(workspaceId: string): Promise<ActivationState> {
-    const [records_added, teammate_invited, ai_connected] = await Promise.all([
+    const [records_added, teammate_invited, ai_token_connected, ai_oauth_connected] = await Promise.all([
       this.recordsAdded(workspaceId),
       this.teammateInvited(workspaceId),
-      this.aiConnected(workspaceId),
+      this.aiTokenConnected(workspaceId),
+      this.mcpOauthConnected(workspaceId),
     ]);
-    return { records_added, teammate_invited, ai_connected, activated: records_added && (teammate_invited || ai_connected) };
+    const ai_connected = ai_token_connected || ai_oauth_connected;
+    return { records_added, teammate_invited, ai_connected, ai_oauth_connected, activated: records_added && (teammate_invited || ai_connected) };
   }
 }
