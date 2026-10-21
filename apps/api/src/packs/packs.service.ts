@@ -12,6 +12,8 @@ import {
   PACK_REF_PATTERN,
   packExportRequestSchema,
   packManifestSchema,
+  resolveSampleDate,
+  SAMPLE_ME,
 } from '@storyos/schemas';
 import type {
   PackAgent,
@@ -60,6 +62,9 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** Marks a sample-value token that matched nothing (#1015). */
+const SAMPLE_UNRESOLVED = Symbol('sample-unresolved');
 
 /** #977 — what an update would do to one tracked agent, and what is needed to do it. */
 interface AgentUpdatePlan {
@@ -2247,8 +2252,15 @@ export class PacksService {
       const dbAction = result.databases.find((d) => norm(d.name) === norm(planned.database))?.action;
       const isReused = dbAction === 'reused';
       const values: Record<string, unknown> = {};
-      for (const [field, raw] of Object.entries(planned.values)) {
+      for (const [field, rawValue] of Object.entries(planned.values)) {
         try {
+          // #1015 — `$me`, `$date:±Nd` and `$sample:Db/Title` are decided here, at install (see SAMPLE_ME in @storyos/schemas); anything
+          // else is untouched. A `$sample:` that points at nothing drops out of the value instead of failing the install.
+          const raw = await this.resolveSampleTokens(rawValue, membership.userId, dbIds, titlesFor);
+          if (raw === SAMPLE_UNRESOLVED) {
+            result.skipped_sample_field_values.push({ record: label, field, reason: 'a $sample: reference that matches no earlier sample record' });
+            continue;
+          }
           values[field] = deref(raw, refToId, `A sample record of "${planned.database}"`);
         } catch (err) {
           if (!isReused) throw err;
@@ -2274,6 +2286,42 @@ export class PacksService {
       createdIds.push(created.id);
     }
     await trackSampleRecords(this.db, membership.workspaceId, createdIds);
+  }
+
+  /**
+   * #1015 — sample-record value tokens (documented at `SAMPLE_ME` in `@storyos/schemas`): `$me` is the installer, `$date:±Nd` a date
+   * relative to install day, `$sample:<Database>/<Title>` another sample record's id (earlier in the manifest). Walks strings, arrays and
+   * objects. A `$sample:` that resolves to nothing is dropped from an array, and a bare one makes the whole field unresolved.
+   */
+  private async resolveSampleTokens(
+    value: unknown,
+    userId: string,
+    dbIds: Map<string, string>,
+    titlesFor: (dbId: string) => Promise<Map<string, string>>,
+  ): Promise<unknown> {
+    const walk = async (node: unknown): Promise<unknown> => {
+      if (typeof node === 'string') {
+        if (node === SAMPLE_ME) return userId;
+        const date = resolveSampleDate(node);
+        if (date) return date;
+        const ref = /^\$sample:([^/]+)\/(.+)$/.exec(node);
+        if (!ref) return node;
+        const dbId = dbIds.get(norm(ref[1]!));
+        const id = dbId ? (await titlesFor(dbId)).get(norm(ref[2]!)) : undefined;
+        return id ?? SAMPLE_UNRESOLVED;
+      }
+      if (Array.isArray(node)) {
+        const items = await Promise.all(node.map(walk));
+        return items.filter((v) => v !== SAMPLE_UNRESOLVED);
+      }
+      if (node && typeof node === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(node)) out[k] = await walk(v);
+        return out;
+      }
+      return node;
+    };
+    return walk(value);
   }
 
   /**
