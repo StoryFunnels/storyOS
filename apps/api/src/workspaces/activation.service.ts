@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { apiTokens, databases, invites, memberships, records, workspaces } from '../db/schema';
+import { oauthAccessToken } from '../db/auth-schema';
 
 export interface ActivationState {
   records_added: boolean;
@@ -97,6 +98,36 @@ export class ActivationService {
             sql`(${apiTokens.origin} IS DISTINCT FROM 'agent' OR ${apiTokens.agentId} IS NOT NULL)`,
           ),
         )
+        .limit(1),
+    );
+  }
+
+  /**
+   * #967 — an MCP client has connected through OAuth (claude.ai, Claude Desktop, ChatGPT), and the connection is still live.
+   *
+   * The OAuth path is invisible to `aiConnected` above: an OAuth token belongs to a USER and a client, not to a workspace
+   * (`oauth_access_token` has no workspace column), so no `api_tokens` row is ever written for it. A person who connected
+   * Claude that way has an AI connected and the checklist said they did not.
+   *
+   * A workspace has one when an ACTIVE member of it holds an unexpired token. There is no revoked flag: revoking deletes the
+   * row (and so does erasure), and an expired token with an expired refresh token can no longer be used, so "a row that has
+   * not expired" is exactly "not revoked and still usable". This is per USER across workspaces, because that is what an OAuth
+   * grant is: someone who connected Claude can reach every workspace they belong to, so each of them reads as connected.
+   *
+   * Deliberately a SEPARATE fact from `ai_connected`, which feeds the `workspace_activated` funnel (#817): widening that
+   * definition would move a funnel number, and that is Mira's decision on ticket #13, not an API side effect.
+   */
+  async mcpOauthConnected(workspaceId: string): Promise<boolean> {
+    const now = new Date();
+    return this.exists(
+      this.db
+        .select({ one: sql`1` })
+        .from(oauthAccessToken)
+        .innerJoin(
+          memberships,
+          and(eq(memberships.userId, oauthAccessToken.userId), eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')),
+        )
+        .where(or(gt(oauthAccessToken.refreshTokenExpiresAt, now), gt(oauthAccessToken.accessTokenExpiresAt, now)))
         .limit(1),
     );
   }

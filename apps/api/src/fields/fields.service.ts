@@ -45,6 +45,7 @@ import { compileFilter, filterReferencedFields } from '../records/query-compiler
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { isPickOneOp, pickOneValueType } from '../records/rollup-pick-one';
 import type { CompilerContext } from '../records/query-compiler';
+import { OPTION_ORDER } from './option-order';
 
 type Field = typeof fields.$inferSelect;
 
@@ -485,7 +486,7 @@ export class FieldsService {
               label: option.label,
               color: option.color ?? 'gray',
               icon: option.icon ?? null, // #202
-              position: i,
+              position: i, // #961 — dense, 0..n-1
             })),
           )
           .returning();
@@ -1293,7 +1294,7 @@ export class FieldsService {
     if (!OPTIONED_FIELD_TYPES.has(presented.type)) return presented;
     const options = await db.query.selectOptions.findMany({
       where: eq(selectOptions.fieldId, presented.id),
-      orderBy: [asc(selectOptions.position)],
+      orderBy: OPTION_ORDER,
     });
     return { ...presented, options };
   }
@@ -1683,6 +1684,8 @@ export class FieldsService {
         sql`${records.values} ? ${fieldId}`,
       ),
       columns: { id: true, values: true },
+      // #961 — records in the person's own order (position, then id), so "first seen" below is the order they read the table in.
+      orderBy: [asc(records.position), asc(records.id)],
     });
 
     let lossy = 0;
@@ -1716,10 +1719,9 @@ export class FieldsService {
       if (lost) lossy++;
       updates.push({ id: row.id, value });
     }
-    // Most-used first, then alphabetical: stable, and the common values lead the list a person will see.
-    const newOptions = [...distinct.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([label, count], i) => ({ label, count, color: OPTION_COLORS[i % OPTION_COLORS.length]! }));
+    // #961 — FIRST-SEEN order: a Map keeps insertion order, and `rows` is in the person's own record order, so the options come out
+    // in the order the values first appear when reading the table top to bottom. Positions below are dense (0..n-1).
+    const newOptions = [...distinct.entries()].map(([label, count], i) => ({ label, count, color: OPTION_COLORS[i % OPTION_COLORS.length]! }));
     const choicePreview = toChoice
       ? { options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })), empty_records: emptyRecords }
       : {};
@@ -1736,7 +1738,7 @@ export class FieldsService {
       if (toChoice && newOptions.length > 0) {
         const created = await tx
           .insert(selectOptions)
-          .values(newOptions.map((o, position) => ({ fieldId, label: o.label, color: o.color, position })))
+          .values(newOptions.map((o, i) => ({ fieldId, label: o.label, color: o.color, position: i })))
           .returning({ id: selectOptions.id, label: selectOptions.label });
         for (const o of created) optionIds.set(o.label, o.id);
       }
@@ -1799,7 +1801,7 @@ export class FieldsService {
         label: input.label,
         color: input.color,
         icon: input.icon ?? null, // #202
-        position: Math.max(-1, ...existing.map((o) => o.position)) + 1,
+        position: Math.max(-1, ...existing.map((o) => o.position)) + 1, // #961 — after the last, dense
       })
       .returning();
     return option!;
@@ -1813,13 +1815,64 @@ export class FieldsService {
     patch: { label?: string; color?: string; icon?: string | null; position?: number },
   ) {
     await this.assertSelectField(databaseId, fieldId);
-    const [option] = await this.db
-      .update(selectOptions)
-      .set(patch)
-      .where(and(eq(selectOptions.id, optionId), eq(selectOptions.fieldId, fieldId)))
-      .returning();
-    if (!option) throw new NotFoundException('Option not found');
-    return option;
+    const { position, ...rest } = patch;
+    return this.db.transaction(async (tx) => {
+      // #961 — serialise per field: the update and the renumber below must not interleave with another option write.
+      await tx.execute(sql`SELECT 1 FROM ${fields} WHERE ${fields.id} = ${fieldId} FOR UPDATE`);
+      const found = await tx.query.selectOptions.findFirst({ where: and(eq(selectOptions.id, optionId), eq(selectOptions.fieldId, fieldId)) });
+      if (!found) throw new NotFoundException('Option not found');
+      if (Object.keys(rest).length > 0) await tx.update(selectOptions).set(rest).where(eq(selectOptions.id, optionId));
+      // `position` is the INDEX to move the option to (0 = first): the others shift, and positions stay dense 0..n-1. Callers that
+      // set a whole order one option at a time, 0..n-1 in order (the web editor, the Linear importer), therefore land on that
+      // order. Past the end means last; below 0 means first.
+      if (position !== undefined) await this.moveOption(tx, fieldId, optionId, position);
+      return (await tx.query.selectOptions.findFirst({ where: eq(selectOptions.id, optionId) }))!;
+    });
+  }
+
+  /** #961 — move one option to `index` (clamped) and rewrite the field's positions as 0..n-1. Writes only rows that change. */
+  private async moveOption(tx: Pick<Db, 'query' | 'update'>, fieldId: string, optionId: string, index: number) {
+    const rows = await tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, fieldId), orderBy: OPTION_ORDER });
+    const others = rows.filter((o) => o.id !== optionId);
+    const moved = rows.find((o) => o.id === optionId)!;
+    others.splice(Math.max(0, Math.min(Math.trunc(index), others.length)), 0, moved);
+    for (const [i, o] of others.entries()) {
+      if (o.position !== i) await tx.update(selectOptions).set({ position: i }).where(eq(selectOptions.id, o.id));
+    }
+  }
+
+  /** #961 — rewrite a field's option positions as 0..n-1 in the current display order (position, then id). Idempotent. */
+  private async renumberOptions(tx: Pick<Db, 'query' | 'update'>, fieldId: string) {
+    const rows = await tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, fieldId), orderBy: OPTION_ORDER });
+    for (const [i, o] of rows.entries()) {
+      if (o.position !== i) await tx.update(selectOptions).set({ position: i }).where(eq(selectOptions.id, o.id));
+    }
+  }
+
+  /**
+   * #961 — put a field's options in the order given, in ONE transaction, and return them. `order` must name every option of the
+   * field exactly once (ids): a partial or stale list is refused rather than half-applied, because an option left out would keep
+   * a stale position and collide. Writes dense positions 0..n-1, the same position the sort and the board's "Field order" read.
+   */
+  async reorderOptions(databaseId: string, fieldId: string, order: string[]) {
+    await this.assertSelectField(databaseId, fieldId);
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT 1 FROM ${fields} WHERE ${fields.id} = ${fieldId} FOR UPDATE`);
+      const current = await tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, fieldId), orderBy: OPTION_ORDER });
+      const have = new Set(current.map((o) => o.id));
+      const given = new Set(order);
+      const unknown = order.filter((id) => !have.has(id));
+      const missing = current.filter((o) => !given.has(o.id)).map((o) => o.label);
+      if (given.size !== order.length) throw new UnprocessableEntityException('order names an option more than once');
+      if (unknown.length > 0) throw new UnprocessableEntityException(`order names ${unknown.length} option(s) that are not on this field`);
+      if (missing.length > 0) {
+        throw new UnprocessableEntityException(`order must list every option; missing: ${missing.map((l) => `"${l}"`).join(', ')}`);
+      }
+      for (const [i, id] of order.entries()) {
+        await tx.update(selectOptions).set({ position: i }).where(eq(selectOptions.id, id));
+      }
+      return tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, fieldId), orderBy: OPTION_ORDER });
+    });
   }
 
   /** Option delete: 409 with usage count unless confirmed (B5). */
@@ -1894,6 +1947,7 @@ export class FieldsService {
         }
       }
       await tx.delete(selectOptions).where(eq(selectOptions.id, optionId));
+      await this.renumberOptions(tx, fieldId); // #961 — no gap left behind
 
       // #475 — a field's `default` cannot be left naming an option that no
       // longer exists: fieldDefaultValue trusts config.default is real, and a

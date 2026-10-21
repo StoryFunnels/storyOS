@@ -1791,6 +1791,53 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder": {
+      "post": {
+        "operationId": "FieldsController_reorderOptions",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderOptionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Put a choice field's options in this order (every option, once); writes dense positions 0..n-1",
+        "tags": [
+          "fields"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}": {
       "patch": {
         "operationId": "FieldsController_updateOption",
@@ -2221,7 +2268,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryRecordsResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2671,7 +2725,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8304,6 +8365,192 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/pinned-tabs": {
+      "get": {
+        "operationId": "PinnedTabsController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My pinned view tabs for this database, in my order (views since trashed or no longer visible to me are left out)",
+        "tags": [
+          "views"
+        ]
+      },
+      "put": {
+        "operationId": "PinnedTabsController_set",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPinnedTabsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set (or replace) my pinned view tabs for this database: shared views, or my own personal views, in the order given",
+        "tags": [
+          "views"
+        ]
+      },
+      "delete": {
+        "operationId": "PinnedTabsController_clear",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clear my pinned view tabs for this database",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/dismissed-hints": {
+      "get": {
+        "operationId": "DismissedHintsController_get",
+        "parameters": [
+          {
+            "name": "ws",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The hints I have dismissed in this workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "put": {
+        "operationId": "DismissedHintsController_set",
+        "parameters": [
+          {
+            "name": "ws",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDismissedHintsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set (or replace) the list of hints I have dismissed in this workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "delete": {
+        "operationId": "DismissedHintsController_clear",
+        "parameters": [
+          {
+            "name": "ws",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Show every hint again: clear my dismissed list for this workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/spaces/{space}/views": {
       "get": {
         "operationId": "SpaceViewsController_list",
@@ -11682,6 +11929,24 @@
           "label"
         ]
       },
+      "ReorderOptionsDto": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "order"
+        ]
+      },
       "UpdateOptionDto": {
         "type": "object",
         "properties": {
@@ -12040,6 +12305,80 @@
           }
         }
       },
+      "QueryRecordsResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "number": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "nullable": true
+                },
+                "title": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "position": {
+                  "type": "string"
+                },
+                "created_by": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "ISO timestamp"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "ISO timestamp"
+                },
+                "computed_values": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "title",
+                "values",
+                "position",
+                "created_by",
+                "created_at",
+                "updated_at",
+                "computed_values"
+              ]
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor",
+          "has_more"
+        ]
+      },
       "AggregateRecordsDto__schema0": {
         "anyOf": [
           {
@@ -12393,6 +12732,60 @@
         },
         "required": [
           "record_ids"
+        ]
+      },
+      "RecordResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "position": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "computed_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "title",
+          "values",
+          "position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "computed_values"
         ]
       },
       "UpdateRecordDto": {
@@ -18044,6 +18437,41 @@
         },
         "required": [
           "filter"
+        ]
+      },
+      "SetPinnedTabsDto": {
+        "type": "object",
+        "properties": {
+          "view_ids": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "view_ids"
+        ]
+      },
+      "SetDismissedHintsDto": {
+        "type": "object",
+        "properties": {
+          "hint_ids": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+            }
+          }
+        },
+        "required": [
+          "hint_ids"
         ]
       },
       "CreateSpaceViewDto": {

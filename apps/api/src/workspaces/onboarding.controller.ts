@@ -47,6 +47,7 @@ export class OnboardingController {
       relation_created,
       business_pack_installed,
       { records_added, teammate_invited, ai_connected },
+      mcp_oauth_connected,
     ] = await Promise.all([
         this.exists(
           this.db
@@ -83,6 +84,8 @@ export class OnboardingController {
         ),
         // records_added / teammate_invited / ai_connected: one shared definition (#817).
         this.activation.evaluate(workspaceId),
+        // #967 — a live hosted-MCP OAuth connection; a separate fact from ai_connected (see ActivationService).
+        this.activation.mcpOauthConnected(workspaceId),
       ]);
 
     return {
@@ -92,6 +95,7 @@ export class OnboardingController {
       board_view_built,
       relation_created,
       ai_connected,
+      mcp_oauth_connected,
       business_pack_installed,
     };
   }

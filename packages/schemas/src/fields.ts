@@ -733,6 +733,14 @@ export const updateOptionSchema = atLeastOneField(z.object({
   position: z.number().int().optional(),
 }));
 
+/**
+ * #961 — put a choice field's options in this order, atomically. The ids must be EVERY option of the field, each once: the
+ * endpoint writes dense positions 0..n-1, and an option left out would keep a stale position and collide.
+ */
+export const reorderOptionsSchema = z.object({
+  order: z.array(z.uuid()).min(1).max(500),
+});
+
 export const deleteOptionSchema = z.object({
   /** Required when records still use the option. */
   confirm: z.boolean().default(false),
