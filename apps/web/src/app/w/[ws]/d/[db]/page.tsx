@@ -150,7 +150,7 @@ function DatabasePageInner() {
   if (database.isLoading) return <DatabasePageSkeleton ws={ws} db={db} />;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="@container flex h-full flex-col">
       {/* View tabs */}
       {/* #994 — the prototype's `.tophd`: title, tabs and switcher share ONE bottom-aligned row (padding 10px 16px 0, a
           hairline under it), so an active tab sits on the line and reads as joined to the page. */}

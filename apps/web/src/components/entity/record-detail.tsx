@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   GripVertical,
+  ArrowLeft,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -76,7 +77,9 @@ import {
   HiddenFieldRow,
   RecordActions,
   StarButton,
+  StarMenuItem,
   WatchButton,
+  WatchMenuItem,
 } from '@/components/entity/record-chrome';
 import { parseRecordParam } from '@/lib/records';
 import {
@@ -88,6 +91,7 @@ import {
   SIDEBAR_STEP,
   useRecordSidebarWidth,
 } from '@/lib/record-sidebar-width';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import type { RecordRow } from '@/components/table-view/use-table-data';
@@ -154,6 +158,8 @@ export function RecordDetail({
   onCollapse,
   onToggleMaximize,
   isMaximized = false,
+  variant,
+  backLabel,
 }: {
   ws: string;
   db: string;
@@ -162,6 +168,13 @@ export function RecordDetail({
   onCollapse?: () => void;
   onToggleMaximize?: () => void;
   isMaximized?: boolean;
+  /**
+   * #996 — how the host shows this record. `peek`: a pane beside a view, header trimmed to Expand · ⋯ · Close with
+   * everything else inside the ⋯. `expanded`: the record as a full page, with a labelled Back (`backLabel`, the
+   * name of what it came from) in place of the old collapsed-strip. Absent: the record's own route, unchanged.
+   */
+  variant?: 'peek' | 'expanded';
+  backLabel?: string;
 }) {
   const router = useRouter();
   const workspace = useWorkspace(ws);
@@ -510,6 +523,10 @@ export function RecordDetail({
   // The route param can be a pretty `slug-{number}` (MN-087); every child + mutation
   // must use the resolved UUID, never the raw param.
   const recordId = record.data.id;
+  // #996 — the three ways the host shows a record (see the `variant` prop). `pageLayout` is the two full-page ones: the
+  // route and the expanded peek, whose content is centred at the prototype's 720 (`.recwrap`) instead of left-aligned.
+  const peek = variant === 'peek';
+  const pageLayout = variant !== 'peek';
 
   // MN-131: when the title field is in `computed` mode (#130) the name is derived
   // from a template and materialized server-side — it must be read-only here.
@@ -533,7 +550,7 @@ export function RecordDetail({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       {/* #780 — top chrome: 47px tall (9px/14px padding), 1px bottom border,
           never scrolls — measured from the design artifact (BhswniXwukzMpZE4kW9iJs)
           at 1270px. Was page padding with no border/height of its own. */}
@@ -541,6 +558,20 @@ export function RecordDetail({
         {/* Breadcrumb (#197): Space › Database › #id. Database links to its list
             view and carries the db colour/icon; Space is text-only (no dedicated
             space route yet). Route-back is preserved by the Close control. */}
+        {/* #996 — the expanded page names where it came from and goes back to it: a labelled button, not the
+            vertical strip that used to stand in for the view. */}
+        {variant === 'expanded' && onToggleMaximize && (
+          <button
+            type="button"
+            onClick={onToggleMaximize}
+            aria-label={`Back to ${backLabel || 'the list'}`}
+            title={`Back to ${backLabel || 'the list'}`}
+            className="mr-1 inline-flex h-7 max-w-[12rem] shrink-0 items-center gap-1.5 rounded px-1.5 text-body text-muted hover:bg-hover hover:text-ink"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Back</span>
+          </button>
+        )}
         <nav
           aria-label="Breadcrumb"
           className="flex min-w-0 items-center gap-0.5 text-body text-muted"
@@ -572,13 +603,20 @@ export function RecordDetail({
           )}
         </nav>
         {/* #936 — pinned to the right edge (`ml-auto`), two groups split by a divider: content actions, then
-            window controls. Close is always last. */}
+            window controls. Close is always last.
+            #996 — in a PEEK the header is only Expand · ⋯ · Close: star, watch, the comments-and-activity toggle and
+            the collapse-to-rail control are items of the ⋯ menu (nothing removed, two clicks away). */}
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <StarButton ws={ws} rec={recordId} />
-          {/* #780 — promoted to a header icon, matching the design artifact's
-              cluster (star/watch/copy-link/split-view/delegate/actions). Reuses
-              the same fetch/mutation the About tab's watcher list already used. */}
-          <WatchButton ws={ws} db={db} rec={recordId} />
+          {!peek && (
+            <>
+              {variant === 'expanded' && <CopyLinkButton ws={ws} db={db} rec={record.data ?? { id: recordId }} />}
+              <StarButton ws={ws} rec={recordId} />
+              {/* #780 — promoted to a header icon, matching the design artifact's
+                  cluster (star/watch/copy-link/split-view/delegate/actions). Reuses
+                  the same fetch/mutation the About tab's watcher list already used. */}
+              <WatchButton ws={ws} db={db} rec={recordId} />
+            </>
+          )}
           {/* The ⋯ menu also holds "Customize fields…" (#936): the Fields popover opens from an invisible anchor
               laid over the ⋯ button, so it appears where the person just clicked. */}
           <span className="relative inline-flex">
@@ -594,29 +632,51 @@ export function RecordDetail({
               canCreate={schemaEditable}
               isAdmin={workspace.data?.role === 'admin'}
               onCustomizeFields={schemaEditable ? () => setTimeout(() => setFieldsOpen(true), 0) : undefined}
+              extraItems={
+                peek ? (
+                  <>
+                    <StarMenuItem ws={ws} rec={recordId} />
+                    <WatchMenuItem ws={ws} db={db} rec={recordId} />
+                    <DropdownMenuItem onSelect={() => setSidePanelCollapsed((c) => !c)}>
+                      <PanelRight className="mr-2 h-3.5 w-3.5" />{' '}
+                      {sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}
+                    </DropdownMenuItem>
+                    {onCollapse && (
+                      <DropdownMenuItem onSelect={onCollapse}>
+                        <PanelLeftClose className="mr-2 h-3.5 w-3.5" /> Collapse to side rail
+                      </DropdownMenuItem>
+                    )}
+                  </>
+                ) : undefined
+              }
             />
             {schemaEditable && (
               <FieldsPopover ws={ws} db={db} fields={allFields} anchorOnly open={fieldsOpen} onOpenChange={setFieldsOpen} />
             )}
           </span>
-          <span className="mx-1 h-4 w-px shrink-0 bg-border-default" aria-hidden />
-          {/* #780 — Ievgen's ruling: collapsible by the user, open by default
-              on the full page, auto-collapsed on mount in split view (see
-              sidePanelCollapsed's own lazy init above). */}
-          <Tooltip label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}>
-            <button
-              type="button"
-              aria-label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}
-              className={HEADER_ICON_BTN}
-              onClick={() => setSidePanelCollapsed((c) => !c)}
-            >
-              <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
-            </button>
-          </Tooltip>
+          {!peek && (
+            <>
+              <span className="mx-1 h-4 w-px shrink-0 bg-border-default" aria-hidden />
+              {/* #780 — Ievgen's ruling: collapsible by the user, open by default
+                  on the full page, auto-collapsed on mount in split view (see
+                  sidePanelCollapsed's own lazy init above). */}
+              <Tooltip label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}>
+                <button
+                  type="button"
+                  aria-label={sidePanelCollapsed ? 'Show comments & activity' : 'Hide comments & activity'}
+                  className={HEADER_ICON_BTN}
+                  onClick={() => setSidePanelCollapsed((c) => !c)}
+                >
+                  <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
+                </button>
+              </Tooltip>
+            </>
+          )}
           {/* Split-panel chrome (#167): collapse to a peek-rail, and maximize /
               restore the split area. Only present when the host mounts this record
-              as a panel. */}
-          {onCollapse && (
+              as a panel. A peek keeps only Expand; collapse moved into the ⋯, and an expanded page
+              has its labelled Back instead of a restore icon. */}
+          {onCollapse && !variant && (
             <Tooltip label="Collapse to side rail">
               <button
                 type="button"
@@ -628,11 +688,11 @@ export function RecordDetail({
               </button>
             </Tooltip>
           )}
-          {onToggleMaximize && (
-            <Tooltip label={isMaximized ? 'Restore split view' : 'Expand to full width'}>
+          {onToggleMaximize && variant !== 'expanded' && (
+            <Tooltip label={isMaximized ? 'Restore split view' : variant === 'peek' ? 'Expand to full page' : 'Expand to full width'}>
               <button
                 type="button"
-                aria-label={isMaximized ? 'Restore split view' : 'Expand to full width'}
+                aria-label={isMaximized ? 'Restore split view' : variant === 'peek' ? 'Expand to full page' : 'Expand to full width'}
                 className={HEADER_ICON_BTN}
                 onClick={onToggleMaximize}
               >
@@ -678,6 +738,7 @@ export function RecordDetail({
         {/* MAIN: title, status strip, unified fields, collections + rich
             sections, description, attachments. Its own scroll region. */}
         <div className="min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[22px]" style={{ minWidth: SIDEBAR_MIN_BODY_W }}>
+          <div className={cn(pageLayout && 'mx-auto w-full max-w-[720px]')}>
           <div className="mb-4 flex items-center gap-2">
             {/* #675 — this placeholder STAYS faint, and it is measured rather than
                 a taste call. At text-2xl (24px) it is WCAG LARGE TEXT (>=24px), so the bar is
@@ -730,7 +791,7 @@ export function RecordDetail({
             )}
             {/* One-click share (#197): always visible next to the title, copies the
                 same record URL as the … menu's Copy link. */}
-            <CopyLinkButton ws={ws} db={db} rec={record.data ?? { id: recordId }} />
+            {!variant && <CopyLinkButton ws={ws} db={db} rec={record.data ?? { id: recordId }} />}
           </div>
 
           {/* #780 — field zoning's own UI (pin-to-top strip + drag-reorder) is
@@ -1019,6 +1080,7 @@ export function RecordDetail({
             readOnly={readOnly}
             hasAttachmentField={allFields.some((f) => f.type === 'attachment')}
           />
+          </div>
         </div>
 
         {/* #780 — SIDE: fixed 344px, never flexes, hidden entirely below a
