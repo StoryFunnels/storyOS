@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, exists, gte, inArray, lte, not, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, not, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { approvals, automationJobs, automationRuns, automations, databases, records } from '../db/schema';
@@ -8,7 +8,7 @@ import { AccessService } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { JobRunnerService } from '../automations/job-runner.service';
 import { AutomationsService } from '../automations/automations.service';
-import { waitingApprovalCondition } from '../automations/approvals.service';
+import { AWAITING_APPROVAL, effectiveStatus, hasWaitingApproval, waitingCounts } from '../automations/run-status';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
 export interface RunsListFilters {
@@ -24,36 +24,7 @@ export interface RunsListFilters {
 }
 
 
-/**
- * #1009 — a DERIVED status: the run finished queueing its actions (stored `ok`) but at least one is gated on an approval nobody has
- * decided. The run row is closed as `ok` the moment its actions are queued, so before this a run waiting for a person read `ok`, which
- * told the page "Succeeded" about something that had not happened. It is never stored: it is true exactly while an approval is waiting,
- * and flips back to `ok` the moment the last one is decided.
- *
- * The statuses the API speaks and the words the app shows: ok = Succeeded, error = Failed, running = Running, skipped = Skipped,
- * skipped_quota = Skipped (quota), awaiting_approval = Awaiting approval.
- */
-export const AWAITING_APPROVAL = 'awaiting_approval';
-
 const KNOWN_STATUSES = new Set(['ok', 'error', 'skipped', 'skipped_quota', 'running', AWAITING_APPROVAL]);
-
-/** `exists (a waiting approval for this run)` — correlated on the run being listed. */
-const hasWaitingApproval = (db: Db) =>
-  exists(db.select({ one: sql`1` }).from(approvals).where(and(eq(approvals.runId, automationRuns.id), waitingApprovalCondition())));
-
-/** How many waiting approvals each of these runs has (runs with none are absent from the map). */
-async function waitingCounts(db: Db, runIds: string[]): Promise<Map<string, number>> {
-  if (runIds.length === 0) return new Map();
-  const rows = await db
-    .select({ runId: approvals.runId, n: sql<number>`count(*)::int` })
-    .from(approvals)
-    .where(and(inArray(approvals.runId, runIds), waitingApprovalCondition()))
-    .groupBy(approvals.runId);
-  return new Map(rows.flatMap((r) => (r.runId ? [[r.runId, r.n] as const] : [])));
-}
-
-/** The status a caller sees: a finished-OK run with an approval still waiting is `awaiting_approval`; every other status is as stored. */
-const effectiveStatus = (stored: string, waiting: number): string => (stored === 'ok' && waiting > 0 ? AWAITING_APPROVAL : stored);
 
 const SOURCE_KIND_NOTE =
   'kind=source has no data yet — the sources framework (MN-260/#239) has not landed. This filter is accepted so the API shape is forward-compatible; it will start returning source-sync runs once #239 ships.';
