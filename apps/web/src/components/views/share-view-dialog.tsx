@@ -6,6 +6,9 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { Field } from '@/components/table-view/use-table-data';
 import { CopyRow } from './form-view';
+import { useSession } from '@/lib/auth-client';
+import { findMeCondition, meLabel, publishedCopyBase, swapMeForUser, uniqueName } from '@/lib/me-label';
+import { SYSTEM_USER_TYPES } from './system-fields';
 import type { ViewSummary, useViewMutations } from './use-view-state';
 
 /** Mirrors public-views.service.ts's COMPUTED_TYPES exactly: a rollup/lookup/
@@ -26,7 +29,13 @@ export function ShareViewDialog({
   view,
   fields,
   mutations,
+  existingNames = [],
+  onCopyReady,
 }: {
+  /** #928 — names already taken in this database, so the published copy of a Me view never clashes. */
+  existingNames?: string[];
+  /** #928 — the copy was made; the page opens it and offers the ordinary Share dialog for it. */
+  onCopyReady?: (copyId: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   view: ViewSummary;
@@ -86,6 +95,67 @@ export function ShareViewDialog({
       include_relation_api_names: [...relationNames],
       indexable,
     });
+  }
+
+  // #928 / #938 — a view that shows each teammate their own records cannot have a public link: a visitor is not signed
+  // in, so there is no "me" and they would see an empty page. The API refuses it (422); this dialog says so first.
+  // Taking the Me condition off would change the SHARED view for the whole team, so the way forward is a COPY where
+  // Me becomes the author, and only the copy is published. Duplicate, patch and publish are existing calls.
+  const session = useSession();
+  const author = session.data?.user;
+  const personFields = new Set(fields.filter((f) => f.type === 'user' || SYSTEM_USER_TYPES.has(f.type)).map((f) => f.apiName));
+  const meCondition = findMeCondition(view.config.filters, personFields);
+  const meField = meCondition ? fields.find((f) => f.apiName === meCondition.field) : undefined;
+  const [copying, setCopying] = useState(false);
+
+  async function publishMyCopy() {
+    if (!author || !meField) return;
+    setCopying(true);
+    try {
+      const copy = (await mutations.duplicateView.mutateAsync(view.id)) as { id: string; config?: typeof view.config };
+      const base = publishedCopyBase(view.name, meField.displayName, author.name || 'My');
+      const name = uniqueName(base, existingNames);
+      // The duplicate never carries the public link; stripping `share` anyway keeps this independent of that.
+      const { share: _share, ...rest } = copy.config ?? view.config;
+      void _share;
+      await mutations.updateView.mutateAsync({
+        id: copy.id,
+        name,
+        config: { ...rest, filters: view.config.filters ? swapMeForUser(view.config.filters, author.id) : undefined },
+      });
+      toast.success(`Made “${name}” — the team’s view is unchanged`);
+      onOpenChange(false);
+      onCopyReady?.(copy.id);
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  if (meCondition && meField) {
+    const label = meLabel(meField.displayName);
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent title={`“${label}” can’t have a public link`}>
+          <div className="flex flex-col gap-3">
+            <p className="text-body text-ink">
+              This view shows each teammate their own records. Someone opening a public link isn’t signed in, so there’s
+              no “me” — they’d see an empty page.
+            </p>
+            <p className="text-label text-muted">
+              Taking “{label}” off this view would change it for everyone on your team, so StoryOS won’t do that here.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="button" disabled={copying || !author} onClick={() => void publishMyCopy()}>
+                Publish a copy with only your records
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
   }
 
   return (

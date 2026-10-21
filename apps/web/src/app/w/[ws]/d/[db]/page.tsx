@@ -9,7 +9,10 @@ import { DndContext, closestCenter } from '@dnd-kit/core';
 import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { Database as DatabaseIcon } from 'lucide-react';
+import { Database as DatabaseIcon, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { ME_ID, findMeView, meLabel } from '@/lib/me-label';
+import { MeViewHint, markFreshMeView, notDoneConditions } from '@/components/views/me-view';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
@@ -41,7 +44,7 @@ import {
   useViewMutations,
   useViewState,
 } from '@/components/views/use-view-state';
-import type { ViewConfig } from '@/components/views/use-view-state';
+import type { ViewConfig, ViewSummary } from '@/components/views/use-view-state';
 import { setViewSearch, useViewSearch } from '@/components/views/view-search';
 import { EmptyViewNotice, useEmptyViewCause } from '@/components/views/empty-view-notice';
 import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
@@ -265,15 +268,30 @@ function DatabasePageInner() {
             onOpenChange={setNewViewOpen}
             fields={database.data.fields}
             existingNames={views.map((v) => v.name)}
-            onCreate={(name, type, configPatch) =>
+            views={views}
+            onOpenExisting={(v) => {
+              router.replace(`/w/${ws}/d/${db}?view=${v.id}`);
+              toast(`Opened “${v.name}” — it’s already here`);
+            }}
+            onCreate={(name, type, configPatch, opts) =>
               viewMutations.createView.mutate(
                 { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
-                { onSuccess: (v) => goToView(v.id) },
+                {
+                  onSuccess: (v) => {
+                    goToView(v.id);
+                    // #928 — "Assigned to me" is pinned to the tab strip and explains itself once, here.
+                    if (opts?.assignedToMe) {
+                      pins.setPinned(v.id, true);
+                      markFreshMeView(v.id);
+                    }
+                  },
+                },
               )
             }
           />
         )}
       </div>
+      <MeViewHint ws={ws} viewId={activeView?.id} />
       {sharingView && database.data && (
         <ShareViewDialog
           open
@@ -281,6 +299,11 @@ function DatabasePageInner() {
           view={sharingView}
           fields={database.data.fields}
           mutations={viewMutations}
+          existingNames={views.map((v) => v.name)}
+          onCopyReady={(id) => {
+            router.replace(`/w/${ws}/d/${db}?view=${id}`);
+            setSharingViewId(id);
+          }}
         />
       )}
 
@@ -523,15 +546,28 @@ function NewViewDialog({
   onOpenChange,
   fields,
   existingNames,
+  views,
+  onOpenExisting,
   onCreate,
 }: {
+  /** #928 — to find a view that is already "<person field> is me", which the tile opens instead of copying. */
+  views: ViewSummary[];
+  onOpenExisting: (view: ViewSummary) => void;
   /** #966 — opened from the view switcher's foot ("+ New view"); it has no trigger of its own. */
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fields: Field[];
   existingNames: string[];
-  onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
+  onCreate: (
+    name: string,
+    type: ViewKind,
+    configPatch?: Partial<ViewConfig>,
+    opts?: { assignedToMe?: boolean },
+  ) => void;
 }) {
+  // #928 — the person field "Assigned to me" is about: the first real `user` field, in field order. A relation to
+  // the Members database does not qualify (ADR-0017: `me` resolves only on user-typed fields).
+  const meField = fields.find((f) => f.type === 'user');
   const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
   // #272: both group-by pickers now read the SHARED rule (./groupable-fields), which
   // mirrors the API's `boardGroupError`. This List list used to be
@@ -557,6 +593,28 @@ function NewViewDialog({
     }
   }
 
+  /** #928 — one click: a SHARED board (a table when nothing can group it), filtered to "<field> is me" and not done,
+   *  with the Me condition PINNED so its chip is the lasting explanation (#965: chips appear only when pinned). One per
+   *  field: a database that already has such a view opens it instead of growing "Assigned to me 2". */
+  function createMeView(field: Field) {
+    const existing = findMeView(views, field.apiName);
+    if (existing) {
+      onOpenExisting(existing);
+      onOpenChange(false);
+      return;
+    }
+    const kind: ViewKind = boardDefaultGroupId ? 'board' : 'table';
+    const patch: Partial<ViewConfig> = {
+      filters: {
+        and: [{ field: field.apiName, op: 'has', value: [ME_ID], pinned: true }, ...notDoneConditions(fields)],
+      },
+    };
+    if (kind === 'board') patch.group_by_field_id = boardDefaultGroupId;
+    else patch.hidden_field_ids = defaultTableHiddenFieldIds(fields);
+    onCreate(uniqueViewName(meLabel(field.displayName)), kind, patch, { assignedToMe: true });
+    onOpenChange(false);
+  }
+
   function createView(kind: ViewKind) {
     const patch: Partial<ViewConfig> = {};
     if (kind === 'table') patch.hidden_field_ids = defaultTableHiddenFieldIds(fields);
@@ -573,6 +631,28 @@ function NewViewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="New view">
+        {/* #928 — first, full width, above the type grid (prototype `.nvme`). With no person field it is disabled and
+            says why, in the same words every other refused tile uses. */}
+        <button
+          type="button"
+          disabled={!meField}
+          title={meField ? undefined : 'Needs a person field'}
+          onClick={() => meField && createMeView(meField)}
+          className={cn(
+            'mb-2 flex w-full items-center gap-2.5 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2.5 text-left text-ink hover:bg-hover',
+            !meField && 'cursor-not-allowed text-muted hover:bg-card',
+          )}
+        >
+          <UserRound className="h-4 w-4 shrink-0" />
+          <span className="flex flex-col gap-px">
+            <b className={cn('text-body font-semibold leading-[normal]!', !meField && 'text-muted')}>
+              {meField ? meLabel(meField.displayName) : 'Assigned to me'}
+            </b>
+            <i className="text-label not-italic leading-[normal]! text-muted">
+              {meField ? 'Each teammate sees their own' : 'Needs a person field'}
+            </i>
+          </span>
+        </button>
         <div className="grid grid-cols-2 gap-2">
           {(
             [
