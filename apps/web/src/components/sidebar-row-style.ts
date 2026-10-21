@@ -22,9 +22,11 @@
  * them, so those get ONE real indent step, 20px, and it is the only one in
  * the whole tree.
  *
- * This also folds in finding 06 (views are siblings of databases, not
- * nested under them) — there is no longer a "view under a database" depth at
- * all, only "row directly in a space" vs. "row inside a folder".
+ * #931 REVERSED finding 06 for single-source views: a database's own views
+ * nest under it again, one step in, on the same guide line a folder uses. It is
+ * still ONE indent step (`SIDEBAR_INDENT_PX[1]`) — a database that has saved
+ * views CONTAINS them exactly as a folder contains its rows — so there is no
+ * second depth to add and no new constant: a container's children indent once.
  *
  * - 0 — every row directly in a space: the space header itself, a database,
  *   a folder, a space-level view, a dashboard, a document. One shared edge —
@@ -50,9 +52,21 @@ export function sidebarRowIndent(depth: SidebarDepth): number {
  * and the "All records" child it opens were both active and you got TWO stacked
  * bars for ONE location. Two markers, one place.
  */
-export function sidebarRowStateClass(active: boolean): string {
-  return active ? 'bg-active text-ink' : 'text-ink-secondary hover:bg-hover';
+export function sidebarRowStateClass(active: boolean, lens = false): string {
+  // #931 — a view is a LENS on a database, not a thing of its own, so it reads lighter: muted
+  // text at rest. The active lens goes to full ink, like any active row, so "you are here" holds.
+  if (active) return 'bg-active text-ink';
+  return lens ? 'text-muted hover:bg-hover' : 'text-ink-secondary hover:bg-hover';
 }
+
+/**
+ * #931 — the guide line down the left of a container's children (a folder's body, a database's
+ * views). ONE definition: two hairlines that must agree is the drift this tree keeps paying for.
+ * #805 — a pseudo-element, not `border-l`: a real border takes 1px of layout and pushed every
+ * child 1px right of the design's columns.
+ */
+export const SIDEBAR_GUIDE_CLASS =
+  'relative flex flex-col gap-0.5 before:pointer-events-none before:absolute before:inset-y-px before:left-px before:w-px before:bg-border-default';
 
 /**
  * #805 — TWO letters, as the artifact draws them (AO, ST, CW, BF, JC): first

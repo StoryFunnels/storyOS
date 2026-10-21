@@ -849,6 +849,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_field: 'admin',
   change_field_type: 'admin',
   reorder_fields: 'admin',
+  // #961 — same ceiling as the option edits it sits beside (update_field).
+  reorder_options: 'admin',
   create_view: 'admin',
   update_view: 'admin',
   delete_view: 'admin',
@@ -5599,6 +5601,46 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'reorder_options',
+    {
+      title: 'Reorder a choice field\'s options',
+      description:
+        'Set the order of a select / multi_select / workflow field\'s options. Pass option LABELS (or ids) in the desired order; any you leave out ' +
+        'keep their relative order after the ones you name. This one order is the sort order for the field (a sort by it runs first option → last), ' +
+        'the order of a board grouped by it ("Field order"), and the order of every option list.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string(),
+        order: z.array(z.string()).describe('Option labels (or ids) in the desired order.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; order: string[] }>(async ({ workspace, database, field, order }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = anyField(detail, field);
+      const opts = detail.fields.find((f) => f.id === fieldId)?.options ?? [];
+      if (opts.length === 0) throw new Error('That field has no options to reorder.');
+      const named: string[] = [];
+      for (const ref of order) {
+        const hit = opts.find((o) => o.id === ref) ?? opts.find((o) => o.label.toLowerCase() === ref.trim().toLowerCase());
+        if (!hit) throw new Error(`No option "${ref}" on that field. It has: ${opts.map((o) => o.label).join(', ')}.`);
+        if (named.includes(hit.id)) throw new Error(`Option "${hit.label}" is listed twice.`);
+        named.push(hit.id);
+      }
+      const full = [...named, ...opts.filter((o) => !named.includes(o.id)).map((o) => o.id)];
+      const res = await unwrap<Array<{ label: string }>>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/reorder', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+          body: { order: full } as never,
+        }),
+      );
+      return text(res.map((o) => o.label));
+    }),
+  );
+
+  reg(
     'reorder_views',
     {
       title: 'Reorder views',
@@ -6930,7 +6972,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       description:
-        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them; kind:"created" = records they made; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = records they made (assigned_by is null there); kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
         'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
       inputSchema: {
         workspace: z.string(),

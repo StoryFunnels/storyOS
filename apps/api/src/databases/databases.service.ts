@@ -19,6 +19,7 @@ import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates
 import type { ChangeSource } from '../db/schema';
 import type { PendingApprovalResult } from '../records/records.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
+import { OPTION_ORDER } from '../fields/option-order';
 
 /** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -275,7 +276,7 @@ export class DatabasesService {
     const options = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, selectFieldIds),
-          orderBy: [asc(selectOptions.position)],
+          orderBy: OPTION_ORDER,
         })
       : [];
     const optionsByField = new Map<string, typeof options>();

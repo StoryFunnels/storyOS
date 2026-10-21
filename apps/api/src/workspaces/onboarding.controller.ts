@@ -46,7 +46,7 @@ export class OnboardingController {
       board_view_built,
       relation_created,
       business_pack_installed,
-      { records_added, teammate_invited, ai_connected },
+      { records_added, teammate_invited, ai_connected, ai_oauth_connected: mcp_oauth_connected },
     ] = await Promise.all([
         this.exists(
           this.db
@@ -81,7 +81,7 @@ export class OnboardingController {
             .where(and(eq(packInstalls.workspaceId, workspaceId), isNull(packInstalls.uninstalledAt)))
             .limit(1),
         ),
-        // records_added / teammate_invited / ai_connected: one shared definition (#817).
+        // records_added / teammate_invited / ai_connected / mcp_oauth_connected: one shared definition (#817 / #967).
         this.activation.evaluate(workspaceId),
       ]);
 
@@ -92,6 +92,7 @@ export class OnboardingController {
       board_view_built,
       relation_created,
       ai_connected,
+      mcp_oauth_connected,
       business_pack_installed,
     };
   }

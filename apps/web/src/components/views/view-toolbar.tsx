@@ -2555,8 +2555,8 @@ function SortRow({
               value={sort.direction}
               onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
             >
-              <option value="asc">{directionLabel(field?.type ?? 'text', 'asc')}</option>
-              <option value="desc">{directionLabel(field?.type ?? 'text', 'desc')}</option>
+              <option value="asc">{directionLabel(field?.type ?? 'text', 'asc', field?.options)}</option>
+              <option value="desc">{directionLabel(field?.type ?? 'text', 'desc', field?.options)}</option>
             </select>
           </div>
         </div>

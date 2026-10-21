@@ -89,10 +89,12 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
    * chevron slot at x=14 panel-relative.
    */
   edge?: 'row' | 'header';
+  /** #931 — a view row: lighter text and weight than a database (see sidebarRowStateClass). */
+  lens?: boolean;
   className?: string;
   children: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>>(function SidebarRow(
-  { depth, active = false, draggable = false, dragHandleProps, caret, indicator, edge = 'row', className, style, children, ...rest },
+  { depth, active = false, draggable = false, dragHandleProps, caret, indicator, edge = 'row', lens = false, className, style, children, ...rest },
   ref,
 ) {
   return (
@@ -121,7 +123,8 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
          * database and the "All records" child it opens were both active and you
          * got TWO stacked bars for ONE location. Two markers, one place.
          */
-        sidebarRowStateClass(active),
+        sidebarRowStateClass(active, lens),
+        lens && 'font-normal',
         className,
       )}
       {...rest}

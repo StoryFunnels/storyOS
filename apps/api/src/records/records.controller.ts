@@ -13,7 +13,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ResourceScopable } from '../access/resource-scope';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import {
@@ -24,7 +24,9 @@ import {
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
+  queryRecordsResponseSchema,
   queryRecordsSchema,
+  recordResponseSchema,
   updateRecordSchema,
   upsertRecordSchema,
   aggregateRecordsSchema,
@@ -47,6 +49,9 @@ class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
 class BatchUpdateUndoDto extends createZodDto(batchUpdateUndoSchema) {}
 class BulkRecordJobDto extends createZodDto(bulkRecordJobSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
+// #925 — response shapes, so the SDK and MCP callers see the record (including the AI in-flight marker) as a typed body.
+class RecordResponseDto extends createZodDto(recordResponseSchema) {}
+class QueryRecordsResponseDto extends createZodDto(queryRecordsResponseSchema) {}
 class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
 class GroupedAggregateRecordsDto extends createZodDto(groupedAggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
@@ -145,6 +150,7 @@ export class RecordsController {
   @RequiresScope('read')
   @Post('query')
   @ApiOperation({ summary: 'Query records: filter AST + sorts + q + keyset cursor (the workhorse)' })
+  @ApiCreatedResponse({ type: QueryRecordsResponseDto })
   async query(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
@@ -342,6 +348,7 @@ export class RecordsController {
 
   @Get(':rec')
   @ApiOperation({ summary: 'Single record, values keyed by api_name' })
+  @ApiOkResponse({ type: RecordResponseDto })
   async get(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,

@@ -458,6 +458,8 @@ export function PersonalSection({ ws }: { ws: string }) {
               <Lock className="h-3.5 w-3.5 text-faint" />
             </GlyphSlot>
             Personal
+            {/* #967 — "Personal · only you": the row states the privacy rule itself. */}
+            <span className="text-muted">· only you</span>
           </span>
           {newMenu}
         </SidebarRow>

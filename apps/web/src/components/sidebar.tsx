@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Activity, Cable, Check, ChevronRight, Library, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -43,7 +43,9 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { CARET_HIT_AREA, markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
+import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
+import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
@@ -57,6 +59,7 @@ import {
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
+import { SidebarAiSection } from '@/components/sidebar-ai-section';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -340,42 +343,9 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
       <nav className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
-        {/* #742 phase 6 — Collections tier: Reviews and Business Packs (both
-            without a count or an add button — this app has no count source for
-            either yet, and inventing one wasn't this ticket's job) plus
-            Personal. Personal's own section keeps its existing behaviour
-            (New doc/view, its own docs+views list) — the artifact's Collections
-            row for Personal shows no count or add button, which the design
-            comment reads as deliberate ("a destination, not a container you
-            add into from the sidebar"), but removing that capability entirely
-            would be a functional regression this ticket isn't scoped to make;
-            it stays, just grouped under this banner instead of its own. */}
-        {/* #805 — the artifact's quiet tier label: 9px/400 at 0.16em. 9px is
-            below --text-micro (10px), the floor of the role scale, so 10px is
-            the mapping; the weight and tracking are the artifact's. */}
-        <p className="mb-0.5 mt-1 px-3 text-micro font-normal uppercase tracking-[0.16em] text-faint">
-          Collections
-        </p>
-        {/* #779 — through SidebarRow like every other row, rather than a bare
-            `<Link>`: neither of these has a chevron, but the reserved gutter
-            still applies (Dara's spec: Collections rows measure the SAME
-            icon/label offset as every other row type), so a bare link with
-            no gutter landed 6px left of where it should. */}
-        <SidebarRow depth={0} className="hover:bg-hover">
-          <Link href={`/w/${ws}/reviews`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <GlyphSlot><GitPullRequest className="h-3.5 w-3.5" /></GlyphSlot>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Reviews</span>
-          </Link>
-        </SidebarRow>
-        <SidebarRow depth={0} className="hover:bg-hover">
-          <Link href={`/w/${ws}/packs`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <GlyphSlot><Package className="h-3.5 w-3.5" /></GlyphSlot>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">Business Packs</span>
-          </Link>
-        </SidebarRow>
-        {/* #292 — separate from the shared Spaces tree below: it can't be
-            shared, moved into a folder, or deleted like a space can. */}
-        <PersonalSection ws={ws} />
+        {/* #967 — "Collections" is gone: the AI layer has its own gold section (Skills, Agent runs,
+            Business Packs; "Connect your AI" joins once its connected-state endpoint exists). */}
+        <SidebarAiSection ws={ws} />
         {/* #641 — 72px of the void between the nav and the tree was Personal's
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
@@ -399,6 +369,9 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             )}
           </div>
         </div>
+        {/* #967 — Personal is the FIRST row under Spaces. #292 — separate from the shared Spaces tree below: it can't be
+            shared, moved into a folder, or deleted like a space can. */}
+        <PersonalSection ws={ws} />
         {/* #409/#412/#415 — the shared drag presentation: a portalled preview so
             the dragged row cannot paint over its neighbours, and announcements
             that name the space instead of reading out its uuid. */}
@@ -488,7 +461,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </DragPreview>
         </DndContext>
 
-        {canEdit && <NewSpaceButton onCreate={(name) => mutations.createSpace.mutate({ name })} />}
+        {canEdit && <NewSpaceButton ws={ws} onCreate={(name) => mutations.createSpace.mutate({ name })} />}
         {canEdit && (
           <>
             <button
@@ -637,9 +610,10 @@ function AccountMenu({
           <button
             type="button"
             aria-label="Settings & account"
-            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+            className={RAIL_BUTTON}
           >
             <Settings className="h-[17px] w-[17px]" />
+            <RailName>Settings</RailName>
           </button>
         </DropdownMenuTrigger>
       </Tooltip>
@@ -715,8 +689,6 @@ function SidebarRail({
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
-  const isRuns = pathname === `/w/${ws}/runs` || pathname?.startsWith(`/w/${ws}/runs/`);
-  const isSkills = pathname === `/w/${ws}/skills` || pathname?.startsWith(`/w/${ws}/skills/`);
 
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
@@ -725,6 +697,8 @@ function SidebarRail({
       <RailLink href={`/w/${ws}`} title="Home" active={isHome}>
         <Home className="h-[17px] w-[17px]" />
       </RailLink>
+      {/* #967 — the rail is YOU: workspace, Home, Inbox, My Work, Settings. Skills and Agent runs moved
+          to the gold AI section of the open panel (Ievgen, final: not mirrored here). */}
       {/* #742 phase 6 — a real count only for Inbox (useUnreadCount already
           exists). My Work has no count endpoint yet — /my-work paginates —
           so it gets no badge rather than a guessed one; see Tyron's own
@@ -736,20 +710,21 @@ function SidebarRail({
       <RailLink href={`/w/${ws}/me`} title="My Work" active={isMyWork}>
         <UserRound className="h-[17px] w-[17px]" />
       </RailLink>
-      {/* #833 — Skills is a rail entry, not a Settings page: it is the thing the
-          product sells (your process, stored here, run by someone else's AI), and
-          a cornerstone does not live behind a gear icon. */}
-      <RailLink href={`/w/${ws}/skills`} title="Skills" active={!!isSkills}>
-        <Library className="h-[17px] w-[17px]" />
-      </RailLink>
-      <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
-      <RailLink href={`/w/${ws}/runs`} title="Runs" active={isRuns}>
-        <Activity className="h-[17px] w-[17px]" />
-      </RailLink>
       <div className="flex-1" />
       <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
     </div>
   );
+}
+
+/**
+ * #967 — one rail control: 34px square on desktop (a tooltip names it, on hover AND keyboard focus),
+ * and on a phone, where there is no hover, a taller cell with the NAME printed under the icon.
+ */
+const RAIL_BUTTON =
+  'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink max-md:h-11 max-md:w-11 max-md:flex-col max-md:gap-0.5';
+
+function RailName({ children }: { children: React.ReactNode }) {
+  return <span className="hidden text-micro leading-none max-md:block">{children}</span>;
 }
 
 function RailLink({
@@ -769,11 +744,12 @@ function RailLink({
         href={href}
         aria-label={title}
         className={cn(
-          'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink',
+          RAIL_BUTTON,
           active && 'bg-active text-ink',
         )}
       >
         {children}
+        <RailName>{title}</RailName>
       </Link>
     </Tooltip>
   );
@@ -796,9 +772,10 @@ function RailButton({
         type="button"
         aria-label={title}
         onClick={onClick}
-        className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink"
+        className={cn(RAIL_BUTTON, 'relative')}
       >
         {children}
+        <RailName>{title}</RailName>
         {badge && (
           <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
             {badge}
@@ -2484,14 +2461,11 @@ function FolderSection({
         )}
       </SidebarRow>
       {!collapsed && (
-        /* #380 — same guide line, same offset as a database's nested views.
-           #641 — gap-0.5 added: same zero-gap-between-rows issue as the
-           space's own root list, fixed the same way. */
+        /* #380 — same guide line, same offset as a database's nested views (#931: now literally
+           the same class, SIDEBAR_GUIDE_CLASS). #641 — gap-0.5: zero-gap-between-rows, fixed the
+           same way as the space's own root list. */
         <div
-          // #805 — the guide line is a pseudo-element, not `border-l`: a real
-          // border took 1px of layout and pushed every folder child 1px right
-          // of the artifact's columns (35/55/79 instead of 34/54/78).
-          className="relative flex flex-col gap-0.5 before:pointer-events-none before:absolute before:inset-y-px before:left-px before:w-px before:bg-border-default"
+          className={SIDEBAR_GUIDE_CLASS}
           style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}
         >
           {contentCount === 0 && (
@@ -2636,42 +2610,57 @@ function DatabaseBranch({
   onDeleteView: (view: SidebarView) => void;
   canEdit: boolean;
   isAdmin: boolean;
-  /** #742 finding 05 — hide the database's own row; its views (siblings
-   *  since finding 06) still render below, unaffected. */
+  /** #742 finding 05 — hide the database's own row; its views still render,
+   *  flat, since there is no parent row left to nest them under. */
   viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
+  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id);
+  const activeViewId = isHere ? currentViewId : null;
+  const tint = db.color ? OPTION_COLORS[db.color] : null;
 
+  const renderView = (v: SidebarView) => (
+    <SidebarViewRow
+      key={v.id}
+      ws={ws}
+      view={v}
+      active={isHere && currentViewId === v.id}
+      folders={folders}
+      onMove={onMoveView}
+      onRename={onRenameView}
+      onDelete={onDeleteView}
+      canEdit={canEdit}
+      tint={tint}
+    />
+  );
+
+  // #742 finding 05 — views-only mode hides the database's own row. A view then has no parent row
+  // on screen to nest under, so they render flat at the space edge, all of them, as before.
+  if (viewsOnly) return <Fragment>{views.map(renderView)}</Fragment>;
+
+  // #931 — single-source views nest UNDER their database: one step in, on the same guide line a
+  // folder uses, collapsed by default. A collapsed database still shows its active (and, once
+  // #966 lands, pinned) view, so the tree never hides where you are.
+  const shown = visibleChildViews(views, { expanded, activeViewId });
   return (
     <Fragment>
-      {!viewsOnly && (
-        <DatabaseRow
-          ws={ws}
-          db={db}
-          active={isHere}
-          isAdmin={isAdmin}
-          folders={folders}
-          onMove={onMove}
-          reorderable={canEdit}
-        />
+      <DatabaseRow
+        ws={ws}
+        db={db}
+        active={isHere}
+        isAdmin={isAdmin}
+        folders={folders}
+        onMove={onMove}
+        reorderable={canEdit}
+        expandable={views.length > 0}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+      {shown.length > 0 && (
+        <div className={SIDEBAR_GUIDE_CLASS} style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+          {shown.map(renderView)}
+        </div>
       )}
-      {/* #742 finding 06 — a database's own views render as FLAT SIBLINGS now,
-          not behind an expand/collapse caret. No leaf row has children in the
-          new model, so there is nothing left to expand: depth 0, same as the
-          database beside it, no guide line (that implied nesting). */}
-      {views.map((v) => (
-        <SidebarViewRow
-          key={v.id}
-          ws={ws}
-          view={v}
-          active={isHere && currentViewId === v.id}
-          folders={folders}
-          onMove={onMoveView}
-          onRename={onRenameView}
-          onDelete={onDeleteView}
-          canEdit={canEdit}
-        />
-      ))}
     </Fragment>
   );
 }
@@ -3192,7 +3181,7 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function NewSpaceButton({ onCreate }: { onCreate: (name: string) => void }) {
+function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   return (
@@ -3218,13 +3207,20 @@ function NewSpaceButton({ onCreate }: { onCreate: (name: string) => void }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit">Create space</Button>
+          <div className="flex items-center justify-between gap-2">
+            {/* #967 — a space can also start from a business pack; the whole Packs page (Installed,
+                Gallery, Marketplace) is one click away from here as well as from the AI section. */}
+            <Link href={`/w/${ws}/packs`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
+              Start from a pack…
+            </Link>
+            <div className="flex gap-2">
+              <DialogClose asChild>
+                <Button type="button" variant="secondary">
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button type="submit">Create space</Button>
+            </div>
           </div>
         </form>
       </DialogContent>

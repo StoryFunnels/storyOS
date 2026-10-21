@@ -1,5 +1,6 @@
 'use client';
 
+import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 import {
   useInfiniteQuery,
   useMutation,
@@ -278,6 +279,10 @@ export function useRecordsInfinite(
       return data as unknown as RecordsPage;
     },
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // #620 — while any visible row has an AI recompute in flight (the API's `:pending_at` marker), re-read the pages so a
+    // "computing" cell passes to "computed" without a reload. Stops by itself the moment no marker is left.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((pg) => pg.data.some((r) => recordHasPendingAi(r))) ? AI_POLL_MS : false,
     // #306 — a space-level dashboard has no database until a tile names one, so
     // `db` can legitimately be empty. useDatabase already guards this way; this
     // one did not, and an empty id would POST to /databases//records/query.
