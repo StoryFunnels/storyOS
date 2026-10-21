@@ -7,7 +7,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { Database as DatabaseIcon, Plus } from 'lucide-react';
+import { Database as DatabaseIcon } from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { BoardView } from '@/components/views/board-view';
 import { DashboardView } from '@/components/views/dashboard-view';
@@ -26,6 +26,8 @@ import { ViewToolbar } from '@/components/views/view-toolbar';
 import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
+import { ViewSwitcher } from '@/components/views/view-switcher';
+import { reorderPinned, stripViews, useViewPins } from '@/components/views/pinned-tabs';
 import { useViewMenuActions, useViewMoves } from '@/components/views/view-menu-items';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import { defaultTableHiddenFieldIds } from './default-table-columns';
@@ -43,7 +45,7 @@ import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
-import { computeReorder, fieldReorderMoves } from '@/lib/reorder';
+import { fieldReorderMoves } from '@/lib/reorder';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -67,6 +69,10 @@ function DatabasePageInner() {
   const openFieldId = searchParams.get('field');
   const { views, activeView, config, patch, personalFilter } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
+  // #966 — THIS viewer's pinned tabs (per-viewer state, ADR-0019), not the database's view order.
+  const pins = useViewPins(ws, db);
+  const strip = useMemo(() => stripViews(views, pins.pinned, activeView?.id), [views, pins.pinned, activeView?.id]);
+  const [newViewOpen, setNewViewOpen] = useState(false);
   // #964 — the ONE view menu: the actions every door runs the same way, and where a view can be moved.
   const viewActions = useViewMenuActions(ws, db);
   const movesFor = useViewMoves(ws, db, database.data?.spaceId);
@@ -118,12 +124,17 @@ function DatabasePageInner() {
     const moves = fieldReorderMoves(database.data?.fields ?? [], activeId, overId);
     if (moves.length) reorderFields.mutate(moves);
   };
+  // #966 — dragging a tab reorders YOUR pinned tabs (a per-viewer list). The database's own view order is the
+  // sidebar's drag, untouched here, and the transient unpinned-active tab cannot be dragged.
   function onViewDragEnd(e: DragEndEvent) {
-    if (readOnly || !e.over || e.active.id === e.over.id) return;
-    // #926 — the shared helper judges "moved" by each view's STORED position, so a database whose views
-    // have gaps in their positions (a view was deleted) still saves the order that was dropped.
-    const moves = computeReorder(views, String(e.active.id), String(e.over.id));
-    if (moves.length) viewMutations.reorderViews.mutate(moves);
+    if (!e.over || e.active.id === e.over.id) return;
+    const next = reorderPinned(
+      pins.pinned,
+      strip.filter((t) => t.pinned).map((t) => t.view.id),
+      String(e.active.id),
+      String(e.over.id),
+    );
+    if (next) pins.reorder(next);
   }
 
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
@@ -178,12 +189,14 @@ function DatabasePageInner() {
             overflow-x-auto actually kicks in rather than pushing the row wide. */}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <DndContext sensors={viewSensors} collisionDetection={closestCenter} onDragEnd={onViewDragEnd}>
-            <SortableContext items={views.map((v) => v.id)} strategy={horizontalListSortingStrategy}>
-              {views.map((view) => (
+            <SortableContext items={strip.filter((t) => t.pinned).map((t) => t.view.id)} strategy={horizontalListSortingStrategy}>
+              {strip.map(({ view, pinned }) => (
                 <ViewTab
                   key={view.id}
                   view={view}
                   isActive={view.id === activeView?.id}
+                  pinned={pinned}
+                  onSetPinned={(wanted) => pins.setPinned(view.id, wanted)}
                   canManage={!readOnly}
                   canDelete={!readOnly && views.length > 1}
                   mutations={viewMutations}
@@ -205,19 +218,35 @@ function DatabasePageInner() {
             </SortableContext>
           </DndContext>
         </div>
-        {!readOnly && database.data && (
+        {database.data && (
           <div className="shrink-0">
-            <NewViewDialog
-              fields={database.data.fields}
-              existingNames={views.map((v) => v.name)}
-              onCreate={(name, type, configPatch) =>
-                viewMutations.createView.mutate(
-                  { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
-                  { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
-                )
-              }
+            <ViewSwitcher
+              ws={ws}
+              db={db}
+              databaseName={database.data.name}
+              views={views}
+              activeId={activeView?.id}
+              pinnedIds={pins.pinned}
+              canCreate={!readOnly}
+              onNavigate={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+              onSetPinned={pins.setPinned}
+              onNewView={() => setNewViewOpen(true)}
             />
           </div>
+        )}
+        {!readOnly && database.data && (
+          <NewViewDialog
+            open={newViewOpen}
+            onOpenChange={setNewViewOpen}
+            fields={database.data.fields}
+            existingNames={views.map((v) => v.name)}
+            onCreate={(name, type, configPatch) =>
+              viewMutations.createView.mutate(
+                { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
+                { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
+              )
+            }
+          />
         )}
       </div>
       {sharingView && database.data && (
@@ -311,7 +340,12 @@ function DatabasePageInner() {
         readOnly={readOnly}
         view={
           activeView
-            ? { name: activeView.name, isDefault: Boolean(activeView.isDefault), personal: Boolean(activeView.ownerUserId) }
+            ? {
+                name: activeView.name,
+                isDefault: Boolean(activeView.isDefault),
+                personal: Boolean(activeView.ownerUserId),
+                pinned: pins.isPinned(activeView.id),
+              }
             : undefined
         }
         viewMenu={
@@ -324,6 +358,7 @@ function DatabasePageInner() {
                     onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`),
                   }),
                 onSetDefault: () => viewMutations.setDefaultView.mutate(activeView.id),
+                onSetPinned: (wanted) => pins.setPinned(activeView.id, wanted),
                 onCopyLink: viewActions ? () => void viewActions.copyLink(activeView.id) : undefined,
                 onShare: canShare(activeView.type) ? () => setSharingViewId(activeView.id) : undefined,
                 onCopyToPersonal: () => viewMutations.copyViewToPersonal.mutate(activeView.id),
@@ -459,15 +494,19 @@ const VIEW_KIND_LABEL: Record<ViewKind, string> = {
  * pickers), never a second naming/config system.
  */
 function NewViewDialog({
+  open,
+  onOpenChange,
   fields,
   existingNames,
   onCreate,
 }: {
+  /** #966 — opened from the view switcher's foot ("+ New view"); it has no trigger of its own. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   fields: Field[];
   existingNames: string[];
   onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
   // #272: both group-by pickers now read the SHARED rule (./groupable-fields), which
   // mirrors the API's `boardGroupError`. This List list used to be
@@ -503,18 +542,11 @@ function NewViewDialog({
     if (kind === 'calendar') patch.date_field_id = editableCalendarDateFields(fields)[0]?.id;
     if (kind === 'timeline') patch.start_date_field_id = dateFields[0]?.id;
     onCreate(uniqueViewName(VIEW_KIND_LABEL[kind]), kind, patch);
-    setOpen(false);
+    onOpenChange(false);
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip label="New view">
-        <DialogTrigger asChild>
-          <button aria-label="New view" className="flex items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </DialogTrigger>
-      </Tooltip>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="New view">
         <div className="grid grid-cols-2 gap-2">
           {(

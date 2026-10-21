@@ -53,9 +53,28 @@ describe('buildViewMenu (#964)', () => {
     expect(ids(buildViewMenu(t, { canManage: true, canDelete: true, onRename: noop, onDelete: noop }))).toEqual(['rename', 'delete']);
   });
 
-  it('has no "Save as new view" and no "Pin to tabs" (views auto-save; pinned tabs wait on #966)', () => {
+  it('has no "Save as new view" (views auto-save)', () => {
     const labels = buildViewMenu(t, { ...full, onAddWidget: noop, exportHref: '/x' }).map((i) => i.label.toLowerCase());
     expect(labels.some((l) => l.includes('save as'))).toBe(false);
-    expect(labels.some((l) => l.includes('pin'))).toBe(false);
+  });
+
+  it('#966 offers Pin to tabs / Unpin from tabs from the same list on every door, after Set as default', () => {
+    const pin = { ...full, onSetPinned: noop };
+    expect(ids(buildViewMenu(t, pin))).toEqual(['rename', 'duplicate', 'default', 'pin', 'link', 'share', 'personal', 'move:f1', 'delete']);
+    expect(buildViewMenu(t, pin).find((i) => i.id === 'pin')?.label).toBe('Pin to tabs');
+    expect(buildViewMenu({ ...t, pinned: true }, pin).find((i) => i.id === 'pin')?.label).toBe('Unpin from tabs');
+  });
+
+  it('#966 a pin is per-viewer, so a viewer who cannot manage still gets it; a PERSONAL view never does', () => {
+    expect(ids(buildViewMenu(t, { ...full, canManage: false, onSetPinned: noop }))).toEqual(['pin', 'link']);
+    expect(ids(buildViewMenu({ ...t, personal: true }, { ...full, onSetPinned: noop }))).not.toContain('pin');
+  });
+
+  it('#966 the item states the outcome its label promised, so a stale label cannot invert it', () => {
+    const calls: boolean[] = [];
+    const onSetPinned = (w: boolean) => calls.push(w);
+    buildViewMenu(t, { ...full, onSetPinned }).find((i) => i.id === 'pin')?.onSelect?.();
+    buildViewMenu({ ...t, pinned: true }, { ...full, onSetPinned }).find((i) => i.id === 'pin')?.onSelect?.();
+    expect(calls).toEqual([true, false]);
   });
 });
