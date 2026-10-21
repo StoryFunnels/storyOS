@@ -765,6 +765,22 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * #1009 — "Run again": run this rule once more on this record, as a NEW run (the original is left exactly as it was).
+   *
+   * It goes through the same `runRule` every trigger uses, so the condition, the plan allowance, the approval gates and the failure
+   * handling are the ones a real trigger gets. What it re-runs against is the record AS IT IS NOW: a run does not keep the record's
+   * old values, a webhook run does not keep its payload, and a record_linked run does not keep which records were linked, so those
+   * cannot be replayed (the caller refuses them before getting here). Returns the new run's id, or null when the rule's condition no
+   * longer matches the record: `runRule` leaves no run row for a non-match, by design.
+   */
+  async runAgain(ruleId: string, workspaceId: string, databaseId: string, recordId: string): Promise<{ runId: string } | null> {
+    const runId = randomUUID();
+    await this.runRule(ruleId, workspaceId, databaseId, recordId, 0, undefined, undefined, undefined, runId);
+    const row = await this.db.query.automationRuns.findFirst({ where: eq(automationRuns.id, runId), columns: { id: true } });
+    return row ? { runId } : null;
+  }
+
   /** #244 — pull the linked record ids + relation field off a record_linked
    * event so runRule can expose them to actions. Undefined for any other event
    * (or a link event that carried no matching relation entry). */
@@ -794,6 +810,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
      * selection this tick; undefined for every other trigger and for an
      * unsorted scheduled rule. */
     selectionRank?: number,
+    /** #1009 — a run id the CALLER chose, so it can say which run this was (a whole-run "Run again"). Otherwise minted here. */
+    presetRunId?: string,
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -808,7 +826,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     // any job it enqueues resolves; runRowInserted tracks whether that
     // happened, so the catch block below knows whether to update it or (for
     // an error before that point) insert it fresh, exactly as before.
-    const runId = randomUUID();
+    const runId = presetRunId ?? randomUUID();
     let runRowInserted = false;
     const rule = await this.db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
     if (!rule || !rule.enabled) return;

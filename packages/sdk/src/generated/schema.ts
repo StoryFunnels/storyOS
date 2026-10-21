@@ -1792,6 +1792,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/approvals/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many approvals match (status=pending means waiting: pending and not expired) — an exact count, unlike the list, which is capped at 100 rows */
+        get: operations["ApprovalsController_count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
         parameters: {
             query?: never;
@@ -3821,7 +3838,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every automation run in the workspace, newest first — rule runs today (source syncs pending #239) */
+        /** Every automation run in the workspace, newest first — rule runs today (source syncs pending #239). status is ok (Succeeded), error (Failed), running (Running), skipped (Skipped), skipped_quota (Skipped (quota)) or awaiting_approval (Awaiting approval: at least one action is waiting for a person); awaiting_approval_count says how many */
         get: operations["RunsController_list"];
         put?: never;
         post?: never;
@@ -3842,6 +3859,23 @@ export interface paths {
         get: operations["RunsController_detail"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs/{id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run again: run this run's rule once more on the same trigger record, as a NEW run (the original is untouched), against the record as it is now */
+        post: operations["RunsController_rerunWhole"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9715,6 +9749,25 @@ export interface operations {
             };
         };
     };
+    ApprovalsController_count: {
+        parameters: {
+            query: {
+                status: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ApprovalsController_approve: {
         parameters: {
             query?: never;
@@ -12787,6 +12840,25 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_rerunWhole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
