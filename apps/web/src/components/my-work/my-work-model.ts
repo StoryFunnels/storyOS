@@ -18,6 +18,13 @@ export interface MyWorkRecord {
   number: number | null;
   updated_at: string;
   values: Record<string, unknown>;
+  /**
+   * #979 — who last put the caller into one of the record's person fields, and when. Both null (or absent, from an
+   * older server) when NO change ever did: the record was created with the caller already set, imported that way, or
+   * the activity trail does not hold the change. Never a guess and never the record's creator.
+   */
+  assigned_by?: { id: string; name: string; kind: 'user' | 'agent' } | null;
+  assigned_at?: string | null;
 }
 export interface MyWorkGroup {
   database: { id: string; name: string; icon: string | null; color: string | null };
@@ -184,4 +191,34 @@ export function filterChips(groups: MyWorkGroup[], configs: Record<string, MyWor
     if (count > 0) chips.push({ dbId: g.database.id, label: `${g.database.name} · ${count} filter${count === 1 ? '' : 's'}`, count });
   }
   return chips;
+}
+
+/**
+ * #968 follow-up — the preview's "Assigned by" row, per #979's rule for `null`.
+ * - `created` tab: the row does not apply (nothing was assigned to you; you made it), so it is not drawn.
+ * - `assigned` tab with a value: the person (or agent) and when.
+ * - `assigned` tab with null: say so and say what null means, rather than leave a blank or invent a name.
+ */
+export type AssignedByLine =
+  | { kind: 'hidden' }
+  | { kind: 'set'; name: string; byAgent: boolean; at: string | null }
+  | { kind: 'unrecorded'; explanation: string };
+
+export const ASSIGNED_BY_UNRECORDED =
+  'Not recorded. You were set on this record when it was created or imported, or the change is not in its history.';
+
+export function assignedByLine(
+  record: Pick<MyWorkRecord, 'assigned_by' | 'assigned_at'>,
+  tab: 'assigned' | 'created',
+): AssignedByLine {
+  if (tab !== 'assigned') return { kind: 'hidden' };
+  if (record.assigned_by) {
+    return {
+      kind: 'set',
+      name: record.assigned_by.name,
+      byAgent: record.assigned_by.kind === 'agent',
+      at: record.assigned_at ?? null,
+    };
+  }
+  return { kind: 'unrecorded', explanation: ASSIGNED_BY_UNRECORDED };
 }
