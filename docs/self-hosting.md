@@ -39,6 +39,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 |
 | `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | MinIO defaults | with `--profile minio` the bundled MinIO works out of the box (create the bucket once via the console at :9001) |
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
+| `PDF_RENDERER_URL` | unset | base URL of the optional PDF renderer (`http://gotenberg:3000` with `--profile pdf`). Unset = PDF export is unavailable, which is the normal default. See [PDF export](#pdf-export-optional) |
 | `RATE_LIMIT_PER_MINUTE` | 300 | per token/session |
 | `STRIPE_SECRET_KEY` | unset | enables paid billing (MN-165). **Unset = billing off**: every workspace is Free and self-host needs none of it. Use a `sk_live_…` key only in production. |
 | `STRIPE_WEBHOOK_SECRET` | unset | `whsec_…` from your Stripe webhook endpoint (`{API_URL}/api/v1/billing/webhook`). Required for plan changes to sync back. |
@@ -156,6 +157,17 @@ docker compose --profile minio up -d
 ```
 
 Default (`local`) storage keeps files in the `storyos_attachments` volume — simpler, fine for most teams.
+
+## PDF export (optional)
+
+Off by default. PDF export is rendered by a separate headless-Chromium container (Gotenberg) that is **pulled, never built on the host**, capped at **1 GB** of memory, renders **one document at a time**, and sits on a Docker network with **no internet access** by design — your documents are rendered inside your infrastructure and never leave it. It publishes no ports. The image is about 705 MB to download (compressed); with the profile off, nothing is downloaded or started.
+
+```bash
+# in .env:   PDF_RENDERER_URL=http://gotenberg:3000
+docker compose --profile pdf up -d
+```
+
+With `PDF_RENDERER_URL` unset, PDF export reports "unavailable" rather than failing. Full page: [`apps/docs/src/content/docs/self-hosting/pdf-export.md`](../apps/docs/src/content/docs/self-hosting/pdf-export.md).
 
 ## Upgrade
 
