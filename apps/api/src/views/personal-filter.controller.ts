@@ -6,8 +6,7 @@ import { filterSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
-import { PreferencesService } from '../users/preferences.service';
+import { ViewerStateService } from '../viewer-state/viewer-state.service';
 
 const setPersonalFilterSchema = z.object({ filter: filterSchema });
 class SetPersonalFilterDto extends createZodDto(setPersonalFilterSchema) {}
@@ -29,20 +28,12 @@ class SetPersonalFilterDto extends createZodDto(setPersonalFilterSchema) {}
 @Controller('workspaces/:ws/databases/:db/views/:view/personal-filter')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class PersonalFilterController {
-  constructor(
-    private readonly databases: DatabasesService,
-    private readonly preferences: PreferencesService,
-  ) {}
-
-  private async assertViewer(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-  }
+  constructor(private readonly viewerState: ViewerStateService) {}
 
   @Get()
   @ApiOperation({ summary: 'My personal filter override for this view (cleaned of dead field refs)' })
   async get(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('view') viewId: string) {
-    await this.assertViewer(req, databaseId);
-    const filter = await this.preferences.getViewFilter(req.user.id, databaseId, viewId);
+    const filter = await this.viewerState.get(req.membership, 'view_filter', viewId, databaseId);
     return { filter: filter ?? null };
   }
 
@@ -54,16 +45,14 @@ export class PersonalFilterController {
     @Param('view') viewId: string,
     @Body() body: SetPersonalFilterDto,
   ) {
-    await this.assertViewer(req, databaseId);
-    const filter = await this.preferences.setViewFilter(req.user.id, databaseId, viewId, body.filter);
+    const filter = await this.viewerState.set(req.membership, 'view_filter', viewId, body.filter, databaseId);
     return { filter: filter ?? null };
   }
 
   @Delete()
   @ApiOperation({ summary: 'Clear my personal filter override for this view' })
   async clear(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('view') viewId: string) {
-    await this.assertViewer(req, databaseId);
-    await this.preferences.clearViewFilter(req.user.id, databaseId, viewId);
+    await this.viewerState.clear(req.membership, 'view_filter', viewId, databaseId);
     return { cleared: true };
   }
 }

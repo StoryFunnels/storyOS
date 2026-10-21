@@ -2,10 +2,12 @@ import { ConflictException, Inject, Injectable, UnprocessableEntityException } f
 import { createHash } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
+  blocksToMarkdown,
   compareSemver,
   creatableFieldTypeSchema,
   dbRef,
   fieldRef,
+  lineDiff,
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
@@ -13,6 +15,7 @@ import {
 } from '@storyos/schemas';
 import type {
   PackAgent,
+  PackAgentUpdate,
   PackAiNeed,
   PackConnection,
   PackDerivedField,
@@ -55,6 +58,23 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** #977 — what an update would do to one tracked agent, and what is needed to do it. */
+interface AgentUpdatePlan {
+  update: PackAgentUpdate;
+  recordId: string;
+  /** The values to write when the update is applied (pack-defined parts only). */
+  values: Record<string, unknown>;
+  /** Hash of the PACK's content for this agent, in the same normalised form `source_hash` stores. */
+  newHash: string;
+  /** What the install row held before this run — preserved when the person's edits are kept. */
+  previous: { packVersion: string | null; sourceHash: string | null };
+}
+
+/** `pack_install_items` provenance for an agent, keyed by normalised agent name. */
+type AgentProvenance = Map<string, { packVersion: string | null; sourceHash: string | null }>;
+
+const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy'] as const;
 
 /** #266 — every `$db:`/`$field:`/`$option:` ref anywhere inside a value,
  *  walked the same generic way `refify`/`deref` do (any string, any depth,
@@ -985,8 +1005,8 @@ export class PacksService {
   async preview(membership: Membership, rawManifest: unknown): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     const unmet = await this.checkRequirements(membership, manifest);
-    const collisions = await this.computeCollisions(membership, manifest);
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, ...collisions };
+    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
   }
 
   /**
@@ -1005,6 +1025,7 @@ export class PacksService {
     views: PackPreviewItem[];
     automations: PackPreviewItem[];
     agents: PackPreviewItem[];
+    agentPlans: Map<string, AgentUpdatePlan>;
   }> {
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const tracked = existingInstall
@@ -1089,12 +1110,123 @@ export class PacksService {
       const { data } = await this.records.list(agentsDb.id, { limit: MAX_SCAN });
       agentTitles = new Set(data.map((r) => norm(r.title)));
     }
-    const agents: PackPreviewItem[] = manifest.agents.map((a) => ({
-      name: a.name,
-      action: classify('agent', a.name, agentTitles?.has(norm(a.name)) ?? false),
-    }));
+    const agentPlans = existingInstall && agentsDb ? await this.planAgentUpdates(membership, manifest, existingInstall.id, agentsDb.id) : new Map<string, AgentUpdatePlan>();
+    const agents: PackPreviewItem[] = manifest.agents.map((a) => {
+      const action = classify('agent', a.name, agentTitles?.has(norm(a.name)) ?? false);
+      const plan = action === 'reuse' ? agentPlans.get(norm(a.name)) : undefined;
+      return plan ? { name: a.name, action, agent_update: plan.update } : { name: a.name, action };
+    });
 
-    return { databases, views, automations, agents };
+    return { databases, views, automations, agents, agentPlans };
+  }
+
+  /**
+   * The pack-defined content of an agent record in ONE comparable shape (#977): the texts as markdown, the option ids sorted. Both the
+   * live record and the manifest go through it — the manifest side after `agentContentValues` turned it into blocks — so "did this
+   * agent change" can never be a question about how the editor happens to normalise whitespace or block structure.
+   */
+  private agentContent(values: Record<string, unknown>) {
+    const text = (v: unknown) => (Array.isArray(v) ? blocksToMarkdown(v as never).trim() : '');
+    const ids = (v: unknown) => (Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string').sort() : []);
+    return { goal: text(values.goal), instructions: text(values.instructions), scopes: ids(values.scopes), approval_policy: ids(values.approval_policy) };
+  }
+
+  /**
+   * For every agent an earlier install of this pack created and that is still live: would this version change it, and if so may it be
+   * applied without asking? (#977) The classification is the whole product rule —
+   *   live == pack's new content          -> unchanged (nothing to do)
+   *   live == what the pack installed     -> will_update (the person never touched it)
+   *   anything else                       -> edited_needs_choice, Keep mine unless the person takes the update
+   * An agent with no recorded origin (installed before this was tracked) falls into the last case on purpose: it is never overwritten.
+   */
+  private async planAgentUpdates(
+    membership: Membership,
+    manifest: PackManifest,
+    packInstallId: string,
+    agentsDbId: string,
+  ): Promise<Map<string, AgentUpdatePlan>> {
+    const plans = new Map<string, AgentUpdatePlan>();
+    if (manifest.agents.length === 0) return plans;
+    const items = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, 'agent')),
+    });
+    const byName = new Map(items.map((i) => [norm(i.name), i]));
+    const { data } = await this.records.list(agentsDbId, { limit: MAX_SCAN });
+    const live = new Map(data.map((r) => [norm(r.title), r]));
+    for (const planned of manifest.agents) {
+      const item = byName.get(norm(planned.name));
+      const record = live.get(norm(planned.name));
+      if (!item || !record) continue;
+      const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
+      const next = this.agentContent(values);
+      const now = this.agentContent(record.values as Record<string, unknown>);
+      const newHash = this.hashOf(next);
+      const nowHash = this.hashOf(now);
+      const changed = AGENT_CONTENT_FIELDS.filter((f) => JSON.stringify(now[f]) !== JSON.stringify(next[f]));
+      let update: PackAgentUpdate;
+      if (nowHash === newHash) {
+        update = { status: 'unchanged', changed_fields: [], installed_version: item.packVersion };
+      } else if (item.sourceHash && nowHash === item.sourceHash) {
+        update = { status: 'will_update', changed_fields: [...changed], installed_version: item.packVersion };
+      } else {
+        update = {
+          status: 'edited_needs_choice',
+          changed_fields: [...changed],
+          reason: item.sourceHash ? 'edited' : 'unknown_origin',
+          diff: {
+            ...(changed.includes('goal') ? { goal: lineDiff(now.goal, next.goal) } : {}),
+            ...(changed.includes('instructions') ? { instructions: lineDiff(now.instructions, next.instructions) } : {}),
+          },
+          installed_version: item.packVersion,
+        };
+      }
+      plans.set(norm(planned.name), {
+        update,
+        recordId: record.id,
+        values,
+        newHash,
+        previous: { packVersion: item.packVersion, sourceHash: item.sourceHash },
+      });
+    }
+    return plans;
+  }
+
+  /**
+   * Apply what `planAgentUpdates` decided, and say what provenance each agent should carry afterwards (#977).
+   * will_update is applied; edited_needs_choice only when the person took it; unchanged and kept-edited agents are left exactly as
+   * they are. A kept agent keeps its PREVIOUS origin so the next update still sees it as edited rather than as "matching the new pack".
+   */
+  private async updateReusedAgents(
+    membership: Membership,
+    manifest: PackManifest,
+    plans: Map<string, AgentUpdatePlan>,
+    take: Set<string>,
+    result: PackInstallResult,
+  ): Promise<AgentProvenance> {
+    const provenance: AgentProvenance = new Map();
+    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    for (const entry of result.agents) {
+      if (entry.action === 'skipped' || !entry.id || !agentsDb) continue;
+      const key = norm(entry.name);
+      const plan = plans.get(key);
+      if (entry.action === 'created') {
+        const record = await this.records.get(agentsDb.id, entry.id);
+        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>)) });
+        continue;
+      }
+      if (!plan) continue; // reused but never tracked (an adopted collision): origin unknown, stays null
+      const apply = plan.update.status === 'will_update' || (plan.update.status === 'edited_needs_choice' && take.has(key));
+      if (apply) {
+        await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, plan.values, membership.userId);
+        entry.action = 'updated';
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else if (plan.update.status === 'unchanged') {
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else {
+        provenance.set(key, plan.previous);
+      }
+    }
+    return provenance;
   }
 
   private parseManifest(rawManifest: unknown): PackManifest {
@@ -1161,7 +1293,7 @@ export class PacksService {
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const collisions = await this.computeCollisions(membership, manifest);
-    const { manifest: working, skippedAgents, viewResolutions, automationResolutions } =
+    const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
     // ── The reuse: a PackManifest IS an ArchitectPlan ────────────────────────
@@ -1190,6 +1322,9 @@ export class PacksService {
       skipped_sample_field_values: [],
     };
 
+    // #977 — bring reused agents up to this version, BEFORE their content is hashed for uninstall's modified check below.
+    const agentProvenance = await this.updateReusedAgents(membership, manifest, collisions.agentPlans, takeAgents, result);
+
     const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
 
     // Derived fields go in before the ref table the views use is built: a view
@@ -1216,7 +1351,7 @@ export class PacksService {
     await this.installSkills(membership, working, result, hashes);
     await this.hashInstalledAgents(membership, result, hashes);
 
-    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked);
+    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
 
     return result;
   }
@@ -1243,11 +1378,27 @@ export class PacksService {
     resolutions: PackInstallResolutions,
   ): {
     manifest: PackManifest;
+    takeAgents: Set<string>;
     skippedAgents: string[];
     viewResolutions: Map<string, PackInstallResolutions[string]>;
     automationResolutions: Map<string, PackInstallResolutions[string]>;
   } {
     const unresolved: string[] = [];
+
+    // #977 — `update` is "take the pack's version of an agent the person edited" and nothing else. Refused everywhere it does not
+    // mean that, so a mistyped resolution can never silently overwrite (or silently do nothing).
+    const takeAgents = new Set<string>();
+    for (const [name, resolution] of Object.entries(resolutions)) {
+      if (resolution.action !== 'update') continue;
+      const agent = collisions.agents.find((a) => a.name === name);
+      if (agent?.action !== 'reuse' || agent.agent_update?.status !== 'edited_needs_choice') {
+        throw new UnprocessableEntityException(
+          `"update" is only valid for an installed agent whose content was edited since the pack installed it; "${name}" is not one. ` +
+            `Preview shows which agents need that choice.`,
+        );
+      }
+      takeAgents.add(norm(name));
+    }
 
     for (const item of collisions.databases) {
       if (item.action !== 'collision') continue;
@@ -1315,7 +1466,7 @@ export class PacksService {
       );
     }
 
-    return { manifest: working, skippedAgents, viewResolutions, automationResolutions };
+    return { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents };
   }
 
   private removeAgent(manifest: PackManifest, name: string): PackManifest {
@@ -1392,6 +1543,7 @@ export class PacksService {
     existingInstall: { id: string } | undefined,
     hashes: Map<string, string>,
     untracked: Set<string> = new Set(),
+    agentProvenance: AgentProvenance = new Map(),
   ): Promise<void> {
     let installId: string;
     if (existingInstall) {
@@ -1428,6 +1580,8 @@ export class PacksService {
       entityId: string;
       action: 'created' | 'reused';
       contentHash: string | null;
+      packVersion?: string | null;
+      sourceHash?: string | null;
     }> = [];
     const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
       for (const entry of entries) {
@@ -1437,8 +1591,9 @@ export class PacksService {
           kind,
           name: entry.name,
           entityId: entry.id,
-          action: entry.action as 'created' | 'reused',
+          action: (entry.action === 'updated' ? 'reused' : entry.action) as 'created' | 'reused',
           contentHash: hashes.get(`${kind}:${entry.id}`) ?? null,
+          ...(kind === 'agent' ? (agentProvenance.get(norm(entry.name)) ?? { packVersion: null, sourceHash: null }) : {}),
         });
       }
     };

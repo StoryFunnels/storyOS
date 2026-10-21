@@ -1,6 +1,6 @@
 # ADR-0019: Per-viewer state: one primitive for overlays, separate for owned objects and lists
 
-- **Status:** proposed (2026-10-20), a recommendation for the product owner. Nothing here is built.
+- **Status:** accepted (2026-10-20); built in ticket #973 (see "Implementation" at the end).
 - **Ticket:** #952 (the question), raised by Dara while designing views at scale. Pinned view tabs (ticket #932) are built on whatever this decides.
 - **Companion:** none. Every claim below cites the file and line it was read from, at `origin/main` on 2026-10-20.
 
@@ -56,3 +56,10 @@ Guest rules today: 1 and 2 need only `viewer` on the database, so a guest with a
 ## What would make this the wrong call
 
 If overlays stay at two kinds and #932 is dropped, the lost-update fix alone (store each override under its own jsonb key with an atomic `jsonb_set` upsert, no new table) is smaller and enough. The primitive pays for itself at the third kind, which #932 is.
+
+## Implementation (ticket #973)
+
+- **Table:** `viewer_state(user_id, workspace_id, kind, target_id, data, updated_at)`, primary key `(user_id, kind, target_id)`, `workspace_id` cascades. Migration `0114` creates it, backfills the old blob's `viewFilters` and `collectionFilters` (the workspace resolved through the view's / field's database; entries whose view or field no longer exists are dropped, soft-deleted ones kept) and removes the two keys from the blob. It is idempotent.
+- **Registry:** `apps/api/src/viewer-state/viewer-state.kinds.ts`. Kinds: `view_filter` (target = view), `collection_view` (target = relation field), `pinned_tabs` (target = database; registered for ticket #966, no endpoint yet). `ViewerStateService` gives every kind the same access check (`viewer` on the target's database) and a single atomic upsert per write.
+- **Unchanged:** the personal-filter and personal-collection-view endpoints keep their URLs and response shapes; the generic `GET /users/me/preferences` no longer returns the two maps (nothing read them there).
+- **Removal and erasure:** removing a member now deletes their overrides, favourites and watches in that workspace. Notifications are left alone (still undecided). GDPR erasure additionally deletes overrides and watches for the workspace. **A correction to the inventory above:** erasure is ACCOUNT-level (it also deletes the person's sessions, accounts and OAuth tokens), so deleting their whole preferences row is consistent with it; it is not a bug that it spans workspaces, and it is unchanged.

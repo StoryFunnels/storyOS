@@ -1,4 +1,3 @@
-import type { FilterNode } from '@storyos/schemas';
 
 /**
  * Shared user-preferences shape + defaults (#30/#31). Kept out of the service so
@@ -95,28 +94,8 @@ export interface UserPreferences {
   };
   /** My Work per-database config, keyed by database id (MN-072 part 2). */
   myWork: Record<string, MyWorkDbConfig>;
-  /**
-   * Personal filter overrides (#259), keyed by view id. Narrows a shared view's
-   * results for THIS user only — layered on top of the view's own filters at
-   * query time (`{and:[shared, personal]}`, mirroring #258/calendar-view.tsx's
-   * date-window AND-wrap), never written back to the view's own ViewConfig.
-   * Reuses the SAME FilterNode AST a view's `filters` uses (packages/schemas'
-   * query.ts) rather than a forked shape — unlike `myWork.filters` above, which
-   * predates this and forked its own condition type.
-   */
-  viewFilters: Record<string, FilterNode>;
-  /**
-   * Personal embedded-collection view overrides (#736), keyed by the RELATION
-   * FIELD's id. An embedded collection (apps/web's collection-section.tsx)
-   * used to write its filter/sort/color-by/inline-columns straight onto the
-   * field's own shared `config.collection_view` — one viewer's filter became
-   * everyone's, permanently. This is the per-user layer instead, read in
-   * PREFERENCE to the field's own config (which stays as the shared DEFAULT
-   * everyone without a personal override still sees, so existing configs keep
-   * working unmigrated — #736 AC3). Managed by its own dedicated endpoint
-   * (fields/:field/personal-collection-view), same reason viewFilters is.
-   */
-  collectionFilters: Record<string, CollectionViewConfig>;
+  // Personal filter overrides (#259) and personal collection views (#736) are NOT here: they are one row each in `viewer_state`
+  // (ADR-0019, ticket #973), because a whole-blob read-modify-write lost one of two concurrent writes.
   /**
    * GitHub identity for the Reviews sidebar (#43). There is no per-user GitHub
    * OAuth identity in this app (the App connect (#247) is workspace-level,
@@ -157,8 +136,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   notifications: { assigned: true, mentioned: true, commented: true, state_changed: true, record_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
-  viewFilters: {},
-  collectionFilters: {},
   github: { login: null },
   activation: { dismissedWorkspaces: [] },
   sidebar: { viewsOnlyWorkspaces: [] },
@@ -171,8 +148,6 @@ export function mergePreferences(stored: unknown): UserPreferences {
     notifications?: Partial<UserPreferences['notifications']>;
     regional?: Partial<UserPreferences['regional']>;
     myWork?: UserPreferences['myWork'];
-    viewFilters?: UserPreferences['viewFilters'];
-    collectionFilters?: UserPreferences['collectionFilters'];
     github?: Partial<UserPreferences['github']>;
     activation?: Partial<UserPreferences['activation']>;
     sidebar?: Partial<UserPreferences['sidebar']>;
@@ -181,8 +156,6 @@ export function mergePreferences(stored: unknown): UserPreferences {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
     myWork: { ...(s.myWork ?? {}) },
-    viewFilters: { ...(s.viewFilters ?? {}) },
-    collectionFilters: { ...(s.collectionFilters ?? {}) },
     github: { ...DEFAULT_PREFERENCES.github, ...(s.github ?? {}) },
     activation: {
       dismissedWorkspaces: [...(s.activation?.dismissedWorkspaces ?? [])],
