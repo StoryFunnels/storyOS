@@ -18,6 +18,8 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
+import { SelectionReadout } from './selection-readout';
+import { summarizeSelection } from './selection-summary';
 import { EditFieldDialog } from './edit-field-dialog';
 import { HeaderCell } from './header-cell';
 import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
@@ -633,6 +635,24 @@ export function TableView({
     }
     commitEdit(row, target, value);
   }
+
+  // #580 — the throwaway readout: a pure function of the selected rectangle, recomputed client-side
+  // as it changes and gone the moment the range is. One cell is a cursor, not a selection.
+  const selectionSummary = useMemo(() => {
+    if (!rangeBounds) return null;
+    const { r0, r1, c0, c1 } = rangeBounds;
+    if (r0 === r1 && c0 === c1) return null;
+    const cells: Array<{ field: Field; value: unknown }> = [];
+    for (let r = r0; r <= r1; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      for (let c = c0; c <= c1; c++) {
+        const field = fields[c];
+        if (field) cells.push({ field, value: fieldValue(row, field) });
+      }
+    }
+    return summarizeSelection(cells);
+  }, [rangeBounds, rows, fields]);
 
   // MN-285: copy every cell in the selected range as a TSV block (system
   // clipboard) + the raw {field,value} grid (in-app, for exact same-type paste).
@@ -1418,6 +1438,7 @@ export function TableView({
         </div>
       </div>
 
+      {selectionSummary && <SelectionReadout summary={selectionSummary} />}
       {!readOnly && selected.size > 0 && (
         <BatchBar
           ws={ws}
