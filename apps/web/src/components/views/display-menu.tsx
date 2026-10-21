@@ -4,15 +4,29 @@ import { useMemo, useState } from 'react';
 import { GripVertical, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
+import {
+  DragPreview,
+  useDragPresentation,
+  useSortableSensors,
+  vacatedSlotClass,
+} from '@/components/ui/drag-presentation';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import { isHierarchyField } from '../table-view/use-hierarchy';
-import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
+import {
+  countHiddenFields,
+  isFieldVisible,
+  toggleFieldVisibility,
+} from '../table-view/number-column';
 import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
 import { isCoverField } from './cover-fields';
 import { listGroupDisabledReason } from './groupable-fields';
@@ -27,7 +41,6 @@ const ROW_HEIGHT_OPTIONS = [
   { value: '40', label: '40' },
 ] as const;
 
-
 function GalleryNoCoverFieldNotice() {
   return (
     <p className="px-2 py-1 text-label italic text-muted">
@@ -36,7 +49,8 @@ function GalleryNoCoverFieldNotice() {
   );
 }
 
-const SECTION = 'block px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted';
+const SECTION =
+  'block px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted';
 const FIELD_SELECT =
   'h-7 min-w-0 max-w-[10rem] rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink';
 
@@ -54,7 +68,10 @@ function SelectRow({
   title?: string;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink" title={title}>
+    <label
+      className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink"
+      title={title}
+    >
       <span className="shrink-0">{label}</span>
       <select className={FIELD_SELECT} value={value} onChange={(e) => onChange(e.target.value)}>
         {children}
@@ -117,16 +134,28 @@ export function DisplayMenu({
     ],
     [numberEntry, rendered, systemDateEntries],
   );
+  // #964 — a view type whose renderer reads `hidden_field_ids` MUST have its picker here: a timeline's left
+  // panel does (timeline-view.tsx `leftFields`), so its Fields… lives in Display too — a setting the renderer
+  // honours and the UI cannot write is the renderer/picker mismatch field-surfaces.md calls the bug.
+  //
+  // The timeline lists its REAL ID column first. The old Hide-fields button offered a "Row gutter · Show ID"
+  // toggle there instead, but that wrote the synthetic `__sys_number` key, which the timeline never reads (its
+  // ID column is the database's real `id` field, filtered by its own id): a switch that did nothing. Offering
+  // the real field makes the one control that exists actually hide the column.
+  const hasFieldsMenu = isTable || viewType === 'timeline';
+  const timelineIdField = fields.find((f) => f.type === 'id');
+  const fieldsMenuList = isTable
+    ? tableFields
+    : [...(timelineIdField ? [timelineIdField] : []), ...rendered];
   const hiddenCount = useMemo(
-    () => countHiddenFields(config.hidden_field_ids, new Set(tableFields.map((f) => f.id))),
-    [config.hidden_field_ids, tableFields],
+    () => countHiddenFields(config.hidden_field_ids, new Set(fieldsMenuList.map((f) => f.id))),
+    [config.hidden_field_ids, fieldsMenuList],
   );
 
   // #702 — list and feed render the permanent number inline; board, calendar and gallery render it nowhere.
   const gutterEntry = viewType === 'list' || viewType === 'feed' ? numberEntry : undefined;
 
-  const nothingToConfigure =
-    !isTable && !hasCards && !showsColorBy && !(viewType === 'gallery');
+  const nothingToConfigure = !isTable && !hasCards && !showsColorBy && !(viewType === 'gallery');
   if (viewType === 'form' || viewType === 'dashboard' || nothingToConfigure) return null;
 
   const colorValue = config.color_by_field_id ?? '';
@@ -145,7 +174,7 @@ export function DisplayMenu({
           </button>
         </PopoverTrigger>
         <PopoverContent className="max-h-[28rem] w-72 overflow-y-auto p-1">
-          {isTable && (
+          {hasFieldsMenu && (
             <>
               <span className={SECTION}>Columns</span>
               <button
@@ -157,33 +186,39 @@ export function DisplayMenu({
                 }}
               >
                 Fields…
-                <span className="text-muted">{hiddenCount ? `${hiddenCount} hidden` : 'All shown'}</span>
+                <span className="text-muted">
+                  {hiddenCount ? `${hiddenCount} hidden` : 'All shown'}
+                </span>
               </button>
-              <div className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink">
-                <span>Row height</span>
-                <Segmented
-                  label="Row height"
-                  size="sm"
-                  value={String(config.row_height ?? 32) as '28' | '32' | '40'}
-                  onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
-                  options={ROW_HEIGHT_OPTIONS}
-                />
-              </div>
-              {hierarchyFields.length > 0 && (
-                // #233 — only once the database has an eligible self-relation: an empty picker is a
-                // worse answer than no picker.
-                <SelectRow
-                  label="Nest by"
-                  value={config.hierarchy_field_id ?? ''}
-                  onChange={(v) => onPatch({ hierarchy_field_id: v || undefined })}
-                >
-                  <option value="">Flat</option>
-                  {hierarchyFields.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.displayName}
-                    </option>
-                  ))}
-                </SelectRow>
+              {isTable && (
+                <>
+                  <div className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink">
+                    <span>Row height</span>
+                    <Segmented
+                      label="Row height"
+                      size="sm"
+                      value={String(config.row_height ?? 32) as '28' | '32' | '40'}
+                      onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
+                      options={ROW_HEIGHT_OPTIONS}
+                    />
+                  </div>
+                  {hierarchyFields.length > 0 && (
+                    // #233 — only once the database has an eligible self-relation: an empty picker is a
+                    // worse answer than no picker.
+                    <SelectRow
+                      label="Nest by"
+                      value={config.hierarchy_field_id ?? ''}
+                      onChange={(v) => onPatch({ hierarchy_field_id: v || undefined })}
+                    >
+                      <option value="">Flat</option>
+                      {hierarchyFields.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.displayName}
+                        </option>
+                      ))}
+                    </SelectRow>
+                  )}
+                </>
               )}
             </>
           )}
@@ -344,7 +379,13 @@ export function DisplayMenu({
                 <RowGutterToggle
                   shown={isFieldVisible(config.hidden_field_ids, gutterEntry.id)}
                   onChange={(next) =>
-                    onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, gutterEntry.id, next) })
+                    onPatch({
+                      hidden_field_ids: toggleFieldVisibility(
+                        config.hidden_field_ids,
+                        gutterEntry.id,
+                        next,
+                      ),
+                    })
                   }
                 />
               )}
@@ -352,14 +393,18 @@ export function DisplayMenu({
           )}
         </PopoverContent>
       </Popover>
-      {isTable && (
+      {hasFieldsMenu && (
         <FieldsMenu
           anchorOnly
           open={fieldsOpen}
           onOpenChange={setFieldsOpen}
-          fields={tableFields}
+          fields={fieldsMenuList}
           isVisible={(f) => isFieldVisible(config.hidden_field_ids, f.id)}
-          onToggle={(f, next) => onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, f.id, next) })}
+          onToggle={(f, next) =>
+            onPatch({
+              hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, f.id, next),
+            })
+          }
           onReorder={onReorderFields}
           triggerIcon={SlidersHorizontal}
           triggerLabel="Fields"
@@ -370,7 +415,15 @@ export function DisplayMenu({
 }
 
 /** Shown card fields (draggable, ordered) + a list to add more (MN-151). */
-function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: string[]; onChange: (ids: string[]) => void }) {
+function CardFieldPicker({
+  fields,
+  shown,
+  onChange,
+}: {
+  fields: Field[];
+  shown: string[];
+  onChange: (ids: string[]) => void;
+}) {
   const sensors = useSortableSensors();
   const shownFields = shown
     .map((id) => fields.find((f) => f.id === id))
@@ -395,7 +448,11 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
           <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
             Shown · drag to reorder
           </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            {...cardFieldDrag.contextProps}
+          >
             <SortableContext items={shown} strategy={verticalListSortingStrategy}>
               {shownFields.map((field) => (
                 <SortableCardField
@@ -417,7 +474,9 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">Add</div>
+          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">
+            Add
+          </div>
           {available.map((field) => (
             <button
               key={field.id}
@@ -434,7 +493,9 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
 }
 
 function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: field.id,
+  });
   return (
     <div
       ref={setNodeRef}
@@ -447,7 +508,12 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
         vacatedSlotClass(isDragging),
       )}
     >
-      <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab text-faint hover:text-muted"
+        title="Drag to reorder"
+      >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
       <span className="flex-1 truncate">{field.displayName}</span>
@@ -462,7 +528,6 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
   );
 }
 
-
 /**
  * #699 AC2 / #702 — the "Row gutter" section: one control for the synthetic
  * permanent-number field, shared by every surface that actually renders it
@@ -473,10 +538,18 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
  * rendering the number reuses this instead of re-casing the toggle a third
  * time (field-surfaces.md's rule).
  */
-function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
+function RowGutterToggle({
+  shown,
+  onChange,
+}: {
+  shown: boolean;
+  onChange: (next: boolean) => void;
+}) {
   return (
     <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">Row gutter</p>
+      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">
+        Row gutter
+      </p>
       <button
         type="button"
         role="switch"
