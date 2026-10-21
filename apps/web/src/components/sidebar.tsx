@@ -296,10 +296,11 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
      * fixed, five items, never grows with a workspace's spaces), the PANEL is
      * this workspace's contents (Collections, Groups, Spaces). Search and Ask
      * Tyron merge into the panel's one ⌘K box rather than each keeping a rail
-     * slot; Reviews and Business Packs become Collections rows in the panel
-     * rather than rail icons — see the artifact's own nav-IA mapping, ticket
-     * #742 comment 2026-09-28T15:33:58Z, restated there because it had lived
-     * only in an artifact before and cost a round trip.
+     * slot; Business Packs becomes a row in the panel rather than a rail icon
+     * (see the artifact's own nav-IA mapping, ticket #742 comment
+     * 2026-09-28T15:33:58Z, restated there because it had lived only in an
+     * artifact before and cost a round trip). Reviews is no longer a sidebar
+     * row at all: it is the "Pull requests" tab of My Work (#968).
      */}
     <SidebarRail
       ws={ws}

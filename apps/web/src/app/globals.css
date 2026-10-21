@@ -1072,7 +1072,10 @@ html[data-embed] body {
  * Unlayered on purpose: it must beat Tailwind's utilities, which live in a cascade layer.
  */
 @media (hover: none), (pointer: coarse) {
-  .opacity-0[class*='hover'][class*=':opacity-100'] {
+  /* `data-hint-only` opts out (#1006): a control that is a HINT, not an action. The sidebar's drag grip points at a
+     gesture the whole row already answers (long-press, #322); drawn at rest on every row of a phone drawer it is 49
+     dotted columns of noise that do nothing when tapped. Only a hover-reveal that is the ONLY way to act belongs here. */
+  .opacity-0[class*='hover'][class*=':opacity-100']:not([data-hint-only]) {
     opacity: 1;
   }
   /* display-based reveals: `hidden ... group-hover:flex` (the sidebar space row's + and … actions) */
