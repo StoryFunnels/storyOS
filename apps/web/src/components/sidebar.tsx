@@ -281,7 +281,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     useSidebarNavWidth();
 
   return (
-    <div className="relative flex h-full shrink-0">
+    <div className="relative isolate flex h-full shrink-0">
+    {/*
+     * #1000 — `isolate`: the sidebar's own stacking context. Its sticky space headers sit at z-20 / z-30, and the resize
+     * line's hit area (`SidebarResizeHandle`, below) overlaps the panel's right edge; at z-10 the headers painted OVER the
+     * line, so mid-drag it had a notch at every pinned space header. Isolated, those numbers are local to the sidebar,
+     * and the handle can outrank them without joining the page's scale (z-overlay-backdrop is 40).
+     */}
     {/*
      * #742 phase 6 — rail + panel (Direction B). Two axes, one rule each: the
      * RAIL is StoryOS's own surfaces (Home, Inbox, My Work, Runs, Settings —
@@ -565,7 +571,7 @@ function SidebarResizeHandle({
       }}
       className={cn(
         'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch md:block',
-        '-mx-2 w-4 z-10',
+        '-mx-2 w-4 z-40',
         dragging && 'select-none',
       )}
     >
@@ -1019,7 +1025,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
         setDropRef(node);
         setSortRef(node);
       }}
-      // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
+      // #742 phase 6 — sticky, opaque (bg-frame, the panel's own colour, #1000), and above the space
       // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
       // rows deep you still read which group you're in" is the artifact's own
       // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
@@ -1037,7 +1043,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       // row; there is no group-collapse feature to put in `caret` here.
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-sidebar active:cursor-grabbing',
+        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-frame active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
       draggable
@@ -1680,13 +1686,13 @@ function SpaceSection({
         // it doesn't also pad out the void above the FIRST space). This stays
         // small and close to its label rather than double-counting that gap.
         //
-        // #742 phase 6 — sticky and opaque (bg-sidebar), pinned right below
+        // #742 phase 6 — sticky and opaque (bg-frame, the panel's own colour, #1000), pinned right below
         // this space's own group band (stickyTop is 0 or GROUP_BAND_H — see
         // the SpaceSection prop doc) so at real scale (52 nodes) you still
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
         style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
-        className="group sticky z-20 h-6 cursor-grab touch-none bg-sidebar active:cursor-grabbing"
+        className="group sticky z-20 h-6 cursor-grab touch-none bg-frame active:cursor-grabbing"
         draggable
         {...attributes}
         {...listeners}
