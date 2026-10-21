@@ -3,6 +3,7 @@ import type { OnApplicationShutdown } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { env } from '../config/env';
+import { instrumentPool } from '../common/server-timing';
 import * as schema from './schema';
 
 export const PG_POOL = Symbol('PG_POOL');
@@ -13,7 +14,7 @@ export const DB = Symbol('DB');
   providers: [
     {
       provide: PG_POOL,
-      useFactory: () => new Pool({ connectionString: env().DATABASE_URL }),
+      useFactory: () => instrumentPool(new Pool({ connectionString: env().DATABASE_URL })),
     },
     {
       provide: DB,

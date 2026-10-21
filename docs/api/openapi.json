@@ -856,6 +856,66 @@
         ]
       }
     },
+    "/api/v1/me/ai-connections": {
+      "get": {
+        "operationId": "AiConnectionsController_list",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The AI clients I have connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and my personal access tokens for this workspace, with name, method and since when",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/me/ai-connections/{id}": {
+      "delete": {
+        "operationId": "AiConnectionsController_disconnect",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disconnect one of my AI clients (id from the list: oauth:<client> or token:<id>). Needs a signed-in session: an API token or an OAuth client cannot disconnect",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/billing": {
       "get": {
         "operationId": "BillingController_status",
@@ -3356,6 +3416,36 @@
           }
         ],
         "summary": "Update my preferences (deep-merged)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/preferences/lists": {
+      "patch": {
+        "operationId": "PreferencesController_editList",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceListEditDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add and/or remove items of a list-valued preference (dismissed_workspaces, views_only_workspaces), atomically: two tabs adding different items never lose one",
         "tags": [
           "users"
         ]
@@ -13049,6 +13139,39 @@
             }
           }
         }
+      },
+      "PreferenceListEditDto": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "string",
+            "enum": [
+              "dismissed_workspaces",
+              "views_only_workspaces"
+            ]
+          },
+          "add": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "remove": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        },
+        "required": [
+          "list"
+        ]
       },
       "CreateRelationDto": {
         "type": "object",

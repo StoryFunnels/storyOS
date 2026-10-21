@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { apiTokens, databases, invites, memberships, records, workspaces } from '../db/schema';
 import { oauthAccessToken } from '../db/auth-schema';
+import { liveAiTokenCondition, liveOauthTokenCondition } from './ai-connection-predicates';
 
 export interface ActivationState {
   records_added: boolean;
@@ -92,14 +93,7 @@ export class ActivationService {
         .select({ one: sql`1` })
         .from(apiTokens)
         .where(
-          and(
-            eq(apiTokens.workspaceId, workspaceId),
-            isNull(apiTokens.revokedAt),
-            // NULL-safe on purpose: an ordinary personal access token has origin NULL, and
-            // `NOT (NULL = 'agent' AND ...)` is NULL, which would silently EXCLUDE every
-            // normal token. IS DISTINCT FROM treats NULL as "not agent", which is the point.
-            sql`(${apiTokens.origin} IS DISTINCT FROM 'agent' OR ${apiTokens.agentId} IS NOT NULL)`,
-          ),
+          and(eq(apiTokens.workspaceId, workspaceId), liveAiTokenCondition()),
         )
         .limit(1),
     );
@@ -130,7 +124,7 @@ export class ActivationService {
           memberships,
           and(eq(memberships.userId, oauthAccessToken.userId), eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')),
         )
-        .where(or(gt(oauthAccessToken.refreshTokenExpiresAt, now), gt(oauthAccessToken.accessTokenExpiresAt, now)))
+        .where(liveOauthTokenCondition(now))
         .limit(1),
     );
   }

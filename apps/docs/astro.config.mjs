@@ -139,6 +139,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'self-hosting/overview' },
             { label: 'Configuration', slug: 'self-hosting/configuration' },
             { label: 'Attachments (S3/MinIO)', slug: 'self-hosting/attachments' },
+            { label: 'PDF export (optional)', slug: 'self-hosting/pdf-export' },
             { label: 'Backup & upgrade', slug: 'self-hosting/backup-upgrade' },
           ],
         },

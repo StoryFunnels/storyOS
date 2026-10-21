@@ -24,6 +24,7 @@ import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
+import { DatabasePageSkeleton } from '@/components/views/database-page-skeleton';
 import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
@@ -145,7 +146,7 @@ function DatabasePageInner() {
     strip.filter((t) => t.pinned).map((t) => t.view.id),
   );
 
-  if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
+  if (database.isLoading) return <DatabasePageSkeleton ws={ws} db={db} />;
 
   return (
     <div className="flex h-full flex-col">

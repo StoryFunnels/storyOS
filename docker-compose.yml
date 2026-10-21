@@ -5,6 +5,8 @@
 # caddy serves web + API on ONE origin; /api/* routes to the api container.
 # Full env matrix: docs/self-hosting.md
 # S3-compatible attachment storage: `docker compose --profile minio up -d`
+# PDF export renderer (OFF by default, isolated): `docker compose --profile pdf up -d`
+#   with PDF_RENDERER_URL=http://gotenberg:3000 in .env — see docs/self-hosting.md
 name: storyos
 
 services:
@@ -96,6 +98,20 @@ services:
       # exists, grant/revoke further admins from /admin itself rather than
       # rotating this var.
       PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
+      # PDF export (#262/#794/#874). Empty = PDF export is simply "not configured":
+      # the export route answers 503 `pdf_export_not_configured` and /capabilities
+      # says `available: false` — the normal, documented state, not a fault. To
+      # enable: start the `pdf` profile AND set this to http://gotenberg:3000.
+      # The two numeric knobs (PDF_RENDER_TIMEOUT_MS, PDF_RENDER_MAX_PENDING) are
+      # deliberately NOT passed through: an empty value would coerce to 0 and the
+      # API would refuse to boot. Set them in an override file if you need them.
+      PDF_RENDERER_URL: ${PDF_RENDERER_URL:-}
+    # `default` is listed explicitly because naming ANY network drops the implicit one.
+    # `pdf` is the renderer's isolated network (below); it is empty unless the `pdf`
+    # profile is on.
+    networks:
+      - default
+      - pdf
     volumes:
       - storyos_attachments:/data/attachments
       # To use GITHUB_APP_PRIVATE_KEY_FILE instead of the inline key, mount the PEM
@@ -202,6 +218,51 @@ services:
     ports:
       - '9000:9000'
       - '9001:9001'
+
+  # PDF renderer (#874): Gotenberg, a headless Chromium in its own container.
+  #
+  # THE ISOLATION IS THE POINT. Option A (#794) was chosen over a hosted service so
+  # document content never leaves our infrastructure; a Chromium that can also reach
+  # the internet would be a hosted service we happen to run ourselves. So:
+  #  - it is attached ONLY to the `pdf` network, which is `internal: true` (no route
+  #    out), and it publishes NO ports;
+  #  - the API posts a self-contained HTML body with every asset already inlined, so
+  #    the browser has nothing to fetch. If a render is ever missing an image, fix the
+  #    HTML — do NOT "fix" it by giving this container internet.
+  #
+  # OFF by default (profile `pdf`, like minio): nothing here is started or pulled
+  # until someone runs `docker compose --profile pdf up -d`. The image is PULLED, never
+  # built on the host (build-images.yml: the production box has OOMed on a build).
+  # Tag is pinned — not `latest`; bump it deliberately.
+  gotenberg:
+    image: gotenberg/gotenberg:8.38.1
+    profiles: [pdf]
+    restart: unless-stopped
+    mem_limit: 1g
+    networks:
+      - pdf
+    environment:
+      # One conversion at a time (default is 6): renders queue instead of fanning out
+      # into parallel Chromium tabs on a 4 GB host. The API serialises too; this makes
+      # the sidecar safe on its own.
+      CHROMIUM_MAX_CONCURRENCY: '1'
+      # MUST stay BELOW the API's PDF_RENDER_TIMEOUT_MS (default 30000). If the API
+      # gave up first, the abandoned render would keep this single Chromium slot busy.
+      # Gotenberg answers 503 at its own deadline, which the API reports as a 504.
+      API_TIMEOUT: ${GOTENBERG_API_TIMEOUT:-25s}
+      # The generated HTML carries no script; nothing here needs JavaScript.
+      CHROMIUM_DISABLE_JAVASCRIPT: 'true'
+      # Features we never use, and that make the server fetch things for a caller.
+      API_DISABLE_DOWNLOAD_FROM: 'true'
+      WEBHOOK_DISABLE: 'true'
+      LIBREOFFICE_DISABLE_ROUTES: 'true'
+
+networks:
+  # Renderer-only network with NO route to the outside (#874 AC2). Declared internal
+  # here; whether it IS internal is checked from inside the running container, not
+  # assumed from this file.
+  pdf:
+    internal: true
 
 volumes:
   storyos_pg:
