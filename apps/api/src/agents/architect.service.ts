@@ -3,6 +3,7 @@ import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
 import type { PlanAgent } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AiCreditsService } from '../billing/ai-credits.service';
+import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -230,9 +231,10 @@ export class ArchitectService {
     result: ArchitectBuildResult,
   ): Promise<LiveField> {
     const live = await this.liveFields(membership, databaseId);
-    const existing = live.find((f) => norm(f.displayName) === norm(field.name));
+    const decision = decideField(live, field.name, field.type);
     const label = `${dbName}.${field.name}`;
-    if (existing) {
+    if (decision.action === 'reuse') {
+      const existing = live.find((f) => norm(f.displayName) === norm(field.name))!;
       result.fields.push({ name: label, action: 'reused', id: existing.id });
       return existing;
     }
@@ -327,9 +329,9 @@ export class ArchitectService {
       // is already there the relation exists — creating it again would 422 on
       // the display-name uniqueness guard anyway, and reuse is the right answer.
       const live = await this.liveFields(membership, fromId);
-      const existing = live.find(
-        (f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field),
-      );
+      const existing = relationExists(live, planned.from_field)
+        ? live.find((f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field))
+        : undefined;
       if (existing) {
         result.relations.push({ name: label, action: 'reused', id: existing.id });
         continue;
@@ -363,9 +365,10 @@ export class ArchitectService {
       const databaseId = this.resolveDb(dbIds, planned.database, 'A state');
       const label = `${planned.database}.${planned.field}`;
       const live = await this.liveFields(membership, databaseId);
+      const decision = decideState(live, planned.field, planned.options);
       const existing = live.find((f) => norm(f.displayName) === norm(planned.field));
 
-      if (!existing) {
+      if (decision.action === 'create') {
         const created = (await this.fields.create(databaseId, {
           display_name: planned.field,
           type: 'select',
@@ -376,17 +379,17 @@ export class ArchitectService {
         continue;
       }
 
-      if (existing.type !== 'select') {
+      if (decision.action === 'blocked') {
         throw new UnprocessableEntityException(
-          `"${label}" already exists as a ${existing.type} field, but a workflow state must be a ` +
+          `"${label}" already exists as a ${decision.live_type} field, but a workflow state must be a ` +
             `select field. Rename or remove it, then build again.`,
         );
       }
 
       // Reused: add only the states it is missing. Untouched existing options
       // matter — this is somebody's live workflow, and the plan is additive.
-      await this.ensureOptions(databaseId, existing, planned);
-      result.states.push({ name: label, action: 'reused', id: existing.id });
+      await this.ensureOptions(databaseId, existing!, planned);
+      result.states.push({ name: label, action: 'reused', id: existing!.id });
     }
   }
 
@@ -395,9 +398,9 @@ export class ArchitectService {
     field: LiveField,
     planned: PlanState,
   ): Promise<void> {
-    const have = new Set((field.options ?? []).map((o) => norm(o.label)));
+    const missing = new Set(optionsMissing(field.options, planned.options).map(norm));
     for (const option of planned.options) {
-      if (have.has(norm(option.label))) continue;
+      if (!missing.has(norm(option.label))) continue;
       await this.fields.addOption(databaseId, field.id, {
         label: option.label,
         color: option.color ?? 'gray',
