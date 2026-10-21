@@ -232,7 +232,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Tasks', 'State'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
             card_field_ids: [fieldRef('Tasks', 'Priority'), fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due Date')],
           },
         },
@@ -242,8 +242,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Clients', 'Health'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Clients', 'Owner'), fieldRef('Clients', 'Industry'), fieldRef('Clients', 'Monthly Value')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Clients', 'Owner'), fieldRef('Clients', 'Monthly Value')],
           },
         },
       ],
@@ -425,8 +425,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Tasks', 'State'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due Date'), fieldRef('Tasks', 'Labels')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due Date'), fieldRef('Tasks', 'Client Approval')],
           },
         },
         {
@@ -443,8 +443,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Deliverables', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Deliverables', 'Due Date'), fieldRef('Deliverables', 'Link')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Deliverables', 'Due Date')],
           },
         },
       ],
@@ -646,8 +646,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Issues', 'State'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Issues', 'State'), fieldRef('Issues', 'Priority'), fieldRef('Issues', 'Assignee')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Issues', 'Type'), fieldRef('Issues', 'Priority'), fieldRef('Issues', 'Assignee')],
           },
         },
         {
@@ -662,8 +662,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Releases', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Releases', 'Date'), fieldRef('Releases', 'Link')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Releases', 'Date')],
           },
         },
       ],
@@ -828,7 +828,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Articles', 'Stage'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
             card_field_ids: [fieldRef('Articles', 'Author'), fieldRef('Articles', 'Content Type'), fieldRef('Articles', 'Target Publish Date')],
           },
         },
@@ -844,7 +844,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Topics', 'Priority'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
             card_field_ids: [fieldRef('Topics', 'Search Volume /mo')],
           },
         },
@@ -1051,8 +1051,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Chapters', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Chapters', 'Word Count'), fieldRef('Chapters', 'POV / Theme')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Chapters', 'Order'), fieldRef('Chapters', 'Word Count')],
           },
         },
         {
@@ -1067,7 +1067,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Appearances', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
             card_field_ids: [fieldRef('Appearances', 'Type'), fieldRef('Appearances', 'Show / Event'), fieldRef('Appearances', 'Date')],
           },
         },
@@ -1252,8 +1252,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Sessions', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Sessions', 'Date'), fieldRef('Sessions', 'Type')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Sessions', 'Client'), fieldRef('Sessions', 'Date'), fieldRef('Sessions', 'Type')],
           },
         },
         {
@@ -1262,8 +1262,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Clients', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Clients', 'Renewal Date'), fieldRef('Clients', 'Goal')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Clients', 'Program'), fieldRef('Clients', 'Renewal Date')],
           },
         },
       ],
@@ -1451,8 +1451,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Proposals', 'Stage'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Proposals', 'Value'), fieldRef('Proposals', 'Type'), fieldRef('Proposals', 'Expected Close')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Proposals', 'Client'), fieldRef('Proposals', 'Value'), fieldRef('Proposals', 'Expected Close')],
           },
         },
         {
@@ -1461,8 +1461,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           type: 'board',
           config: {
             group_by_field_id: fieldRef('Engagements', 'Status'),
-            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
-            card_field_ids: [fieldRef('Engagements', 'Monthly Value'), fieldRef('Engagements', 'End Date')],
+            // #1012 (Dara's review) — 2–3 fields a person acts on at a glance: who, how urgent, when, for whom. No free text or URLs. The grouped field is the column, so it is never listed (the board never shows it on a card).
+            card_field_ids: [fieldRef('Engagements', 'Client'), fieldRef('Engagements', 'End Date'), fieldRef('Engagements', 'Monthly Value')],
           },
         },
       ],

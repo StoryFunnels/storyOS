@@ -28,25 +28,45 @@ describe('#1012 every starter pack board lists card fields', () => {
     expect(boards.length).toBeGreaterThanOrEqual(14);
   });
 
+  it('no card lists a URL, rich-text or sentence-length free-text field (a link or a sentence on every card is noise; a short name like Show / Event is fine)', () => {
+    for (const b of boards) {
+      const db = b.manifest.databases.find((d) => d.name === b.view.database)!;
+      for (const ref of (b.view.config as { card_field_ids: string[] }).card_field_ids) {
+        const f = db.fields.find((x) => fieldRef(db.name, x.name) === ref);
+        if (f) {
+          expect(['url', 'rich_text'], `${b.slug}/${b.view.name}: ${f.name}`).not.toContain(f.type);
+          expect(['POV / Theme', 'Goal'], `${b.slug}/${b.view.name}: ${f.name} is a sentence`).not.toContain(f.name);
+        }
+      }
+    }
+  });
+
   for (const b of boards) {
     it(`${b.slug}: ${b.view.database}.${b.view.name} lists card fields that exist in its database`, () => {
       const cfg = b.view.config as { card_field_ids?: string[]; group_by_field_id?: string };
       expect(cfg.card_field_ids, 'no card_field_ids: title-only cards').toBeTruthy();
       expect(cfg.card_field_ids!.length).toBeGreaterThan(0);
       expect(new Set(cfg.card_field_ids).size, 'no field twice').toBe(cfg.card_field_ids!.length);
+      expect(cfg.card_field_ids, 'the grouped field is the column: the board never shows it on a card, so listing it is a dead slot').not.toContain(cfg.group_by_field_id);
+      expect(cfg.card_field_ids!.length, '2–3 fields: the ones acted on at a glance').toBeLessThanOrEqual(3);
       const db = b.manifest.databases.find((d) => d.name === b.view.database)!;
       const known = new Set([
         ...db.fields.map((f) => f.name),
         ...b.manifest.states.filter((st) => st.database === db.name).map((st) => st.field),
         ...b.manifest.derived_fields.filter((f) => f.database === db.name).map((f) => f.name),
       ].map((n) => fieldRef(db.name, n)));
+      // a relation adds a field on each side (what `PacksService` resolves refs against), and a relation field is a valid card field
+      for (const r of b.manifest.relations) {
+        known.add(fieldRef(r.from, r.from_field));
+        known.add(fieldRef(r.to, r.to_field));
+      }
       for (const ref of cfg.card_field_ids!) expect(known.has(ref), `${ref} names a field of ${db.name}`).toBe(true);
     });
   }
 });
 
 describe('#1012 a fresh install shows the fields on the cards', () => {
-  it('Dev Project OS: the Issue Board lists State, Priority, Assignee, and every installed board of every pack has real field ids', async () => {
+  it('every installed board of every pack has real field ids (relation fields included), and the reviewed boards show exactly Dara\'s fields', async () => {
     for (const p of STARTER_PACKS) {
       const ws = (await as('POST', '/workspaces', { name: `Cards ${p.slug}` })).json().id as string;
       const pack = (await as('GET', `/packs/registry/${p.slug}`)).json() as { manifest: unknown };
@@ -62,7 +82,16 @@ describe('#1012 a fresh install shows the fields on the cards', () => {
         const names = (view.config.card_field_ids ?? []).map((id) => detail.fields.find((f) => f.id === id)?.displayName);
         expect(names.length, `${p.slug}/${b.view.name}`).toBeGreaterThan(0);
         expect(names.every(Boolean), `${p.slug}/${b.view.name}: every card field id is a real field: ${JSON.stringify(names)}`).toBe(true);
-        if (p.slug === 'dev-project-os' && b.view.name === 'Issue Board') expect(names).toEqual(['State', 'Priority', 'Assignee']);
+        const expected: Record<string, string[]> = {
+          'dev-project-os/Issue Board': ['Type', 'Priority', 'Assignee'],
+          'client-portal/Shared Board': ['Assignee', 'Due Date', 'Client Approval'],
+          'coaching-os/Session Board': ['Client', 'Date', 'Type'],
+          'coaching-os/Client Board': ['Program', 'Renewal Date'],
+          'consulting-os/Pipeline Board': ['Client', 'Value', 'Expected Close'],
+          'consulting-os/Engagement Board': ['Client', 'End Date', 'Monthly Value'],
+        };
+        const want = expected[`${p.slug}/${b.view.name}`];
+        if (want) expect(names, `${p.slug}/${b.view.name}`).toEqual(want);
       }
     }
   }, 300_000);
