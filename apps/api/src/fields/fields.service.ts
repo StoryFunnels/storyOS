@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { hasFieldValueSql, isEmptyFieldValue } from './field-value-emptiness';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   CreatableFieldType,
@@ -227,7 +228,11 @@ export class FieldsService {
     }
   }
 
-  /** Count of live records carrying a value for this field. */
+  /**
+   * Count of live records carrying a NON-EMPTY value for this field (ticket #984). This used to test whether the key EXISTS, so a
+   * record holding null, "" or whitespace counted as data and the delete warning over-reported. "Non-empty" is the one definition in
+   * `field-value-emptiness.ts`, the same one the text → choice dry run uses for `empty_records`.
+   */
   async usageCount(databaseId: string, fieldId: string): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -236,7 +241,7 @@ export class FieldsService {
         and(
           eq(records.databaseId, databaseId),
           isNull(records.deletedAt),
-          sql`${records.values} ? ${fieldId}`,
+          hasFieldValueSql(records.values, fieldId),
         ),
       );
     return row?.count ?? 0;
@@ -1702,9 +1707,12 @@ export class FieldsService {
     let absentRecords = 0;
     if (toChoice) {
       for (const row of rows) {
-        const label = String((row.values as Record<string, unknown>)[fieldId] ?? '').trim();
-        if (label === '') emptyRecords++;
-        else distinct.set(label, (distinct.get(label) ?? 0) + 1);
+        const stored = (row.values as Record<string, unknown>)[fieldId];
+        if (isEmptyFieldValue(stored)) emptyRecords++;
+        else {
+          const label = String(stored).trim();
+          distinct.set(label, (distinct.get(label) ?? 0) + 1);
+        }
       }
       absentRecords = (
         await this.db

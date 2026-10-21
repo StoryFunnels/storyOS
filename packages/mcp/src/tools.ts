@@ -3479,7 +3479,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get field usage',
       description:
-        'What depends on this field, before you delete it: records carrying a value, plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
+        'What depends on this field, before you delete it: records carrying a non-empty value (blank, whitespace-only and never-set records are not counted), plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -3501,7 +3501,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete field',
       description:
-        'Soft-delete a field (records keep their other values). Returns records_with_value. Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
+        'Soft-delete a field (records keep their other values). Returns records_with_value (records holding a non-empty value: blank, whitespace-only and never-set records are not counted). Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
