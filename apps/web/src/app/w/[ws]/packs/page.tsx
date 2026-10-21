@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
   Loader2,
   Package,
@@ -16,13 +17,22 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useWorkspace } from '@/lib/queries';
+import { useSpaces, useWorkspace } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
+import { InstallList } from '@/components/pack-install-list';
+import {
+  buildInstallRows,
+  notNew,
+  packSpaceName,
+  sampleRecordCount,
+  type InstallRow,
+  type RowManifest,
+} from '@/lib/pack-install-rows';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -40,7 +50,7 @@ import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-
  * different manifest.
  */
 
-import type { DiffLine, PackAgentUpdate } from '@storyos/schemas';
+import type { DiffLine, PackAgentUpdate, PackDatabaseGains } from '@storyos/schemas';
 import {
   agentEffect,
   agentResolutions,
@@ -92,6 +102,8 @@ interface PreviewItem {
   action: 'create' | 'reuse' | 'collision';
   /** #977 — what an update does to an agent this pack installed earlier (only on a reused agent). */
   agent_update?: PackAgentUpdate;
+  /** #982 — what a reused database gains: fields (name + type), options, views, and what is not applied, with the reason. */
+  gains?: PackDatabaseGains;
 }
 interface UnmetRequirement {
   kind: 'connection' | 'ai';
@@ -281,9 +293,11 @@ function PreviewSection({
                 <span className="block text-ink-secondary">{item.name}</span>
                 {/* #978 — what installing will really do. For an agent this pack installed it comes from the
                     preview's own `agent_update` (#977), never a guess; everything else from lib/pack-update.ts. */}
-                <span className="block text-label text-muted">
-                  {agent ? agent.headline : itemEffect(kind, item.action)}
-                </span>
+                {(agent?.headline ?? itemEffect(kind, item.action, item.gains)) && (
+                  <span className="block text-label text-muted">
+                    {agent ? agent.headline : itemEffect(kind, item.action, item.gains)}
+                  </span>
+                )}
                 {agent?.detail && (
                   <span className="block text-label text-muted">{agent.detail}</span>
                 )}
@@ -560,6 +574,11 @@ function InstallDialog({
   // #978 AC3 — an agent the person changed defaults to Keep mine; only an explicit 'update' reaches the API.
   const [agentChoices, setAgentChoices] = useState<Record<string, AgentChoice>>({});
   const [result, setResult] = useState<InstallResult | null>(null);
+  // #978 — "Use my <X> database": a name that already exists is a decision, so Install waits for it.
+  const [useMine, setUseMine] = useState<Record<string, boolean>>({});
+  const spaces = useSpaces(ws);
+  // The hero (#824) is read from the pack's own manifest by the registry LIST endpoint; the detail endpoint omits it.
+  const card = useRegistry().data?.find((c) => c.slug === slug);
 
   const entry = useQuery({
     queryKey: ['pack-entry', source, slug],
@@ -638,21 +657,123 @@ function InstallDialog({
     (a) => a.agent_update?.status === 'edited_needs_choice' && agentChoices[a.name] !== 'update',
   );
 
+  // #978 — the install dialog's one list, in a person's words (lib/pack-install-rows.ts).
+  const manifest = entry.data?.manifest as RowManifest | undefined;
+  const rows: InstallRow[] = preview.data ? buildInstallRows(preview.data, manifest) : [];
+  const spaceName = packSpaceName(manifest);
+  const spaceExists = Boolean(
+    spaceName && spaces.data?.some((sp) => sp.name.trim().toLowerCase() === spaceName.trim().toLowerCase()),
+  );
+  const samples = sampleRecordCount(manifest);
+  // A database name that already exists must be ticked; a view/automation/agent name uses the select (`unresolved`).
+  const dbCollisions = rows.filter((r) => r.kind === 'database' && r.action === 'collision');
+  const untickedDb = dbCollisions.filter((r) => !useMine[r.key]);
+  // A reused database that has a field the pack cannot add makes the install fail: say so instead of offering Install.
+  const blockers = rows.flatMap((r) => (r.item.gains?.not_applied ?? []).filter((n) => n.blocks_install));
+  const blocked = untickedDb.length > 0 || blockers.length > 0;
+  const blockedWhy = blockers.length
+    ? `${blockers[0]!.name}: ${blockers[0]!.reason}`
+    : untickedDb.length
+      ? `Decide about ${untickedDb[0]!.name} first`
+      : unresolved.length
+        ? `Choose what to do with ${rows.find((r) => r.key === unresolved[0])?.name ?? unresolved[0]} first`
+        : undefined;
+  const rowByKey = new Map(rows.map((r) => [`${r.kind}:${r.key}`, r]));
+  const doneRows = (r: InstallResult): InstallRow[] => {
+    const make = (kind: InstallRow['kind'], list: InstalledEntity[]) =>
+      list
+        .filter((i) => i.action === 'created')
+        .map((i) => {
+          const known = rowByKey.get(`${kind}:${i.name}`);
+          return (
+            known ?? {
+              key: i.name,
+              kind,
+              name: i.name,
+              sub: '',
+              action: 'create' as const,
+              note: null,
+              item: { name: i.name, action: 'create' as const },
+            }
+          );
+        });
+    return [
+      ...make('database', r.databases),
+      ...make('view', r.views),
+      ...make('automation', r.automations),
+      ...make('agent', r.agents),
+    ];
+  };
+  const goToSpace = (r: InstallResult) => {
+    const space = r.spaces.find((x) => x.action !== 'skipped');
+    window.location.href = space ? `/w/${ws}/s/${space.id}` : `/w/${ws}`;
+  };
+
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent
         title={
-          entry.data
-            ? update
-              ? `Update ${entry.data.name}`
-              : entry.data.name
-            : update
-              ? 'Update pack'
-              : 'Install pack'
+          result && !update
+            ? `${result.name} is ready`
+            : entry.data
+              ? update
+                ? `Update ${entry.data.name}`
+                : `Install ${entry.data.name}`
+              : update
+                ? 'Update pack'
+                : 'Install pack'
         }
-        className="max-w-xl"
+        className={
+          update
+            ? 'max-w-[520px]'
+            : 'max-h-[calc(100vh-32px)] max-w-[520px] overflow-auto p-[18px] pb-0'
+        }
       >
-        {result ? (
+        {result && !update ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-body text-ink-secondary">
+              {spaceName ? (
+                <>
+                  Your space, <b className="font-medium text-ink">{spaceName}</b>, is in your sidebar
+                  with everything below.
+                </>
+              ) : (
+                'Everything below is in your sidebar.'
+              )}
+              {samples > 0 && ' Its sample records can be removed from Home whenever you like.'}
+            </p>
+            {doneRows(result).length > 0 ? (
+              <InstallList rows={doneRows(result).map((r) => ({ ...r, sub: '', note: null, action: 'create' }))} />
+            ) : (
+              <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
+            )}
+            {result.unmet.length > 0 && (
+              <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
+                <p className="mb-1.5 text-label font-semibold text-ink">Still to connect</p>
+                <div className="flex flex-col gap-1">
+                  {result.unmet.map((u) => (
+                    <p key={u.name} className="text-label text-muted">
+                      {u.detail}{' '}
+                      {u.kind === 'connection' && (
+                        <Link href={`/w/${ws}/settings/connections`} className="underline underline-offset-2">
+                          Connect {u.name}
+                        </Link>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="sticky bottom-0 -mx-[18px] mt-1 flex justify-end gap-2 border-t border-border-default bg-card px-[18px] pb-3.5 pt-2.5">
+              <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+              <Button type="button" onClick={() => goToSpace(result)}>
+                {spaceName ? `Go to ${spaceName}` : 'Go to my new space'}
+              </Button>
+            </div>
+          </div>
+        ) : result ? (
           <div className="flex flex-col gap-4">
             <p className="text-body text-ink-secondary">
               {update
@@ -734,6 +855,148 @@ function InstallDialog({
               <div className="flex items-center gap-2 py-8 text-body text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> Looking at what this would create…
               </div>
+            ) : preview.data && !update ? (
+              <>
+                {source === 'registry' && card ? (
+                  <PackVisual pack={card} />
+                ) : entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] ? (
+                  <img
+                    src={entry.data.screenshots[0]}
+                    alt={`${entry.data.name} preview`}
+                    className="max-h-52 w-full rounded-[var(--radius-control)] border border-border-default object-cover"
+                  />
+                ) : null}
+                <p className="-mb-1.5 text-body text-ink">
+                  {spaceName ? (
+                    spaceExists ? (
+                      <>
+                        Adds to your space, <b className="font-medium">{spaceName}</b>:
+                      </>
+                    ) : (
+                      <>
+                        Adds a new space, <b className="font-medium">{spaceName}</b>, with:
+                      </>
+                    )
+                  ) : (
+                    'Adds:'
+                  )}
+                </p>
+                <InstallList
+                  rows={rows}
+                  renderExtra={(row) => {
+                    const entryFor = collisionEntries(preview.data!).find((c) => c.name === row.key);
+                    const agent =
+                      row.kind === 'agent' && row.item.agent_update
+                        ? agentEffect(row.item.agent_update)
+                        : null;
+                    return (
+                      <>
+                        {agent && (
+                          <>
+                            <span className="mt-0.5 text-label text-ink-secondary">{agent.headline}</span>
+                            {agent.detail && <span className="text-label text-muted">{agent.detail}</span>}
+                            {agent.needsChoice && row.item.agent_update && (
+                              <AgentChoiceControl
+                                name={row.key}
+                                update={row.item.agent_update}
+                                choice={agentChoices[row.key] ?? 'keep'}
+                                onChoice={(c) => setAgentChoices((prev) => ({ ...prev, [row.key]: c }))}
+                              />
+                            )}
+                          </>
+                        )}
+                        {row.kind === 'database' && row.action === 'collision' && (
+                          <label className="mt-1 flex items-center gap-1.5 text-label font-medium text-ink">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(useMine[row.key])}
+                              onChange={(e) => setUseMine((prev) => ({ ...prev, [row.key]: e.target.checked }))}
+                            />
+                            Use my {row.name} database
+                          </label>
+                        )}
+                        {row.action === 'collision' && entryFor && !entryFor.reuseOnly && (
+                          <span className="mt-1 flex items-center gap-2">
+                            <Select
+                              size="sm"
+                              aria-label={`What to do with ${row.name}`}
+                              value={resolutions[row.key]?.action ?? ''}
+                              onChange={(e) =>
+                                setResolutions((prev) => ({
+                                  ...prev,
+                                  [row.key]: { ...prev[row.key], action: e.target.value as Resolution['action'] },
+                                }))
+                              }
+                            >
+                              <option value="" disabled>
+                                Choose…
+                              </option>
+                              <option value="reuse">Use the one I have</option>
+                              <option value="rename">Install under a new name</option>
+                              <option value="skip">Skip it</option>
+                            </Select>
+                            {resolutions[row.key]?.action === 'rename' && (
+                              <Input
+                                className="h-8"
+                                placeholder="New name"
+                                value={resolutions[row.key]?.rename_to ?? ''}
+                                onChange={(e) =>
+                                  setResolutions((prev) => ({
+                                    ...prev,
+                                    [row.key]: { ...prev[row.key]!, rename_to: e.target.value },
+                                  }))
+                                }
+                              />
+                            )}
+                          </span>
+                        )}
+                      </>
+                    );
+                  }}
+                />
+                {samples > 0 && (
+                  <p className="-mb-1.5 text-label text-muted">
+                    Includes {samples} sample {samples === 1 ? 'record' : 'records'} so the views
+                    aren’t empty — remove {samples === 1 ? 'it' : 'them'} in one click from Home
+                    (“Remove sample data”).
+                  </p>
+                )}
+                {preview.data.unmet.length > 0 && (
+                  <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
+                    <p className="mb-1 text-label font-semibold text-ink">You’ll need to connect</p>
+                    {preview.data.unmet.map((u) => (
+                      <p key={u.name} className="text-label text-muted">
+                        {u.detail}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <p className="-mb-1 flex items-center gap-1.5 text-label text-muted" data-testid="pack-install-note">
+                  <Check className="h-3 w-3 shrink-0" />
+                  {notNew(rows).length === 0
+                    ? 'All new — nothing already in your workspace changes.'
+                    : `${notNew(rows).length === 1 ? 'One thing' : `${notNew(rows).length} things`} already exist in your workspace — see the notes above. Nothing you have is removed.`}
+                </p>
+                <div className="sticky bottom-0 -mx-[18px] flex justify-end gap-2 border-t border-border-default bg-card px-[18px] pb-3.5 pt-2.5">
+                  <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={install.isPending || unresolved.length > 0 || blocked}
+                    title={blockedWhy}
+                    onClick={() => install.mutate()}
+                  >
+                    {install.isPending ? (
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing…
+                      </span>
+                    ) : (
+                      'Install pack'
+                    )}
+                  </Button>
+                </div>
+              </>
             ) : preview.data ? (
               <>
                 {update && (
