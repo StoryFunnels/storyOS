@@ -6869,7 +6869,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List space views',
       description:
-        'Views that belong to a SPACE rather than a database — dashboards that pull from several databases at once, and the ones that appear in the sidebar tree. describe_database only ever shows a database\'s own views, so these are invisible from there.',
+        'Views that belong to a SPACE rather than a database — dashboards that pull from several databases at once, and the ones that appear in the sidebar tree. describe_database only ever shows a database\'s own views, so these are invisible from there. Each view carries source_database_ids: the databases it reads (its own database for an ordinary view; for a dashboard, its own plus every database its tiles and widgets name). A database you cannot read is left out of that list.',
       inputSchema: { workspace: z.string(), space: z.string() },
     },
     handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
@@ -8398,7 +8398,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List automations',
       description:
         '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
-        'enabled state, failure streak and last-run status. Automations are an admin surface, so this needs an admin-scoped token. ' +
+        'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
         'Use get_automation for one rule\'s full editable definition.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),

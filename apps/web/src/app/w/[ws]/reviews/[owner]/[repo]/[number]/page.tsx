@@ -182,8 +182,8 @@ export default function PullRequestReviewPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border-default p-4">
-        <Link href={`/w/${ws}/reviews`} className="mb-2 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
-          <ArrowLeft className="h-3.5 w-3.5" /> Reviews
+        <Link href={`/w/${ws}/me?tab=pull-requests`} className="mb-2 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
+          <ArrowLeft className="h-3.5 w-3.5" /> Pull requests
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

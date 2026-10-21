@@ -33,6 +33,7 @@ import { listGroupDisabledReason } from './groupable-fields';
 import { FieldsMenu } from './fields-menu';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
+import { TOOLBAR_BTN } from './toolbar-chip';
 
 /* #739 T8 — hoisted so the array identity is stable across renders (Segmented takes a readonly list). */
 const ROW_HEIGHT_OPTIONS = [
@@ -167,9 +168,9 @@ export function DisplayMenu({
           <button
             type="button"
             aria-label="Display"
-            className="flex items-center gap-1 rounded-[var(--radius-control)] px-1.5 py-1 text-label text-muted hover:bg-hover hover:text-ink"
+            className={TOOLBAR_BTN}
           >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <SlidersHorizontal className="h-[13px] w-[13px]" />
             <span className="tb-display">Display</span>
           </button>
         </PopoverTrigger>

@@ -8,6 +8,7 @@ import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
 import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
+import { chipClass } from './toolbar-chip';
 
 /** The views that actually group. Tables do not (only board and list read `group_by_field_id`). */
 export function viewGroups(viewType: string | undefined): viewType is 'board' | 'list' {
@@ -72,12 +73,9 @@ export function GroupChip({
         <button
           type="button"
           aria-label="Group"
-          className={cn(
-            'flex items-center gap-1 rounded-[var(--radius-control)] px-1.5 py-1 text-label hover:bg-hover',
-            groupField ? 'text-ink' : 'text-muted',
-          )}
+          className={chipClass(Boolean(groupField))}
         >
-          <Group className="h-3.5 w-3.5" />
+          <Group className="h-3 w-3" />
           <span className="tb-group max-w-[12rem] truncate">{groupField ? `Group: ${groupField.displayName}` : 'Group'}</span>
         </button>
       </PopoverTrigger>

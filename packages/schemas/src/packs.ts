@@ -243,6 +243,29 @@ export const packDerivedFieldSchema = z.object({
 });
 export type PackDerivedField = z.infer<typeof packDerivedFieldSchema>;
 
+/**
+ * Sample-record value tokens (ticket #1015): a sample value that has to be decided AT INSTALL, because a static manifest cannot know it.
+ *
+ *   `$me`                      the person installing: a person field's value (so "Assignee" is someone real, not empty)
+ *   `$date:+3d` / `$date:-2d`  today (UTC) plus or minus N days: a due date that is, on install day, in the future or overdue
+ *   `$sample:<Database>/<Title>`  the id of ANOTHER sample record of this manifest, for a relation value (`['$sample:Clients/Acme (sample)']`);
+ *                              the target must be listed earlier in `sample_records`, and one that cannot be found is skipped, never an error
+ *
+ * Only `sample_records` values are read for these; they are not refs (`PACK_REF_PATTERN`), so every other part of a manifest is unchanged.
+ */
+export const SAMPLE_ME = '$me';
+/** A due date relative to install day: `sampleDate(-2)` is two days ago (overdue), `sampleDate(5)` is five days from now. */
+export const sampleDate = (days: number): string => `$date:${days < 0 ? '-' : '+'}${Math.abs(Math.trunc(days))}d`;
+/** A relation value pointing at another sample record of the same manifest (see the token list above). */
+export const sampleRef = (database: string, title: string): string => `$sample:${database}/${title}`;
+/** What a sample date token means, so install and tests read it one way. Returns null for a string that is not a date token. */
+export function resolveSampleDate(token: string, now: Date = new Date()): string | null {
+  const m = /^\$date:([+-])(\d{1,4})d$/.exec(token);
+  if (!m) return null;
+  const ms = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + (m[1] === '-' ? -1 : 1) * Number(m[2]) * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 /** A sample record. `values` is keyed by api_name; option ids appear as refs. */
 export const packSampleRecordSchema = z.object({
   database: nameSchema,

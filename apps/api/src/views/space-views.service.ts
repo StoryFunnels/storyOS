@@ -14,6 +14,23 @@ import { ACCESS_RANK, AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /**
+ * #1013 — the databases a view NAMES as its sources, before any access check: an ordinary view reads its own database; a dashboard
+ * reads its own database (when it has one) and every database a tile or widget names with `database_id`. A tile or widget with none
+ * reads the view's own database (or, on a space-level dashboard, is unconfigured and reads nothing yet). First-appearance order, own
+ * database first, no repeats.
+ */
+function namedSources(v: { databaseId: string | null; type: string; config: unknown }): string[] {
+  const out: string[] = v.databaseId ? [v.databaseId] : [];
+  if (v.type === 'dashboard') {
+    const cfg = (v.config ?? {}) as { dashboard_tiles?: Array<{ database_id?: string }>; dashboard_widgets?: Array<{ database_id?: string }> };
+    for (const block of [...(cfg.dashboard_tiles ?? []), ...(cfg.dashboard_widgets ?? [])]) {
+      if (typeof block?.database_id === 'string') out.push(block.database_id);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
  * #347 — every view a member can navigate to inside ONE space, for the sidebar tree.
  *
  * This endpoint exists because there was no way to ask "what views are in this
@@ -97,20 +114,41 @@ export class SpaceViewsService {
       if (role) readable.add(database.id);
     }
 
-    return rows
-      .filter((v) => v.databaseId === null || readable.has(v.databaseId))
-      .map((v) => ({
-        id: v.id,
-        name: v.name,
-        type: v.type,
-        database_id: v.databaseId,
-        space_id: v.spaceId,
-        folder_id: v.folderId,
-        position: v.position,
-        is_default: v.isDefault,
-        /** #291 — the sidebar badges a personal view; it never exposes whose. */
-        personal: v.ownerUserId !== null,
-      }));
+    const shown = rows.filter((v) => v.databaseId === null || readable.has(v.databaseId));
+
+    // #1013 — each view's SOURCE databases, in one batched pass: gather every database any shown view names, resolve them with ONE
+    // query, and ask the access question once per DISTINCT database (a dashboard may read a database outside this space, so the
+    // `readable` set above is not enough). No per-view and no per-dashboard fetch.
+    const named = new Map<string, string[]>(shown.map((v) => [v.id, namedSources(v)]));
+    const wanted = [...new Set([...named.values()].flat())];
+    const sourceDbs = wanted.length
+      ? await this.db.query.databases.findMany({
+          where: and(inArray(databases.id, wanted), eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+          columns: { id: true, spaceId: true },
+        })
+      : [];
+    const sourceReadable = new Set<string>();
+    for (const database of sourceDbs) {
+      if (readable.has(database.id) || (await this.access.effectiveForDatabase(membership, database))) sourceReadable.add(database.id);
+    }
+
+    return shown.map((v) => ({
+      id: v.id,
+      name: v.name,
+      type: v.type,
+      database_id: v.databaseId,
+      space_id: v.spaceId,
+      folder_id: v.folderId,
+      position: v.position,
+      is_default: v.isDefault,
+      /** #291 — the sidebar badges a personal view; it never exposes whose. */
+      personal: v.ownerUserId !== null,
+      /**
+       * #1013 — the databases this view reads: its own database for an ordinary view; for a dashboard, its own database (if it has one)
+       * plus every database its tiles and widgets name. Databases the caller cannot read are OMITTED, never listed.
+       */
+      source_database_ids: (named.get(v.id) ?? []).filter((id) => sourceReadable.has(id)),
+    }));
   }
 
   /**

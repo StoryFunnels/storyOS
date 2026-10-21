@@ -89,14 +89,8 @@ export function shouldShowChecklist(steps: ActivationStep[], dismissed: boolean)
 }
 
 /** Is this workspace in the user's dismissed list? Tolerates an undefined list (prefs still loading). */
-export function isWorkspaceDismissed(dismissedWorkspaces: string[] | undefined, ws: string): boolean {
-  return (dismissedWorkspaces ?? []).includes(ws);
-}
-
-/** The next dismissed-workspaces list after dismissing `ws` (idempotent, no dupes). */
-export function withWorkspaceDismissed(dismissedWorkspaces: string[] | undefined, ws: string): string[] {
-  const current = dismissedWorkspaces ?? [];
-  return current.includes(ws) ? current : [...current, ws];
+export function isWorkspaceDismissed(list: string[] | undefined, ws: string): boolean {
+  return (list ?? []).includes(ws);
 }
 
 /**

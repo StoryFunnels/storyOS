@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
+import { useEditPreferenceList, usePreferences, withListEdit } from '@/lib/preferences';
 import type { UserPreferences } from '@/lib/preferences';
 
 /**
@@ -26,12 +26,6 @@ export function isViewsOnly(list: string[] | undefined, ws: string): boolean {
   return (list ?? []).includes(ws);
 }
 
-/** The next list after switching `ws` on or off. Idempotent; never touches other workspaces. */
-export function withViewsOnly(list: string[] | undefined, ws: string, on: boolean): string[] {
-  const rest = (list ?? []).filter((w) => w !== ws);
-  return on ? [...rest, ws] : rest;
-}
-
 function readLocal(key: string): string | null {
   try {
     return typeof window === 'undefined' ? null : window.localStorage.getItem(key);
@@ -50,7 +44,7 @@ function writeLocal(key: string, value: string | null) {
 
 export function useViewsOnlyMode(ws: string) {
   const prefs = usePreferences();
-  const update = useUpdatePreferences();
+  const editList = useEditPreferenceList();
   const qc = useQueryClient();
   const list = prefs.data?.sidebar?.viewsOnlyWorkspaces;
   const loaded = prefs.data !== undefined;
@@ -65,7 +59,7 @@ export function useViewsOnlyMode(ws: string) {
     if (readLocal(legacyKey(ws)) === '1') {
       writeLocal(legacyKey(ws), null);
       if (!isViewsOnly(list, ws)) {
-        update.mutate({ sidebar: { viewsOnlyWorkspaces: withViewsOnly(list, ws, true) } });
+        editList.mutate({ list: 'views_only_workspaces', add: [ws] });
         return;
       }
     }
@@ -73,16 +67,14 @@ export function useViewsOnlyMode(ws: string) {
   }, [loaded, list, ws]);
 
   const toggle = () => {
-    const next = withViewsOnly(list, ws, !viewsOnly);
+    const on = !viewsOnly;
+    // #1007 — one workspace id added or removed, never the whole list: the server applies it atomically, so another
+    // tab's change to a different workspace survives.
+    const edit = { list: 'views_only_workspaces' as const, ...(on ? { add: [ws] } : { remove: [ws] }) };
     // Optimistic: the button must respond instantly, not after a round trip.
-    qc.setQueryData<UserPreferences>(['preferences'], (old) =>
-      old ? { ...old, sidebar: { ...old.sidebar, viewsOnlyWorkspaces: next } } : old,
-    );
-    writeLocal(cacheKey(ws), isViewsOnly(next, ws) ? '1' : '0');
-    update.mutate(
-      { sidebar: { viewsOnlyWorkspaces: next } },
-      { onError: () => void qc.invalidateQueries({ queryKey: ['preferences'] }) },
-    );
+    qc.setQueryData<UserPreferences>(['preferences'], (old) => (old ? withListEdit(old, edit) : old));
+    writeLocal(cacheKey(ws), on ? '1' : '0');
+    editList.mutate(edit, { onError: () => void qc.invalidateQueries({ queryKey: ['preferences'] }) });
   };
 
   return { viewsOnly, toggle };
