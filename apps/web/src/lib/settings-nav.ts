@@ -29,10 +29,11 @@ export function workspaceSettingsLinks(base: string, flags: SettingsNavFlags): A
     // #457 — where a property OF the workspace goes, starting with its description.
     { href: `${base}/general`, label: 'General' },
     ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
+    // #967 — its permanent home, right after Members (the sidebar row is only an invitation until the first AI
+    // connects, then it disappears). Own route and the API-tokens gate from #875; Integrations is NOT relaxed for it.
+    ...(canEdit ? [{ href: `${base}/connect-ai`, label: 'Connect your AI' }] : []),
     ...(isAdmin && billingEnabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
-    // #875 — own entry and own route at the API-tokens gate; Integrations is NOT relaxed for it.
-    ...(canEdit ? [{ href: `${base}/connect-ai`, label: 'Connect your AI' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
     ...(isAdmin ? [{ href: `${base}/export`, label: 'Export' }] : []),
     // #618 — admin-only, matching the restore endpoints' own @MinRole('admin') gate.

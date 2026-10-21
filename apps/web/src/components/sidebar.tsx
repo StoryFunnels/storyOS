@@ -345,8 +345,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       <nav className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
         {/* #967 — "Collections" is gone: the AI layer has its own gold section (Skills, Agent runs,
-            Business Packs; "Connect your AI" joins once its connected-state endpoint exists). */}
-        <SidebarAiSection ws={ws} />
+            Business Packs; "Connect your AI" shows until the workspace has a connected AI). */}
+        <SidebarAiSection ws={ws} canConnectAi={canEdit} />
         {/* #641 — 72px of the void between the nav and the tree was Personal's
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}

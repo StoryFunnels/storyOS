@@ -2,9 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Library, Package } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { toast } from 'sonner';
+import { Activity, Library, Package, Plug } from 'lucide-react';
 import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
-import { goldCountLabel, APPROVALS_LIST_LIMIT, usePackUpdateCount, usePendingApprovalCount } from '@/lib/sidebar-ai';
+import {
+  CONNECT_AI_MOVED_HINT,
+  CONNECT_AI_MOVED_TOAST,
+  goldCountLabel,
+  shouldAnnounceMove,
+  showConnectAiRow,
+  useAiConnected,
+  APPROVALS_LIST_LIMIT,
+  usePackUpdateCount,
+  usePendingApprovalCount,
+} from '@/lib/sidebar-ai';
+import { useDismissedHints } from '@/lib/dismissed-hints';
 
 /**
  * #967 — the AI layer's own home, in gold (#831: gold means agency). "Collections" is gone.
@@ -19,10 +32,24 @@ import { goldCountLabel, APPROVALS_LIST_LIMIT, usePackUpdateCount, usePendingApp
  * workspace has a connected AI client needs an endpoint (open for Marek on #967), and the row's
  * badge must not be guessed.
  */
-export function SidebarAiSection({ ws }: { ws: string }) {
+export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canConnectAi?: boolean }) {
   const pathname = usePathname();
   const approvals = usePendingApprovalCount(ws);
   const packUpdates = usePackUpdateCount(ws);
+  // #967 — "Connect your AI": a gold 1 and a tint until the workspace has a connected AI, then it is gone.
+  // A guest cannot open the page (settings-nav `canConnectAi`), so a guest is never nudged toward it.
+  const aiConnected = useAiConnected(ws);
+  const hints = useDismissedHints(ws);
+  const previous = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const now = aiConnected.data;
+    const shown = hints.dismissed === undefined ? undefined : hints.dismissed.includes(CONNECT_AI_MOVED_HINT);
+    if (canConnectAi && shouldAnnounceMove(previous.current, now, shown)) {
+      toast(CONNECT_AI_MOVED_TOAST);
+      hints.setDismissed(CONNECT_AI_MOVED_HINT, true);
+    }
+    if (now !== undefined) previous.current = now;
+  }, [aiConnected.data, hints.dismissed, canConnectAi]);
 
   const rows = [
     {
@@ -41,6 +68,19 @@ export function SidebarAiSection({ ws }: { ws: string }) {
       count: goldCountLabel(approvals.data ?? 0, APPROVALS_LIST_LIMIT),
       countHint: 'Agent actions waiting for your approval',
     },
+    ...(canConnectAi && showConnectAiRow(aiConnected.data)
+      ? [
+          {
+            href: `/w/${ws}/settings/connect-ai`,
+            label: 'Connect your AI',
+            Icon: Plug,
+            active: pathname === `/w/${ws}/settings/connect-ai`,
+            count: '1' as string | null,
+            countHint: 'Your workspace has no connected AI yet' as string | undefined,
+            tint: true,
+          },
+        ]
+      : []),
     {
       href: `/w/${ws}/packs`,
       label: 'Business Packs',
@@ -49,14 +89,14 @@ export function SidebarAiSection({ ws }: { ws: string }) {
       count: goldCountLabel(packUpdates.data ?? 0),
       countHint: 'Installed packs with an update available',
     },
-  ];
+  ].map((r) => ({ tint: false, ...r }));
 
   return (
     <div data-testid="sidebar-ai-section">
       {/* #805 — the quiet tier label (10px, wide tracking); gold, and a notch heavier so it reads as a mark. */}
       <p className="mb-0.5 mt-1 px-3 text-micro font-semibold uppercase tracking-[0.16em] text-accent-text">AI</p>
-      {rows.map(({ href, label, Icon, active, count, countHint }) => (
-        <SidebarRow key={href} depth={0} active={active}>
+      {rows.map(({ href, label, Icon, active, count, countHint, tint }) => (
+        <SidebarRow key={href} depth={0} active={active} className={tint ? 'bg-accent-soft' : undefined}>
           <Link
             href={href}
             aria-current={active ? 'page' : undefined}

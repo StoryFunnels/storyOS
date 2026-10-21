@@ -60,3 +60,57 @@ export function usePackUpdateCount(ws: string) {
     staleTime: 60_000,
   });
 }
+
+/**
+ * #967 — "Connect your AI": shown (gold "1" and a tint) until this workspace has a connected AI client, then gone.
+ * "Connected" is Otto's FINAL definition (ticket #967, PR 1145): `ai_connected || mcp_oauth_connected` from
+ * GET /workspaces/{ws}/onboarding. Any connected AI counts, a token or an OAuth grant; a teammate's connection counts
+ * for the whole workspace. A key an older server omits reads as false.
+ */
+export interface AiConnectedState {
+  ai_connected?: boolean;
+  mcp_oauth_connected?: boolean;
+}
+
+export function isAiConnected(state: AiConnectedState | undefined): boolean {
+  return Boolean(state?.ai_connected || state?.mcp_oauth_connected);
+}
+
+/**
+ * Whether the row shows. `undefined` (still loading, or the request failed) is NOT "not connected": a nudge must
+ * not flash for someone who is connected, and an error must not nag, so the row waits for a real answer.
+ */
+export function showConnectAiRow(connected: boolean | undefined): boolean {
+  return connected === false;
+}
+
+/** The toast's hint id (stored per viewer in dismissed hints, so it appears once, ever). */
+export const CONNECT_AI_MOVED_HINT = 'connect-ai-moved-toast';
+export const CONNECT_AI_MOVED_TOAST = 'Connect your AI now lives in Settings';
+
+/**
+ * The one-time toast on FIRST connect: it fires when the workspace goes from a known "not connected" to connected
+ * while the sidebar is open (e.g. the person returns from claude.ai and the window-focus refetch lands), and never
+ * again once its hint is stored. It says where the row went, because the row has just disappeared under them.
+ */
+export function shouldAnnounceMove(previous: boolean | undefined, now: boolean | undefined, alreadyShown: boolean | undefined): boolean {
+  return previous === false && now === true && alreadyShown === false;
+}
+
+/** Shares the cache entry the workspace home's onboarding card reads, so it is one request. */
+export function useAiConnected(ws: string) {
+  return useQuery({
+    queryKey: ['onboarding', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/onboarding' as never, {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as AiConnectedState;
+    },
+    select: isAiConnected,
+    retry: false,
+    // Coming back from claude.ai after connecting must update the row NOW, not after a staleness window.
+    refetchOnWindowFocus: 'always',
+  });
+}
