@@ -51,6 +51,7 @@ import {
   type AgentChoice,
   type PackItemKind,
 } from '@/lib/pack-update';
+import { useDateFormat } from '@/lib/preferences';
 
 type PackSource = 'registry' | 'marketplace';
 
@@ -414,6 +415,7 @@ function UpdateHeader({
   to: string;
   versions: Array<{ version: string; changelog?: string; published_at: string }> | undefined;
 }) {
+  const fmt = useDateFormat();
   const notes = releaseNotes(versions, from, to);
   return (
     <div
@@ -424,7 +426,7 @@ function UpdateHeader({
         v{from} → v{to}
         {notes.latest && (
           <span className="ml-2 text-label font-normal text-muted">
-            published {new Date(notes.latest.published_at).toLocaleDateString()}
+            published {fmt.date(notes.latest.published_at)}
           </span>
         )}
       </p>
@@ -839,6 +841,7 @@ function InstalledRow({
   source: PackSource;
   onUpdate: (slug: string, source: PackSource) => void;
 }) {
+  const fmt = useDateFormat();
   const qc = useQueryClient();
   const uninstall = useMutation({
     mutationFn: async () => {
@@ -866,7 +869,7 @@ function InstalledRow({
       <div>
         <p className="text-body font-medium text-ink">{pack.name}</p>
         <p className="text-label text-muted">
-          v{pack.version} · installed {new Date(pack.installed_at).toLocaleDateString()}
+          v{pack.version} · installed {fmt.date(pack.installed_at)}
         </p>
       </div>
       <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -475,8 +476,8 @@ export default function AdminPage() {
                       </Td>
                       <Td>{r.runClass ?? '—'}</Td>
                       <Td>{r.trigger ?? '—'}</Td>
-                      <Td>{r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</Td>
-                      <Td>{r.finishedAt ? new Date(r.finishedAt).toLocaleString() : '—'}</Td>
+                      <Td>{r.startedAt ? formatDateTime(r.startedAt) : '—'}</Td>
+                      <Td>{r.finishedAt ? formatDateTime(r.finishedAt) : '—'}</Td>
                       <Td>
                         {cancelable && (
                           <button
@@ -545,7 +546,7 @@ export default function AdminPage() {
                 <p className="mt-1 text-label text-muted">
                   {s.vertical} · {s.license}
                   {s.attribution ? ` · by ${s.attribution}` : ''} · submitted{' '}
-                  {new Date(s.submitted_at).toLocaleDateString()}
+                  {formatDate(s.submitted_at)}
                 </p>
                 {s.review_notes && (
                   <p className="mt-1 text-label text-ink-secondary">
@@ -763,7 +764,7 @@ function BillingSection() {
               </span>
               {b.currentPeriodEnd && (
                 <span className="text-muted">
-                  Until {new Date(b.currentPeriodEnd).toLocaleDateString()}
+                  Until {formatDate(b.currentPeriodEnd)}
                 </span>
               )}
             </div>
@@ -779,7 +780,7 @@ function BillingSection() {
                     <>Max workspaces: {b.override.maxWorkspaces} · </>
                   )}
                   {b.override.expiresAt
-                    ? `expires ${new Date(b.override.expiresAt).toLocaleDateString()}`
+                    ? `expires ${formatDate(b.override.expiresAt)}`
                     : 'never expires'}
                 </p>
                 <p className="mt-0.5 text-label text-ink-secondary">
@@ -961,7 +962,7 @@ function BillingSection() {
                 )}
                 {b.auditTrail.map((e) => (
                   <tr key={e.id} className="border-t border-border-default">
-                    <Td>{new Date(e.createdAt).toLocaleString()}</Td>
+                    <Td>{formatDateTime(e.createdAt)}</Td>
                     <Td>{e.actorUserId}</Td>
                     <Td>{e.action}</Td>
                     <Td>{e.reason}</Td>
