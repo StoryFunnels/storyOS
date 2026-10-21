@@ -39,3 +39,13 @@ export function toggleFieldVisibility(hidden: string[], fieldId: string, nextVis
 export function countHiddenFields(hidden: string[], candidateFieldIds: ReadonlySet<string>): number {
   return hidden.filter((id) => candidateFieldIds.has(id)).length;
 }
+
+/**
+ * #1004 — one number per row. The gutter's positional counter ("1, 2, 3…") and the ID column ("#1, #2…") used to show
+ * side by side, which read as one number printed twice. While the ID column is among the rendered fields it IS the
+ * row's number and the gutter shows none; with it hidden the gutter keeps the row's position, so the table never has
+ * no numbering. `fields` is the table's rendered field list (the synthetic ID entry has type `id`).
+ */
+export function gutterShowsPosition(fields: ReadonlyArray<{ type: string }>): boolean {
+  return !fields.some((f) => f.type === 'id');
+}
