@@ -755,7 +755,7 @@ export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
  * eye finds the control that is missing its value.
  */
 const FILTER_CTL =
-  'h-[25px] rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong focus-visible:border-accent';
+  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong focus-visible:border-accent';
 const unfinishedCtl = (on: boolean) => (on ? 'border-dashed' : '');
 /** A row's inline action (eye, pin, ⋯, ✕): 22px, resting at --faint, never hover-only (#900). */
 const ROW_ICON_BTN =
@@ -1647,20 +1647,24 @@ export function FilterBuilderPanel({
   );
 }
 
+/**
+ * The prototype's `conjBtn`: ONE small "and ⌄" button that flips and ⇄ or when clicked (it sets the whole container's
+ * connector), not a two-segment toggle. 19px tall, 3px padding, the current word and a 9px chevron — it fits the 40px
+ * lead column the segmented pair overflowed.
+ */
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
+  const next: FilterConnector = value === 'and' ? 'or' : 'and';
   return (
-    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
-      {(['and', 'or'] as const).map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          className={cn('px-1 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
-        >
-          {c}
-        </button>
-      ))}
-    </span>
+    <button
+      type="button"
+      onClick={() => onChange(next)}
+      aria-label={`Match ${value === 'and' ? 'all' : 'any'} of these — click to match ${next === 'and' ? 'all' : 'any'} instead`}
+      title={`Click to switch to “${next}”`}
+      className="inline-flex h-[19px] items-center gap-px rounded-[4px] border border-border-default bg-card px-[3px] text-micro text-muted hover:border-border-strong hover:text-ink"
+    >
+      {value}
+      <ChevronDown className="h-[9px] w-[9px]" aria-hidden />
+    </button>
   );
 }
 
@@ -1947,7 +1951,7 @@ function ConditionRow({
     >
       {/* #991 — ONE line: lead · field · operator · value (fills the rest) · eye / pin / ⋯ / ✕. On a phone the
           value drops to its own full-width line (#972) and the actions stay on the first. */}
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-[5px] gap-y-1">
         <RuleLead index={index} connector={connector} onConnectorChange={onConnectorChange} dragProps={{ ...attributes, ...listeners }} />
 
         {condition.icon && (
@@ -2042,7 +2046,7 @@ function ConditionRow({
 
       {/* A short list of options is chips UNDER the rule, so the values are one click each (Dara's `.chipset`). */}
       {chipSet && (
-        <div className={cn('mt-1 pl-[5rem]', dim)}>
+        <div className={cn('mt-1 pl-[45px]', dim)}>
           <OptionChipSet
             options={optionSourceFor(field, members)}
             selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
@@ -2053,7 +2057,7 @@ function ConditionRow({
       )}
 
       {editingLabel && (
-        <div className="mt-1.5 ml-[5rem] flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
+        <div className="mt-1.5 ml-[45px] flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-app p-1.5">
           <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
             <Tooltip label="Change icon">
               <PopoverTrigger asChild>
@@ -2102,9 +2106,9 @@ function ConditionRow({
         legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
         #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
       */}
-      {unfinished && <p className="mt-0.5 pl-[5rem] text-micro text-warning">not applied yet — needs a value</p>}
+      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning">not applied yet — needs a value</p>}
       {condition.label && !editingLabel && (
-        <p className="mt-0.5 pl-[5rem] text-meta text-muted">named “{condition.label}”</p>
+        <p className="mt-0.5 pl-[45px] text-meta text-muted">named “{condition.label}”</p>
       )}
     </div>
   );
@@ -2659,26 +2663,25 @@ export function SortButton({
                 >
                   <Plus className="h-3 w-3" /> Add sort
                 </button>
-                {sorts.length >= MAX_SORTS && <span className="text-micro text-faint">Up to {MAX_SORTS} sorts per view</span>}
-                <span className="ml-auto flex items-center gap-2">
-                  {sorts.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => onChange([])}
-                      className="text-label text-muted hover:text-ink"
-                    >
-                      Clear all
-                    </button>
-                  )}
-                  <a
-                    href="https://docs.storyos.dev/concepts/views/#filters--sorts"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1 text-label text-faint hover:text-ink"
+                {sorts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange([])}
+                    className="flex items-center gap-1 rounded py-1 text-label text-muted hover:text-error"
                   >
-                    <CircleHelp className="h-3 w-3" /> How sorting works
-                  </a>
-                </span>
+                    <X className="h-3 w-3" /> Clear all
+                  </button>
+                )}
+                {sorts.length >= MAX_SORTS && <span className="text-micro text-faint">Up to {MAX_SORTS} sorts per view</span>}
+                <span className="flex-1" />
+                <a
+                  href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-label text-muted underline decoration-border-strong underline-offset-2 hover:text-ink"
+                >
+                  How sorting works
+                </a>
               </div>
             </div>
           </div>
@@ -2689,7 +2692,7 @@ export function SortButton({
 }
 
 /** Whole-sort empty-values placement (MN-252) — a two-button segmented toggle,
- * reusing ConnectorToggle's exact visual pattern (border/rounded/uppercase pill). */
+ * reusing the same segmented visual pattern as the other two-state toggles. */
 function EmptyPlacementToggle({
   value,
   onChange,
@@ -2698,7 +2701,7 @@ function EmptyPlacementToggle({
   onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <span className="flex flex-1 overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
+    <span className="flex flex-1 gap-0.5 rounded-md bg-hover p-0.5 text-micro font-semibold uppercase leading-none">
       {(
         [
           ['first', 'First'],
@@ -2709,7 +2712,7 @@ function EmptyPlacementToggle({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={cn('flex-1 px-1.5 py-1', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+          className={cn('flex-1 rounded px-1.5 py-1', value === v ? 'bg-card text-ink shadow-sm' : 'text-muted hover:text-ink')}
         >
           {label}
         </button>
