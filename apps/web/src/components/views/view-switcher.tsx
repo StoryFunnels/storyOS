@@ -117,9 +117,9 @@ export function ViewSwitcher({
         >
           <ChevronDown className="h-3 w-3" />
           <b className="max-w-[6rem] truncate font-[650] text-ink sm:max-w-[10rem]">{active?.name ?? 'Views'}</b>
-          {/* On a phone the strip needs the room more than the count does: the count is the first line of the
-              switcher's own list. */}
-          <span className="hidden sm:inline">
+          {/* #996 — the count hides with the TOOLBAR's own width (a container query), not the viewport's: the toolbar sits
+              in a column that is narrower than the window whenever a record peek is open. */}
+          <span className="whitespace-nowrap @max-[520px]:hidden">
             · {shared.length} view{shared.length === 1 ? '' : 's'}
           </span>
         </button>

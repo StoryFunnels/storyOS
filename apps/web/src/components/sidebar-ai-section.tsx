@@ -27,7 +27,7 @@ import { useDismissedHints } from '@/lib/dismissed-hints';
  * 2.07:1 on the sidebar in light mode, below both the 4.5:1 text bar and the 3:1 bar for a glyph
  * (#706), so the same hue is used one step darker where it carries text or a glyph.
  *
- * Rows: Skills · Agent runs (gold count = actions waiting for approval) · Business Packs (gold
+ * Rows: Skills · Automation runs (gold count = actions waiting for approval) · Business Packs (gold
  * count = installed packs with an update). "Connect your AI" is NOT here yet: whether the
  * workspace has a connected AI client needs an endpoint (open for Marek on #967), and the row's
  * badge must not be guessed.
@@ -62,7 +62,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
     },
     {
       href: `/w/${ws}/runs`,
-      label: 'Agent runs',
+      label: 'Automation runs',
       Icon: Activity,
       active: pathname === `/w/${ws}/runs` || !!pathname?.startsWith(`/w/${ws}/runs/`),
       count: goldCountLabel(approvals.data ?? 0, APPROVALS_LIST_LIMIT),

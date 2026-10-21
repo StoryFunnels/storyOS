@@ -435,7 +435,12 @@ export function ViewToolbar({
       : [];
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-[7px] border-b border-border-default bg-app px-4 py-[9px]">
+    <div className="@container min-w-0">
+    {/* #996 — the toolbar NEVER wraps. Beside an open record the view can be ~300px wide, and a wrapped toolbar took
+        three lines of it. It is a container query on the toolbar's own width (not the viewport): the count and the
+        Find / Display labels go first, then the Filter / Sort / New labels, then the Group chip is shortened — the
+        controls keep their icons, so nothing is removed, and the primary row stays one line. */}
+    <div className="flex min-h-9 flex-nowrap items-center gap-[7px] [&_button]:whitespace-nowrap border-b border-border-default bg-app px-4 py-[9px] @max-[600px]:[&_.tb-count]:hidden @max-[600px]:[&_.tb-find]:hidden @max-[560px]:[&_.tb-display]:hidden @max-[500px]:[&_.tb-new]:hidden @max-[500px]:[&_.tb-group]:max-w-[5.5rem] @max-[440px]:[&_.tb-fs]:hidden @max-[340px]:gap-1 @max-[340px]:px-2 @max-[340px]:[&_button]:px-2 @max-[340px]:[&_.tb-pinned]:hidden @max-[340px]:[&_.tb-group]:hidden">
       {/* #964 — Filter · Sort · [Group] · Find · N of M · Display · ⋯ · New, in that order. The
           left cluster is what narrows and orders the rows; the right is how they look, the view's
           own menu, and the one primary action. */}
@@ -479,7 +484,7 @@ export function ViewToolbar({
         <ViewSearchBox ws={ws} db={db} config={config} personalFilter={personalFilter} />
       )}
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {ws && db && viewType !== 'form' && viewType !== 'dashboard' && (
           <ViewCount ws={ws} db={db} config={config} personalFilter={personalFilter} />
         )}
@@ -518,6 +523,7 @@ export function ViewToolbar({
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
       )}
     </div>
+    </div>
   );
 }
 
@@ -544,7 +550,7 @@ function ViewCount({
   if (total.data === undefined) return null;
   const narrowed = shown.data !== undefined && shown.data !== total.data;
   return (
-    <span className="whitespace-nowrap px-1 text-label tabular-nums text-faint" aria-live="polite">
+    <span className="tb-count whitespace-nowrap px-1 text-label tabular-nums text-faint" aria-live="polite">
       {narrowed ? `${shown.data} of ${total.data}` : String(total.data)}
     </span>
   );
@@ -581,7 +587,7 @@ function NewRecordButton({ ws, db }: { ws: string; db: string }) {
       disabled={create.isPending}
       className="inline-flex h-[27px] shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] border border-primary bg-primary px-[11px] text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
     >
-      <Plus className="h-3.5 w-3.5" /> New
+      <Plus className="h-3.5 w-3.5" /> <span className="tb-new">New</span>
     </button>
   );
 }
@@ -1334,7 +1340,7 @@ export function FiltersSection({
           className={chipClass(buttonState.yellow)}
         >
           <ListFilter className="h-3 w-3" />
-          Filter
+          <span className="tb-fs">Filter</span>
           {/* A person mark while the personal filter is on; it replaces the old standing chip (#259). */}
           {buttonState.personalOn && (
             <span className={CHIP_PERSON} title="Your personal filter is on" aria-hidden>
@@ -1449,7 +1455,7 @@ function PinnedFilterChip({
   return (
     <span
       // #992 — a pinned condition is an ACTIVE chip in the prototype (gold), struck through while it is off.
-      className={cn(chipClass(!condition.disabled), condition.disabled && 'line-through opacity-55')}
+      className={cn('tb-pinned', chipClass(!condition.disabled), condition.disabled && 'line-through opacity-55')}
     >
       <button
         type="button"
@@ -2583,8 +2589,9 @@ export function SortButton({
         aria-label={sorts.length ? `${emptyLabel}, ${sorts.length} applied` : emptyLabel}
       >
         <ArrowUpDown className="h-3 w-3" />
-        {/* #992 — always "Sort" (Ievgen), with the count and the active style when sorts exist, like the Filter button. */}
-        {emptyLabel}
+        {/* #992 — always "Sort" (Ievgen), with the count and the active style when sorts exist, like the Filter button.
+            #996 — the WORD hides at narrow toolbar widths (tb-fs); the count badge stays, so the state is never lost. */}
+        <span className="tb-fs">{emptyLabel}</span>
         {sorts.length > 0 && (
           <span className={CHIP_COUNT}>{sorts.length}</span>
         )}

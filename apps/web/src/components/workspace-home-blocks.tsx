@@ -147,7 +147,7 @@ export function WorkspaceHomeBlocks({
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <p className={SECTION}>Agent runs</p>
+          <p className={SECTION}>Automation runs</p>
           {/* Both blocks drop their link when empty: sending someone to an
               empty page is a dead end, and one block keeping its link while
               its neighbour loses it reads as a bug. */}
@@ -161,7 +161,7 @@ export function WorkspaceHomeBlocks({
           {recent.length === 0 ? (
             <p className={`${ROW} text-body text-muted`}>
               <Bot className="mt-0.5 h-4 w-4 shrink-0" />
-              No agent runs yet.
+              No automation runs yet.
             </p>
           ) : (
             recent.map((r) => {

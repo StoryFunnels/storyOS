@@ -171,7 +171,7 @@ export function DisplayMenu({
             className={TOOLBAR_BTN}
           >
             <SlidersHorizontal className="h-[13px] w-[13px]" />
-            Display
+            <span className="tb-display">Display</span>
           </button>
         </PopoverTrigger>
         <PopoverContent className="max-h-[28rem] w-72 overflow-y-auto p-1">

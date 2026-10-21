@@ -128,7 +128,7 @@ export function ViewSearchBox({
         className={chipClass()}
       >
         <Search className="h-3 w-3" />
-        Find
+        <span className="tb-find">Find</span>
       </button>
     );
   }
