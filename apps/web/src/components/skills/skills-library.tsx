@@ -9,6 +9,7 @@ import { useMembers } from '@/components/table-view/use-table-data';
 import { Button } from '@/components/ui/button';
 import { SkillImportDialog } from './skill-import-dialog';
 import { SkillSourceMark, VisibilityChip } from './skill-bits';
+import { SkillTemplateCards } from './skill-template-cards';
 import { initials, runLine } from './skill-meta';
 import { useSkillTemplates, useSkills } from './use-skills';
 
@@ -32,8 +33,8 @@ export function SkillsLibrary({ ws }: { ws: string }) {
   const list = skills.data ?? [];
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
-      <div className="flex items-center gap-2 border-b border-border-default px-4 py-3">
+    <div className="flex w-full max-w-[1080px] flex-col px-7 pb-[60px] pt-[22px]">
+      <div className="flex items-center gap-2 border-b border-border-default px-5 py-3">
         <h1 className="text-title font-bold tracking-tight text-ink">Skills</h1>
         {skills.isSuccess && (
           <span className="text-label text-muted">{list.length === 0 ? 'no skills yet' : `${list.length} skill${list.length === 1 ? '' : 's'}`}</span>
@@ -52,9 +53,9 @@ export function SkillsLibrary({ ws }: { ws: string }) {
 
       <SkillImportDialog ws={ws} open={importing} onOpenChange={setImporting} />
 
-      {skills.isPending && <p className="px-4 py-6 text-body text-muted">Loading skills…</p>}
+      {skills.isPending && <p className="px-5 py-6 text-body text-muted">Loading skills…</p>}
       {skills.isError && (
-        <p className="px-4 py-6 text-body text-error" role="alert">
+        <p className="px-5 py-6 text-body text-error" role="alert">
           Could not load skills. Try again in a moment.
         </p>
       )}
@@ -117,7 +118,7 @@ function SkillRow({
     <li className="border-b border-border-default last:border-b-0">
       <Link
         href={`/w/${ws}/skills/${skill.id}`}
-        className="grid grid-cols-[1fr_9.5rem_9.5rem] items-start gap-3.5 px-4 py-3 hover:bg-hover"
+        className="grid grid-cols-[minmax(0,1fr)_9.5rem_9.5rem] items-start gap-3.5 px-5 py-3 hover:bg-hover max-md:grid-cols-[minmax(0,1fr)]"
       >
         <span className="min-w-0">
           <span className="flex flex-wrap items-center gap-1.5 text-prose font-semibold tracking-tight text-ink">
@@ -154,27 +155,13 @@ function SkillRow({
  */
 function EmptyState({ ws, templates }: { ws: string; templates: SkillTemplate[] }) {
   return (
-    <div className="px-4 py-6">
+    <div className="px-5 py-5">
       <h2 className="text-title font-bold tracking-tight text-ink">Nothing here yet — and that is the normal start.</h2>
       <p className="mt-1 max-w-[60ch] text-body leading-normal text-muted">
         A skill is a way of working you write once: what it does, and the sentence that tells any AI when to reach for it.
         Start from one that ships with StoryOS, or from a blank page.
       </p>
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {templates.map((t) => (
-          <Link
-            key={t.id}
-            href={`/w/${ws}/skills/new?template=${encodeURIComponent(t.id)}`}
-            className={cn(
-              'rounded-[var(--radius-card)] border px-3 py-2.5 hover:bg-hover',
-              t.id === 'blank' ? 'border-dashed border-border-strong' : 'border-border-default bg-card',
-            )}
-          >
-            <span className="block text-body font-semibold text-ink">{t.name}</span>
-            <span className="mt-0.5 block text-label leading-normal text-muted">{t.description}</span>
-          </Link>
-        ))}
-      </div>
+      <SkillTemplateCards ws={ws} templates={templates} className="mt-3.5" />
     </div>
   );
 }

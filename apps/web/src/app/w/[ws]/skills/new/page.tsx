@@ -2,12 +2,15 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import { SkillEditor } from '@/components/skills/skill-editor';
+import { NewSkillChooser } from '@/components/skills/skill-template-cards';
 import { useSkillTemplates } from '@/components/skills/use-skills';
 
 export default function NewSkillPage() {
   const { ws } = useParams<{ ws: string }>();
   const templateId = useSearchParams().get('template');
   const templates = useSkillTemplates(ws);
+  // #997 — no scaffold chosen yet: the chooser (the prototype's `skillNew`), not a blank form. "Blank" is one of its cards.
+  if (!templateId) return <div className="h-full overflow-auto"><NewSkillChooser ws={ws} /></div>;
   // Wait for the scaffolds before mounting the form: the editor seeds its draft
   // once, so mounting early would silently drop the chosen template.
   if (templateId && templates.isPending) return <p className="p-4 text-body text-muted">Loading scaffold…</p>;
