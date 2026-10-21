@@ -8379,7 +8379,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List automations',
       description:
         '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
-        'enabled state, failure streak and last-run status. Automations are an admin surface, so this needs an admin-scoped token. ' +
+        'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
         'Use get_automation for one rule\'s full editable definition.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
