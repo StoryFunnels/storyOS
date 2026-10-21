@@ -1,5 +1,6 @@
+import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
-import { EMPTY_CONFIG, queryBodyFromConfig, sortsBodyFromConfig } from './use-view-state';
+import { EMPTY_CONFIG, forgetPersonalFilter, queryBodyFromConfig, sortsBodyFromConfig } from './use-view-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 
 /**
@@ -164,5 +165,24 @@ describe('queryBodyFromConfig / sortsBodyFromConfig — empty-values placement (
       { field: 'due', direction: 'asc' },
       { field: 'priority', direction: 'desc' },
     ]);
+  });
+});
+
+describe('#965 clearing a personal filter changes what the cache holds', () => {
+  const key = ['personal-filter', 'ws', 'db', 'view'];
+  const filter: FilterNode = { and: [{ field: 'name', op: 'contains', value: 'zzz' }] };
+
+  it('replaces the stored filter with null, the "no override" the GET returns', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(key, filter);
+    forgetPersonalFilter(qc, 'ws', 'db', 'view');
+    expect(qc.getQueryData(key)).toBeNull();
+  });
+
+  it('is why the old write was a bug: setQueryData(key, undefined) leaves the filter in place', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(key, filter);
+    qc.setQueryData(key, undefined);
+    expect(qc.getQueryData(key)).toEqual(filter);
   });
 });
