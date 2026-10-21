@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -53,6 +53,50 @@ describe.each([
   });
   it('the Undo label (--text-on-accent on gold) clears AA', () => {
     expect(ratio(token(theme, '--text-on-accent'), token(theme, '--accent'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+/**
+ * Otto's ruling on #994: two tokens. `--primary` is the FILL (a button's background); `--primary-text` is TEXT and
+ * GLYPHS. They differ in dark mode, where the fill is only 3.45:1 as text on a card, so `text-primary` must read the
+ * text token — and nothing may colour text with the fill token directly.
+ */
+describe.each([
+  ['light', light],
+  ['dark', dark],
+])('%s: --primary-text', (_name, theme) => {
+  it('clears AA as text on the card and on the page', () => {
+    expect(ratio(token(theme, '--primary-text'), token(theme, '--bg-card'))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(token(theme, '--primary-text'), token(theme, '--bg-app'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('text never resolves to the fill (#994)', () => {
+  it('in dark the text token is NOT the fill token', () => {
+    expect(token(dark, '--primary-text')).not.toBe(token(dark, '--primary'));
+  });
+  it('the dark FILL would fail as text on the card, which is why the tokens are split', () => {
+    expect(ratio(token(dark, '--primary'), token(dark, '--bg-card'))).toBeLessThan(4.5);
+  });
+  it('the theme exposes the text token as `text-primary-text`', () => {
+    expect(css).toMatch(/--color-primary-text:\s*var\(--primary-text\)/);
+  });
+  it('no source colours TEXT with the fill token directly', () => {
+    const SRC = join(__dirname, '..');
+    const walk = (dir: string, out: string[] = []): string[] => {
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) walk(p, out);
+        else if (/\.(ts|tsx)$/.test(name) && !/\.(unit\.)?test\.(ts|tsx)$/.test(name)) out.push(p);
+      }
+      return out;
+    };
+    // Bare `text-primary` (with or without an opacity) resolves to the FILL colour; `text-primary-text` does not match.
+    const FILL_AS_TEXT = /(?<![\w-])!?text-primary(?![\w-])|text-\[var\(--(?:color-)?primary\)\]/;
+    const offenders = walk(SRC)
+      .filter((p) => FILL_AS_TEXT.test(readFileSync(p, 'utf8')))
+      .map((p) => p.slice(SRC.length + 1));
+    expect(offenders).toEqual([]);
   });
 });
 
