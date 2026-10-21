@@ -569,7 +569,7 @@ export function BoardView({
           </span>
         </div>
       )}
-      <div className="flex flex-1 gap-3 overflow-x-auto p-4">
+      <div className="flex flex-1 gap-[11px] overflow-x-auto px-4 py-3.5">
         {shownColumns.map((column) => (
           /*
            * #424 — per COLUMN, not per board. A board groups by a user-chosen
@@ -687,13 +687,17 @@ function BoardColumn({
       className={cn(
         // MN-230d: a fixed 288px column is near full-bleed on a 375px phone with
         // no room to see the next column; 85vw keeps one primary column visible
-        // with a peek of the next, `md:w-72` restores the desktop width.
-        'flex w-[85vw] shrink-0 flex-col rounded-[var(--radius-card)] border border-border-default bg-sidebar md:w-72',
-        isOver && 'ring-2 ring-[var(--accent)]',
+        // with a peek of the next, `md:w-[258px]` restores the desktop width.
+        // #994 — the prototype's `.col`: 258px wide and BARE (no tinted box, no border), a 7px gap between the header and
+        // the cards. The drop target is still this element, so while a card is over it the column gets the ring.
+        // h-full: the bare column is the drop target, so it spans the board's height — a card can be dropped anywhere in
+        // its lane, not only on the strip its cards happen to cover.
+        'flex h-full w-[85vw] shrink-0 flex-col gap-[7px] md:w-[258px]',
+        isOver && 'rounded-[var(--radius-card)] outline outline-2 outline-offset-4 outline-[var(--accent)]',
       )}
     >
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="flex items-center gap-1.5 text-label font-medium text-ink">
+      <div className="flex items-center justify-between px-[3px]">
+        <span className="flex items-center gap-[7px] text-label font-bold text-ink">
           {/* #215: the option's icon where it has one, the colour dot otherwise.
               Not both — two markers for one option reads as two things. The icon
               is tinted with the option's colour so the header still carries the
@@ -703,10 +707,10 @@ function BoardColumn({
               <OptionIcon icon={column.icon} />
             </span>
           ) : (
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
+            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: column.color }} />
           )}
           {column.label}
-          <span className="text-faint">
+          <span className="font-semibold tabular-nums text-faint">
             {trueCount !== undefined ? trueCount : groupCountLabel(column.rows.length, hasMore)}
           </span>
         </span>
@@ -716,7 +720,7 @@ function BoardColumn({
           </button>
         )}
       </div>
-      <div className="flex min-h-10 flex-1 flex-col gap-1.5 overflow-y-auto px-2 pb-2">
+      <div className="flex min-h-10 flex-1 flex-col gap-[7px] overflow-y-auto">
         {column.rows.map((row) => (
           <DraggableCard
             key={row.id}
@@ -769,7 +773,8 @@ function DraggableCard({
 
 const SIZE_STYLES: Record<CardSize, { pad: string; title: string; clamp: string; gap: string }> = {
   small: { pad: 'p-2', title: 'text-label', clamp: 'line-clamp-1', gap: 'gap-1' },
-  medium: { pad: 'p-2.5', title: 'text-body', clamp: 'line-clamp-2', gap: 'gap-1.5' },
+  // #994 — the prototype's `.ccard`: 9px / 10px padding.
+  medium: { pad: 'px-2.5 py-[9px]', title: 'text-body', clamp: 'line-clamp-2', gap: 'gap-1.5' },
   large: { pad: 'p-3', title: 'text-body', clamp: 'line-clamp-3', gap: 'gap-2' },
 };
 
@@ -837,9 +842,9 @@ export function Card({
       )}
     >
       <CardCover row={row} cover={cover} />
-      <p className={cn('font-medium text-ink', s.title, s.clamp)}>{row.title || 'Untitled'}</p>
+      <p className={cn('font-[550] text-ink', s.title, s.clamp, 'leading-[1.4]!')}>{row.title || 'Untitled'}</p>
       {chips.length > 0 && (
-        <div className={cn('mt-2 flex flex-wrap items-center', s.gap)}>
+        <div className={cn('mt-[7px] flex flex-wrap items-center', s.gap)}>
           {chips.map(({ field, value }) => (
             <CardFieldChip
               key={field.id}
