@@ -1108,6 +1108,10 @@ html[data-embed] body {
  * a grabber, and a scrim. At 390px an anchored popover cut a filter value to "Dor"; a full-width sheet
  * cannot, because it is as wide as the screen. Desktop is untouched: every rule is inside the query.
  */
+/* off a phone there is no sheet, so no scrim */
+.phone-sheet-scrim {
+  display: none;
+}
 @media (max-width: 767px) {
   [data-radix-popper-content-wrapper]:has(> .phone-sheet) {
     transform: none !important;
@@ -1117,13 +1121,16 @@ html[data-embed] body {
     min-width: 0 !important;
     max-width: 100% !important;
   }
-  /* the scrim: a sibling-behind pseudo on the wrapper, click-through so Radix still sees the outside press */
-  [data-radix-popper-content-wrapper]:has(> .phone-sheet)::before {
-    content: '';
+  /* the scrim is a real element rendered BESIDE the popper wrapper (ui/phone-sheet-scrim.tsx), never a child of
+     it: Popper writes `will-change: transform` on the wrapper, which makes it the containing block for any
+     `position: fixed` descendant, so a scrim inside it was clipped to the sheet's own box (Otto, PR 1154). */
+  .phone-sheet-scrim {
+    display: block;
     position: fixed;
     inset: 0;
+    z-index: calc(var(--z-popover) - 1);
     background: var(--scrim);
-    pointer-events: none;
+    pointer-events: none; /* click-through, so Radix still sees the outside press and closes the sheet */
   }
   .phone-sheet {
     position: relative;

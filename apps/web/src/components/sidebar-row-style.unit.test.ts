@@ -178,7 +178,7 @@ describe('CARET_HIT_AREA (#799)', () => {
   it('grows leftward and vertically, never rightward — the right edge stays flush with the glyph', () => {
     expect(CARET_HIT_AREA).toContain('before:-left-3');
     expect(CARET_HIT_AREA).toContain('before:right-0');
-    expect(CARET_HIT_AREA).not.toMatch(/before:-right-/);
+    expect(CARET_HIT_AREA).not.toMatch(/(?<!max-md:)before:-right-/);
   });
   it('adds up to 24x24 around a 12px glyph: 12 left + 12 glyph, 6 up + 12 + 6 down', () => {
     // -left-3 = 12px, -inset-y-1.5 = 6px each. If either is edited, the target
@@ -189,6 +189,19 @@ describe('CARET_HIT_AREA (#799)', () => {
     expect(glyph + left).toBeGreaterThanOrEqual(24);
     expect(glyph + 2 * vertical).toBeGreaterThanOrEqual(24);
     expect(CARET_HIT_AREA).toContain('before:-inset-y-1.5');
+  });
+  it('#972: on a phone the box is >= 28px each way, counting the room the drawer actually leaves', () => {
+    // Otto measured elementFromPoint at 390px: 26x32. The drawer opens BESIDE the 52px rail and the caret sits 14px
+    // from the drawer's edge, so the rail clips any reach further left than 14px: width = 14 + 12 (glyph) = 26 no
+    // matter how far `-left-*` goes. The only way to 28+ is a little reach to the RIGHT, on the phone only
+    // (6px of the gap before the label; #799's no-right rule is about the desktop rule, tested above).
+    const roomLeft = 14;
+    const glyph = 12;
+    const phoneRight = 6;
+    expect(roomLeft + glyph + phoneRight).toBeGreaterThanOrEqual(28);
+    expect(CARET_HIT_AREA).toContain('max-md:before:-right-1.5');
+    expect(glyph + 2 * 10).toBeGreaterThanOrEqual(28);
+    expect(CARET_HIT_AREA).toContain('max-md:before:-inset-y-2.5');
   });
   it('is applied by every caret button in sidebar.tsx, so the three sites cannot drift', () => {
     const src = readFileSync(fileURLToPath(new URL('./sidebar.tsx', import.meta.url)), 'utf8');

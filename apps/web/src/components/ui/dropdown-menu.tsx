@@ -3,6 +3,7 @@
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
+import { PhoneSheetScrim } from './phone-sheet-scrim';
 
 export const DropdownMenu = Dropdown.Root;
 export const DropdownMenuTrigger = Dropdown.Trigger;
@@ -18,7 +19,10 @@ export function DropdownMenuContent({ className, ...props }: ComponentProps<type
           className,
         )}
         {...props}
-      />
+      >
+        {props.children}
+        <PhoneSheetScrim />
+      </Dropdown.Content>
     </Dropdown.Portal>
   );
 }
