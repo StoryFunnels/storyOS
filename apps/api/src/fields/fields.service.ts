@@ -1696,12 +1696,23 @@ export class FieldsService {
     const toChoice = isTextToChoice(field.type, targetType);
     const distinct = new Map<string, number>();
     let emptyRecords = 0;
+    // #983 — `rows` holds only the records that CARRY the field's key (the conversion has nothing to do for the rest), so a record where the
+    // field was NEVER SET was not counted anywhere: on a database shaped like Linear Projects (210 records, 194 with no State) the preview
+    // said 16 and nothing about the 194. Empty means every live record with no non-empty value: key absent, null, "" or whitespace.
+    let absentRecords = 0;
     if (toChoice) {
       for (const row of rows) {
         const label = String((row.values as Record<string, unknown>)[fieldId] ?? '').trim();
         if (label === '') emptyRecords++;
         else distinct.set(label, (distinct.get(label) ?? 0) + 1);
       }
+      absentRecords = (
+        await this.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(records)
+          .where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt), sql`NOT (${records.values} ? ${fieldId})`))
+      )[0]!.n;
+      emptyRecords += absentRecords;
       if (distinct.size > TEXT_TO_CHOICE_MAX_OPTIONS) {
         throw new UnprocessableEntityException(
           `This field holds ${distinct.size} distinct values; converting to ${targetType} would create that many options (the limit is ${TEXT_TO_CHOICE_MAX_OPTIONS}). It looks like free text, not a list of choices.`,
@@ -1723,7 +1734,13 @@ export class FieldsService {
     // in the order the values first appear when reading the table top to bottom. Positions below are dense (0..n-1).
     const newOptions = [...distinct.entries()].map(([label, count], i) => ({ label, count, color: OPTION_COLORS[i % OPTION_COLORS.length]! }));
     const choicePreview = toChoice
-      ? { options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })), empty_records: emptyRecords }
+      ? {
+          options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })),
+          /** Every live record with no non-empty value (absent key, null, blank): the ones that stay empty. */
+          empty_records: emptyRecords,
+          /** Every live record in the database: the option counts plus `empty_records` always add up to this. */
+          total_records: rows.length + absentRecords,
+        }
       : {};
 
     const dependentRules = await this.dependentRules(databaseId, field, { toType: targetType });
