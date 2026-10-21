@@ -36,7 +36,11 @@ async function resizeTo256(file: File): Promise<Blob> {
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
 }
 
-export function AccountMenu() {
+/**
+ * The account menu. `rail` is the avatar-only trigger at the bottom of the sidebar rail (#994: the desktop top bar that
+ * used to carry it is gone), and its menu opens to the right of the rail; the default is the name-and-avatar trigger.
+ */
+export function AccountMenu({ variant = 'bar' }: { variant?: 'bar' | 'rail' } = {}) {
   const router = useRouter();
   const signOut = useSignOut();
   const { ws } = useParams<{ ws: string }>();
@@ -71,12 +75,28 @@ export function AccountMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-hover">
-          <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={24} />
-          <span className="text-sm text-muted">{session.user.name}</span>
-        </button>
+        {variant === 'rail' ? (
+          <button
+            type="button"
+            aria-label={`Account: ${session.user.name}`}
+            title={session.user.name}
+            className="mt-1 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] hover:bg-hover max-md:h-11 max-md:w-11 max-md:flex-col max-md:gap-0.5"
+          >
+            <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={24} />
+            <span className="hidden text-micro leading-none text-muted max-md:block">You</span>
+          </button>
+        ) : (
+          <button className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-hover">
+            <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={24} />
+            <span className="text-sm text-muted">{session.user.name}</span>
+          </button>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent
+        align={variant === 'rail' ? 'end' : 'start'}
+        side={variant === 'rail' ? 'right' : undefined}
+        className="w-56"
+      >
         <div className="flex items-center gap-3 border-b border-border-default px-2 py-2.5">
           <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={32} />
           <div className="min-w-0">
