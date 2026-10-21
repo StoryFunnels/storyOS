@@ -61,7 +61,8 @@ export function StoryOSToaster() {
           // #265's Undo. It has to look pressable at a glance — this is the
           // only route back from a destructive action, and it is on a timer.
           actionButton:
-            '!bg-[var(--accent)] !text-[var(--primary)] !font-medium !rounded-[var(--radius-control)]',
+            // #994 — text ON the gold fill is --text-on-accent, not --primary: --primary is now a mid navy in dark mode, 2.4:1 on gold.
+            '!bg-[var(--accent)] !text-[var(--text-on-accent)] !font-medium !rounded-[var(--radius-control)]',
           cancelButton: '!bg-[var(--bg-hover)] !text-[var(--text-muted)]',
           description: '!text-[var(--text-muted)]',
         },

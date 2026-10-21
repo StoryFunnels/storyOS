@@ -39,6 +39,7 @@ import {
   type MemberUser,
   type SearchRecord,
 } from './mention-items';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * @/# mentions in rich text (MN-205 part 2, #140).
@@ -193,7 +194,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
       className="inline-flex max-w-full select-none items-center gap-1 whitespace-nowrap rounded border border-border-default bg-hover px-1 py-0.5 align-baseline text-[0.9em] text-ink"
     >
       {/* #811 — no icon and no colour means NO SLOT (null), not an empty box. */}
-      <DbMarker icon={database.data?.icon} color={database.data?.color} />
+      <DbMarker icon={database.data?.icon} color={database.data?.color} id={database.data?.id} />
       <Link
         href={`/w/${ws}/d/${db}/r/${id}`}
         onClick={openInSplit({ db, rec: id, title, number: rec?.number ?? null })}
@@ -666,7 +667,7 @@ export function MentionSuggestionMenus({
       return finishRecords(
         records.map((r) => ({
           key: r.id,
-          icon: recordIcon(r.database_color ?? null, (r as { database_icon?: string | null }).database_icon ?? null),
+          icon: recordIcon(databaseColor(r.database_color ?? null, r.database_id), (r as { database_icon?: string | null }).database_icon ?? null),
           title: r.title || 'Untitled',
           breadcrumb: recordBreadcrumb(r.space_name ?? null, r.database_name),
           idChip: r.number ?? null,
@@ -692,7 +693,7 @@ export function MentionSuggestionMenus({
         const row = recordRowLabel(r);
         return {
           key: r.id,
-          icon: recordIcon(row.color, (r as { database_icon?: string | null }).database_icon ?? null),
+          icon: recordIcon(databaseColor(row.color, r.database_id), (r as { database_icon?: string | null }).database_icon ?? null),
           title: row.title,
           breadcrumb: recordBreadcrumb(row.space, row.database),
           idChip: row.number,

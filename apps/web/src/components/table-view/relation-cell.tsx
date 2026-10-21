@@ -11,6 +11,7 @@ import { recordHref } from '@/lib/records';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { EntityPickerRow } from '@/components/entity/entity-picker-row';
 import type { Field, RecordRow } from './use-table-data';
+import { databaseColor } from '@/lib/entity-color';
 
 export interface LinkChip {
   id: string;
@@ -436,7 +437,7 @@ export function RelationEditor({
                 ws={ws}
                 targetDb={targetDb}
                 onRemove={pick}
-                color={relation.target_database_color}
+                color={databaseColor(relation.target_database_color, relation.target_database_id)}
               />
             ))}
           </div>
@@ -469,7 +470,7 @@ export function RelationEditor({
           {rows.map((row, idx) => (
             <EntityPickerRow
               key={row.id}
-              icon={<DbColorMarker color={relation.target_database_color} />}
+              icon={<DbColorMarker color={databaseColor(relation.target_database_color, relation.target_database_id)} />}
               title={row.title || 'Untitled'}
               breadcrumb={relation.target_database_name}
               idChip={row.number ?? null}

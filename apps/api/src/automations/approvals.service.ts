@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -16,6 +16,13 @@ import { JobRunnerService } from './job-runner.service';
 import type { ActionEffect } from './actions.service';
 
 type ApprovalRow = typeof approvals.$inferSelect;
+
+/**
+ * #1009 — an approval that is STILL WAITING for a decision: pending and not past its expiry. A pending row past `expires_at` is
+ * flipped to `expired` by a sweep, so for a moment it is still `pending` in the table but nobody can decide it; counting it would make a
+ * run read "Awaiting approval" for something that can no longer be approved. One definition, used by the runs list/detail and by `count`.
+ */
+export const waitingApprovalCondition = () => and(eq(approvals.status, 'pending'), gt(approvals.expiresAt, new Date()));
 
 /**
  * #282 — a held write-back push (write-back.subscriber.ts). Deliberately NOT
@@ -374,6 +381,29 @@ export class ApprovalsService implements OnModuleInit {
             return databaseId !== null && visible.has(databaseId); // a database-less approval (a skill) is not a guest's to see
           });
     return scoped.map(toDto);
+  }
+
+  /**
+   * #1009 — how many approvals match, for the "N waiting for your approval" bar. `list()` above is capped at 100 rows and says nothing
+   * when it was cut, so a count taken from its length is wrong past 100. This counts in SQL, with the SAME per-database scope `list()`
+   * applies (a guest sees only approvals on databases they can see). `status=pending` means waiting: pending and not yet expired.
+   */
+  async count(membership: Membership, status?: string): Promise<{ total: number }> {
+    const visible = await this.access.visibleDatabaseIds(membership);
+    if (visible !== null && visible.size === 0) return { total: 0 };
+    const [row] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.workspaceId, membership.workspaceId),
+          status === 'pending' ? waitingApprovalCondition() : status ? eq(approvals.status, status) : undefined,
+          visible === null
+            ? undefined
+            : sql`(${approvals.actionSnapshot} #>> '{ctx,databaseId}') IN (${sql.join([...visible].map((id) => sql`${id}`), sql`, `)})`,
+        ),
+      );
+    return { total: row?.total ?? 0 };
   }
 
   async get(workspaceId: string, id: string) {

@@ -68,6 +68,60 @@ export function useDateFormat() {
   );
 }
 
+/**
+ * #1007 (finishes #987) — the list-valued preferences, edited by ITEM. A whole-list PATCH was read-modify-write: two tabs
+ * adding different workspaces each sent "the list I last saw plus mine", and the later one erased the other's. The
+ * server's `PATCH /users/me/preferences/lists` adds and removes items atomically in SQL, so nothing is lost; the web
+ * names only the item it means to change.
+ */
+export type PreferenceListName = 'dismissed_workspaces' | 'views_only_workspaces';
+export interface PreferenceListEdit {
+  list: PreferenceListName;
+  add?: string[];
+  remove?: string[];
+}
+
+/**
+ * The list after an edit, computed the way the server computes it (preferences.service.ts `editList`): the stored items
+ * that are not being removed, in their order, then the added items not already there; an item in both `add` and `remove`
+ * is removed. Used for the optimistic update only — the server's answer replaces it.
+ */
+export function listAfterEdit(list: string[] | undefined, edit: { add?: string[]; remove?: string[] }): string[] {
+  const remove = new Set(edit.remove ?? []);
+  const out: string[] = [];
+  for (const item of [...(list ?? []), ...(edit.add ?? [])]) {
+    if (!remove.has(item) && !out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+/** The preferences with one list edited, for the optimistic cache write. */
+export function withListEdit(prefs: UserPreferences, edit: PreferenceListEdit): UserPreferences {
+  if (edit.list === 'dismissed_workspaces') {
+    return {
+      ...prefs,
+      activation: { ...prefs.activation, dismissedWorkspaces: listAfterEdit(prefs.activation?.dismissedWorkspaces, edit) },
+    };
+  }
+  return {
+    ...prefs,
+    sidebar: { ...prefs.sidebar, viewsOnlyWorkspaces: listAfterEdit(prefs.sidebar?.viewsOnlyWorkspaces, edit) },
+  };
+}
+
+/** Add and/or remove items of one list preference, atomically on the server; the cache takes the merged preferences it returns. */
+export function useEditPreferenceList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (edit: PreferenceListEdit) => {
+      const { data, error } = await api.PATCH('/api/v1/users/me/preferences/lists', { body: edit as never });
+      if (error) throw error;
+      return data as unknown as UserPreferences;
+    },
+    onSuccess: (data) => qc.setQueryData(['preferences'], data),
+  });
+}
+
 /** Patch (deep-merged server-side) the current user's preferences. */
 export function useUpdatePreferences() {
   const qc = useQueryClient();

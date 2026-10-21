@@ -5,7 +5,7 @@
  * packs.service.ts `computeCollisions`.)
  */
 
-import type { PackAgentUpdate } from '@storyos/schemas';
+import type { PackAgentUpdate, PackDatabaseGains } from '@storyos/schemas';
 
 export interface PackVersion {
   version: string;
@@ -47,25 +47,62 @@ export function releaseNotes(
   return { latest, earlier, noNotes: !crossed.some((v) => (v.changelog ?? '').trim() !== '') };
 }
 
+/** "the Budget field", "3 fields it needs: Health, Industry, Monthly Value". */
+function listed(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 /**
- * What installing will really do to one previewed item. `action` is the preview API's own classification
- * (`create` / `reuse` / `collision`); the sentence adds only what the install code does for that kind of thing.
+ * What a reused database GAINS, from the preview's own `gains` (#982), as sentences a person reads. Empty gains say
+ * so ("Nothing to add.") rather than leaving the row silent, because "kept as it is" alone hid that the install
+ * adds fields. `not_applied` is said out loud with its reason, and a state that STOPS the install is not softened.
  */
-export function itemEffect(kind: PackItemKind, action: PackItemAction): string {
-  if (action === 'create') return 'Will be created.';
-  if (action === 'collision')
-    return 'Something with this name already exists. You choose what happens below.';
+export function gainsSentences(gains: PackDatabaseGains): string[] {
+  const out: string[] = [];
+  const f = gains.fields.map((x) => x.name);
+  if (f.length === 1) out.push(`Adds the ${f[0]} field.`);
+  else if (f.length > 1) out.push(`Adds ${f.length} fields it needs: ${f.join(', ')}.`);
+  for (const o of gains.options) out.push(`Adds ${listed(o.labels)} to ${o.field}.`);
+  if (gains.views.length === 1) out.push(`Adds the ${gains.views[0]} view.`);
+  else if (gains.views.length > 1) out.push(`Adds ${gains.views.length} views: ${gains.views.join(', ')}.`);
+  for (const n of gains.not_applied)
+    out.push(
+      n.blocks_install
+        ? `Can’t install: ${n.name} — ${n.reason}`
+        : `Not applied: ${n.name} — ${n.reason}`,
+    );
+  return out.length > 0 ? out : ['Nothing to add.'];
+}
+
+/**
+ * The note a row carries, or null when there is nothing to say: a NEW item is the common case and gets no row note
+ * (the dialog says "All new" once). `action` is the preview API's own classification (`create` / `reuse` /
+ * `collision`); the sentence adds only what the install code does for that kind of thing.
+ */
+export function itemEffect(
+  kind: PackItemKind,
+  action: PackItemAction,
+  gains?: PackDatabaseGains,
+): string | null {
+  if (action === 'create') return null;
+  const what = gains ? ` ${gainsSentences(gains).join(' ')}` : '';
+  if (action === 'collision') {
+    if (kind === 'database')
+      return `You already have a database with this name. The pack can use yours and add the fields it needs — nothing in it is removed.${what}`;
+    return 'You already have one with this name. You choose what happens.';
+  }
   switch (kind) {
     case 'database':
       // ensureField: a field the pack needs is added unless one of that name exists; nothing existing is edited.
-      return 'Already in your workspace. Kept as it is, except fields the pack needs that are missing are added.';
+      return `Already in your workspace — kept as it is.${what}`;
     case 'agent':
       // An agent that exists but carries no `agent_update` was not installed by an earlier install of THIS pack
       // (apps/api packs.service.ts attaches `agent_update` only to a `reuse` agent this pack made): it is left alone.
       // An agent this pack DID install is described by `agentEffect`, from the preview's own `agent_update`.
-      return 'Agent: already in your workspace, and not made by this pack. Kept as it is.';
+      return 'Already yours — left exactly as it is.';
     default:
-      return 'Already there. Kept as it is.';
+      return 'Already there — kept as it is.';
   }
 }
 

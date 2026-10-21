@@ -164,7 +164,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
           itself (#322).
         */}
         {caret ?? (draggable ? (
-          <GripVertical className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+          <GripVertical data-hint-only className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
         ) : (
           <span className="block h-3 w-3" />
         ))}

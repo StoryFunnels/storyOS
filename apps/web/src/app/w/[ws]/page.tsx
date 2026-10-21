@@ -8,14 +8,13 @@ import { CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
-import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
+import { useEditPreferenceList, usePreferences } from '@/lib/preferences';
 import {
   buildActivationSteps,
   completedCount,
   isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
-  withWorkspaceDismissed,
   type OnboardingState,
 } from '@/lib/activation';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
@@ -84,14 +83,12 @@ export default function WorkspaceHome() {
   // (#155) — not localStorage — so hiding the checklist on one device keeps it
   // hidden everywhere. It still self-hides once every step is done (MN-213).
   const preferences = usePreferences();
-  const updatePreferences = useUpdatePreferences();
+  const editList = useEditPreferenceList();
   const dismissed =
     !preferences.data || isWorkspaceDismissed(preferences.data.activation?.dismissedWorkspaces, ws);
 
-  const dismiss = () => {
-    const next = withWorkspaceDismissed(preferences.data?.activation?.dismissedWorkspaces, ws);
-    updatePreferences.mutate({ activation: { dismissedWorkspaces: next } });
-  };
+  // #1007 — dismiss names THIS workspace only; the server adds it atomically, so a dismissal in another tab is not lost.
+  const dismiss = () => editList.mutate({ list: 'dismissed_workspaces', add: [ws] });
 
   const firstDb = databases.data?.[0];
   const gs = onboarding.data;
@@ -142,7 +139,7 @@ export default function WorkspaceHome() {
               type="button"
               className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink disabled:opacity-50"
               title="Dismiss"
-              disabled={updatePreferences.isPending}
+              disabled={editList.isPending}
               onClick={dismiss}
             >
               <X className="h-3.5 w-3.5" />

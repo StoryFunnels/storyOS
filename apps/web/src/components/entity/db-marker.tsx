@@ -1,5 +1,6 @@
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { DbColorMarker } from '@/components/table-view/relation-cell';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * #811 — a database's mark beside a chip: its icon, else its colour marker, else
@@ -16,17 +17,19 @@ import { DbColorMarker } from '@/components/table-view/relation-cell';
  * with relation chips — it is content, not an empty slot). An icon ref that fails to
  * resolve still falls back to the marker rather than vanishing.
  */
-export function hasDbMarker(icon?: string | null, color?: string | null): boolean {
-  return Boolean(icon) || Boolean(color);
+export function hasDbMarker(icon?: string | null, color?: string | null, id?: string | null): boolean {
+  // #1001 — a database with an id always has a colour to wear (its stored one, else its stable default), so it always has a mark.
+  return Boolean(icon) || Boolean(color) || Boolean(id);
 }
 
-export function DbMarker({ icon, color }: { icon?: string | null; color?: string | null }) {
-  if (!hasDbMarker(icon, color)) return null;
+export function DbMarker({ icon, color, id }: { icon?: string | null; color?: string | null; id?: string | null }) {
+  if (!hasDbMarker(icon, color, id)) return null;
+  const resolved = databaseColor(color, id);
   return (
     <EntityIcon
       icon={icon || null}
-      color={color || null}
-      fallback={<DbColorMarker color={color || 'gray'} />}
+      color={resolved}
+      fallback={<DbColorMarker color={resolved || 'gray'} />}
     />
   );
 }

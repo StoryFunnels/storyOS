@@ -15,6 +15,7 @@ import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
 import { stepIndex } from '@/lib/list-nav';
 import { cn } from '@/lib/utils';
+import { databaseColor } from '@/lib/entity-color';
 
 interface RecordHit {
   id: string;
@@ -163,7 +164,7 @@ export function CommandPalette() {
       out.push({
         key: `rec:${hit.id}`,
         group: 'Records',
-        icon: <EntityIcon icon={hit.database_icon} color={null} fallback={<FileText className="h-3.5 w-3.5" />} className="text-body" />,
+        icon: <EntityIcon icon={hit.database_icon} color={databaseColor(null, hit.database_id)} fallback={<FileText className="h-3.5 w-3.5" />} className="text-body" />,
         label: hit.title || 'Untitled',
         hint: hit.database_name,
         run: () => {
@@ -215,7 +216,7 @@ export function CommandPalette() {
       out.push({
         key: `place:${place.id}`,
         group: 'Places',
-        icon: <EntityIcon icon={place.icon} color={null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-body" />,
+        icon: <EntityIcon icon={place.icon} color={place.kind === 'database' ? databaseColor(null, place.id) : null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-body" />,
         label: place.name,
         // #517 — a database place shows its owning space, matching the mentions
         // picker's exact breadcrumb (recordBreadcrumb, mention-items.ts:82) so

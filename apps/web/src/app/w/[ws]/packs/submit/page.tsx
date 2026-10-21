@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useDateFormat } from '@/lib/preferences';
 
 /**
  * The author flow's second step (MN-220): export an existing pack (#160's
@@ -71,6 +72,7 @@ function useMySubmissions(ws: string) {
 }
 
 export default function SubmitPackPage() {
+  const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
   const qc = useQueryClient();
   const submissions = useMySubmissions(ws);
@@ -282,7 +284,7 @@ export default function SubmitPackPage() {
                   </span>
                 </div>
                 <p className="text-label text-muted">
-                  {s.vertical} · submitted {new Date(s.submitted_at).toLocaleDateString()}
+                  {s.vertical} · submitted {fmt.date(s.submitted_at)}
                 </p>
                 {s.review_notes && <p className="text-label text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>}
               </div>

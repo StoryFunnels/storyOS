@@ -20,6 +20,7 @@ import { SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { databaseColor } from '@/lib/entity-color';
 
 interface Grant {
   id: string;
@@ -343,7 +344,7 @@ export default function SpacePage() {
                   href={`/w/${ws}/d/${d.id}`}
                   className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
                 >
-                  <EntityIcon icon={d.icon} color={d.color} fallback={null} />
+                  <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={null} />
                   <span className="truncate">{d.name}</span>
                 </a>
               </li>
