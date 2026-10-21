@@ -119,6 +119,8 @@ export class WorkspaceActivationEventsService implements OnModuleInit, OnModuleD
         // whether this definition is too strict or too loose.
         teammate_invited: state.teammate_invited,
         ai_connected: state.ai_connected,
+        // #817 / #967 — which route: a hosted-MCP OAuth connection counts too, so "via AI" can be split by how the AI connected.
+        ai_connected_via_oauth: state.ai_oauth_connected,
         workspace_age_days: Math.floor((Date.now() - claimed.createdAt.getTime()) / 86_400_000),
       },
     });
