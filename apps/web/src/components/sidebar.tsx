@@ -1232,7 +1232,6 @@ function SpaceSection({
    */
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
-  const menuOpen = addMenuOpen || optionsMenuOpen;
   /**
    * #211 — the New-database dialog is shared by the space's "+" and by every
    * folder's menu, so it carries the destination rather than each caller owning a
@@ -1732,21 +1731,11 @@ function SpaceSection({
         ) : (
           <Link
             href={`/w/${ws}/s/${space.id}`}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.09em] text-muted hover:text-ink-secondary"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.07em] text-muted hover:text-ink-secondary"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {space.icon ? (
-              <GlyphSlot>
-                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
-              </GlyphSlot>
-            ) : (
-              /* #742 finding 08 — glyph vocabulary: a space with no custom
-                 icon gets a coloured letter mark, same primitive Groups
-                 already use, rather than rendering nothing at all. A
-                 space WITH a custom icon keeps it — this never overrides
-                 a deliberate choice. */
-              <LetterMark name={space.name} color={space.color} />
-            )}
+            {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
+            <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
           </Link>
         )}
@@ -1757,16 +1746,16 @@ function SpaceSection({
             paginated, so this is the real number, not a count of loaded rows
             (the #755 lie). */}
         {!renaming && topLevelRows > 0 && (
-          <span className={cn(ROW_COUNT, 'group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
-            {topLevelRows}
-          </span>
+          <span className={ROW_COUNT}>{topLevelRows}</span>
         )}
+        {/* #994 / #900 — the + and ⋯ rest visible at --faint beside the count (the prototype's `.acts`), darkening on row
+            hover; they used to appear only on hover/focus, swapped for the count. */}
         {canEdit && (
-          <span className={cn('items-center gap-0.5', menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex')}>
+          <span className="ml-1.5 flex items-center gap-px">
             <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -1825,7 +1814,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -2402,12 +2391,9 @@ function FolderSection({
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
-        {/* The ⋯ button reserves its slot even while invisible, so the count slides over
-            it (-mr-3.5 = that slot's width, measured) to share the space header's right
-            edge, and steps aside on hover/focus exactly as the space count does. */}
-        {contentCount > 0 && (
-          <span className={cn(ROW_COUNT, '-mr-3.5 group-focus-within:hidden group-hover:hidden')}>{contentCount}</span>
-        )}
+        {/* #994 — the ⋯ now rests visible, so the count sits BESIDE it (the prototype's `Marketing  9  ··`) instead of sliding
+            under it and stepping aside on hover. */}
+        {contentCount > 0 && <span className={cn(ROW_COUNT, 'mr-1.5')}>{contentCount}</span>}
         {canEdit && (
           <SidebarRowMenu
             label={folder.name}
@@ -3048,22 +3034,38 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
  * (nobody has customized this one yet), not a value to paper over.
  */
 /** One style for every row count (space header, folder header): what a row holds, faint, aligned right. */
+/** #994 — a space header's + and ⋯: 17px, faint at rest, muted on row hover, ink on the control (the prototype's `.act`). */
+const SPACE_ACT =
+  'flex h-[17px] w-[17px] items-center justify-center rounded-[3px] text-faint group-hover:text-muted hover:bg-border-strong hover:text-ink';
+
 const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
 
-function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+function LetterMark({
+  name,
+  color,
+  icon,
+  className,
+}: {
+  name: string;
+  color?: string | null;
+  /** #994 — a CHOSEN icon sits inside the mark instead of the two letters, so no icon a person picked is lost. */
+  icon?: string | null;
+  className?: string;
+}) {
   const letter = markInitials(name);
   return (
     <span
       className={cn(
-        /* Two letters do not fit 16px at text-micro (5 of 6 overflowed): the box is
-           20px (fixed, so every row's label lines up) and pulled back by -mr-1 so the label stays aligned. */
-        'flex h-4 w-5 shrink-0 items-center justify-center -mr-1 rounded text-[9px] font-semibold leading-none tracking-tighter text-[var(--text-on-dark)]',
+        /* #994 — the prototype's `.mark`: an 18px rounded square (`--r-mark`, 4px) in the space's colour, the two
+           letters in 10px / 600 / -0.05em, white. -mr-0.5 keeps the label aligned with the 16px glyph slots. */
+        'flex h-[18px] w-[18px] shrink-0 items-center justify-center -mr-0.5 rounded-[var(--radius-chip)] text-[10px] font-semibold leading-none tracking-[-0.05em] text-[var(--text-on-dark)]',
         className,
       )}
-      style={{ backgroundColor: color ?? 'var(--text-faint)' }}
+      // `color` is an option-colour NAME; the raw name is a CSS keyword with different (and unreadable) values.
+      style={{ backgroundColor: color ? (OPTION_COLORS[color] ?? color) : 'var(--text-faint)' }}
       aria-hidden
     >
-      {letter}
+      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className="text-[12px]" /> : letter}
     </span>
   );
 }
