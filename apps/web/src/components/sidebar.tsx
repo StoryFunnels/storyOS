@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -24,6 +24,8 @@ import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
 import { useViewsOnlyMode } from '@/lib/views-only-mode';
+import { useSidebarCollapsed } from '@/lib/sidebar-state';
+import { AccountMenu as AvatarMenu } from '@/components/account-menu';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
@@ -280,6 +282,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
   const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
     useSidebarNavWidth();
+  // #994 — hiding the sidebar hides the PANEL; the rail stays, and carries the button that brings the panel back.
+  const { collapsed: panelHidden, toggle: togglePanel } = useSidebarCollapsed();
 
   return (
     <div className="relative isolate flex h-full shrink-0">
@@ -295,10 +299,11 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
      * fixed, five items, never grows with a workspace's spaces), the PANEL is
      * this workspace's contents (Collections, Groups, Spaces). Search and Ask
      * Tyron merge into the panel's one ⌘K box rather than each keeping a rail
-     * slot; Reviews and Business Packs become Collections rows in the panel
-     * rather than rail icons — see the artifact's own nav-IA mapping, ticket
-     * #742 comment 2026-09-28T15:33:58Z, restated there because it had lived
-     * only in an artifact before and cost a round trip.
+     * slot; Business Packs becomes a row in the panel rather than a rail icon
+     * (see the artifact's own nav-IA mapping, ticket #742 comment
+     * 2026-09-28T15:33:58Z, restated there because it had lived only in an
+     * artifact before and cost a round trip). Reviews is no longer a sidebar
+     * row at all: it is the "Pull requests" tab of My Work (#968).
      */}
     <SidebarRail
       ws={ws}
@@ -308,15 +313,29 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       onSignOut={signOut}
       unreadCount={unread.data ?? 0}
       onOpenInbox={() => setInboxOpen(true)}
+      panelHidden={panelHidden}
+      onShowPanel={togglePanel}
     />
     <aside
       style={{ width: sidebarWidth - SIDEBAR_RAIL_W }}
-      className="flex h-full shrink-0 flex-col bg-frame"
+      className={cn('flex h-full shrink-0 flex-col bg-frame', panelHidden && 'md:hidden')}
     >
       <div className="flex shrink-0 items-stretch">
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
+        {/* #994 — the sidebar toggle sits beside the workspace switcher (it was in the page's top bar). Desktop only: on a
+            phone the drawer has its own close button. */}
+        <Tooltip label="Hide sidebar">
+          <button
+            type="button"
+            onClick={togglePanel}
+            aria-label="Hide sidebar"
+            className="hidden shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:flex"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </Tooltip>
         {onCloseMobile && (
           <Tooltip label="Close">
             <button
@@ -492,7 +511,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
     </aside>
-      <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />
+      {!panelHidden && <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />}
     </div>
   );
 }
@@ -685,6 +704,8 @@ function SidebarRail({
   onSignOut,
   unreadCount,
   onOpenInbox,
+  panelHidden,
+  onShowPanel,
 }: {
   ws: string;
   workspaceName?: string;
@@ -693,6 +714,8 @@ function SidebarRail({
   onSignOut: () => void | Promise<void>;
   unreadCount: number;
   onOpenInbox: () => void;
+  panelHidden: boolean;
+  onShowPanel: () => void;
 }) {
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
@@ -701,6 +724,14 @@ function SidebarRail({
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
       <RailWorkspaceButton ws={ws} name={workspaceName} />
+      {/* #994 — while the panel is hidden, the way back is HERE, directly under the workspace mark (desktop only). */}
+      {panelHidden && (
+        <Tooltip label="Show sidebar" side="right">
+          <button type="button" onClick={onShowPanel} aria-label="Show sidebar" className={cn(RAIL_BUTTON, 'max-md:hidden')}>
+            <PanelLeftOpen className="h-[17px] w-[17px]" />
+          </button>
+        </Tooltip>
+      )}
       <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
       <RailLink href={`/w/${ws}`} title="Home" active={isHome}>
         <Home className="h-[17px] w-[17px]" />
@@ -720,6 +751,8 @@ function SidebarRail({
       </RailLink>
       <div className="flex-1" />
       <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
+      {/* #994 — the account menu, moved from the top bar: the avatar under Settings. */}
+      <AvatarMenu variant="rail" />
     </div>
   );
 }
@@ -1232,7 +1265,6 @@ function SpaceSection({
    */
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
-  const menuOpen = addMenuOpen || optionsMenuOpen;
   /**
    * #211 — the New-database dialog is shared by the space's "+" and by every
    * folder's menu, so it carries the destination rather than each caller owning a
@@ -1732,21 +1764,11 @@ function SpaceSection({
         ) : (
           <Link
             href={`/w/${ws}/s/${space.id}`}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.09em] text-muted hover:text-ink-secondary"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.07em] text-muted hover:text-ink-secondary"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {space.icon ? (
-              <GlyphSlot>
-                <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-body" />
-              </GlyphSlot>
-            ) : (
-              /* #742 finding 08 — glyph vocabulary: a space with no custom
-                 icon gets a coloured letter mark, same primitive Groups
-                 already use, rather than rendering nothing at all. A
-                 space WITH a custom icon keeps it — this never overrides
-                 a deliberate choice. */
-              <LetterMark name={space.name} color={space.color} />
-            )}
+            {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
+            <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
           </Link>
         )}
@@ -1757,16 +1779,16 @@ function SpaceSection({
             paginated, so this is the real number, not a count of loaded rows
             (the #755 lie). */}
         {!renaming && topLevelRows > 0 && (
-          <span className={cn(ROW_COUNT, 'group-focus-within:hidden group-hover:hidden', menuOpen && 'hidden')}>
-            {topLevelRows}
-          </span>
+          <span className={ROW_COUNT}>{topLevelRows}</span>
         )}
+        {/* #994 / #900 — the + and ⋯ rest visible at --faint beside the count (the prototype's `.acts`), darkening on row
+            hover; they used to appear only on hover/focus, swapped for the count. */}
         {canEdit && (
-          <span className={cn('items-center gap-0.5', menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex')}>
+          <span className="ml-1.5 flex items-center gap-px">
             <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -1825,7 +1847,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -2402,12 +2424,9 @@ function FolderSection({
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{folder.name}</span>
         </button>
-        {/* The ⋯ button reserves its slot even while invisible, so the count slides over
-            it (-mr-3.5 = that slot's width, measured) to share the space header's right
-            edge, and steps aside on hover/focus exactly as the space count does. */}
-        {contentCount > 0 && (
-          <span className={cn(ROW_COUNT, '-mr-3.5 group-focus-within:hidden group-hover:hidden')}>{contentCount}</span>
-        )}
+        {/* #994 — the ⋯ now rests visible, so the count sits BESIDE it (the prototype's `Marketing  9  ··`) instead of sliding
+            under it and stepping aside on hover. */}
+        {contentCount > 0 && <span className={cn(ROW_COUNT, 'mr-1.5')}>{contentCount}</span>}
         {canEdit && (
           <SidebarRowMenu
             label={folder.name}
@@ -3050,22 +3069,38 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
  * (nobody has customized this one yet), not a value to paper over.
  */
 /** One style for every row count (space header, folder header): what a row holds, faint, aligned right. */
+/** #994 — a space header's + and ⋯: 17px, faint at rest, muted on row hover, ink on the control (the prototype's `.act`). */
+const SPACE_ACT =
+  'flex h-[17px] w-[17px] items-center justify-center rounded-[3px] text-faint group-hover:text-muted hover:bg-border-strong hover:text-ink';
+
 const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
 
-function LetterMark({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+function LetterMark({
+  name,
+  color,
+  icon,
+  className,
+}: {
+  name: string;
+  color?: string | null;
+  /** #994 — a CHOSEN icon sits inside the mark instead of the two letters, so no icon a person picked is lost. */
+  icon?: string | null;
+  className?: string;
+}) {
   const letter = markInitials(name);
   return (
     <span
       className={cn(
-        /* Two letters do not fit 16px at text-micro (5 of 6 overflowed): the box is
-           20px (fixed, so every row's label lines up) and pulled back by -mr-1 so the label stays aligned. */
-        'flex h-4 w-5 shrink-0 items-center justify-center -mr-1 rounded text-[9px] font-semibold leading-none tracking-tighter text-[var(--text-on-dark)]',
+        /* #994 — the prototype's `.mark`: an 18px rounded square (`--r-mark`, 4px) in the space's colour, the two
+           letters in 10px / 600 / -0.05em, white. -mr-0.5 keeps the label aligned with the 16px glyph slots. */
+        'flex h-[18px] w-[18px] shrink-0 items-center justify-center -mr-0.5 rounded-[var(--radius-chip)] text-[10px] font-semibold leading-none tracking-[-0.05em] text-[var(--text-on-dark)]',
         className,
       )}
-      style={{ backgroundColor: color ?? 'var(--text-faint)' }}
+      // `color` is an option-colour NAME; the raw name is a CSS keyword with different (and unreadable) values.
+      style={{ backgroundColor: color ? (OPTION_COLORS[color] ?? color) : 'var(--text-faint)' }}
       aria-hidden
     >
-      {letter}
+      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className="text-[12px]" /> : letter}
     </span>
   );
 }

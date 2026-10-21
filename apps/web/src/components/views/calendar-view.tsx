@@ -564,7 +564,7 @@ function AgendaList({
           <div key={iso} className="flex gap-3 px-4 py-2.5">
             <div className="w-10 shrink-0 text-center">
               <div className="text-micro uppercase text-muted">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
-              <div className={cn('text-prose', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
+              <div className={cn('text-prose', isToday ? 'font-semibold text-primary-text' : 'text-ink-secondary')}>
                 {day.getDate()}
               </div>
             </div>

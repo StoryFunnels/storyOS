@@ -112,13 +112,16 @@ export function ViewSwitcher({
         <button
           type="button"
           aria-label="Switch view"
-          className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-body text-muted hover:bg-hover hover:text-ink"
+          // #994 — the prototype's `.switcher`: a bordered control, chevron first, the view's name bold, then the count.
+          className="flex h-[27px] shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-label text-muted hover:border-border-strong hover:text-ink"
         >
-          <span className="max-w-[10rem] truncate">{active?.name ?? 'Views'}</span>
-          <span className="whitespace-nowrap text-faint">
+          <ChevronDown className="h-3 w-3" />
+          <b className="max-w-[6rem] truncate font-[650] text-ink sm:max-w-[10rem]">{active?.name ?? 'Views'}</b>
+          {/* On a phone the strip needs the room more than the count does: the count is the first line of the
+              switcher's own list. */}
+          <span className="hidden sm:inline">
             · {shared.length} view{shared.length === 1 ? '' : 's'}
           </span>
-          <ChevronDown className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-1">

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Table2, Lock } from 'lucide-react';
+import { Database, Table2, Lock, Star } from 'lucide-react';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { buildViewMenu } from '@/components/views/view-menu';
 import { useViewMenuActions, viewMenuSidebarActions } from '@/components/views/view-menu-items';
@@ -10,6 +10,10 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GlyphSlot, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
+import { EntityIcon } from '@/components/ui/icon-picker';
+import { databaseColor } from '@/lib/entity-color';
+import { useDatabases } from '@/lib/queries';
+import { sourceMarks } from '@/lib/sidebar-source-marks';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -29,6 +33,8 @@ export interface SidebarView {
   position: number;
   is_default: boolean;
   personal: boolean;
+  /** #1013 — the databases this view reads (a dashboard: its tiles' too); unreadable ones are omitted by the API. */
+  source_database_ids?: string[];
 }
 
 export interface FolderChoice {
@@ -90,6 +96,16 @@ export function SidebarViewRow({
     ? `/w/${ws}/d/${view.database_id}?view=${view.id}`
     : `/w/${ws}/v/${view.id}`;
 
+  const viewActions = useViewMenuActions(ws, view.database_id);
+  const pinned = Boolean(viewActions?.pins.isPinned(view.id));
+
+  // #1013 — a view that reads several databases names them at its right edge (the prototype's `srcMarks`).
+  const databases = useDatabases(ws);
+  const marks = sourceMarks(
+    view.source_database_ids,
+    new Map((databases.data ?? []).map((d) => [d.id, { id: d.id, name: d.name, icon: d.icon, color: d.color }])),
+  );
+
   const label = (
     <>
       <GlyphSlot>
@@ -97,6 +113,8 @@ export function SidebarViewRow({
         <Icon className="h-3 w-3 text-muted" style={tint ? { color: tint } : undefined} />
       </GlyphSlot>
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
+      {/* #994 — a view pinned to the viewer's tabs carries a small gold star at the right edge (the prototype's pinned mark). */}
+      {pinned && <Star className="h-[11px] w-[11px] shrink-0 text-accent" aria-label="Pinned to your tabs" />}
       {view.personal && (
         // #291 — badge that it is private. Never say whose: the payload does
         // not carry an owner id, and this must not become the place it leaks.
@@ -107,7 +125,6 @@ export function SidebarViewRow({
 
   // #964 — the ONE view menu (views/view-menu.ts), the same list the toolbar ⋯ and the tab ⋯ show.
   // A space-level view has no database, so it gets the subset that needs none (rename, delete, move).
-  const viewActions = useViewMenuActions(ws, view.database_id);
   const moves = [
     // Only this door knows which folder a view is in, so only it can offer the way back out.
     ...(onMove && view.folder_id
@@ -186,6 +203,21 @@ export function SidebarViewRow({
         </Link>
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-2">{label}</span>
+      )}
+
+      {marks && (
+        <span
+          className="ml-auto flex shrink-0 items-center gap-0.5"
+          title={`Reads ${marks.shown.length + marks.more} databases: ${marks.shown.map((d) => d.name).join(', ')}${marks.more > 0 ? ` and ${marks.more} more` : ''}`}
+          data-testid="source-marks"
+        >
+          {marks.shown.map((d) => (
+            <span key={d.id} className="flex h-3.5 w-3.5 items-center justify-center text-[13px]" title={d.name}>
+              <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={<Database className="h-3 w-3" />} />
+            </span>
+          ))}
+          {marks.more > 0 && <span className="text-[9px] font-bold tabular-nums text-faint">+{marks.more}</span>}
+        </span>
       )}
 
       {/**

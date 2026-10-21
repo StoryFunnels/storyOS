@@ -582,7 +582,7 @@ export default function GoogleCalendarIntegrationPage() {
                         : ''}
                     </p>
                     <Link
-                      className="mt-1 inline-block text-label text-primary hover:underline"
+                      className="mt-1 inline-block text-label text-primary-text hover:underline"
                       href={`/w/${ws}/d/${binding.database_id}`}
                     >
                       Open mapped database →
