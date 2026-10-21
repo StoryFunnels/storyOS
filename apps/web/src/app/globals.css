@@ -43,8 +43,11 @@
   --border-code: #e1e6f0;
 
   /* Brand & actions */
-  --primary: #0f1729;
-  --primary-hover: #1a2545;
+  /* #994 — the prototype's --primary (#2f3b63), the navy of New and every primary button. It was --text-primary's
+     near-black (#0f1729), which made each primary button read as black. 10.19:1 under --text-on-dark. Hover is the
+     prototype's brightness(1.08) of it. Body TEXT keeps --text-primary; only the action colour moved. */
+  --primary: #2f3b63;
+  --primary-hover: #33406b;
   --accent: #d4a017;
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
@@ -287,8 +290,11 @@
   --border-code: #2c3546;
 
   /* Brand & actions — keep the cream-on-navy CTA pairing legible on the darker canvas */
-  --primary: #35427a;
-  --primary-hover: #414f92;
+  /* #994 — the prototype's dark --primary is #6d7fc0, which is only 3.61:1 under --text-on-dark (AA needs 4.5:1 for
+     button text). This is the nearest value that passes: same hue, lightness lowered until it reaches 4.63:1, and
+     3.8:1 against the page, so the button still reads as a button. Hover goes slightly darker to stay above 4.5:1. */
+  --primary: #586cb7;
+  --primary-hover: #4f63ad;
   --accent: #e0af2b;
   --accent-hover: #f0c247;
   --accent-soft: #332e1c;
