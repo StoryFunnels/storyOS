@@ -1,15 +1,15 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 import { RunsExplainer } from '@/components/runs/runs-explainer';
 import { RunDetailPane } from '@/components/runs/run-detail-pane';
 import { RunStatusPill } from '@/components/runs/run-status-pill';
-import { usePendingApprovalRuns, useQuota, useRunsList } from '@/components/runs/run-data';
-import { effectiveRunStatus, formatDurationShort, RUN_STATUS_FILTERS, startedLabel } from '@/lib/run-labels';
+import { usePendingApprovalCount, useQuota, useRunsList } from '@/components/runs/run-data';
+import { formatDurationShort, RUN_STATUS_FILTERS, startedLabel } from '@/lib/run-labels';
 
 /**
  * Automation runs (#997, built to the prototype's `runsPage()` / `runDetail()`; first shipped as MN-264).
@@ -29,21 +29,12 @@ export default function RunsPage() {
   const [q, setQ] = useState('');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
-  const runs = useRunsList(ws, q);
+  const runs = useRunsList(ws, status, q);
   const quota = useQuota(ws);
-  const pending = usePendingApprovalRuns(ws);
-  const pendingRunIds = pending.data?.runIds ?? EMPTY_SET;
-
-  // The status filter runs against the EFFECTIVE status, because "Awaiting approval" is not stored on the run.
-  const rows = useMemo(
-    () =>
-      (runs.data ?? [])
-        .map((run) => ({ run, status: effectiveRunStatus(run.status, run.id, pendingRunIds) }))
-        .filter((row) => !status || row.status === status),
-    [runs.data, pendingRunIds, status],
-  );
+  const waitingCount = usePendingApprovalCount(ws);
+  const rows = runs.data ?? [];
   const now = new Date();
-  const waiting = pending.data?.count ?? 0;
+  const waiting = waitingCount.data ?? 0;
 
   return (
     <div className="@container flex h-full min-h-0">
@@ -82,9 +73,8 @@ export default function RunsPage() {
         {waiting > 0 && (
           <div className="mx-5 mb-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--accent)_35%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] px-2.5 py-2 text-body text-ink">
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent">
-              {pending.data?.capped ? `${waiting}+` : waiting}
+              {waiting}
             </span>
-            {pending.data?.capped ? 'at least ' : ''}
             {waiting} waiting for your approval — nothing happens until you say so.
           </div>
         )}
@@ -121,7 +111,7 @@ export default function RunsPage() {
         {!runs.isLoading && rows.length === 0 && (
           <p className="px-5 py-6 text-body text-muted">No runs match these filters.</p>
         )}
-        {rows.map(({ run, status: effective }) => (
+        {rows.map((run) => (
           <button
             key={run.id}
             type="button"
@@ -140,7 +130,7 @@ export default function RunsPage() {
               </i>
             </span>
             <span>
-              <RunStatusPill status={effective} />
+              <RunStatusPill status={run.status} />
             </span>
             <span className="whitespace-nowrap text-muted">{startedLabel(run.started_at, now, fmt.date)}</span>
             <span className="whitespace-nowrap text-muted">{formatDurationShort(run.duration_ms)}</span>
@@ -159,8 +149,8 @@ export default function RunsPage() {
             key={selectedRunId}
             ws={ws}
             runId={selectedRunId}
-            pendingRunIds={pendingRunIds}
             onBack={() => setSelectedRunId(null)}
+            onOpenRun={setSelectedRunId}
           />
         ) : (
           <p className="pt-10 text-center text-body text-muted">Pick a run to see each step.</p>
@@ -170,4 +160,3 @@ export default function RunsPage() {
   );
 }
 
-const EMPTY_SET: ReadonlySet<string> = new Set();

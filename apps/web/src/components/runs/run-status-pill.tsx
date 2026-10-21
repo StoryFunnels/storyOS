@@ -11,7 +11,7 @@ const PILL_TONE: Record<RunTone, string> = {
   skip: 'bg-hover text-muted',
 };
 
-/** A run's state as a pill. Takes the EFFECTIVE status (`effectiveRunStatus`), so a run waiting for approval reads so. */
+/** A run's state as a pill. The status is the API's own, which says `awaiting_approval` for a run with a waiting approval. */
 export function RunStatusPill({ status, className }: { status: string; className?: string }) {
   return (
     <span

@@ -40,7 +40,7 @@ const RUN_STATUS_LABELS: Record<string, string> = {
   skipped_quota: 'Skipped (quota)',
   skipped_cap: 'Skipped (limit)',
   pending_approval: 'Awaiting approval',
-  // What the API itself returns once ticket #1009 lands (a derived status, never stored); same words as the join's.
+  // The API's own run status for a run with a waiting approval (derived, never stored; ticket #1009).
   awaiting_approval: 'Awaiting approval',
 };
 
@@ -165,22 +165,10 @@ export function formatDuration(ms: number | null | undefined): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-/**
- * #997 — the state a person should SEE for a run.
- *
- * The API closes a run row as `ok` once its actions are queued, so a run whose action is waiting for a person to
- * approve it reads `ok` in the list. The approvals list says which runs are waiting (`run_id` of every pending
- * approval), and this is the join: an `ok` run with a pending approval is `pending_approval`; any other status is
- * what the API said. Pure, so the pill, the filter and the count all agree.
- */
-export function effectiveRunStatus(status: string, runId: string, pendingRunIds: ReadonlySet<string>): string {
-  return status === 'ok' && pendingRunIds.has(runId) ? 'pending_approval' : status;
-}
-
-/** The filter's options, in the prototype's order. `value` is the EFFECTIVE status ('' = all). */
+/** The filter's options, in the prototype's order. `value` is the API's run status ('' = all); `awaiting_approval` is derived by the API (ticket #1009). */
 export const RUN_STATUS_FILTERS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '', label: 'All statuses' },
-  { value: 'pending_approval', label: runStatusLabel('pending_approval') },
+  { value: 'awaiting_approval', label: runStatusLabel('awaiting_approval') },
   { value: 'ok', label: runStatusLabel('ok') },
   { value: 'error', label: runStatusLabel('error') },
   { value: 'running', label: runStatusLabel('running') },

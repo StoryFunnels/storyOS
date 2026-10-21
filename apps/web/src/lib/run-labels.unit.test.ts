@@ -3,7 +3,6 @@ import {
   actionKindLabel,
   actionStatusLabel,
   approvalStatusLabel,
-  effectiveRunStatus,
   formatDuration,
   formatDurationShort,
   humanizeSlug,
@@ -180,24 +179,12 @@ describe('humanizeSlug', () => {
   });
 });
 
-describe('effectiveRunStatus (#997): a run waiting for approval says so', () => {
-  const waiting = new Set(['run-1']);
-  it('an ok run with a pending approval is awaiting approval', () => {
-    expect(effectiveRunStatus('ok', 'run-1', waiting)).toBe('pending_approval');
-  });
-  it('an ok run with nothing pending stays succeeded', () => {
-    expect(effectiveRunStatus('ok', 'run-2', waiting)).toBe('ok');
-  });
-  it('only an ok run is promoted: a failed or skipped run keeps what the API said, pending approval or not', () => {
-    expect(effectiveRunStatus('error', 'run-1', waiting)).toBe('error');
-    expect(effectiveRunStatus('skipped_quota', 'run-1', waiting)).toBe('skipped_quota');
-  });
-});
-
 describe('the status filter and tones (#997)', () => {
   it('offers All statuses first and then every state by the same label the pill shows', () => {
     expect(RUN_STATUS_FILTERS[0]).toEqual({ value: '', label: 'All statuses' });
     for (const f of RUN_STATUS_FILTERS.slice(1)) expect(f.label).toBe(runStatusLabel(f.value));
+    // The values are the API's own run statuses, so the filter can be sent to it as-is (ticket #1009).
+    expect(RUN_STATUS_FILTERS.map((f) => f.value)).toEqual(['', 'awaiting_approval', 'ok', 'error', 'running', 'skipped', 'skipped_quota']);
     expect(RUN_STATUS_FILTERS.map((f) => f.label)).toEqual([
       'All statuses',
       'Awaiting approval',
@@ -211,6 +198,7 @@ describe('the status filter and tones (#997)', () => {
   it('maps statuses to tones', () => {
     expect(runStatusTone('ok')).toBe('ok');
     expect(runStatusTone('error')).toBe('fail');
+    expect(runStatusTone('awaiting_approval')).toBe('wait');
     expect(runStatusTone('pending_approval')).toBe('wait');
     expect(runStatusTone('running')).toBe('run');
     expect(runStatusTone('skipped_quota')).toBe('skip');

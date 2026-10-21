@@ -13,7 +13,6 @@ import { ApprovalGate } from '@/components/approvals/use-approval-view';
 import { useResolveApproval } from '@/components/inbox-panel';
 import {
   actionKindLabel,
-  effectiveRunStatus,
   formatDuration,
   runStepSummary,
   startedLabel,
@@ -39,13 +38,14 @@ const STEP_WORD_TONE: Record<string, string> = {
 export function RunDetailPane({
   ws,
   runId,
-  pendingRunIds,
   onBack,
+  onOpenRun,
 }: {
   ws: string;
   runId: string;
-  pendingRunIds: ReadonlySet<string>;
   onBack: () => void;
+  /** Open another run in this pane — used to land on the NEW run "Run again" creates. */
+  onOpenRun: (runId: string) => void;
 }) {
   const fmt = useDateFormat();
   const qc = useQueryClient();
@@ -75,12 +75,31 @@ export function RunDetailPane({
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not re-run this action')),
   });
+  // "Run again" (ticket #1009): the rule runs once more on the same trigger record, as a NEW run; the original stays.
+  // The API refuses with a REASON (422: a webhook/schedule/record-linked run has no payload to replay; 409: the rule is
+  // disabled or its condition no longer matches) — the toast says it in the API's words, never a bare "failed".
+  const rerunWhole = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/runs/{id}/rerun' as never, {
+        params: { path: { ws, id: runId } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as { run_id: string; status: string; awaiting_approval_count: number };
+    },
+    onSuccess: (res) => {
+      toast.success(res.awaiting_approval_count > 0 ? 'Ran again — it is waiting for approval' : 'Ran again');
+      void qc.invalidateQueries({ queryKey: ['runs', ws] });
+      void qc.invalidateQueries({ queryKey: ['approvals', ws] });
+      onOpenRun(res.run_id);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not run this again')),
+  });
   const resolve = useResolveApproval(ws, refresh);
 
   if (detail.isLoading) return <p className="text-body text-muted">Loading…</p>;
   if (!detail.data) return <p className="text-body text-error">This run could not be loaded.</p>;
   const run = detail.data;
-  const status = effectiveRunStatus(run.status, run.id, pendingRunIds);
+  const status = run.status;
   const dbName = databases.data?.find((d) => d.id === run.database_id)?.name;
   const failed = run.actions.filter((a) => a.status === 'failed');
   const now = new Date();
@@ -96,26 +115,25 @@ export function RunDetailPane({
           <ArrowLeft className="h-3.5 w-3.5" /> All runs
         </button>
         <span className="flex-1" />
-        {failed.length > 0 && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={rerun.isPending}
-            onClick={async () => {
-              if (
-                !(await confirm({
-                  title: failed.length > 1 ? 'Run the failed steps again?' : 'Run this step again?',
-                  message: 'This runs the failed step again using the same information as the first attempt.',
-                  confirmLabel: 'Run again',
-                }))
-              )
-                return;
-              rerun.mutate(failed.map((a) => a.action_index));
-            }}
-          >
-            <History className="h-3 w-3" /> Run again
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={rerunWhole.isPending}
+          onClick={async () => {
+            if (
+              !(await confirm({
+                title: 'Run this rule again?',
+                message:
+                  'It runs once more on the same record as it is now, and is recorded as a new run. The original stays as it was. Any step that needs approval asks again.',
+                confirmLabel: 'Run again',
+              }))
+            )
+              return;
+            rerunWhole.mutate();
+          }}
+        >
+          <History className="h-3 w-3" /> Run again
+        </Button>
       </div>
 
       <h2 className="m-0 mb-1 flex flex-wrap items-center gap-2 text-[18px] font-bold leading-snug tracking-[-0.01em] text-ink">
@@ -148,6 +166,26 @@ export function RunDetailPane({
                 {stepStateWord(action.status)}
                 {action.status === 'failed' && action.attempts > 1 ? ` after ${action.attempts} tries` : ''}
               </em>
+              {action.status === 'failed' && (
+                <button
+                  type="button"
+                  disabled={rerun.isPending}
+                  onClick={async () => {
+                    if (
+                      !(await confirm({
+                        title: 'Run this step again?',
+                        message: 'This runs the failed step again using the same information as the first attempt.',
+                        confirmLabel: 'Run again',
+                      }))
+                    )
+                      return;
+                    rerun.mutate([action.action_index]);
+                  }}
+                  className="ml-2 text-micro text-muted underline underline-offset-2 hover:text-ink disabled:opacity-50"
+                >
+                  Retry this step
+                </button>
+              )}
             </li>
           ))}
         </ol>

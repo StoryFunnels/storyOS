@@ -45,14 +45,14 @@ export interface QuotaSummary {
   projected: number | null;
 }
 
-/** Runs, newest first. The status filter is applied CLIENT-side against the effective status (see `effectiveRunStatus`),
- *  because "Awaiting approval" is not a status the API stores. The search is the API's own (matches the record's title). */
-export function useRunsList(ws: string, q: string) {
+/** Runs, newest first. Both the status filter (`awaiting_approval` is derived by the API, ticket #1009) and the search
+ *  (it matches the trigger record's title) are the API's own. */
+export function useRunsList(ws: string, status: string, q: string) {
   return useQuery({
-    queryKey: ['runs', ws, q],
+    queryKey: ['runs', ws, status, q],
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/runs', {
-        params: { path: { ws }, query: { q: q || undefined, limit: 100 } },
+        params: { path: { ws }, query: { status: status || undefined, q: q || undefined, limit: 100 } },
       } as never);
       if (error) throw error;
       return (data as unknown as { data: RunSummary[] }).data;
@@ -89,28 +89,19 @@ export function useRunDetail(ws: string, runId: string | null) {
   });
 }
 
-/** The approvals list endpoint caps at this many rows and returns no total (apps/api approvals.service `limit: 100`). */
-export const APPROVALS_PAGE_LIMIT = 100;
-
 /**
- * Which runs are waiting for a person: the run id of every PENDING approval. The API closes a run as `ok` once its
- * actions are queued, so this is the only way to tell (ticket #1009 asks for a real status). `capped` means the list hit
- * its page limit, so the count is "at least" — printing it bare would be a confident wrong number.
+ * How many approvals are waiting for a person: the API's exact count (`GET /approvals/count`, ticket #1009), which agrees
+ * with the scope the approvals list applies. It replaces counting a list that is capped at 100.
  */
-export function usePendingApprovalRuns(ws: string) {
+export function usePendingApprovalCount(ws: string) {
   return useQuery({
-    queryKey: ['approvals', ws, 'pending-runs'],
+    queryKey: ['approvals', ws, 'pending-count'],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/approvals', {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/approvals/count' as never, {
         params: { path: { ws }, query: { status: 'pending' } },
       } as never);
       if (error) throw error;
-      const rows = data as unknown as Array<{ run_id: string | null }>;
-      return {
-        runIds: new Set(rows.map((r) => r.run_id).filter((id): id is string => Boolean(id))),
-        count: rows.length,
-        capped: rows.length >= APPROVALS_PAGE_LIMIT,
-      };
+      return (data as unknown as { total: number }).total;
     },
     refetchInterval: 15_000,
   });
