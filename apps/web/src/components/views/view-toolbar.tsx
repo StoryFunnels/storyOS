@@ -1649,7 +1649,7 @@ export function FilterBuilderPanel({
 
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
   return (
-    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
+    <span className="flex flex-1 overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(['and', 'or'] as const).map((c) => (
         <button
           key={c}
@@ -1832,7 +1832,7 @@ function GroupRow({
       <div
         className={cn(
           'min-w-0 flex-1 rounded-[var(--radius-card)] border border-border-default px-1.5 pb-1 pt-0.5',
-          path.length >= 2 ? 'bg-[color-mix(in_srgb,var(--hover)_70%,transparent)]' : 'bg-[color-mix(in_srgb,var(--hover)_45%,transparent)]',
+          path.length >= 2 ? 'bg-active' : 'bg-hover',
         )}
       >
         <div className="mb-0.5 flex items-center justify-between">
@@ -2104,7 +2104,7 @@ function ConditionRow({
         legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
         #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
       */}
-      {unfinished && <p className="mt-0.5 pl-[5rem] text-micro text-faint">not applied yet — needs a value</p>}
+      {unfinished && <p className="mt-0.5 pl-[5rem] text-micro text-warning">not applied yet — needs a value</p>}
       {condition.label && !editingLabel && (
         <p className="mt-0.5 pl-[5rem] text-meta text-muted">named “{condition.label}”</p>
       )}
@@ -2602,9 +2602,7 @@ export function SortButton({
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
               {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
               <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort</span>
-              <span className="text-micro text-faint">
-                {sorts.length === 0 ? 'manual order' : `${sorts.length} of ${MAX_SORTS}`}
-              </span>
+              {sorts.length > 1 && <span className="text-micro text-faint">first rule wins, the rest break ties</span>}
             </div>
 
             {hasUnsortableComputedFields && (
@@ -2644,12 +2642,9 @@ export function SortButton({
             )}
 
             <div className="border-t border-border-default p-2">
-              {sorts.length > 0 && (
-                <p className="mb-1.5 px-1 text-meta text-faint">The first rule wins; the rest break ties.</p>
-              )}
               {sorts.length > 0 && showNulls && (
-                <div className="mb-1.5 flex items-center justify-between px-1">
-                  <span className="text-meta text-muted">Empty values</span>
+                <div className="mb-1.5 flex items-center gap-3 px-1">
+                  <span className="shrink-0 text-meta text-muted">Empty values</span>
                   <EmptyPlacementToggle
                     value={nulls ?? 'last'}
                     onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
@@ -2705,7 +2700,7 @@ function EmptyPlacementToggle({
   onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
+    <span className="flex flex-1 overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(
         [
           ['first', 'First'],
@@ -2716,7 +2711,7 @@ function EmptyPlacementToggle({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+          className={cn('flex-1 px-1.5 py-1', value === v ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {label}
         </button>
@@ -2784,7 +2779,7 @@ function SortRow({
         <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>
         <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
         <select
-          className="h-[25px] min-w-0 flex-1 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
+          className="h-[25px] w-[5.5rem] shrink-0 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
           value={sort.field}
           onChange={(e) => onChange({ ...sort, field: e.target.value })}
           aria-label="Sort field"
@@ -2796,7 +2791,7 @@ function SortRow({
           ))}
         </select>
         <select
-          className="h-[25px] shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-muted"
+          className="h-[25px] min-w-0 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-muted"
           value={sort.direction}
           onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
           aria-label="Sort direction"
