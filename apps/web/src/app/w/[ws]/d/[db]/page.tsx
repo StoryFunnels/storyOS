@@ -270,7 +270,7 @@ function DatabasePageInner() {
             existingNames={views.map((v) => v.name)}
             views={views}
             onOpenExisting={(v) => {
-              router.replace(`/w/${ws}/d/${db}?view=${v.id}`);
+              goToView(v.id);
               toast(`Opened “${v.name}” — it’s already here`);
             }}
             onCreate={(name, type, configPatch, opts) =>
