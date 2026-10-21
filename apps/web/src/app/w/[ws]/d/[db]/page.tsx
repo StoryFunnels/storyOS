@@ -1,4 +1,5 @@
 'use client';
+import { OPEN_PARAM } from '@/components/entity/split-screen';
 import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -105,6 +106,15 @@ function DatabasePageInner() {
     if (canShare(activeView.type) && !activeView.ownerUserId) setSharingViewId(activeView.id);
     router.replace(`/w/${ws}/d/${db}?view=${activeView.id}`);
   }, [wantsShare, activeView?.id]);
+  // #962 — a view is a PLACE: switching tabs, and landing on a view you just made or duplicated, pushes a history
+  // entry, so Back steps through the views you visited. (The `?share`/`?field` clean-ups above and the delete below
+  // stay `replace` — they rewrite where you already are, or leave something that no longer exists.)
+  // A split panel open beside the view stays open across the switch (`?open` is carried over).
+  const goToView = (id: string) => {
+    const next = new URLSearchParams({ view: id });
+    for (const open of searchParams.getAll(OPEN_PARAM)) next.append(OPEN_PARAM, open);
+    router.push(`/w/${ws}/d/${db}?${next.toString()}`);
+  };
   // The delete confirmation is one function: the tab's ⋯ and the toolbar's ⋯ both run it.
   const confirmDeleteView = async (view: { id: string; name: string }) => {
     if (
@@ -215,8 +225,8 @@ function DatabasePageInner() {
                   canManage={!readOnly}
                   canDelete={!readOnly && views.length > 1}
                   mutations={viewMutations}
-                  onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
-                  onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+                  onNavigate={() => goToView(view.id)}
+                  onDuplicated={goToView}
                   // #751 — #555 shipped board/dashboard support in the public
                   // payload (board grouping, dashboard tiles) and #709 shipped
                   // rendering both on the public page itself; this gate was
@@ -243,7 +253,7 @@ function DatabasePageInner() {
               activeId={activeView?.id}
               pinnedIds={pins.pinned}
               canCreate={!readOnly}
-              onNavigate={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+              onNavigate={goToView}
               onSetPinned={pins.setPinned}
               onNewView={() => setNewViewOpen(true)}
             />
@@ -258,7 +268,7 @@ function DatabasePageInner() {
             onCreate={(name, type, configPatch) =>
               viewMutations.createView.mutate(
                 { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
-                { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
+                { onSuccess: (v) => goToView(v.id) },
               )
             }
           />
@@ -370,7 +380,7 @@ function DatabasePageInner() {
                 canDelete: !readOnly && views.length > 1,
                 onDuplicate: () =>
                   viewMutations.duplicateView.mutate(activeView.id, {
-                    onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`),
+                    onSuccess: (v) => goToView(v.id),
                   }),
                 onSetDefault: () => viewMutations.setDefaultView.mutate(activeView.id),
                 onSetPinned: (wanted) => pins.setPinned(activeView.id, wanted),

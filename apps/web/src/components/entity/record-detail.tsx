@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { backOrParent } from '@/lib/nav-trail';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -593,6 +594,7 @@ export function RecordDetail({
               readOnly={readOnly}
               canCreate={schemaEditable}
               isAdmin={workspace.data?.role === 'admin'}
+              onGone={onClose}
               onCustomizeFields={schemaEditable ? () => setTimeout(() => setFieldsOpen(true), 0) : undefined}
             />
             {schemaEditable && (
@@ -647,11 +649,10 @@ export function RecordDetail({
             className={HEADER_ICON_BTN}
             onClick={() => {
               // In a split panel, Close dismisses the panel (#146). On the full
-              // page, return to wherever they came from; fall back to the database
-              // view for deep links / fresh tabs with no in-app history.
+              // page, the one back rule (#962): return to wherever they came from,
+              // or to the database view for a pasted link / fresh tab.
               if (onClose) onClose();
-              else if (typeof window !== 'undefined' && window.history.length > 1) router.back();
-              else router.push(`/w/${ws}/d/${db}`);
+              else backOrParent(router, `/w/${ws}/d/${db}`);
             }}
           >
             <X className="h-4 w-4" />

@@ -18,6 +18,7 @@ import { TyronPanel } from '@/components/tyron/tyron-panel';
 import { useTyronPanel } from '@/lib/tyron-panel';
 import { peekPendingBuild } from '@/lib/pending-build';
 import { cn } from '@/lib/utils';
+import { useBackLayer } from '@/lib/back-layers';
 
 /** The protected workspace shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
@@ -31,6 +32,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   // from storage — so the drawer is guaranteed CLOSED on first paint and a
   // record is readable without the user manually closing it.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // #962 — the back gesture closes the drawer first, rather than navigating away from underneath it.
+  useBackLayer(mobileOpen, () => setMobileOpen(false));
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.

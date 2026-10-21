@@ -21,6 +21,7 @@
  * affordance uses --text-muted.
  */
 
+import { BackLayer } from '@/lib/back-layers';
 import { useEffect, useMemo, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
@@ -1345,6 +1346,7 @@ export function FiltersSection({
         </button>
         {open && (
           <>
+            <BackLayer dismiss={closeBuilder} />
             {/* A full-screen backdrop, not a document click-outside listener: the
                 panel below nests Radix dropdowns (option pickers, the "…" menu)
                 that portal outside this subtree, so contains()-based outside-click
@@ -2589,6 +2591,7 @@ export function SortButton({
       </button>
       {open && (
         <>
+          <BackLayer dismiss={() => setOpen(false)} />
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
           <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[27.5rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">

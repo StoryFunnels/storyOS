@@ -88,7 +88,7 @@ export function useViewMenuActions(ws: string, db: string | null | undefined) {
     mutations,
     pins,
     duplicate: (viewId: string) =>
-      mutations.duplicateView.mutate(viewId, { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) }),
+      mutations.duplicateView.mutate(viewId, { onSuccess: (v) => router.push(`/w/${ws}/d/${db}?view=${v.id}`) }),
     setDefault: (viewId: string) => mutations.setDefaultView.mutate(viewId),
     copyToPersonal: (viewId: string) => mutations.copyViewToPersonal.mutate(viewId),
     copyLink: async (viewId: string) => {

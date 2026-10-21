@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useParams } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, RotateCw } from 'lucide-react';
 import { reportError } from '@/lib/report-error';
+import { useBackOrParent } from '@/lib/nav-trail';
 
 /**
  * #424 — the workspace-level backstop.
@@ -27,6 +29,10 @@ export default function WorkspaceError({
   useEffect(() => {
     reportError(error, { boundary: 'workspace-route' });
   }, [error]);
+  // #962 — the one back rule: back when the previous entry is inside the app, else the
+  // workspace home (a pasted link to a page that crashes must not strand or eject you).
+  const ws = useParams<{ ws: string }>().ws;
+  const goBack = useBackOrParent(`/w/${ws}`);
 
   return (
     <div className="flex h-full items-center justify-center p-8">
@@ -54,7 +60,7 @@ export default function WorkspaceError({
           </button>
           <button
             type="button"
-            onClick={() => window.history.back()}
+            onClick={goBack}
             className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-muted hover:bg-hover hover:text-ink"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Go back

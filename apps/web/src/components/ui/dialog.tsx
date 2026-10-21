@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLayer } from '@/lib/back-layers';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ export function DialogContent({
           className,
         )}
       >
+        <BackLayer />
         <DialogPrimitive.Title className="mb-4 text-base font-semibold text-ink">
           {title}
         </DialogPrimitive.Title>

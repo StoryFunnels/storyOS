@@ -15,13 +15,21 @@ import {
   ratioFromPointer,
   useSplitRatio,
 } from '@/lib/split-pane-ratio';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEscapeToClose } from '@/lib/escape-layers';
-import { canGoBackInApp, useTrackAppNavigation } from '@/lib/nav-trail';
+import { backOrParent, useTrackAppNavigation } from '@/lib/nav-trail';
 import { RecordDetail, useRecordQuery } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
-import { PRIMARY_ID, emptySplitStack, reduceSplit, selectSplitView } from './split-screen';
+import {
+  OPEN_PARAM,
+  PRIMARY_ID,
+  emptySplitStack,
+  parseOpenTargets,
+  reduceSplit,
+  selectSplitView,
+  withOpenTargets,
+} from './split-screen';
 import type { SplitTarget } from './split-screen';
 
 /**
@@ -83,6 +91,11 @@ interface SplitPrimary {
 
 const SplitPrimaryContext = createContext<SplitPrimary | null>(null);
 
+/** Marks the history entry a split-panel open created (#962). */
+const PANEL_ENTRY = '__sosPanel';
+const asState = (v: unknown): Record<string, unknown> =>
+  v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+
 /** Registers what the primary pane's rail spine should say, for as long as this
  *  component is mounted. Safe outside a host: it is then a no-op. */
 function useRegisterPrimaryLabel(label: string, number?: number | null) {
@@ -117,20 +130,51 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
     label: 'This page',
   });
 
-  /*
-   * #462 — the stack is dropped when the primary NAVIGATES, and that is
-   * deliberately not a new behaviour: before this ticket every page mounted its
-   * own host, so routing to another page unmounted the host and took the panels
-   * with it. Hoisting the host to the layout would have silently made a split
-   * survive navigation, which is a product decision nobody made. Resetting here
-   * keeps the observable behaviour exactly what it has always been, and leaves
-   * "should a panel outlive the page it was opened from?" open to be answered on
-   * purpose rather than inherited from a refactor.
-   */
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  useTrackAppNavigation();
+
+  /*
+   * #962 — a split panel is a PLACE, so it lives in the URL: `?open=<db>:<rec>`, one per panel, in stack order.
+   * A refresh keeps the split, a copied link reopens it, and Back closes the top panel (opening one pushes a
+   * history entry; maximize / collapse are layout, they never do).
+   *
+   * Two directions, and the second is what replaced #462's "reset the stack when the pathname changes":
+   *   - an open / close made HERE updates the stack at once and writes the URL (below);
+   *   - a change to the URL (Back, a pasted link, navigating to another page) is made true in the stack by
+   *     `sync`, which is a no-op when the stack already matches. Leaving a page drops its panels because the
+   *     next URL does not list them — the same observable behaviour #462 kept on purpose, now with one cause.
+   */
+  const search = searchParams.toString();
+  const urlTargets = useMemo(() => parseOpenTargets(searchParams.getAll(OPEN_PARAM)), [search]);
+  const urlKey = urlTargets.map((t) => `${t.db}:${t.rec}`).join('|');
+  const stateRef = useRef(state);
+  const locationRef = useRef({ pathname, search });
   useEffect(() => {
-    dispatch({ type: 'reset' });
-  }, [pathname]);
+    stateRef.current = state;
+    locationRef.current = { pathname, search };
+  });
+  // The entry a panel open created is stamped, so closing the top panel can go BACK to the panel-less entry under
+  // it instead of stacking a duplicate of the page; stamped after the router has written the entry.
+  const stampPending = useRef(false);
+  useEffect(() => {
+    if (stampPending.current && urlKey) {
+      stampPending.current = false;
+      window.history.replaceState({ ...asState(window.history.state), [PANEL_ENTRY]: true }, '');
+    }
+    if (isDesktop) dispatch({ type: 'sync', targets: urlTargets });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- urlKey stands for urlTargets
+  }, [urlKey, isDesktop]);
+
+  const writeTargets = (next: ReturnType<typeof emptySplitStack>, how: 'push' | 'replace') => {
+    const { pathname: path, search: current } = locationRef.current;
+    const href = `${path}${withOpenTargets(current, next.panels.map((p) => p.target))}`;
+    if (how === 'push') {
+      stampPending.current = true;
+      router.push(href, { scroll: false });
+    } else router.replace(href, { scroll: false });
+  };
 
   // Mobile fallback (plan §3.3): there is no split below `md`. If the viewport
   // shrinks under the breakpoint with panels open, drop the whole stack — the
@@ -142,16 +186,43 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
   const api = useMemo<SplitPanelApi>(
     () => ({
       isDesktop,
-      open: (target: SplitTarget) => dispatch({ type: 'open', target }),
-      replace: (target: SplitTarget) => dispatch({ type: 'replace', target }),
+      open: (target: SplitTarget) => {
+        const before = stateRef.current;
+        const next = reduceSplit(before, { type: 'open', target });
+        if (next === before) return; // already the active pane: no panel, so no history entry either
+        dispatch({ type: 'open', target });
+        writeTargets(next, 'push');
+      },
+      // A swap is walking a queue, not going somewhere: it rewrites the entry rather than adding one per row.
+      replace: (target: SplitTarget) => {
+        const before = stateRef.current;
+        const next = reduceSplit(before, { type: 'replace', target });
+        if (next === before) return;
+        dispatch({ type: 'replace', target });
+        writeTargets(next, before.panels.some((p) => !p.collapsed) ? 'replace' : 'push');
+      },
       collapse: (id: string) => dispatch({ type: 'collapse', id }),
       expand: (id: string) => dispatch({ type: 'expand', id }),
       maximize: (id: string) => dispatch({ type: 'maximize', id }),
       restore: () => dispatch({ type: 'restore' }),
-      close: (id: string) => dispatch({ type: 'close', id }),
+      close: (id: string) => closePanel(id),
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- writeTargets / closePanel read refs only
     [isDesktop],
   );
+
+  /** Closing a panel. The top panel, when its entry is the one its open pushed, is closed by going BACK — the
+   *  same step the Back button takes, so the two cannot disagree. Anything else rewrites the entry. */
+  function closePanel(id: string) {
+    const before = stateRef.current;
+    const next = reduceSplit(before, { type: 'close', id });
+    if (next === before) return;
+    dispatch({ type: 'close', id });
+    if (id === PRIMARY_ID) return;
+    const isTop = before.panels[before.panels.length - 1]?.id === id;
+    if (isTop && asState(window.history.state)[PANEL_ENTRY] === true) router.back();
+    else writeTargets(next, 'replace');
+  }
 
   const view = selectSplitView(state);
   const showStack = isDesktop && state.panels.length > 0;
@@ -165,15 +236,12 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
    *     directly and there is no in-app history to go back to.
    * Layering (popover / picker / dialog / inline edit first) lives in `useEscapeToClose`.
    */
-  const router = useRouter();
-  useTrackAppNavigation();
   const recordRoute = /^\/w\/[^/]+\/d\/([^/]+)\/r\/[^/]+/.exec(pathname ?? '');
   useEscapeToClose(() => {
     if (showStack && view.activePanel) {
-      dispatch({ type: 'close', id: view.activePanel.id });
+      closePanel(view.activePanel.id);
     } else if (recordRoute) {
-      if (canGoBackInApp()) router.back();
-      else router.push(`/w/${ws}/d/${recordRoute[1]}`);
+      backOrParent(router, `/w/${ws}/d/${recordRoute[1]}`);
     }
   });
 
@@ -216,7 +284,8 @@ export function SplitHost({ ws, children }: { ws: string; children: ReactNode })
   // public contract stays `SplitPanelApi` (what opens a record) and `SplitPrimary`
   // (what a page registers).
   const area = useMemo<SplitAreaState>(
-    () => ({ ws, state, dispatch, view, showStack, railed, primary, controls: primaryApi.controls }),
+    () => ({ ws, state, dispatch, closePanel, view, showStack, railed, primary, controls: primaryApi.controls }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closePanel reads refs only
     [ws, state, view, showStack, railed, primary, primaryApi.controls],
   );
 
@@ -233,6 +302,8 @@ interface SplitAreaState {
   ws: string;
   state: ReturnType<typeof emptySplitStack>;
   dispatch: (action: Parameters<typeof reduceSplit>[1]) => void;
+  /** Closes a panel AND keeps the URL in step (#962) — the X on a pane and on a rail, and Esc. */
+  closePanel: (id: string) => void;
   view: ReturnType<typeof selectSplitView>;
   showStack: boolean;
   railed: boolean;
@@ -267,7 +338,7 @@ export function SplitArea({
   // plainly. Never throw — a missing provider must degrade, not break the page.
   if (!area) return <>{renderPrimary()}</>;
 
-  const { ws, view, showStack, railed, primary, controls, dispatch } = area;
+  const { ws, view, showStack, railed, primary, controls, dispatch, closePanel } = area;
 
   // #208: the primary + active panel show as a draggable pair. The divider only
   // exists in that shared layout — when a pane is maximized or on a rail there's a
@@ -354,7 +425,7 @@ export function SplitArea({
               ws={ws}
               db={view.activePanel.target.db}
               rec={view.activePanel.target.rec}
-              onClose={() => dispatch({ type: 'close', id: view.activePanel!.id })}
+              onClose={() => closePanel(view.activePanel!.id)}
               onCollapse={() => dispatch({ type: 'collapse', id: view.activePanel!.id })}
               isMaximized={view.activePanelMaximized}
               onToggleMaximize={() =>
@@ -380,7 +451,7 @@ export function SplitArea({
             number={panel.target.number}
             closeLabel="Close"
             onExpand={() => dispatch({ type: 'expand', id: panel.id })}
-            onClose={() => dispatch({ type: 'close', id: panel.id })}
+            onClose={() => closePanel(panel.id)}
           />
         ))}
     </div>
