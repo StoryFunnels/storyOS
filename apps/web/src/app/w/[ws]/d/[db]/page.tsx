@@ -51,6 +51,7 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { databaseColor } from '@/lib/entity-color';
 
 function DatabasePageInner() {
   const confirm = useConfirm();
@@ -156,10 +157,10 @@ function DatabasePageInner() {
             database.data?.icon && (
               <EntityIconChip
                 icon={database.data.icon}
-                color={database.data.color ?? null}
+                color={databaseColor(database.data.color, database.data.id)}
                 size={15}
                 fallback={null}
-                className={database.data.color ? 'h-6 w-6' : undefined}
+                className="h-6 w-6"
               />
             )
           ) : (
@@ -173,10 +174,10 @@ function DatabasePageInner() {
                 >
                   <EntityIconChip
                     icon={database.data?.icon}
-                    color={database.data?.color ?? null}
+                    color={databaseColor(database.data?.color, database.data?.id)}
                     size={15}
-                    fallback={<DatabaseIcon className="h-3.5 w-3.5 text-faint" />}
-                    className={cn('h-6 w-6', !database.data?.color && 'border border-transparent')}
+                    fallback={<DatabaseIcon className="h-3.5 w-3.5" />}
+                    className="h-6 w-6"
                   />
                 </button>
               </DropdownMenuTrigger>

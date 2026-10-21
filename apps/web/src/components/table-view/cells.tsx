@@ -261,6 +261,7 @@ interface DisplayProps {
 // (MN-135). Imported for CellDisplay's own use, and re-exported so existing
 // importers don't churn.
 import { cellToText, isPercentField, isPercentNumberField, richTextPreview } from './cell-text';
+import { databaseColor } from '@/lib/entity-color';
 export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
 
 /**
@@ -419,7 +420,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
             chips={[chip]}
             ws={ws}
             targetDb={chip.database_id}
-            color={field.relation?.target_database_color}
+            color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)}
           />
         );
       }
@@ -449,7 +450,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
           chips={(value as LinkChip[]) ?? []}
           ws={ws}
           targetDb={field.relation?.target_database_id}
-          color={field.relation?.target_database_color}
+          color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)}
         />
       );
     case 'checkbox':
