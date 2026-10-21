@@ -21,7 +21,7 @@ import type { Field } from './use-table-data';
 import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
 import { choiceDirectionLabels, reorderedIds } from '../views/option-order';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 
 let draftKey = 0;
 
@@ -208,9 +208,16 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
     setPending('');
   }
 
+  // #985 — an option is announced by its label, never its uuid.
+  const optionDrag = useDragPresentation(
+    (id) => options.find((o) => o.id === id)?.label,
+    { onDragEnd },
+    options.map((o) => o.id),
+  );
+
   return (
     <div className="flex flex-col gap-1.5">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} {...optionDrag.contextProps}>
         <SortableContext items={options.map((o) => o.id)} strategy={verticalListSortingStrategy}>
           {options.map((option, index) => (
             <SortableOptionRow

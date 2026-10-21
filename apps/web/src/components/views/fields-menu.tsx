@@ -17,7 +17,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 
 /**
  * #175 — the Fibery-parity Fields menu, shared by every surface that toggles
@@ -95,6 +95,16 @@ export function FieldsMenu({
 
   const list = fields.filter((f) => f.displayName.toLowerCase().includes(q.trim().toLowerCase()));
   const reorderableIds = onReorder ? list.filter(canReorder).map((f) => f.id) : [];
+  // #985 — a field is announced by its NAME, never its uuid.
+  const fieldDrag = useDragPresentation(
+    (id) => fields.find((f) => f.id === id)?.displayName,
+    {
+      onDragEnd: (e) => {
+        if (e.over && e.active.id !== e.over.id) onReorder?.(String(e.active.id), String(e.over.id));
+      },
+    },
+    reorderableIds,
+  );
 
   const rows = list.map((field) => (
     <FieldRow
@@ -161,9 +171,7 @@ export function FieldsMenu({
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
-              onDragEnd={(e) => {
-                if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
-              }}
+              {...fieldDrag.contextProps}
             >
               <SortableContext items={reorderableIds} strategy={verticalListSortingStrategy}>
                 {rows}
