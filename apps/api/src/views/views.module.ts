@@ -5,7 +5,7 @@ import { DatabasesModule } from '../databases/databases.module';
 import { PortalModule } from '../portal/portal.module';
 import { RecordsModule } from '../records/records.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
-import { UsersModule } from '../users/users.module';
+import { ViewerStateModule } from '../viewer-state/viewer-state.module';
 import { ViewsController } from './views.controller';
 import { PersonalFilterController } from './personal-filter.controller';
 import { PublicViewsController } from './public-views.controller';
@@ -15,8 +15,8 @@ import { SpaceViewsService } from './space-views.service';
 import { ViewsService } from './views.service';
 
 @Module({
-  // UsersModule (#259): PersonalFilterController reads/writes the personal filter
-  // override through PreferencesService, which UsersModule exports.
+  // ViewerStateModule (#259 / ADR-0019): PersonalFilterController reads/writes the personal filter
+  // override through ViewerStateService.
   // AccessModule (#347): SpaceViewsService resolves each view's database
   // against the VIEWER, so it needs AccessService directly rather than through
   // DatabasesService.assertAccess — which throws, and would collapse the whole
@@ -27,7 +27,7 @@ import { ViewsService } from './views.service';
   // through PortalRecipientsService.resolveByToken.
   // BillingModule (#556): PublicViewsService reads the workspace's plan to
   // compute hide_branding, mirroring FormsService's existing wiring.
-  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule, PortalModule, BillingModule],
+  imports: [WorkspacesModule, DatabasesModule, RecordsModule, ViewerStateModule, AccessModule, PortalModule, BillingModule],
   controllers: [ViewsController, PersonalFilterController, SpaceViewsController, PublicViewsController],
   providers: [ViewsService, SpaceViewsService, PublicViewsService],
   exports: [ViewsService, SpaceViewsService],

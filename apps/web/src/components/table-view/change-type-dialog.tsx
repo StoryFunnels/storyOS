@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import type { Field } from './use-table-data';
+import { OptionChip } from './cells';
+import { choicePreviewHeading } from './change-type-preview';
 import { CONVERTIBLE } from '@storyos/schemas';
 import { FIELD_TYPES, useFieldMutations } from './field-dialog-shared';
 
@@ -32,7 +34,7 @@ export function ChangeTypeDialog({
     records_affected: number;
     lossy_conversions: number;
     /** #957 — text → choice only: the options the conversion will create, and the records left empty. */
-    options?: Array<{ label: string; records: number }>;
+    options?: Array<{ label: string; color: string; records: number }>;
     empty_records?: number;
   };
   const [dryRun, setDryRun] = useState<DryRun | null>(null);
@@ -94,6 +96,8 @@ export function ChangeTypeDialog({
             onChange={(e) => {
               setTarget(e.target.value);
               setDryRun(null);
+              check.reset();
+              apply.reset();
             }}
           >
             {targets.map((t) => (
@@ -119,20 +123,27 @@ export function ChangeTypeDialog({
         )}
         {dryRun?.options ? (
           <div className="flex flex-col gap-1.5">
-            <Label>
-              {dryRun.options.length} option(s) will be created
-              {dryRun.empty_records ? `, ${dryRun.empty_records} record(s) are empty and stay empty` : ''}
-            </Label>
-            <ul className="max-h-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default p-2 text-sm text-ink">
-              {dryRun.options.map((o) => (
-                <li key={o.label} className="flex justify-between gap-3">
-                  <span className="truncate">{o.label}</span>
-                  <span className="text-muted">{o.records}</span>
-                </li>
-              ))}
-            </ul>
+            <Label>{choicePreviewHeading({ options: dryRun.options, empty_records: dryRun.empty_records })}</Label>
+            {dryRun.options.length > 0 && (
+              // The options exactly as they will look after conversion: the SAME chip a select cell draws, with the colour
+              // the API assigned (#957), and how many records land on each.
+              <ul className="max-h-48 overflow-y-auto rounded-[var(--radius-control)] border border-border-default p-2 text-sm text-ink">
+                {dryRun.options.map((o) => (
+                  <li key={o.label} className="flex items-center justify-between gap-3 py-0.5">
+                    <OptionChip option={{ id: o.label, label: o.label, color: o.color }} />
+                    <span className="shrink-0 tabular-nums text-muted">{o.records}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         ) : null}
+        {/* The API's own refusal (too many distinct values, a second workflow in the database, …): said, not swallowed. */}
+        {(check.error || apply.error) && (
+          <p role="alert" className="rounded-[var(--radius-control)] border border-border-default bg-canvas p-2.5 text-body text-error">
+            {apiErrorMessage(check.error ?? apply.error, 'Could not change the type')}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
             <Button type="button" variant="secondary">

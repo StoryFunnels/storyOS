@@ -19,6 +19,8 @@ import {
   comments,
   databases,
   favorites,
+  recordWatchers,
+  viewerState,
   fields,
   memberships,
   notifications,
@@ -569,6 +571,14 @@ export class GdprService {
           )
           .returning()
       ).length;
+      // #973 / ADR-0019 — the rest of this person's per-viewer state IN THIS workspace: their overrides (personal filters, collection
+      // views, pinned tabs) and the records they watch. Watchers survived erasure before (they were in neither path).
+      const viewerStateRows = (
+        await tx.delete(viewerState).where(and(eq(viewerState.workspaceId, workspaceId), eq(viewerState.userId, userId))).returning({ k: viewerState.kind })
+      ).length;
+      const watching = (
+        await tx.delete(recordWatchers).where(and(eq(recordWatchers.workspaceId, workspaceId), eq(recordWatchers.userId, userId))).returning({ id: recordWatchers.id })
+      ).length;
       const notifs = (
         await tx
           .delete(notifications)
@@ -600,6 +610,8 @@ export class GdprService {
           access_grants: grants,
           skill_shares: skillSharesRemoved,
           favorites: favs,
+          viewer_state: viewerStateRows,
+          record_watchers: watching,
           notifications: notifs,
           user_field_references: userFieldsCleared,
         },

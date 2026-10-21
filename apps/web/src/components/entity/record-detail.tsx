@@ -92,6 +92,7 @@ import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import type { RecordRow } from '@/components/table-view/use-table-data';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 
 /**
  * The full record body — title, pinned strip, body fields (collections + rich
@@ -123,6 +124,8 @@ import { useSortableSensors } from '@/components/ui/drag-presentation';
 export function useRecordQuery(ws: string, db: string, rec: string) {
   return useQuery({
     queryKey: ['record', ws, db, rec],
+    // #620 — re-read while an AI recompute is in flight, so the field passes from "computing" to its result on its own.
+    refetchInterval: (query) => (recordHasPendingAi(query.state.data) ? AI_POLL_MS : false),
     queryFn: async () => {
       // Resolve either a legacy UUID or a pretty `slug-{number}` URL (MN-087).
       const parsed = parseRecordParam(rec);

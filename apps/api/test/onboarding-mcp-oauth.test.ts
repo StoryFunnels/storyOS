@@ -14,7 +14,8 @@ import { memberships } from '../src/db/schema';
 /**
  * #967 — "does this workspace have an active MCP OAuth connection?" The checklist's `ai_connected` only sees personal access
  * tokens (api_tokens rows). A hosted-MCP OAuth token belongs to a USER and a client and writes no api_tokens row, so someone
- * who connected Claude that way read as "no AI connected". `mcp_oauth_connected` is the OAuth half, from the real tables.
+ * who connected Claude that way read as "no AI connected". `mcp_oauth_connected` is the OAuth half, from the real tables. (#817 follow-up: `ai_connected` now counts
+ * either route, so it follows this one.)
  */
 const { db } = connectTestDb();
 let app: NestFastifyApplication;
@@ -58,12 +59,12 @@ const connected = async (token: string, ws: string) => {
 };
 
 describe('#967 mcp_oauth_connected', () => {
-  it('false until someone connects, true once an active member has a live OAuth token — and ai_connected stays false (it is the PAT fact)', async () => {
+  it('false until someone connects, true once an active member has a live OAuth token — and ai_connected follows it (#817: either route counts)', async () => {
     const owner = await signUpUser(app, 'Connect Owner');
     const ws = (await call(app, owner.token, 'POST', '/workspaces', { name: 'Connect WS' })).json().id as string;
     expect(await connected(owner.token, ws)).toMatchObject({ mcp_oauth_connected: false, ai_connected: false });
     await connectClaude(owner.token);
-    expect(await connected(owner.token, ws)).toMatchObject({ mcp_oauth_connected: true, ai_connected: false });
+    expect(await connected(owner.token, ws)).toMatchObject({ mcp_oauth_connected: true, ai_connected: true });
   });
 
   it('a workspace nobody connected from stays false, even while another person is connected elsewhere', async () => {
