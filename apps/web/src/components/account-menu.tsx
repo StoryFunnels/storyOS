@@ -82,7 +82,7 @@ export function AccountMenu({ variant = 'bar' }: { variant?: 'bar' | 'rail' } = 
             title={session.user.name}
             className="mt-1 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] hover:bg-hover max-md:h-11 max-md:w-11 max-md:flex-col max-md:gap-0.5"
           >
-            <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={26} />
+            <Avatar userId={session.user.id} name={session.user.name} image={imageUrl} size={24} />
             <span className="hidden text-micro leading-none text-muted max-md:block">You</span>
           </button>
         ) : (
