@@ -3005,7 +3005,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would create WITHOUT creating anything.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would create WITHOUT creating anything. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff).',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3013,9 +3013,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .boolean()
           .optional()
           .describe('Show what would be created and create nothing. Worth doing first on a workspace that already has data.'),
+        update_agents: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Names of installed agents a person EDITED whose content should be replaced with this pack version (preview marks them agent_update.status = edited_needs_choice). Agents not named stay as they are.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean }>(async ({ workspace, slug, preview }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; update_agents?: string[] }>(async ({ workspace, slug, preview, update_agents }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3026,7 +3032,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // body a compile error rather than a 422 in production.
       const args = {
         params: { path: { ws: ws.id } } as never,
-        body: { manifest: pack.manifest } as never,
+        body: {
+          manifest: pack.manifest,
+          ...(update_agents?.length
+            ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
+            : {}),
+        } as never,
       };
       return text(
         await unwrap<unknown>(

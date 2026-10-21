@@ -1,5 +1,6 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
+import type { PlanAgent } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AiCreditsService } from '../billing/ai-credits.service';
 import { DatabasesService } from '../databases/databases.service';
@@ -405,6 +406,28 @@ export class ArchitectService {
   }
 
   /**
+   * The PACK-DEFINED part of an agent record: what a pack ships and a pack update may bring up to date (#977): goal, instructions,
+   * scopes and approval policy. The name, the target databases (workspace-specific ids) and the enabled flag are the workspace's own and
+   * are never part of an update. One function for create and update so the two cannot disagree about what an agent is made of.
+   */
+  agentContentValues(planned: PlanAgent, optionId: (apiName: string, label: string) => string | null): Record<string, unknown> {
+    return {
+      goal: markdownToBlocks(planned.goal),
+      instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
+      scopes: planned.scopes.map((s) => optionId('scopes', s)).filter((id): id is string => Boolean(id)),
+      approval_policy: planned.approval_policy.map((p) => optionId('approval_policy', p)).filter((id): id is string => Boolean(id)),
+    };
+  }
+
+  /** The values to write onto an EXISTING agent record to bring it to `planned` (a pack update, #977). */
+  async agentUpdateValues(membership: Membership, planned: PlanAgent, agentsDbId: string): Promise<Record<string, unknown>> {
+    const agentFields = await this.liveFields(membership, agentsDbId);
+    const optionId = (apiName: string, label: string): string | null =>
+      agentFields.find((f) => f.apiName === apiName)?.options?.find((o) => o.label === label)?.id ?? null;
+    return this.agentContentValues(planned, optionId);
+  }
+
+  /**
    * The agent records themselves (ADR-0010 §1) — created through the ordinary
    * records API on the Agents database, exactly as a person would create them.
    */
@@ -448,14 +471,7 @@ export class ArchitectService {
         agentsDbId,
         {
           name: planned.name,
-          goal: markdownToBlocks(planned.goal),
-          instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
-          scopes: planned.scopes
-            .map((s) => optionId('scopes', s))
-            .filter((id): id is string => Boolean(id)),
-          approval_policy: planned.approval_policy
-            .map((p) => optionId('approval_policy', p))
-            .filter((id): id is string => Boolean(id)),
+          ...this.agentContentValues(planned, optionId),
           target_databases: targets.join(', '),
           // Build happens only after a human approved the plan (ADR-0010 §6), and
           // the plan they approved says what this agent does and what it must ask
