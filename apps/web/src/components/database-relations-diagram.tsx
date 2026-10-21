@@ -6,6 +6,7 @@ import { EntityIcon } from '@/components/ui/icon-picker';
 import { pluralNoun } from '@/lib/records';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import type { OntologyRelation } from '@/components/space-ontology';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * #531 — a single database's own relations, hub-and-spoke: this database at
@@ -102,7 +103,7 @@ export function DatabaseRelationsDiagram({
             </circle>
             <foreignObject x={s.x - NODE_R} y={s.y - NODE_R} width={NODE_R * 2} height={NODE_R * 2}>
               <div className="flex h-full w-full items-center justify-center">
-                <EntityIcon icon={s.database.icon} color={s.database.color} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
+                <EntityIcon icon={s.database.icon} color={databaseColor(s.database.color, s.database.id)} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
               </div>
             </foreignObject>
             <text x={s.x} y={s.y + NODE_R + 13} textAnchor="middle" className="fill-[var(--ink)] text-meta font-medium">
@@ -123,7 +124,7 @@ export function DatabaseRelationsDiagram({
           />
           <foreignObject x={layout.cx - CENTER_R} y={layout.cy - CENTER_R} width={CENTER_R * 2} height={CENTER_R * 2}>
             <div className="flex h-full w-full items-center justify-center">
-              <EntityIcon icon={center.icon} color={center.color} fallback={<DatabaseIcon className="h-4 w-4" />} />
+              <EntityIcon icon={center.icon} color={databaseColor(center.color, center.id)} fallback={<DatabaseIcon className="h-4 w-4" />} />
             </div>
           </foreignObject>
           <text x={layout.cx} y={layout.cy + CENTER_R + 14} textAnchor="middle" className="fill-[var(--ink)] text-label font-semibold">

@@ -63,18 +63,37 @@ describe('allowed_tools is off the surface (ticket #833 amended AC2)', () => {
   });
 });
 
-describe('the picker keeps each tier’s detail under that tier, and a read-only viewer cannot click (ticket #833 polish)', () => {
+describe('the audience is a segmented control that keeps every tier’s detail under the chosen tier (tickets #833, #997)', () => {
   const editor = surface.find((s) => s.file.endsWith('skill-editor.tsx'))!;
-  it('renders the member list and the public link inside the option loop, not after it', () => {
+  it('offers all four audiences the API accepts — the prototype drew three, and "Anyone with the link" is not dropped', () => {
     const t = code(editor.text);
-    const loop = t.slice(t.indexOf('VISIBILITY_OPTIONS.map'), t.indexOf('</fieldset>'));
-    expect(loop).toMatch(/<MemberPicker/);
-    expect(loop).toMatch(/<PublicLink/);
+    expect(t).toMatch(/SEGMENT_ORDER: SkillVisibility\[\] = \['personal', 'members', 'shared', 'public'\]/);
+    expect(t).toMatch(/<Segmented/);
   });
-  it('disables the radios and drops the pointer cursor for a read-only viewer', () => {
+  it('renders the member list and the public link under the selected tier, not after the control', () => {
     const t = code(editor.text);
-    expect(t).toMatch(/disabled=\{readOnly\}\s+checked=/);
-    expect(t).toMatch(/readOnly \? 'cursor-not-allowed/);
+    const detail = t.slice(t.indexOf('VISIBILITY_OPTIONS.filter'), t.indexOf('problem && !readOnly'));
+    expect(detail).toMatch(/<MemberPicker/);
+    expect(detail).toMatch(/<PublicLink/);
+  });
+  it('disables every segment for a read-only viewer, who can see the audience but not change it', () => {
+    const t = code(editor.text);
+    expect(t).toMatch(/disabled: readOnly/);
+    expect(t).toMatch(/!readOnly && set\('visibility', v\)/);
+  });
+});
+
+describe('the New skill chooser and the empty library share one set of template cards (ticket #997)', () => {
+  const cards = surface.find((s) => s.file.endsWith('skill-template-cards.tsx'))!;
+  const library = surface.find((s) => s.file.endsWith('skills-library.tsx'))!;
+  it('both doors render <SkillTemplateCards>, so a card cannot differ between them', () => {
+    expect(cards.text).toMatch(/export function SkillTemplateCards/);
+    expect(cards.text).toMatch(/<SkillTemplateCards/);
+    expect(code(library.text)).toMatch(/<SkillTemplateCards/);
+  });
+  it('each card links to the editor on that scaffold, and Blank is the dashed one', () => {
+    expect(cards.text).toMatch(/skills\/new\?template=\$\{encodeURIComponent\(t\.id\)\}/);
+    expect(cards.text).toMatch(/t\.id === 'blank' \? 'border-dashed/);
   });
 });
 

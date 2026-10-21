@@ -45,7 +45,7 @@ import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
-import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
+import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
@@ -62,6 +62,7 @@ import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { databaseColor } from '@/lib/entity-color';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -282,7 +283,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     useSidebarNavWidth();
 
   return (
-    <div className="relative flex h-full shrink-0">
+    <div className="relative isolate flex h-full shrink-0">
+    {/*
+     * #1000 — `isolate`: the sidebar's own stacking context. Its sticky space headers sit at z-20 / z-30, and the resize
+     * line's hit area (`SidebarResizeHandle`, below) overlaps the panel's right edge; at z-10 the headers painted OVER the
+     * line, so mid-drag it had a notch at every pinned space header. Isolated, those numbers are local to the sidebar,
+     * and the handle can outrank them without joining the page's scale (z-overlay-backdrop is 40).
+     */}
     {/*
      * #742 phase 6 — rail + panel (Direction B). Two axes, one rule each: the
      * RAIL is StoryOS's own surfaces (Home, Inbox, My Work, Runs, Settings —
@@ -566,7 +573,7 @@ function SidebarResizeHandle({
       }}
       className={cn(
         'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch md:block',
-        '-mx-2 w-4 z-10',
+        '-mx-2 w-4 z-40',
         dragging && 'select-none',
       )}
     >
@@ -925,7 +932,7 @@ function HiddenSection({
             <HiddenRow key={`s-${s.id}`} icon={s.icon} color={s.color} name={s.name} onUnhide={() => onUnhide('space', s.id)} />
           ))}
           {databases.map((d) => (
-            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={d.color} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
+            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={databaseColor(d.color, d.id)} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
           ))}
         </div>
       )}
@@ -951,7 +958,7 @@ function HiddenRow({
             these rows' icons sat 20px left of everything else */}
         <span aria-hidden className="-mr-0 block w-3 shrink-0" />
         <GlyphSlot>
-          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5" />} />
         </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
@@ -1020,7 +1027,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
         setDropRef(node);
         setSortRef(node);
       }}
-      // #742 phase 6 — sticky, opaque (bg-sidebar), and above the space
+      // #742 phase 6 — sticky, opaque (bg-frame, the panel's own colour, #1000), and above the space
       // headers stacking beneath it (z-30 > SpaceSection's z-20): "at twenty
       // rows deep you still read which group you're in" is the artifact's own
       // stated reason this is load-bearing rather than decorative. GROUP_BAND_H
@@ -1038,7 +1045,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       // row; there is no group-collapse feature to put in `caret` here.
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-sidebar active:cursor-grabbing',
+        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-frame active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
       draggable
@@ -1681,13 +1688,13 @@ function SpaceSection({
         // it doesn't also pad out the void above the FIRST space). This stays
         // small and close to its label rather than double-counting that gap.
         //
-        // #742 phase 6 — sticky and opaque (bg-sidebar), pinned right below
+        // #742 phase 6 — sticky and opaque (bg-frame, the panel's own colour, #1000), pinned right below
         // this space's own group band (stickyTop is 0 or GROUP_BAND_H — see
         // the SpaceSection prop doc) so at real scale (52 nodes) you still
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
         style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
-        className="group sticky z-20 h-6 cursor-grab touch-none bg-sidebar active:cursor-grabbing"
+        className="group sticky z-20 h-6 cursor-grab touch-none bg-frame active:cursor-grabbing"
         draggable
         {...attributes}
         {...listeners}
@@ -2617,8 +2624,8 @@ function DatabaseBranch({
   viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
-  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id);
   const activeViewId = isHere ? currentViewId : null;
+  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id, activeViewId);
   const tint = db.color ? OPTION_COLORS[db.color] : null;
 
   const renderView = (v: SidebarView) => (
@@ -2643,13 +2650,13 @@ function DatabaseBranch({
   // #931 — single-source views nest UNDER their database: one step in, on the same guide line a
   // folder uses, collapsed by default. A collapsed database still shows its active (and, once
   // #966 lands, pinned) view, so the tree never hides where you are.
-  const shown = visibleChildViews(views, { expanded, activeViewId });
+  const shown = visibleChildViews(views, { expanded });
   return (
     <Fragment>
       <DatabaseRow
         ws={ws}
         db={db}
-        active={isHere}
+        active={databaseRowActive({ isHere, expanded, activeViewShown: activeViewId !== null && shown.some((v) => v.id === activeViewId) })}
         isAdmin={isAdmin}
         folders={folders}
         onMove={onMove}
@@ -2811,10 +2818,12 @@ function DatabaseRow({
           className="flex min-w-0 flex-1 items-center gap-2"
         >
           <GlyphSlot>
+            {/* #1001 — no `text-muted` on the fallback glyph: it overrides the colour the icon's wrapper hands down, so every database drew
+                the same grey whatever colour it had. */}
             <EntityIcon
               icon={db.icon}
-              color={db.color}
-              fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+              color={databaseColor(db.color, db.id)}
+              fallback={<Database className="h-3.5 w-3.5" />}
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>

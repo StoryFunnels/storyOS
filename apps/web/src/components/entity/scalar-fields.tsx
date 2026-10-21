@@ -26,6 +26,7 @@ import { AUDIT_TYPES, NOT_INLINE, auditValue, computedBadgeLabel } from './entit
 import type { VP } from './entity-field-utils';
 import { FieldMenu } from './field-controls';
 import { useOpenInSplit } from './split-panel-context';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * Remove a single link from a relation field, reusing the tested links-replace
@@ -140,7 +141,7 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
               })}
               className="flex min-w-0 items-center gap-1 truncate hover:underline"
             >
-              <DbColorMarker color={field.relation?.target_database_color} />
+              <DbColorMarker color={databaseColor(field.relation?.target_database_color, field.relation?.target_database_id)} />
               <span className="truncate">{chip.title || 'Untitled'}</span>
             </Link>
             {!readOnly && (

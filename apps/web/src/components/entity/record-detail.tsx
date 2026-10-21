@@ -559,7 +559,7 @@ export function RecordDetail({
             href={`/w/${ws}/d/${db}`}
             className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-hover hover:text-ink"
           >
-            <DbMarker icon={database.data?.icon} color={database.data?.color} />
+            <DbMarker icon={database.data?.icon} color={database.data?.color} id={database.data?.id} />
             <span className="truncate">{database.data?.name}</span>
           </Link>
           {record.data.number !== null && (

@@ -16,6 +16,7 @@ import {
   type MyWorkDbConfig,
 } from './group-config';
 import { assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
+import { databaseColor } from '@/lib/entity-color';
 
 export const rowKey = (row: Pick<MyWorkRow, 'dbId' | 'record'>) => `${row.dbId}:${row.record.id}`;
 
@@ -32,8 +33,19 @@ function FacetCell({ field, row }: { field: DenseField | null; row: MyWorkRow })
 }
 
 /** The due date as the row reads it: today emphasised, overdue in red, later plain. */
-export function DueText({ due, fmtDate, now }: { due: string | null; fmtDate: (iso: string) => string; now: Date }) {
-  const bucket = dueBucket(due, now);
+export function DueText({
+  due,
+  fmtDate,
+  now,
+  completed = false,
+}: {
+  due: string | null;
+  fmtDate: (iso: string) => string;
+  now: Date;
+  /** #1002 — the record is finished: its date reads plain, never as overdue. */
+  completed?: boolean;
+}) {
+  const bucket = dueBucket(due, now, completed);
   if (bucket === 'none' || !due) return null;
   return (
     <span
@@ -42,7 +54,7 @@ export function DueText({ due, fmtDate, now }: { due: string | null; fmtDate: (i
         'text-meta tabular-nums',
         bucket === 'today' && 'font-semibold text-ink',
         bucket === 'overdue' && 'font-medium text-error',
-        bucket === 'later' && 'text-faint',
+        (bucket === 'later' || bucket === 'done') && 'text-faint',
       )}
     >
       {bucket === 'today' ? 'Today' : fmtDate(due)}
@@ -87,7 +99,7 @@ export function MyWorkRowButton({
       )}
     >
       <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-        <EntityIcon icon={database.icon} color={database.color} fallback={<Database className="h-3.5 w-3.5" />} />
+        <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
       </span>
       <span className="min-w-0 flex-1">
         <span data-mw-title className="block truncate text-body font-medium text-ink">
@@ -97,7 +109,7 @@ export function MyWorkRowButton({
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
         {facets.state && <FacetCell field={facets.stateField} row={row} />}
-        <DueText due={facets.due} fmtDate={fmtDate} now={now} />
+        <DueText due={facets.due} fmtDate={fmtDate} now={now} completed={facets.completed} />
       </span>
     </button>
   );
@@ -131,7 +143,7 @@ export function SectionHeader({
         {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
       <Link href={`/w/${ws}/d/${database.id}`} className="flex min-w-0 items-center gap-1.5 hover:text-ink">
-        <EntityIcon icon={database.icon} color={database.color} fallback={<Database className="h-3.5 w-3.5" />} />
+        <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
         <span className="truncate">{database.name}</span>
         <span className="text-faint">{count}</span>
       </Link>
@@ -201,7 +213,7 @@ export function MyWorkPreview({
       <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-2.5 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body">
         <Fact label="State">{facets.state ? <FacetCell field={facets.stateField} row={row} /> : null}</Fact>
         <Fact label="Priority">{facets.priority ? <FacetCell field={facets.priorityField} row={row} /> : null}</Fact>
-        <Fact label="Due">{facets.due ? <DueText due={facets.due} fmtDate={fmtDate} now={now} /> : null}</Fact>
+        <Fact label="Due">{facets.due ? <DueText due={facets.due} fmtDate={fmtDate} now={now} completed={facets.completed} /> : null}</Fact>
         {assigned.kind === 'set' && (
           <Fact label="Assigned by">
             <span>

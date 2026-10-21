@@ -1,5 +1,5 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
+import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { and, desc, eq, exists, gte, inArray, lte, not, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { approvals, automationJobs, automationRuns, automations, databases, records } from '../db/schema';
@@ -7,6 +7,8 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { JobRunnerService } from '../automations/job-runner.service';
+import { AutomationsService } from '../automations/automations.service';
+import { waitingApprovalCondition } from '../automations/approvals.service';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
 export interface RunsListFilters {
@@ -22,7 +24,36 @@ export interface RunsListFilters {
 }
 
 
-const KNOWN_STATUSES = new Set(['ok', 'error', 'skipped', 'skipped_quota', 'running']);
+/**
+ * #1009 — a DERIVED status: the run finished queueing its actions (stored `ok`) but at least one is gated on an approval nobody has
+ * decided. The run row is closed as `ok` the moment its actions are queued, so before this a run waiting for a person read `ok`, which
+ * told the page "Succeeded" about something that had not happened. It is never stored: it is true exactly while an approval is waiting,
+ * and flips back to `ok` the moment the last one is decided.
+ *
+ * The statuses the API speaks and the words the app shows: ok = Succeeded, error = Failed, running = Running, skipped = Skipped,
+ * skipped_quota = Skipped (quota), awaiting_approval = Awaiting approval.
+ */
+export const AWAITING_APPROVAL = 'awaiting_approval';
+
+const KNOWN_STATUSES = new Set(['ok', 'error', 'skipped', 'skipped_quota', 'running', AWAITING_APPROVAL]);
+
+/** `exists (a waiting approval for this run)` — correlated on the run being listed. */
+const hasWaitingApproval = (db: Db) =>
+  exists(db.select({ one: sql`1` }).from(approvals).where(and(eq(approvals.runId, automationRuns.id), waitingApprovalCondition())));
+
+/** How many waiting approvals each of these runs has (runs with none are absent from the map). */
+async function waitingCounts(db: Db, runIds: string[]): Promise<Map<string, number>> {
+  if (runIds.length === 0) return new Map();
+  const rows = await db
+    .select({ runId: approvals.runId, n: sql<number>`count(*)::int` })
+    .from(approvals)
+    .where(and(inArray(approvals.runId, runIds), waitingApprovalCondition()))
+    .groupBy(approvals.runId);
+  return new Map(rows.flatMap((r) => (r.runId ? [[r.runId, r.n] as const] : [])));
+}
+
+/** The status a caller sees: a finished-OK run with an approval still waiting is `awaiting_approval`; every other status is as stored. */
+const effectiveStatus = (stored: string, waiting: number): string => (stored === 'ok' && waiting > 0 ? AWAITING_APPROVAL : stored);
 
 const SOURCE_KIND_NOTE =
   'kind=source has no data yet — the sources framework (MN-260/#239) has not landed. This filter is accepted so the API shape is forward-compatible; it will start returning source-sync runs once #239 ships.';
@@ -45,6 +76,7 @@ export class RunsService {
     private readonly access: AccessService,
     private readonly databasesService: DatabasesService,
     private readonly jobs: JobRunnerService,
+    private readonly automationsService: AutomationsService,
   ) {}
 
   async list(workspaceId: string, membership: Membership, filters: RunsListFilters) {
@@ -75,7 +107,10 @@ export class RunsService {
     const conditions = [eq(automationRuns.workspaceId, workspaceId)];
     if (filters.status) {
       if (!KNOWN_STATUSES.has(filters.status)) return { data: [], next_cursor: null, has_more: false };
-      conditions.push(eq(automationRuns.status, filters.status));
+      // #1009: the derived status is "stored ok AND an approval is waiting", and plain `ok` is the rest of the stored-ok runs.
+      if (filters.status === AWAITING_APPROVAL) conditions.push(eq(automationRuns.status, 'ok'), hasWaitingApproval(this.db));
+      else if (filters.status === 'ok') conditions.push(eq(automationRuns.status, 'ok'), not(hasWaitingApproval(this.db)));
+      else conditions.push(eq(automationRuns.status, filters.status));
     }
     if (filters.rule_id) conditions.push(eq(automationRuns.automationId, filters.rule_id));
     if (filters.database_id) conditions.push(eq(automations.databaseId, filters.database_id));
@@ -133,6 +168,7 @@ export class RunsService {
     const recordById = new Map(recordTitles.map((r) => [r.id, r]));
 
     const runIds = page.map((r) => r.id);
+    const waiting = await waitingCounts(this.db, runIds);
     const jobRows = runIds.length
       ? await this.db.query.automationJobs.findMany({
           where: inArray(automationJobs.runId, runIds),
@@ -162,7 +198,9 @@ export class RunsService {
               number: recordById.get(r.triggerRecordId)?.number ?? null,
             }
           : null,
-        status: r.status,
+        status: effectiveStatus(r.status, waiting.get(r.id) ?? 0),
+        /** #1009 — how many of this run's actions are waiting on an approval right now. */
+        awaiting_approval_count: waiting.get(r.id) ?? 0,
         error: r.error,
         started_at: r.createdAt.toISOString(),
         duration_ms: r.durationMs,
@@ -270,6 +308,7 @@ export class RunsService {
         },
       }));
 
+    const waitingNow = (await waitingCounts(this.db, [row.id])).get(row.id) ?? 0;
     return {
       id: row.id,
       kind: 'rule' as const,
@@ -279,7 +318,8 @@ export class RunsService {
       trigger: rule?.trigger ?? null,
       condition: rule?.condition ?? null,
       record_ref: recordRef ? { id: recordRef.id, title: recordRef.title, number: recordRef.number } : null,
-      status: row.status,
+      status: effectiveStatus(row.status, waitingNow),
+      awaiting_approval_count: waitingNow,
       error: row.error,
       depth: row.depth,
       started_at: row.createdAt.toISOString(),
@@ -287,6 +327,45 @@ export class RunsService {
       effects: row.effects,
       actions: [...jobActions, ...pendingApprovalActions].sort((a, b) => a.action_index - b.action_index),
     };
+  }
+
+  /**
+   * #1009 — "Run again": the whole run, not one failed action. Runs the same rule once more on the same trigger record, as a NEW run;
+   * the original run and everything it did stay as they are. It re-runs against the record AS IT IS NOW (a run keeps no copy of the
+   * record's earlier values), through the same engine every trigger uses, so the condition, the plan allowance and the approval gates
+   * apply to it exactly as to the first run. `rerun` below is the other thing: one FAILED action, with its original frozen inputs.
+   *
+   * Refused (422) when the run cannot be replayed honestly: it had no trigger record (a webhook delivery or a schedule: no payload is
+   * kept), or the rule is a record_linked rule (which records were linked is not kept). Refused (409) when the rule is disabled or
+   * deleted. Same rank as `rerun`: editor on the trigger record.
+   */
+  async rerunWhole(workspaceId: string, membership: Membership, runId: string) {
+    const { row, rule } = await this.loadRun(workspaceId, runId);
+    if (!rule) throw new NotFoundException('The rule this run belonged to no longer exists');
+    if (!row.triggerRecordId) {
+      throw new UnprocessableEntityException(
+        'This run had no trigger record (a webhook delivery or a schedule), and its trigger payload is not kept, so it cannot be run again.',
+      );
+    }
+    if ((rule.trigger as { type?: string } | null)?.type === 'record_linked') {
+      throw new UnprocessableEntityException('A run of a "record linked" rule cannot be run again: which records were linked is not kept.');
+    }
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, rule.databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    // Same check as `rerun`: a record-scoped guest grant must cover THIS run's trigger record, not just any record of the database.
+    const effective = await this.access.effectiveForRecord(membership, { id: row.triggerRecordId, databaseId: database.id, spaceId: database.spaceId });
+    this.access.assertRank(effective, 'editor', 'Run');
+    if (!rule.enabled) throw new ConflictException('This rule is disabled, so it cannot be run again. Enable it first.');
+
+    const started = await this.automationsService.runAgain(rule.id, workspaceId, rule.databaseId, row.triggerRecordId);
+    if (!started) {
+      throw new ConflictException("This rule's condition no longer matches the record, so nothing ran.");
+    }
+    const created = await this.detail(workspaceId, membership, started.runId);
+    return { run_id: started.runId, status: created.status, awaiting_approval_count: created.awaiting_approval_count, original_run_id: row.id };
   }
 
   /**
