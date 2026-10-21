@@ -3,19 +3,17 @@
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { StoryOSToaster } from '@/components/ui/toaster';
 import { UndoHotkey } from '@/components/undo-hotkey';
 import { useSession } from '@/lib/auth-client';
 import { sessionVerdict } from '@/lib/session-state';
 import { SessionUnavailable } from '@/components/session-unavailable';
-import { AccountMenu } from '@/components/account-menu';
 import { CommandPalette } from '@/components/command-palette';
 import { QuickAddFab } from '@/components/quick-add-fab';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay';
 import { Sidebar } from '@/components/sidebar';
 import { SplitArea, SplitHost } from '@/components/entity/split-screen-host';
-import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { TyronPanel } from '@/components/tyron/tyron-panel';
 import { useTyronPanel } from '@/lib/tyron-panel';
 import { peekPendingBuild } from '@/lib/pending-build';
@@ -34,7 +32,6 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   // record is readable without the user manually closing it.
   const [mobileOpen, setMobileOpen] = useState(false);
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
-  const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.
   const { state: tyronState, set: setTyronPanel } = useTyronPanel();
@@ -141,10 +138,6 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           // app shell, which is what makes it read as a tint).
           'bg-frame md:bg-transparent',
           mobileOpen ? 'translate-x-0 shadow-[0_0_36px_rgb(0_0_0/0.26)] md:shadow-none' : '-translate-x-full',
-          // Desktop collapse (persistent, per-user): fully removed from the
-          // md+ flow rather than animated to width 0, keeping this simple and
-          // avoiding an in-between state where a 0-width scroll area exists.
-          collapsed && 'md:hidden',
         )}
       >
         <Sidebar onCloseMobile={() => setMobileOpen(false)} />
@@ -156,29 +149,23 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         className={cn(
           'flex min-h-0 min-w-0 flex-1 flex-col',
           'md:overflow-hidden md:rounded-[var(--radius-popover)] md:border md:border-border-default md:bg-app md:shadow-[var(--shadow-page)]',
-          collapsed ? 'md:m-2' : 'md:my-2 md:mr-2',
+          'md:my-2 md:mr-2',
         )}
       >
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-default bg-card px-4">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              title="Open sidebar"
-              className="rounded p-1.5 text-muted hover:bg-hover hover:text-ink md:hidden"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              title={collapsed ? 'Show sidebar' : 'Hide sidebar'}
-              className="hidden rounded p-1.5 text-muted hover:bg-hover hover:text-ink md:flex"
-            >
-              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </button>
-          </div>
-          <AccountMenu />
+        {/* #994 — the desktop top bar is gone: the sidebar toggle lives in the sidebar header (and on the rail when the
+            panel is hidden) and the account menu is the avatar at the bottom of the rail, as in the prototype. Phones keep
+            ONE slim bar for the navigation toggle (the prototype's `navToggle` is phone-only); their account menu is the
+            same avatar at the bottom of the drawer's rail. */}
+        <header className="flex h-12 shrink-0 items-center border-b border-border-default bg-card px-4 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            title="Open sidebar"
+            aria-label="Open navigation"
+            className="rounded p-1.5 text-muted hover:bg-hover hover:text-ink"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
         </header>
         {/* #356 — the main content and Tyron are a PAIR, so the panel is a sibling
             of <main> inside this column rather than an overlay. An overlay would

@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -24,6 +24,8 @@ import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
 import { useViewsOnlyMode } from '@/lib/views-only-mode';
+import { useSidebarCollapsed } from '@/lib/sidebar-state';
+import { AccountMenu as AvatarMenu } from '@/components/account-menu';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
@@ -280,6 +282,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
   const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
     useSidebarNavWidth();
+  // #994 — hiding the sidebar hides the PANEL; the rail stays, and carries the button that brings the panel back.
+  const { collapsed: panelHidden, toggle: togglePanel } = useSidebarCollapsed();
 
   return (
     <div className="relative flex h-full shrink-0">
@@ -302,15 +306,29 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       onSignOut={signOut}
       unreadCount={unread.data ?? 0}
       onOpenInbox={() => setInboxOpen(true)}
+      panelHidden={panelHidden}
+      onShowPanel={togglePanel}
     />
     <aside
       style={{ width: sidebarWidth - SIDEBAR_RAIL_W }}
-      className="flex h-full shrink-0 flex-col bg-frame"
+      className={cn('flex h-full shrink-0 flex-col bg-frame', panelHidden && 'md:hidden')}
     >
       <div className="flex shrink-0 items-stretch">
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
+        {/* #994 — the sidebar toggle sits beside the workspace switcher (it was in the page's top bar). Desktop only: on a
+            phone the drawer has its own close button. */}
+        <Tooltip label="Hide sidebar">
+          <button
+            type="button"
+            onClick={togglePanel}
+            aria-label="Hide sidebar"
+            className="hidden shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:flex"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </Tooltip>
         {onCloseMobile && (
           <Tooltip label="Close">
             <button
@@ -486,7 +504,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
     </aside>
-      <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />
+      {!panelHidden && <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />}
     </div>
   );
 }
@@ -679,6 +697,8 @@ function SidebarRail({
   onSignOut,
   unreadCount,
   onOpenInbox,
+  panelHidden,
+  onShowPanel,
 }: {
   ws: string;
   workspaceName?: string;
@@ -687,6 +707,8 @@ function SidebarRail({
   onSignOut: () => void | Promise<void>;
   unreadCount: number;
   onOpenInbox: () => void;
+  panelHidden: boolean;
+  onShowPanel: () => void;
 }) {
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
@@ -695,6 +717,14 @@ function SidebarRail({
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
       <RailWorkspaceButton ws={ws} name={workspaceName} />
+      {/* #994 — while the panel is hidden, the way back is HERE, directly under the workspace mark (desktop only). */}
+      {panelHidden && (
+        <Tooltip label="Show sidebar" side="right">
+          <button type="button" onClick={onShowPanel} aria-label="Show sidebar" className={cn(RAIL_BUTTON, 'max-md:hidden')}>
+            <PanelLeftOpen className="h-[17px] w-[17px]" />
+          </button>
+        </Tooltip>
+      )}
       <div className="my-1 h-px w-5 bg-border-strong" aria-hidden />
       <RailLink href={`/w/${ws}`} title="Home" active={isHome}>
         <Home className="h-[17px] w-[17px]" />
@@ -714,6 +744,8 @@ function SidebarRail({
       </RailLink>
       <div className="flex-1" />
       <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
+      {/* #994 — the account menu, moved from the top bar: the avatar under Settings. */}
+      <AvatarMenu variant="rail" />
     </div>
   );
 }
