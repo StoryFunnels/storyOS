@@ -16,6 +16,7 @@ import type { AccessClass } from './access-coverage.classes';
  */
 export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'DELETE /api/v1/admin/workspaces/:id/entitlement-overrides': adminOnly('platform admin (PlatformAdminGuard), not a workspace role'),
+  'DELETE /api/v1/me/ai-connections/:id': workspaceLevel('account-level: the caller\'s own AI connections, no workspace content'),
   'DELETE /api/v1/me/tokens/:token': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'DELETE /api/v1/users/me/avatar': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'DELETE /api/v1/workspaces/:ws/action-gates/:id': workspaceLevel('UNAUDITED: no access primitive referenced in action-gates/ — audit whether it can return scoped content'),
@@ -67,6 +68,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /api/v1/files/:id/download': publicRoute('FileDownloadController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'GET /api/v1/integrations/github/oauth/callback': publicRoute('GithubOAuthController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'GET /api/v1/me': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
+  'GET /api/v1/me/ai-connections': workspaceLevel('account-level: the caller\'s own AI connections, no workspace content'),
   'GET /api/v1/me/tokens': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'GET /api/v1/packs/marketplace': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'GET /api/v1/packs/marketplace/:slug': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
