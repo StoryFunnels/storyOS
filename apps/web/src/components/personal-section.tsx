@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
+import { PHONE_TAP_28 } from '@/components/sidebar-row-style';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
@@ -403,7 +405,7 @@ export function PersonalSection({ ws }: { ws: string }) {
     <DropdownMenu>
       <Tooltip label="New">
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="New in Personal" className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted">
+          <button type="button" aria-label="New in Personal" className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP_28)}>
             <Plus className="h-3.5 w-3.5" />
           </button>
         </DropdownMenuTrigger>

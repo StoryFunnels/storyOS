@@ -141,8 +141,8 @@ export function ThreadMenu({
         <>
           {/* Click-away. A menu that only closes via its own button strands the
               user when they click into the conversation behind it. */}
-          <span className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 top-full z-[var(--z-overlay)] mt-1 max-h-80 w-72 overflow-auto rounded-[var(--radius-card)] border border-border-default bg-card py-1 shadow-[var(--shadow-popover)]">
+          <span className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} aria-hidden />
+          <div className="phone-sheet absolute right-0 top-full z-[var(--z-overlay)] mt-1 max-h-80 w-72 overflow-auto rounded-[var(--radius-card)] border border-border-default bg-card py-1 shadow-[var(--shadow-popover)]">
             {threads.isLoading && <p className="px-3 py-2 text-label text-faint">Loading…</p>}
             {threads.isError && <p className="px-3 py-2 text-label text-error">Could not load conversations.</p>}
             {threads.data?.length === 0 && (

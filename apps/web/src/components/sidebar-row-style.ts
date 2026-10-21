@@ -98,4 +98,10 @@ export function markInitials(name: string): string {
  * the pseudo-element positions against the button.
  */
 export const CARET_HIT_AREA =
-  "relative before:absolute before:-inset-y-1.5 before:-left-3 before:right-0 before:content-['']";
+  "relative before:absolute before:-inset-y-1.5 before:-left-3 before:right-0 before:content-[''] max-md:before:-inset-y-2.5 max-md:before:-left-4 max-md:before:-right-1.5";
+
+/**
+ * #972 — a drawer action icon (the space header's + and ⋯, a section's toolbar) is 28px square on a phone and
+ * keeps its small drawn glyph: the box grows, the icon does not. One constant so the sites cannot drift.
+ */
+export const PHONE_TAP_28 = 'max-md:flex max-md:h-7 max-md:w-7 max-md:items-center max-md:justify-center';

@@ -3,6 +3,7 @@
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
+import { PhoneSheetScrim } from './phone-sheet-scrim';
 
 /**
  * Collision-aware popover primitives (MN-230d). Mirrors the DropdownMenu
@@ -31,11 +32,14 @@ export function PopoverContent({
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          'z-[var(--z-popover)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)] outline-none',
+          'phone-sheet z-[var(--z-popover)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)] outline-none',
           className,
         )}
         {...props}
-      />
+      >
+        {props.children}
+        <PhoneSheetScrim />
+      </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   );
 }

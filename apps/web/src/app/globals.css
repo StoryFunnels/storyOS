@@ -1098,6 +1098,90 @@ html[data-embed] body {
   }
 }
 
+/*
+ * #972 — under 768px every floating panel and menu is a BOTTOM SHEET.
+ *
+ * ONE mechanism, keyed on `.phone-sheet`, because the panels come from two places that cannot share a
+ * component: the Radix popover/dropdown primitives (positioned by a wrapper Popper writes inline styles
+ * onto, hence the `!important`s and `:has`) and a few hand-rolled `fixed backdrop + absolute panel` pairs
+ * in the view toolbar. Both get the same sheet: pinned to the bottom edge, full width, rounded top,
+ * a grabber, and a scrim. At 390px an anchored popover cut a filter value to "Dor"; a full-width sheet
+ * cannot, because it is as wide as the screen. Desktop is untouched: every rule is inside the query.
+ */
+/* off a phone there is no sheet, so no scrim */
+.phone-sheet-scrim {
+  display: none;
+}
+@media (max-width: 767px) {
+  [data-radix-popper-content-wrapper]:has(> .phone-sheet) {
+    transform: none !important;
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  /* the scrim is a real element rendered BESIDE the popper wrapper (ui/phone-sheet-scrim.tsx), never a child of
+     it: Popper writes `will-change: transform` on the wrapper, which makes it the containing block for any
+     `position: fixed` descendant, so a scrim inside it was clipped to the sheet's own box (Otto, PR 1154). */
+  .phone-sheet-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-popover) - 1);
+    background: var(--scrim);
+    pointer-events: none; /* click-through, so Radix still sees the outside press and closes the sheet */
+  }
+  .phone-sheet {
+    position: relative;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: min(80dvh, 36rem) !important;
+    margin: 0 !important;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-width: 1px 0 0 0 !important;
+    border-radius: var(--radius-popover) var(--radius-popover) 0 0 !important;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -8px 32px rgb(0 0 0 / 0.18) !important;
+    animation: phone-sheet-up 180ms ease-out;
+  }
+  /* hand-rolled panels are positioned by their own classes, not by Popper: pin them to the bottom edge */
+  .phone-sheet:not([data-side]) {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    z-index: var(--z-overlay) !important;
+  }
+  /* the grabber */
+  .phone-sheet::before {
+    content: '';
+    display: block;
+    width: 2.25rem;
+    height: 0.25rem;
+    margin: 0.5rem auto 0.25rem;
+    border-radius: 9999px;
+    background: var(--border-strong);
+  }
+  /* menu items in a sheet are finger-sized */
+  .phone-sheet [role='menuitem'] {
+    min-height: 2.5rem;
+  }
+}
+@keyframes phone-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-sheet {
+    animation: none !important;
+  }
+}
+
 /* #969 — the rail's shaded edge, where the navigation meets the work. It began as an accident (the hidden
    mobile drawer's own shadow bleeding onto the rail) and Ievgen liked it, so it is now deliberate and the
    same at every width, in light and dark. */

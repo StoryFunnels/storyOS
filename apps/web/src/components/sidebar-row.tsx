@@ -114,6 +114,8 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
         // #805 — 24px, not the old ~20 (py-[3px] around a 14px line): the
         // artifact's row height, measured.
         'group relative flex h-6 items-center justify-between rounded pr-2 text-body',
+        // #972 — finger-sized in the phone drawer: 34px, and 32px for a view (lens) row
+        lens ? 'max-md:h-8' : 'max-md:h-[34px]',
         edge === 'header' ? 'mx-0 pr-3.5' : 'mx-1.5',
         /**
          * #380 — BACKGROUND ONLY for the active row.

@@ -1252,7 +1252,7 @@ export function FiltersSection({
                 that portal outside this subtree, so contains()-based outside-click
                 detection would misfire and close the builder mid-interaction. */}
             {/* #278 — clicking away closes AND commits the draft. */}
-            <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={closeBuilder} />
+            <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={closeBuilder} />
             {/*
               #429 — GLOBAL AND PERSONAL, VISIBLE AT ONCE. Otto's ruling,
               verbatim: "the effective filter is the thing a user needs to
@@ -1261,7 +1261,7 @@ export function FiltersSection({
               it is now always both, stacked, each labelled — reading the
               popover top to bottom IS reading the effective filter.
             */}
-            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               {/* #965 — "N of M applied" lives here now, not on the button: M is every condition built
                   (either section), N the ones that actually run (not disabled, not unfinished). */}
               {buttonState.configured > 0 && (
@@ -1841,7 +1841,10 @@ function ConditionRow({
                 </option>
               ))}
             </select>
-            <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} />
+            {/* in a phone sheet the value takes its own line (#972); `contents` leaves desktop exactly as it was */}
+            <div className="min-w-0 max-md:basis-full md:contents">
+              <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} />
+            </div>
           </div>
 
           {editingLabel && (
@@ -2358,8 +2361,8 @@ export function SortButton({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+          <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
+          <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
               {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
                   order lives in the Filter panel's Groups section. The old label is

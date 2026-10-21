@@ -43,7 +43,7 @@ import { Input } from '@/components/ui/input';
 import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { CARET_HIT_AREA, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -362,7 +362,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
                   aria-label="Collapse all spaces"
-                  className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+                  className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP_28)}
                 >
                   <ChevronsDownUp className="h-3.5 w-3.5" />
                 </button>
@@ -1759,7 +1759,7 @@ function SpaceSection({
             <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
-                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Add to ${space.name}`}>
+                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -1818,7 +1818,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className="rounded p-0.5 text-muted hover:bg-active" aria-label={`Options for ${space.name}`}>
+                  <button className={cn('rounded p-0.5 text-muted hover:bg-active', PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -3127,6 +3127,7 @@ function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: 
       aria-pressed={active}
       className={cn(
         'relative rounded p-0.5 hover:bg-hover',
+        PHONE_TAP_28,
         active ? 'text-ink' : 'text-faint hover:text-muted',
       )}
     >
@@ -3153,7 +3154,7 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
         <DialogTrigger asChild>
           <button
             aria-label="New group"
-            className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+            className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP_28)}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
