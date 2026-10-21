@@ -79,7 +79,13 @@ function useRemoveRelationLink(ws: string, db: string, recordId: string, field: 
  * render a workflow/assignee/due chip using the SAME generic per-type
  * rendering every other field surface already goes through, rather than a
  * second formatter for just these three types. */
-export function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
+export function ScalarValue({ field, cell, strip, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & {
+  field: Field;
+  cell?: boolean;
+  /** #1019 — drawn as a chip in the record header strip: one shape, no dashed "+" box (adding goes through the
+   *  strip's own "+ Add property"), the remove × shown on hover AND keyboard focus. */
+  strip?: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [showAllChips, setShowAllChips] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
@@ -129,7 +135,13 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
           // each other.
           <span
             key={chip.id}
-            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-label text-ink hover:border-border-strong"
+            className={cn(
+              'group/chip inline-flex max-w-full items-center gap-1 text-label text-ink',
+              // #1019 — the prototype's `.chip`: 26px, pill radius, hairline border, card fill.
+              strip
+                ? 'h-[26px] rounded-full border border-border-default bg-card px-2.5 hover:border-border-strong'
+                : 'rounded border border-border-default bg-hover px-1.5 py-0.5 hover:border-border-strong',
+            )}
           >
             <Link
               href={recordHref(ws, field.relation!.target_database_id, chip)}
@@ -148,7 +160,11 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
               <button
                 type="button"
                 aria-label={`Remove ${chip.title || 'Untitled'}`}
-                className="shrink-0 text-faint hover:text-error"
+                className={cn(
+                  'shrink-0 text-faint hover:text-error',
+                  // #1019 — shown on hover AND on keyboard focus of the chip, never hover-only.
+                  strip && 'opacity-0 focus-visible:opacity-100 group-focus-within/chip:opacity-100 group-hover/chip:opacity-100',
+                )}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -169,12 +185,16 @@ export function ScalarValue({ field, cell, record, ws, db, rec, members, memberN
             {showAllChips ? 'Show fewer' : `+${chips.length - 6} more`}
           </button>
         )}
-        {!readOnly && (
+        {!readOnly && !(strip && chips.length > 0) && (
           <button
-            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink"
+            className={
+              strip
+                ? 'text-label text-faint hover:text-ink'
+                : 'inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-label text-muted hover:border-border-strong hover:text-ink'
+            }
             onClick={() => setEditing(true)}
           >
-            <Plus className="h-3 w-3" /> {chips.length === 0 && 'Add'}
+            {strip ? 'Add' : <Plus className="h-3 w-3" />} {!strip && chips.length === 0 && 'Add'}
           </button>
         )}
         {editing && (

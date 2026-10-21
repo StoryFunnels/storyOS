@@ -1,6 +1,6 @@
 import type { Field } from '@/components/table-view/use-table-data';
 import type { Zone } from './entity-field-utils';
-import { isCollection, zonesOf } from './entity-field-utils';
+import { isCollection, isEmptyValue, zonesOf } from './entity-field-utils';
 
 /**
  * #809 — which fields the chip row under the record title shows.
@@ -97,4 +97,25 @@ export function gridFieldsExcludingStrip<T extends { id: string }>(
 ): T[] {
   const hidden = new Set([...strip.fields, ...promoted].map((f) => f.id));
   return unifiedFields.filter((f) => !hidden.has(f.id));
+}
+
+/**
+ * #1019 — what the strip draws, and what it keeps out of sight.
+ *
+ *   - `shown`: properties with a value, plus any the person has asked to fill in ("+ Add property"). Each is one
+ *     chip; an empty property is NOT drawn as a grey placeholder box.
+ *   - `absent`: empty properties, reachable through "+ Add property" and, as always, the Details section below —
+ *     nothing loses its edit path.
+ *   - `buttons`: action fields (Mark as Done). An action is a button, not a property chip, so it is kept apart
+ *     and drawn as one.
+ */
+export function partitionStrip(
+  fields: Field[],
+  valueOf: (f: Field) => unknown,
+  revealed: ReadonlySet<string>,
+): { shown: Field[]; absent: Field[]; buttons: Field[] } {
+  const buttons = fields.filter((f) => f.type === 'button');
+  const props = fields.filter((f) => f.type !== 'button');
+  const shown = props.filter((f) => revealed.has(f.id) || !isEmptyValue(valueOf(f)));
+  return { shown, absent: props.filter((f) => !shown.includes(f)), buttons };
 }
