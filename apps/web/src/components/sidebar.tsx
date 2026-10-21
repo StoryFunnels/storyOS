@@ -45,7 +45,7 @@ import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
-import { useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
+import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
@@ -2624,8 +2624,8 @@ function DatabaseBranch({
   viewsOnly?: boolean;
 }) {
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
-  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id);
   const activeViewId = isHere ? currentViewId : null;
+  const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id, activeViewId);
   const tint = db.color ? OPTION_COLORS[db.color] : null;
 
   const renderView = (v: SidebarView) => (
@@ -2650,13 +2650,13 @@ function DatabaseBranch({
   // #931 — single-source views nest UNDER their database: one step in, on the same guide line a
   // folder uses, collapsed by default. A collapsed database still shows its active (and, once
   // #966 lands, pinned) view, so the tree never hides where you are.
-  const shown = visibleChildViews(views, { expanded, activeViewId });
+  const shown = visibleChildViews(views, { expanded });
   return (
     <Fragment>
       <DatabaseRow
         ws={ws}
         db={db}
-        active={isHere}
+        active={databaseRowActive({ isHere, expanded, activeViewShown: activeViewId !== null && shown.some((v) => v.id === activeViewId) })}
         isAdmin={isAdmin}
         folders={folders}
         onMove={onMove}
