@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronRight, GripVertical } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -17,6 +17,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { Input } from '../ui/input';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 /**
  * #175 — the Fibery-parity Fields menu, shared by every surface that toggles
@@ -87,7 +88,7 @@ export function FieldsMenu({
   footer?: ReactNode;
 }) {
   const [q, setQ] = useState('');
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSortableSensors();
 
   const canReorder = (field: Field) =>
     Boolean(onReorder) && (isReorderable ? isReorderable(field) : !field.isSystem);

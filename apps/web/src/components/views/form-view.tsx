@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Copy, GripVertical, ListChecks, ListFilter, Plus, Share2, X } from 'lucide-react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,6 +35,7 @@ import {
 } from './form-fields';
 import type { FormFieldCfg } from './form-fields';
 import { embedSnippet } from '@/lib/embed-mode';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 /** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
  * (config.form.fields) and their order — the generic Cards popover no longer
@@ -645,7 +646,7 @@ function FormFieldsSidebar({
   onPatch: (updates: Partial<ViewConfig>) => void;
   onClose: () => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSortableSensors();
   const selectable = allFields.filter((f) => FORM_FIELD_TYPES.has(f.type));
   const formCfgs = config.form?.fields ?? [];
   const selectedIds = resolveFormFieldIds(formCfgs, config.card_field_ids).filter((id) =>

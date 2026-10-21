@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { GitBranch, GripVertical, Plus, Settings2, Split, Trash2 } from 'lucide-react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -15,6 +15,7 @@ import {
 } from '@/components/table-view/button-actions-editor';
 import { conditionLabel, deriveFlowDiagram, triggerLabel } from './flow-diagram-model';
 import type { DiagramCondition, DiagramTrigger } from './flow-diagram-model';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 /**
  * #285 — slice C: editing on the same diagram slice A (#283) draws read-only.
@@ -74,7 +75,7 @@ export function FlowDiagramEditor({
   const ids = useMemo(() => actions.map(idFor), [actions]);
   const flow = deriveFlowDiagram({ trigger, condition, actions }, fields);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSortableSensors();
   const label = (id: string) => {
     const i = ids.indexOf(id);
     return i >= 0 ? flow.actions[i]?.label : undefined;

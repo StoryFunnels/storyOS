@@ -4,7 +4,8 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Suspense, useMemo, useState } from 'react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { Database as DatabaseIcon, Plus } from 'lucide-react';
@@ -73,7 +74,7 @@ function DatabasePageInner() {
   const search = useViewSearch(db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
 
-  const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const viewSensors = useSortableSensors();
   // #527 — the view being published/managed, or null when the dialog is closed.
   const [sharingViewId, setSharingViewId] = useState<string | null>(null);
   const [describing, setDescribing] = useState(false);

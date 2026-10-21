@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -47,6 +47,7 @@ import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
 import { ViewQueryError } from '../views/query-error';
+import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
@@ -340,7 +341,7 @@ export function TableView({
 
   // Drag-to-reorder columns → writes field.position (MN-083).
   const qc = useQueryClient();
-  const columnSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const columnSensors = useSortableSensors();
   const reorderColumns = useMutation({
     mutationFn: async (moves: Array<{ fieldId: string; position: number }>) => {
       for (const m of moves) {
