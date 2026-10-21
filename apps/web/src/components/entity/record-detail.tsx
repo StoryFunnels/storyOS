@@ -65,7 +65,7 @@ import {
 } from '@/components/entity/entity-field-utils';
 import type { FieldGroup, Zone } from '@/components/entity/entity-field-utils';
 import { FieldPicker, TopRowMenu, TopStripAdd, useSetFieldConfig } from '@/components/entity/field-controls';
-import { canPinToStrip, gridFieldsExcludingStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
+import { canPinToStrip, gridFieldsExcludingStrip, partitionStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
 import { BodyScalar, ScalarValue, SidebarField, TopChip, UnifiedFieldRow } from '@/components/entity/scalar-fields';
 import { CollectionSection } from '@/components/entity/collection-section';
 import { RichTextFieldSection } from '@/components/entity/rich-text-field';
@@ -91,7 +91,7 @@ import {
   SIDEBAR_STEP,
   useRecordSidebarWidth,
 } from '@/lib/record-sidebar-width';
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import type { RecordRow } from '@/components/table-view/use-table-data';
@@ -355,6 +355,8 @@ export function RecordDetail({
     [allFields, record.data],
   );
   const [showHidden, setShowHidden] = useState(false);
+  // #1019 — strip properties the person has asked to fill in through "+ Add property".
+  const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
 
   const setFieldConfig = useSetFieldConfig(ws, db);
   const sensors = useSortableSensors();
@@ -535,6 +537,12 @@ export function RecordDetail({
       ?.name_mode === 'computed';
   const titleReadOnly = readOnly || titleComputed;
 
+  // #1019 — which strip properties are drawn: those with a value, plus any asked for through "+ Add property".
+  const stripParts = partitionStrip(
+    strip.fields,
+    (f) => (AUDIT_TYPES.has(f.type) ? true : record.data?.values[f.apiName]),
+    revealed,
+  );
   const vp = {
     ws,
     db,
@@ -829,21 +837,40 @@ export function RecordDetail({
               back to the type heuristic only while a database has none. */}
           {(strip.fields.length > 0 || (watchers.query.data?.watchers.length ?? 0) > 0) && (
             <div className="mb-5 flex flex-wrap items-center gap-1.5">
-              {strip.fields.map((field) => (
-                <span
-                  key={field.id}
-                  className={
-                    field.type === 'workflow'
-                      ? 'inline-flex items-center gap-1.5 rounded-full border border-border-default bg-hover px-2.5 py-1 text-label font-medium text-ink'
-                      : 'inline-flex items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-2 py-1 text-label text-ink-secondary'
-                  }
-                >
-                  <ScalarValue field={field} {...vp} />
+              {/* #1019 — ONE chip for every property, the prototype's `.strip`: the value brings its own coloured pill
+                  or avatar and nothing wraps it in a second box. Empty properties are absent (not grey placeholder
+                  boxes) and come back through "+ Add property"; actions are buttons, kept apart at the end. */}
+              {stripParts.shown.map((field) => (
+                <span key={field.id} className="inline-flex min-h-6 items-center text-label text-ink-secondary">
+                  <ScalarValue field={field} strip {...vp} />
                 </span>
               ))}
+              {!readOnly && stripParts.absent.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="inline-flex h-6 items-center gap-1 rounded-full px-2 text-label text-faint hover:text-ink">
+                      <Plus className="h-3 w-3" aria-hidden /> Add property
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {stripParts.absent.map((field) => (
+                      <DropdownMenuItem key={field.id} onSelect={() => setRevealed((r) => new Set(r).add(field.id))}>
+                        {field.displayName}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               {(watchers.query.data?.watchers.length ?? 0) > 0 && (
                 <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] px-2 py-1 text-label text-muted">
                   {watchers.query.data!.watchers.length} watching
+                </span>
+              )}
+              {stripParts.buttons.length > 0 && (
+                <span className="ml-auto flex flex-wrap items-center gap-1.5">
+                  {stripParts.buttons.map((field) => (
+                    <ScalarValue key={field.id} field={field} {...vp} />
+                  ))}
                 </span>
               )}
             </div>
