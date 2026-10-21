@@ -753,6 +753,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
+  // #1008 — read-only: names and dates of the caller's connected AI clients. Disconnecting is human-only and is not a tool (coverage.ts).
+  list_ai_connections: 'read',
   get_staged_action: 'read',
   setup_agents: 'admin',
   run_agent: 'admin',
@@ -6323,6 +6325,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/runs/quota', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_ai_connections',
+    {
+      title: 'List my connected AI clients',
+      description:
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). An OAuth connection reaches every workspace the person belongs to; a token only this one. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/me/ai-connections', { params: { query: { workspace_id: ws.id } } as never }),
       );
       return text(res);
     }),
