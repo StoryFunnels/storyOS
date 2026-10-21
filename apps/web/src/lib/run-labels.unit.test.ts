@@ -43,6 +43,9 @@ describe('runStatusLabel', () => {
     expect(runStatusLabel('skipped')).toBe('Skipped');
     expect(runStatusLabel('skipped_quota')).toBe('Skipped (quota)');
     expect(runStatusLabel('pending_approval')).toBe('Awaiting approval');
+    // The status ticket #1009's API will return says the same words as the join does.
+    expect(runStatusLabel('awaiting_approval')).toBe('Awaiting approval');
+    expect(runStatusTone('awaiting_approval')).toBe('wait');
     // The names it replaced must not survive anywhere in the map.
     for (const s of RUN_STATUSES) expect(runStatusLabel(s)).not.toMatch(/^(OK|Completed|Waiting for approval)$/);
   });

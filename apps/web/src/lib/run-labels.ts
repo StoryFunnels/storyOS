@@ -40,6 +40,8 @@ const RUN_STATUS_LABELS: Record<string, string> = {
   skipped_quota: 'Skipped (quota)',
   skipped_cap: 'Skipped (limit)',
   pending_approval: 'Awaiting approval',
+  // What the API itself returns once ticket #1009 lands (a derived status, never stored); same words as the join's.
+  awaiting_approval: 'Awaiting approval',
 };
 
 /** Friendly phrase for a whole run's status (e.g. `skipped_quota`). */
@@ -191,7 +193,7 @@ export type RunTone = 'ok' | 'fail' | 'wait' | 'run' | 'skip';
 export function runStatusTone(status: string): RunTone {
   if (status === 'ok') return 'ok';
   if (status === 'error') return 'fail';
-  if (status === 'pending_approval') return 'wait';
+  if (status === 'pending_approval' || status === 'awaiting_approval') return 'wait';
   if (status === 'running') return 'run';
   return 'skip';
 }
