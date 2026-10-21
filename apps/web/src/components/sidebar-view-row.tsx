@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Table2, Lock } from 'lucide-react';
+import { Database, Table2, Lock } from 'lucide-react';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { buildViewMenu } from '@/components/views/view-menu';
 import { useViewMenuActions, viewMenuSidebarActions } from '@/components/views/view-menu-items';
@@ -10,6 +10,10 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GlyphSlot, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
+import { EntityIcon } from '@/components/ui/icon-picker';
+import { databaseColor } from '@/lib/entity-color';
+import { useDatabases } from '@/lib/queries';
+import { sourceMarks } from '@/lib/sidebar-source-marks';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -29,6 +33,8 @@ export interface SidebarView {
   position: number;
   is_default: boolean;
   personal: boolean;
+  /** #1013 — the databases this view reads (a dashboard: its tiles' too); unreadable ones are omitted by the API. */
+  source_database_ids?: string[];
 }
 
 export interface FolderChoice {
@@ -89,6 +95,13 @@ export function SidebarViewRow({
   const href = view.database_id
     ? `/w/${ws}/d/${view.database_id}?view=${view.id}`
     : `/w/${ws}/v/${view.id}`;
+
+  // #1013 — a view that reads several databases names them at its right edge (the prototype's `srcMarks`).
+  const databases = useDatabases(ws);
+  const marks = sourceMarks(
+    view.source_database_ids,
+    new Map((databases.data ?? []).map((d) => [d.id, { id: d.id, name: d.name, icon: d.icon, color: d.color }])),
+  );
 
   const label = (
     <>
@@ -186,6 +199,21 @@ export function SidebarViewRow({
         </Link>
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-2">{label}</span>
+      )}
+
+      {marks && (
+        <span
+          className="ml-auto flex shrink-0 items-center gap-0.5"
+          title={`Reads ${marks.shown.length + marks.more} databases: ${marks.shown.map((d) => d.name).join(', ')}${marks.more > 0 ? ` and ${marks.more} more` : ''}`}
+          data-testid="source-marks"
+        >
+          {marks.shown.map((d) => (
+            <span key={d.id} className="flex h-3.5 w-3.5 items-center justify-center text-[13px]" title={d.name}>
+              <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={<Database className="h-3 w-3" />} />
+            </span>
+          ))}
+          {marks.more > 0 && <span className="text-[9px] font-bold tabular-nums text-faint">+{marks.more}</span>}
+        </span>
       )}
 
       {/**
