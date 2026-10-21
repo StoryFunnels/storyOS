@@ -165,8 +165,12 @@ export function ViewTab({
         setMenuOpen(true);
       }}
       className={cn(
-        'group/tab flex items-center gap-1 rounded px-2 py-1 text-body',
-        isActive ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+        // #994 — the prototype's `.tab`: 30px tall, 11px side padding, 12px label, rounded on top only; the active tab is
+        // a white card with a hairline on its top and sides (the strip's own line closes the bottom), weight 650.
+        'group/tab flex h-[30px] shrink-0 items-center gap-1.5 rounded-t-[var(--radius-control)] px-[11px] text-label',
+        isActive
+          ? 'bg-card font-[650] text-ink shadow-[inset_0_1px_0_var(--border-default),inset_1px_0_0_var(--border-default),inset_-1px_0_0_var(--border-default)]'
+          : 'text-muted hover:bg-hover hover:text-ink',
         sortable.isDragging && 'z-10 opacity-70',
       )}
     >

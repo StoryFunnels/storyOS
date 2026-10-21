@@ -79,6 +79,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { CHIP_COUNT, CHIP_PERSON, TOOLBAR_BTN, chipClass } from './toolbar-chip';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
@@ -433,7 +434,7 @@ export function ViewToolbar({
       : [];
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
+    <div className="flex min-h-9 flex-wrap items-center gap-[7px] border-b border-border-default bg-app px-4 py-[9px]">
       {/* #964 — Filter · Sort · [Group] · Find · N of M · Display · ⋯ · New, in that order. The
           left cluster is what narrows and orders the rows; the right is how they look, the view's
           own menu, and the one primary action. */}
@@ -499,7 +500,7 @@ export function ViewToolbar({
                 <button
                   type="button"
                   aria-label="View options"
-                  className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink aria-expanded:bg-hover"
+                  className={cn(TOOLBAR_BTN, 'px-[9px]')}
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
@@ -542,7 +543,7 @@ function ViewCount({
   if (total.data === undefined) return null;
   const narrowed = shown.data !== undefined && shown.data !== total.data;
   return (
-    <span className="whitespace-nowrap px-1 text-label tabular-nums text-muted" aria-live="polite">
+    <span className="whitespace-nowrap px-1 text-label tabular-nums text-faint" aria-live="polite">
       {narrowed ? `${shown.data} of ${total.data}` : String(total.data)}
     </span>
   );
@@ -577,7 +578,7 @@ function NewRecordButton({ ws, db }: { ws: string; db: string }) {
       type="button"
       onClick={() => create.mutate()}
       disabled={create.isPending}
-      className="flex h-7 items-center gap-1 rounded-[var(--radius-control)] bg-primary px-2.5 text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
+      className="inline-flex h-[27px] shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] border border-primary bg-primary px-[11px] text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
     >
       <Plus className="h-3.5 w-3.5" /> New
     </button>
@@ -1326,25 +1327,21 @@ export function FiltersSection({
               ? `Filter, ${buttonState.applied} applied${buttonState.personalOn ? ', including your personal filter' : ''}`
               : 'Filter'
           }
-          className={cn(
-            'flex items-center gap-1 rounded-[var(--radius-control)] border px-1.5 py-1 text-label hover:bg-hover',
-            // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned
-            // included). Disabled and unfinished conditions hide nothing, so they do not turn it on.
-            buttonState.yellow
-              ? 'border-[var(--accent)] bg-accent-soft text-ink'
-              : 'border-transparent text-muted',
-          )}
+          // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned included).
+          // Disabled and unfinished conditions hide nothing, so they do not turn it on. #992 — the chip is the
+          // prototype's: a pill, gold border and tint when active (toolbar-chip.ts).
+          className={chipClass(buttonState.yellow)}
         >
-          <ListFilter className="h-3.5 w-3.5" />
+          <ListFilter className="h-3 w-3" />
           Filter
-          {/* The count: applied conditions that are not already chips. A pinned one is its own chip. */}
-          {buttonState.buttonCount > 0 && (
-            <span className="tabular-nums text-ink">{buttonState.buttonCount}</span>
-          )}
           {/* A person mark while the personal filter is on; it replaces the old standing chip (#259). */}
           {buttonState.personalOn && (
-            <UserRound className="h-3 w-3" aria-hidden />
+            <span className={CHIP_PERSON} title="Your personal filter is on" aria-hidden>
+              <UserRound className="h-2.5 w-2.5" />
+            </span>
           )}
+          {/* The count: applied conditions that are not already chips. A pinned one is its own chip. */}
+          {buttonState.buttonCount > 0 && <span className={CHIP_COUNT}>{buttonState.buttonCount}</span>}
         </button>
         {open && (
           <>
@@ -1449,10 +1446,8 @@ function PinnedFilterChip({
   const Icon = fieldTypeIcon(field.type);
   return (
     <span
-      className={cn(
-        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label',
-        condition.disabled && 'opacity-50',
-      )}
+      // #992 — a pinned condition is an ACTIVE chip in the prototype (gold), struck through while it is off.
+      className={cn(chipClass(!condition.disabled), condition.disabled && 'line-through opacity-55')}
     >
       <button
         type="button"
@@ -2582,19 +2577,14 @@ export function SortButton({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={cn(
-          'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
-          sorts.length ? 'bg-accent-soft text-ink' : 'text-muted',
-        )}
+        className={chipClass(sorts.length > 0)}
         aria-label={sorts.length ? `${emptyLabel}, ${sorts.length} applied` : emptyLabel}
       >
-        <ArrowUpDown className="h-3.5 w-3.5" />
+        <ArrowUpDown className="h-3 w-3" />
         {/* #992 — always "Sort" (Ievgen), with the count and the active style when sorts exist, like the Filter button. */}
         {emptyLabel}
         {sorts.length > 0 && (
-          <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_22%,transparent)] px-1 text-micro font-bold tabular-nums text-ink">
-            {sorts.length}
-          </span>
+          <span className={CHIP_COUNT}>{sorts.length}</span>
         )}
       </button>
       {open && (
