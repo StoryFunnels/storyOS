@@ -151,8 +151,10 @@ function DatabasePageInner() {
   return (
     <div className="flex h-full flex-col">
       {/* View tabs */}
-      <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
-        <h1 className="mr-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold text-ink">
+      {/* #994 — the prototype's `.tophd`: title, tabs and switcher share ONE bottom-aligned row (padding 10px 16px 0, a
+          hairline under it), so an active tab sits on the line and reads as joined to the page. */}
+      <div className="flex items-end gap-2.5 border-b border-border-default px-4 pt-2.5">
+        <h1 className="flex shrink-0 items-center gap-2 pb-2.5 text-title font-bold tracking-[-0.02em] text-ink">
           {readOnly ? (
             database.data?.icon && (
               <EntityIconChip
@@ -196,7 +198,7 @@ function DatabasePageInner() {
         {/* Tabs scroll horizontally instead of clipping under the flex parent
             (MN-230b); min-w-0 lets this flex item shrink below content size so
             overflow-x-auto actually kicks in rather than pushing the row wide. */}
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
           <DndContext sensors={viewSensors} collisionDetection={closestCenter} {...viewDrag.contextProps}>
             <SortableContext
               items={strip.filter((t) => t.pinned).map((t) => t.view.id)}
@@ -231,7 +233,7 @@ function DatabasePageInner() {
           </DndContext>
         </div>
         {database.data && (
-          <div className="shrink-0">
+          <div className="shrink-0 pb-[9px]">
             <ViewSwitcher
               ws={ws}
               db={db}
