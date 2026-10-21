@@ -1,4 +1,7 @@
+import { DEFAULT_ENTITY_COLORS as DEFAULT_ENTITY_NAMES, hashId } from '@storyos/schemas';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
+
+export { hashId };
 
 /**
  * #1001 — a database with no colour of its own still gets one.
@@ -12,25 +15,35 @@ import { OPTION_COLORS } from '@/components/table-view/option-colors';
  * quick add, the relations diagram…). A surface that reads `database.color` directly keeps the grey, which is the bug
  * returning; `entity-color.unit.test.ts` sweeps the source for exactly that.
  *
- * The eight are the picker's own palette names (`OPTION_COLORS`), chosen for distinct hues and for contrast: each is at
- * least 3:1 against both the light (#f4efe5) and the dark (#0a0d12) sidebar, which is the bar for a glyph. The palette is
- * one fixed hex per name, with no separate dark set, so the contrast test pins the table the app really has.
+ * The eight are the prototype's `--c1`..`--c8` (light and dark values in globals.css), each at least 3:1 against both
+ * sidebars in both themes — the bar for a glyph; the light gold is darker than the prototype's, which is only 2.07:1.
  */
-export const DEFAULT_ENTITY_COLORS = ['blue', 'teal', 'green', 'orange', 'red', 'pink', 'purple', 'gold'] as const;
+/**
+ * The eight default colours, in HASH ORDER (index = hashId(id) % 8). The hash, the order and the picker NAMES come from
+ * `@storyos/schemas` — ONE definition shared with the API and with the migration that backfills stored greys (ticket
+ * #1016), so a database's default is the same colour in a response and in the sidebar. The web adds only the app TOKEN
+ * for each (`--c1`..`--c8`, with a light and a dark value in globals.css, the prototype's palette).
+ */
+export const DEFAULT_ENTITY_PALETTE = DEFAULT_ENTITY_NAMES.map((name, i) => ({ token: `c${i + 1}`, name }));
+export const DEFAULT_ENTITY_COLORS = DEFAULT_ENTITY_PALETTE.map((p) => p.token);
 
-/** FNV-1a over UTF-16 code units: tiny, dependency-free, and the same everywhere (no locale, no platform). */
-export function hashId(id: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
+/** A default-colour token key (`c1`..`c8`), as opposed to a picker palette name. */
+export function isEntityToken(color: string | null | undefined): boolean {
+  return /^c[1-8]$/.test(color ?? '');
+}
+
+/**
+ * The CSS colour for a database colour value: a default token is `var(--cN)` (theme-aware, so dark mode gets the
+ * prototype's dark set); a person-chosen picker name is its fixed palette hex, exactly as before.
+ */
+export function entityColor(color: string | null | undefined): string | undefined {
+  if (!color) return undefined;
+  return isEntityToken(color) ? `var(--${color})` : OPTION_COLORS[color];
 }
 
 /** The default colour NAME for an id. */
-export function defaultEntityColor(id: string): (typeof DEFAULT_ENTITY_COLORS)[number] {
-  return DEFAULT_ENTITY_COLORS[hashId(id) % DEFAULT_ENTITY_COLORS.length]!;
+export function defaultEntityColor(id: string): string {
+  return DEFAULT_ENTITY_PALETTE[hashId(id) % DEFAULT_ENTITY_PALETTE.length]!.token;
 }
 
 /**
