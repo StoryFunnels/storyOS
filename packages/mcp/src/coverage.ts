@@ -125,6 +125,11 @@ export const EXCLUDED: CoverageRule[] = [
       'Money. Checkout sessions, credit top-ups, auto-reload and plan changes are decisions a person makes with a card, not something an assistant should be able to trigger on their behalf.',
   },
   {
+    match: /^DELETE \/api\/v1\/me\/ai-connections/,
+    reason:
+      'Human-only by decision (product owner, ticket #1008). Disconnecting an AI client cuts off a person\'s access; an agent must not be able to revoke the human\'s other clients, and the endpoint itself refuses anything but a signed-in session. The read half is the list_ai_connections tool.',
+  },
+  {
     match: /^(GET|POST|DELETE) \/api\/v1\/me\/tokens/,
     reason:
       'PRIVILEGE ESCALATION. A tool that mints personal access tokens would let an agent issue itself a fresh credential outliving its run, and the whole point of ADR-0016 §2 is a short-lived token revoked when the turn ends.',
