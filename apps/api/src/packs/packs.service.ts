@@ -2,10 +2,12 @@ import { ConflictException, Inject, Injectable, UnprocessableEntityException } f
 import { createHash } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
+  blocksToMarkdown,
   compareSemver,
   creatableFieldTypeSchema,
   dbRef,
   fieldRef,
+  lineDiff,
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
@@ -13,7 +15,9 @@ import {
 } from '@storyos/schemas';
 import type {
   PackAgent,
+  PackAgentUpdate,
   PackAiNeed,
+  PackDatabaseGains,
   PackConnection,
   PackDerivedField,
   PackExportRequest,
@@ -38,6 +42,7 @@ import { fields as fieldsTable, packInstallItems, packInstalls, sources, workspa
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
+import { decideField, decideState, relationExists } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
@@ -55,6 +60,23 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** #977 — what an update would do to one tracked agent, and what is needed to do it. */
+interface AgentUpdatePlan {
+  update: PackAgentUpdate;
+  recordId: string;
+  /** The values to write when the update is applied (pack-defined parts only). */
+  values: Record<string, unknown>;
+  /** Hash of the PACK's content for this agent, in the same normalised form `source_hash` stores. */
+  newHash: string;
+  /** What the install row held before this run — preserved when the person's edits are kept. */
+  previous: { packVersion: string | null; sourceHash: string | null };
+}
+
+/** `pack_install_items` provenance for an agent, keyed by normalised agent name. */
+type AgentProvenance = Map<string, { packVersion: string | null; sourceHash: string | null }>;
+
+const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy'] as const;
 
 /** #266 — every `$db:`/`$field:`/`$option:` ref anywhere inside a value,
  *  walked the same generic way `refify`/`deref` do (any string, any depth,
@@ -985,8 +1007,8 @@ export class PacksService {
   async preview(membership: Membership, rawManifest: unknown): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     const unmet = await this.checkRequirements(membership, manifest);
-    const collisions = await this.computeCollisions(membership, manifest);
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, ...collisions };
+    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
   }
 
   /**
@@ -1005,6 +1027,7 @@ export class PacksService {
     views: PackPreviewItem[];
     automations: PackPreviewItem[];
     agents: PackPreviewItem[];
+    agentPlans: Map<string, AgentUpdatePlan>;
   }> {
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const tracked = existingInstall
@@ -1063,6 +1086,13 @@ export class PacksService {
       views.push({ name: label, action });
     }
 
+    // #982 — what a REUSED database gains: decided by the same functions the install runs (agents/plan-decisions.ts).
+    const gainsByDb = await this.databaseGains(membership, manifest, liveByName, views);
+    for (const item of databases) {
+      const gains = item.action === 'create' ? undefined : gainsByDb.get(norm(item.name));
+      if (gains) item.gains = gains;
+    }
+
     const automations: PackPreviewItem[] = [];
     for (const planned of manifest.automations) {
       const label = `${planned.database}.${planned.name}`;
@@ -1089,12 +1119,212 @@ export class PacksService {
       const { data } = await this.records.list(agentsDb.id, { limit: MAX_SCAN });
       agentTitles = new Set(data.map((r) => norm(r.title)));
     }
-    const agents: PackPreviewItem[] = manifest.agents.map((a) => ({
-      name: a.name,
-      action: classify('agent', a.name, agentTitles?.has(norm(a.name)) ?? false),
-    }));
+    const agentPlans = existingInstall && agentsDb ? await this.planAgentUpdates(membership, manifest, existingInstall.id, agentsDb.id) : new Map<string, AgentUpdatePlan>();
+    const agents: PackPreviewItem[] = manifest.agents.map((a) => {
+      const action = classify('agent', a.name, agentTitles?.has(norm(a.name)) ?? false);
+      const plan = action === 'reuse' ? agentPlans.get(norm(a.name)) : undefined;
+      return plan ? { name: a.name, action, agent_update: plan.update } : { name: a.name, action };
+    });
 
-    return { databases, views, automations, agents };
+    return { databases, views, automations, agents, agentPlans };
+  }
+
+  /**
+   * The pack-defined content of an agent record in ONE comparable shape (#977): the texts as markdown, the option ids sorted. Both the
+   * live record and the manifest go through it — the manifest side after `agentContentValues` turned it into blocks — so "did this
+   * agent change" can never be a question about how the editor happens to normalise whitespace or block structure.
+   */
+  private agentContent(values: Record<string, unknown>) {
+    const text = (v: unknown) => (Array.isArray(v) ? blocksToMarkdown(v as never).trim() : '');
+    const ids = (v: unknown) => (Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string').sort() : []);
+    return { goal: text(values.goal), instructions: text(values.instructions), scopes: ids(values.scopes), approval_policy: ids(values.approval_policy) };
+  }
+
+  /**
+   * For every agent an earlier install of this pack created and that is still live: would this version change it, and if so may it be
+   * applied without asking? (#977) The classification is the whole product rule —
+   *   live == pack's new content          -> unchanged (nothing to do)
+   *   live == what the pack installed     -> will_update (the person never touched it)
+   *   anything else                       -> edited_needs_choice, Keep mine unless the person takes the update
+   * An agent with no recorded origin (installed before this was tracked) falls into the last case on purpose: it is never overwritten.
+   */
+  private async planAgentUpdates(
+    membership: Membership,
+    manifest: PackManifest,
+    packInstallId: string,
+    agentsDbId: string,
+  ): Promise<Map<string, AgentUpdatePlan>> {
+    const plans = new Map<string, AgentUpdatePlan>();
+    if (manifest.agents.length === 0) return plans;
+    const items = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, 'agent')),
+    });
+    const byName = new Map(items.map((i) => [norm(i.name), i]));
+    const { data } = await this.records.list(agentsDbId, { limit: MAX_SCAN });
+    const live = new Map(data.map((r) => [norm(r.title), r]));
+    for (const planned of manifest.agents) {
+      const item = byName.get(norm(planned.name));
+      const record = live.get(norm(planned.name));
+      if (!item || !record) continue;
+      const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
+      const next = this.agentContent(values);
+      const now = this.agentContent(record.values as Record<string, unknown>);
+      const newHash = this.hashOf(next);
+      const nowHash = this.hashOf(now);
+      const changed = AGENT_CONTENT_FIELDS.filter((f) => JSON.stringify(now[f]) !== JSON.stringify(next[f]));
+      let update: PackAgentUpdate;
+      if (nowHash === newHash) {
+        update = { status: 'unchanged', changed_fields: [], installed_version: item.packVersion };
+      } else if (item.sourceHash && nowHash === item.sourceHash) {
+        update = { status: 'will_update', changed_fields: [...changed], installed_version: item.packVersion };
+      } else {
+        update = {
+          status: 'edited_needs_choice',
+          changed_fields: [...changed],
+          reason: item.sourceHash ? 'edited' : 'unknown_origin',
+          diff: {
+            ...(changed.includes('goal') ? { goal: lineDiff(now.goal, next.goal) } : {}),
+            ...(changed.includes('instructions') ? { instructions: lineDiff(now.instructions, next.instructions) } : {}),
+          },
+          installed_version: item.packVersion,
+        };
+      }
+      plans.set(norm(planned.name), {
+        update,
+        recordId: record.id,
+        values,
+        newHash,
+        previous: { packVersion: item.packVersion, sourceHash: item.sourceHash },
+      });
+    }
+    return plans;
+  }
+
+  /**
+   * Apply what `planAgentUpdates` decided, and say what provenance each agent should carry afterwards (#977).
+   * will_update is applied; edited_needs_choice only when the person took it; unchanged and kept-edited agents are left exactly as
+   * they are. A kept agent keeps its PREVIOUS origin so the next update still sees it as edited rather than as "matching the new pack".
+   */
+  private async updateReusedAgents(
+    membership: Membership,
+    manifest: PackManifest,
+    plans: Map<string, AgentUpdatePlan>,
+    take: Set<string>,
+    result: PackInstallResult,
+  ): Promise<AgentProvenance> {
+    const provenance: AgentProvenance = new Map();
+    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    for (const entry of result.agents) {
+      if (entry.action === 'skipped' || !entry.id || !agentsDb) continue;
+      const key = norm(entry.name);
+      const plan = plans.get(key);
+      if (entry.action === 'created') {
+        const record = await this.records.get(agentsDb.id, entry.id);
+        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>)) });
+        continue;
+      }
+      if (!plan) continue; // reused but never tracked (an adopted collision): origin unknown, stays null
+      const apply = plan.update.status === 'will_update' || (plan.update.status === 'edited_needs_choice' && take.has(key));
+      if (apply) {
+        await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, plan.values, membership.userId);
+        entry.action = 'updated';
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else if (plan.update.status === 'unchanged') {
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else {
+        provenance.set(key, plan.previous);
+      }
+    }
+    return provenance;
+  }
+
+  /**
+   * What the install would ADD to each database that already exists (#982), and what it would leave alone and why.
+   *
+   * It replays the install's order against live state — fields, relations, states, derived fields, then views — keeping a simulated field
+   * list per database, so a field an earlier step creates is seen by a later step exactly as the install would see it. Every decision is
+   * `agents/plan-decisions.ts`, the module `ArchitectService` and the install call to decide, so the answer cannot be a second opinion.
+   */
+  private async databaseGains(
+    membership: Membership,
+    manifest: PackManifest,
+    liveByName: Map<string, { id: string; name: string }>,
+    viewItems: PackPreviewItem[],
+  ): Promise<Map<string, PackDatabaseGains>> {
+    type SimField = { displayName: string; type: string; options?: Array<{ label: string }> };
+    const sim = new Map<string, SimField[]>();
+    const gains = new Map<string, PackDatabaseGains>();
+    for (const d of manifest.databases) {
+      const live = liveByName.get(norm(d.name));
+      if (!live) continue;
+      const detail = await this.databases.get(membership, live.id);
+      sim.set(norm(d.name), ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options })));
+      gains.set(norm(d.name), { fields: [], options: [], views: [], not_applied: [] });
+    }
+    const add = (db: string, name: string, type: string, options?: Array<{ label: string }>) => {
+      const fields = sim.get(norm(db));
+      if (!fields) return;
+      fields.push({ displayName: name, type, options });
+      gains.get(norm(db))!.fields.push({ name, type });
+    };
+
+    for (const d of manifest.databases) {
+      const fields = sim.get(norm(d.name));
+      if (!fields) continue;
+      for (const f of d.fields) {
+        const decision = decideField(fields, f.name, f.type);
+        if (decision.action === 'create') add(d.name, f.name, f.type, f.options);
+        else if (decision.clash) {
+          gains.get(norm(d.name))!.not_applied.push({
+            kind: 'field',
+            name: `${d.name}.${f.name}`,
+            reason: `A "${f.name}" field already exists as ${decision.clash.live_type}; the pack wants ${decision.clash.planned_type}, so it is kept as it is.`,
+          });
+        }
+      }
+    }
+
+    for (const r of manifest.relations) {
+      const from = sim.get(norm(r.from));
+      // The relation exists when the "from" database is live and already has that relation field; otherwise it is created, adding a field
+      // on each side that is a live database (a side that is itself created has no gains entry to report on).
+      if (from && relationExists(from, r.from_field)) continue;
+      add(r.from, r.from_field, 'relation');
+      if (r.to_field) add(r.to, r.to_field, 'relation');
+    }
+
+    for (const st of manifest.states) {
+      const fields = sim.get(norm(st.database));
+      if (!fields) continue;
+      const decision = decideState(fields, st.field, st.options);
+      if (decision.action === 'create') add(st.database, st.field, 'select', st.options);
+      else if (decision.action === 'blocked') {
+        gains.get(norm(st.database))!.not_applied.push({
+          kind: 'state',
+          name: `${st.database}.${st.field}`,
+          reason: `"${st.field}" already exists as ${decision.live_type}, but a workflow state must be a select field: the install would stop here.`,
+          blocks_install: true,
+        });
+      } else if (decision.options_to_add.length > 0) {
+        gains.get(norm(st.database))!.options.push({ field: st.field, labels: decision.options_to_add });
+        const existing = fields.find((f) => norm(f.displayName) === norm(st.field));
+        if (existing) existing.options = [...(existing.options ?? []), ...decision.options_to_add.map((label) => ({ label }))];
+      }
+    }
+
+    for (const df of manifest.derived_fields) {
+      const fields = sim.get(norm(df.database));
+      if (!fields) continue;
+      if (decideField(fields, df.name, df.type).action === 'create') add(df.database, df.name, df.type);
+    }
+
+    // `viewItems` is one item per planned view, in manifest order: read the database off the manifest, never by splitting the
+    // "<database>.<view>" label (a database name may contain a dot).
+    manifest.views.forEach((planned, i) => {
+      if (viewItems[i]?.action !== 'create') return;
+      gains.get(norm(planned.database))?.views.push(planned.name);
+    });
+    return gains;
   }
 
   private parseManifest(rawManifest: unknown): PackManifest {
@@ -1161,7 +1391,7 @@ export class PacksService {
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const collisions = await this.computeCollisions(membership, manifest);
-    const { manifest: working, skippedAgents, viewResolutions, automationResolutions } =
+    const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
     // ── The reuse: a PackManifest IS an ArchitectPlan ────────────────────────
@@ -1190,6 +1420,9 @@ export class PacksService {
       skipped_sample_field_values: [],
     };
 
+    // #977 — bring reused agents up to this version, BEFORE their content is hashed for uninstall's modified check below.
+    const agentProvenance = await this.updateReusedAgents(membership, manifest, collisions.agentPlans, takeAgents, result);
+
     const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
 
     // Derived fields go in before the ref table the views use is built: a view
@@ -1216,7 +1449,7 @@ export class PacksService {
     await this.installSkills(membership, working, result, hashes);
     await this.hashInstalledAgents(membership, result, hashes);
 
-    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked);
+    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
 
     return result;
   }
@@ -1243,11 +1476,27 @@ export class PacksService {
     resolutions: PackInstallResolutions,
   ): {
     manifest: PackManifest;
+    takeAgents: Set<string>;
     skippedAgents: string[];
     viewResolutions: Map<string, PackInstallResolutions[string]>;
     automationResolutions: Map<string, PackInstallResolutions[string]>;
   } {
     const unresolved: string[] = [];
+
+    // #977 — `update` is "take the pack's version of an agent the person edited" and nothing else. Refused everywhere it does not
+    // mean that, so a mistyped resolution can never silently overwrite (or silently do nothing).
+    const takeAgents = new Set<string>();
+    for (const [name, resolution] of Object.entries(resolutions)) {
+      if (resolution.action !== 'update') continue;
+      const agent = collisions.agents.find((a) => a.name === name);
+      if (agent?.action !== 'reuse' || agent.agent_update?.status !== 'edited_needs_choice') {
+        throw new UnprocessableEntityException(
+          `"update" is only valid for an installed agent whose content was edited since the pack installed it; "${name}" is not one. ` +
+            `Preview shows which agents need that choice.`,
+        );
+      }
+      takeAgents.add(norm(name));
+    }
 
     for (const item of collisions.databases) {
       if (item.action !== 'collision') continue;
@@ -1315,7 +1564,7 @@ export class PacksService {
       );
     }
 
-    return { manifest: working, skippedAgents, viewResolutions, automationResolutions };
+    return { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents };
   }
 
   private removeAgent(manifest: PackManifest, name: string): PackManifest {
@@ -1392,6 +1641,7 @@ export class PacksService {
     existingInstall: { id: string } | undefined,
     hashes: Map<string, string>,
     untracked: Set<string> = new Set(),
+    agentProvenance: AgentProvenance = new Map(),
   ): Promise<void> {
     let installId: string;
     if (existingInstall) {
@@ -1428,6 +1678,8 @@ export class PacksService {
       entityId: string;
       action: 'created' | 'reused';
       contentHash: string | null;
+      packVersion?: string | null;
+      sourceHash?: string | null;
     }> = [];
     const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
       for (const entry of entries) {
@@ -1437,8 +1689,9 @@ export class PacksService {
           kind,
           name: entry.name,
           entityId: entry.id,
-          action: entry.action as 'created' | 'reused',
+          action: (entry.action === 'updated' ? 'reused' : entry.action) as 'created' | 'reused',
           contentHash: hashes.get(`${kind}:${entry.id}`) ?? null,
+          ...(kind === 'agent' ? (agentProvenance.get(norm(entry.name)) ?? { packVersion: null, sourceHash: null }) : {}),
         });
       }
     };
@@ -1783,8 +2036,8 @@ export class PacksService {
       const dbId = this.resolveDb(dbIds, planned.database, `The ${planned.type} field "${label}"`);
       const live = await this.liveFields(membership, dbId);
       const existing = live.find((f) => norm(f.displayName) === norm(planned.name));
-      if (existing) {
-        result.derived_fields.push({ name: label, action: 'reused', id: existing.id });
+      if (decideField(live, planned.name, planned.type).action === 'reuse') {
+        result.derived_fields.push({ name: label, action: 'reused', id: existing!.id });
         continue;
       }
       const config = deref(planned.config, refToId, `The ${planned.type} field "${label}"`);

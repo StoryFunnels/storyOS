@@ -22,19 +22,25 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { AddSummaryWidgetButton } from './summary-widget-strip';
+import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
+import { useViewSearch } from './view-search';
+import { DisplayMenu } from './display-menu';
+import { GroupChip, showsGroupChip, viewGroups } from './group-chip';
+import { buildViewMenu } from './view-menu';
+import type { ViewMenuHandlers, ViewMenuTarget } from './view-menu';
+import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
+import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
-import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
-import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowUpDown,
   Check,
   CircleHelp,
   Copy,
-  Download,
   Eye,
   EyeOff,
   Group,
@@ -54,7 +60,7 @@ import {
 } from 'lucide-react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
@@ -71,14 +77,9 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
-import { isHierarchyField } from '../table-view/use-hierarchy';
 import { fieldTypeIcon } from './field-type-icon';
-import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
-import { isCoverField } from './cover-fields';
-import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
-import { FieldsMenu } from './fields-menu';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
-import { useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
+import { queryBodyFromConfig, useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
 import {
   buildFilterGroup,
   canMoveNodeTo,
@@ -104,17 +105,6 @@ import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSor
 import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
-import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
-import { Segmented } from '@/components/ui/segmented';
-
-/* #739 T8 — hoisted so the array identity is stable across renders; Segmented
-   takes a readonly list, and a literal here would be a new array every time
-   (same reasoning calendar-view.tsx's CALENDAR_MODE_OPTIONS already uses). */
-const ROW_HEIGHT_OPTIONS = [
-  { value: '28', label: '28' },
-  { value: '32', label: '32' },
-  { value: '40', label: '40' },
-] as const;
 
 /**
  * Op menu per field type — mirrors the API op×type matrix.
@@ -317,14 +307,6 @@ export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
  * for good reason. The existing "+ New field" affordance (record page, Hide
  * Fields panel) is one click away without it.
  */
-function GalleryNoCoverFieldNotice() {
-  return (
-    <span className="text-label italic text-faint">
-      No Cover control — this database has no attachment or URL field. Add one to use this view.
-    </span>
-  );
-}
-
 export function ViewToolbar({
   fields,
   config,
@@ -338,6 +320,9 @@ export function ViewToolbar({
   personalFilter,
   onReorderFields,
   readOnly,
+  view,
+  viewMenu,
+  onRenameView,
 }: {
   fields: Field[];
   config: ViewConfig;
@@ -361,6 +346,12 @@ export function ViewToolbar({
   /** #698 — gates the add-summary-widget control only. The toolbar's other
    * controls keep whatever permission behaviour they already had. */
   readOnly?: boolean;
+  /** #964 — the view this toolbar is showing, for the ⋯ menu. Absent = no menu. */
+  view?: ViewMenuTarget;
+  /** #964 — what the page can do for this view (everything but the toolbar's own widget / CSV / rename). */
+  viewMenu?: ViewMenuHandlers;
+  /** #964 — the toolbar door's rename. The tab renames inline; the sidebar has its own dialog. */
+  onRenameView?: (name: string) => void;
 }) {
   // #352 — overlay the canonical system-field set (Number, ID, Created, Last
   // edited, Created by, Last edited by) onto the introspected fields so filter
@@ -418,346 +409,187 @@ export function ViewToolbar({
     [fields, augmented],
   );
 
+  const [renaming, setRenaming] = useState(false);
+  const viewKind = viewType ?? 'table';
+
+  // #964 — the ONE view menu (view-menu.ts). The toolbar door adds what is about the rows on screen:
+  // a summary widget and a CSV. Everything else is the same list the tab and the sidebar show.
+  const menuItems =
+    view && viewMenu
+      ? buildViewMenu(view, {
+          ...viewMenu,
+          onRename: onRenameView ? () => setRenaming(true) : undefined,
+          onAddWidget:
+            !readOnly && viewSupportsSummaryWidgets(viewKind)
+              ? () => onPatch({ summary_widgets: newSummaryWidgets(config) })
+              : undefined,
+          exportHref: ws && db ? csvExportHref(ws, db, viewId) : undefined,
+        })
+      : [];
+
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
-      {/* #725 — NEITHER OF THESE APPLIES TO A FORM. A form view has no result
-          set: it CREATES records rather than displaying them, so Filter narrows
-          nothing and Sort orders nothing. Same `viewType === 'form'` test as the
-          field-visibility control immediately below, for the same reason — that
-          one was already gated when this was written and these two were missed.
-
-          NOT COSMETIC. The filter is the only affordance in the UI that looks
-          like it scopes a form, and an engineer trying to pin a Job onto every
-          submission reached for it first, reasoning it would seed the created
-          records. It silently did nothing — one of the three dead ends behind
-          #716.
-
-          Per-field `relation_filter` (#501) is the REAL mechanism for narrowing
-          a relation picker's candidates on a form. It is field-level, lives in
-          the form builder, and is untouched by this: the two are easy to
-          conflate and only the view-level control is meaningless here. */}
+      {/* #964 — Filter · Sort · [Group] · Find · N of M · Display · ⋯ · New, in that order. The
+          left cluster is what narrows and orders the rows; the right is how they look, the view's
+          own menu, and the one primary action. */}
+      {/* #725 — NEITHER OF THESE APPLIES TO A FORM. A form view has no result set: it CREATES records
+          rather than displaying them, so Filter narrows nothing and Sort orders nothing. Per-field
+          `relation_filter` (#501) is the REAL mechanism for narrowing a relation picker's candidates on
+          a form; it lives in the form builder and is untouched. */}
       {viewType !== 'form' && (
         <>
-        {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
-            shared by every view type via this same component. Personal scope (#259)
-            rides along here too — same popover, a Global/Personal toggle inside it. */}
-        <FiltersSection
-          fields={filterable}
-          members={members}
-          ws={ws}
-          db={db}
-          viewId={viewId}
-          filters={config.filters}
-          onChange={(filters) => onPatch({ filters })}
-          personalFilter={personalFilter}
-          /*
-           * #428 — supplied only when the view is actually GROUPED. On an
-           * ungrouped table these controls would be two switches and a dropdown
-           * that change nothing, which is worse than their absence.
-           */
-          grouping={
-            config.group_by_field_id
-              ? {
-                  hideEmpty: Boolean(config.hide_empty_groups),
-                  hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
-                  noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
-                  columnSort: config.column_sort ?? 'natural',
-                  // #427 AC-3 — a date board's columns are chronological periods;
-                  // any other order is meaningless, so the control is not offered.
-                  canSortColumns:
-                    augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
-                  onChange: onPatch,
-                }
-              : undefined
-          }
-        />
-
-        {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
-            the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
-        <SortButton
-          fields={augmented}
-          sorts={config.sorts}
-          emptyLabel="Manual order"
-          nulls={config.sorts_nulls}
-          onChange={(sorts) => onPatch({ sorts })}
-          onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
-        />
+          {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters) shared by every
+              view type. Personal scope (#259) rides along: same popover, a Global/Personal toggle. */}
+          <FiltersSection
+            fields={filterable}
+            members={members}
+            ws={ws}
+            db={db}
+            viewId={viewId}
+            filters={config.filters}
+            onChange={(filters) => onPatch({ filters })}
+            personalFilter={personalFilter}
+          />
+          {/* Sorts (MN-252): field-type-aware, self-filtered to what the query layer can order by. */}
+          <SortButton
+            fields={augmented}
+            sorts={config.sorts}
+            emptyLabel="Manual order"
+            nulls={config.sorts_nulls}
+            onChange={(sorts) => onPatch({ sorts })}
+            onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
+          />
         </>
       )}
 
-      {/* Field visibility: tables hide columns, boards pick card fields. Forms
-          own their field membership/order via their own sidebar builder (#224)
-          — the generic Cards popover no longer applies to them. */}
-      {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
-        <CardFieldsButton
-          fields={rendered}
-          shown={config.card_field_ids}
-          onChange={(card_field_ids) => onPatch({ card_field_ids })}
-          size={viewType === 'board' || viewType === 'gallery' ? config.card_size ?? 'medium' : undefined}
-          onSizeChange={(card_size) => onPatch({ card_size })}
-          /*
-           * #702 — confirmed at build time: list and feed both render the
-           * permanent number inline (list-view.tsx / feed-view.tsx, #701's
-           * fix and this ticket's own fix respectively); board, calendar and
-           * gallery render it NOWHERE, so they get no control at all rather
-           * than a toggle with no effect (AC2's decision (b) for those three,
-           * (a) for these two).
-           */
-          numberEntry={(viewType === 'list' || viewType === 'feed') ? numberEntry : undefined}
-          numberShown={numberEntry ? isFieldVisible(config.hidden_field_ids, numberEntry.id) : undefined}
-          onNumberChange={
-            numberEntry
-              ? (next) => onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, numberEntry.id, next) })
-              : undefined
-          }
-        />
-      ) : viewType === 'form' ? null : (
-        <HiddenFieldsButton
-          // #739 T3 — rich_text is ABSENT from table view's Fields list
-          // entirely, not merely off by default: inline rich-text editing in
-          // a cell isn't supported, so offering it here is a guaranteed dead
-          // end (the same "renders and then 422s" shape #758 already fixed
-          // for a form). Scoped to table only — rich_text renders fine as
-          // prose on the record page and other surfaces that use this same
-          // picker, so excluding it everywhere would remove a legitimate
-          // control from views where it actually works.
-          //
-          // #739 — table's "ID" is now an ORDINARY column (table-view.tsx's
-          // own numberEntry), so it belongs in the ordinary Fields list here
-          // too — merged in rather than routed to the special "Row gutter"
-          // footer below, which still exists for list/feed (unchanged, see
-          // the follow-up comment on #739). Prepended so it appears first,
-          // matching the default column order. AC3's system date entries are
-          // appended after the real fields — offered, off by default, never
-          // part of the default-visible set.
-          fields={
-            viewType === 'table'
-              ? [
-                  ...(numberEntry ? [numberEntry] : []),
-                  ...rendered.filter((f) => f.type !== 'rich_text'),
-                  ...systemDateEntries,
-                ]
-              : rendered
-          }
-          numberEntry={viewType === 'table' ? undefined : numberEntry}
-          hidden={config.hidden_field_ids}
-          onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
-          onReorder={onReorderFields}
-        />
+      {/* Group: ALWAYS on a board (its columns ARE the grouping), on a list only while grouping is on.
+          The change-grouping dialog and the toggles that lived in the filter popover are in here. */}
+      {viewGroups(viewType) && showsGroupChip(viewType, config) && (
+        <GroupChip viewType={viewType} fields={fields} config={config} onPatch={onPatch} />
       )}
 
-      {/* #739 T8 — row height, a control with three named steps rather than
-          the pre-#739 hardcoded 32. Always offered for table (not data-
-          dependent, unlike the pickers below it), default step matches
-          ROW_HEIGHT in table-view.tsx exactly so an unconfigured view's
-          control reflects what's actually rendering. */}
-      {viewType === 'table' && (
-        <Segmented
-          label="Row height"
-          size="sm"
-          value={String(config.row_height ?? 32) as '28' | '32' | '40'}
-          onChange={(v) => onPatch({ row_height: Number(v) as 28 | 32 | 40 })}
-          options={ROW_HEIGHT_OPTIONS}
-        />
-      )}
-
-      {/* #233 — table view's inline hierarchy mode. Shown only for tables, and
-          only once the database actually has an eligible self-relation —
-          an empty picker offering nothing is a worse answer than no picker,
-          the same reasoning #391's cover-image control below already uses. */}
-      {viewType === 'table' && fields.some((f) => databaseId && isHierarchyField(f, databaseId)) && (
-        <label className="flex items-center gap-1 text-label text-muted">
-          Nest by
-          <select
-            value={config.hierarchy_field_id ?? ''}
-            onChange={(e) => onPatch({ hierarchy_field_id: e.target.value || undefined })}
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
-          >
-            <option value="">Flat</option>
-            {fields
-              .filter((f) => databaseId && isHierarchyField(f, databaseId))
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.displayName}
-                </option>
-              ))}
-          </select>
-        </label>
-      )}
-
-      {/* #391 / #754 (G1) — a gallery's card image. With an attachment field,
-          the ordinary picker. Without one, the control used to disappear
-          entirely — a gallery of text-only cards with nothing on screen that
-          even mentions covers. Say so once, where the picker would have been,
-          and offer the actual fix. */}
-      {viewType === 'gallery' &&
-        (fields.some(isCoverField) ? (
-          <label className="flex items-center gap-1 text-label text-muted">
-            Cover
-            <select
-              value={config.cover_field_id ?? ''}
-              onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-label"
-            >
-              <option value="">None</option>
-              {fields
-                .filter(isCoverField)
-                .map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.displayName}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : (
-          <GalleryNoCoverFieldNotice />
-        ))}
-
-      {/* #307 — period per column, shown only when a board is grouped by a DATE
-          field (the one case where the columns come from data, not from options). */}
-      {viewType === 'board' &&
-        augmented.find((f) => f.id === config.group_by_field_id)?.type === 'date' && (
-          <select
-            className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
-            value={config.group_by_granularity ?? 'month'}
-            onChange={(e) =>
-              onPatch({ group_by_granularity: e.target.value as ViewConfig['group_by_granularity'] })
-            }
-            title="Column period"
-          >
-            <option value="week">By week</option>
-            <option value="month">By month</option>
-            <option value="quarter">By quarter</option>
-            <option value="year">By year</option>
-          </select>
-        )}
-
-      {viewType === 'calendar' && (
-        <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
-          value={config.date_field_id ?? ''}
-          onChange={(e) => onPatch({ date_field_id: e.target.value })}
-          title="Date field"
-        >
-          {/* #808 — every date-capable field is listed; one that makes a read-only
-              calendar is disabled WITH the reason, before the choice rather than in
-              a banner after it (the board's #225 pattern). A view already built on
-              one keeps it as its (disabled) current value. */}
-          {fields.filter(isCalendarDateField).map((f) => {
-            const reason = calendarDateDisabledReason(f);
-            return (
-              <option key={f.id} value={f.id} disabled={reason !== null}>
-                {f.displayName}
-                {reason ? ` — ${reason}` : ''}
-              </option>
-            );
-          })}
-        </select>
-      )}
-
-      {/* #470 — an OPTIONAL second date field giving a day/week event its real
-          end time (mirrors timeline's start/end pair). Only worth showing once
-          the view is actually in day/week mode — in month mode nothing reads
-          this field at all, so offering it there would be a picker for a
-          capability the current mode can't use. */}
-      {viewType === 'calendar' && (config.calendar_mode === 'day' || config.calendar_mode === 'week') && (
-        <select
-          className="h-6 rounded border border-border-default bg-card px-1 text-label text-ink"
-          value={config.calendar_end_date_field_id ?? ''}
-          onChange={(e) => onPatch({ calendar_end_date_field_id: e.target.value || undefined })}
-          title="End date field (optional — sets event height)"
-        >
-          <option value="">No end field (fixed 1h blocks)</option>
-          {fields
-            .filter((f) => f.id !== config.date_field_id && isCalendarDateField(f))
-            .map((f) => {
-              const reason = calendarDateDisabledReason(f);
-              return (
-                <option key={f.id} value={f.id} disabled={reason !== null}>
-                  {f.displayName}
-                  {reason ? ` — ${reason}` : ''}
-                </option>
-              );
-            })}
-        </select>
-      )}
-
-      {/* Color-by (MN-102): tint rows/cards by a select/workflow field's option color.
-          #226 adds `calendar` — the calendar now fills its cards from this same
-          field, and a renderer whose picker doesn't offer it is unreachable
-          (field-surfaces.md: widen the renderer and its picker together). */}
-      {(viewType === 'list' ||
-        viewType === 'feed' ||
-        viewType === 'timeline' ||
-        viewType === 'calendar') && (
-        <ColorByButton
-          fields={fields.filter((f) => f.type === 'select' || f.type === 'workflow')}
-          value={config.color_by_field_id}
-          onChange={(color_by_field_id) => onPatch({ color_by_field_id })}
-        />
-      )}
-
-      {/* #698 — moved here out of the summary strip, which was rendering a
-          full-width row plus a border just to hold this button on views that had
-          no widgets. The view-type gate is the shared predicate, NOT a second
-          copy of the four-way check in page.tsx. */}
-      {!readOnly && viewSupportsSummaryWidgets(viewType) && (
-        <AddSummaryWidgetButton config={config} onPatch={onPatch} />
-      )}
-
-      {/* #835 — transient find-in-view. Not for a form (it shows no records) or a
-          dashboard (tiles, not rows); both are `viewType` strings, not a new
-          capability list. */}
+      {/* #835 — transient find-in-view. Not for a form (it shows no records) or a dashboard (tiles). */}
       {ws && db && viewType !== 'form' && viewType !== 'dashboard' && (
         <ViewSearchBox ws={ws} db={db} config={config} personalFilter={personalFilter} />
       )}
 
-      {/* MN-075: the way out — this view's rows, exactly as shown. On a FORM
-          that phrasing does not hold: see ExportCsvButton's own comment. */}
-      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} viewType={viewType} />}
+      <div className="ml-auto flex items-center gap-1.5">
+        {ws && db && viewType !== 'form' && viewType !== 'dashboard' && (
+          <ViewCount ws={ws} db={db} config={config} personalFilter={personalFilter} />
+        )}
+        <DisplayMenu
+          viewType={viewKind}
+          fields={fields}
+          rendered={rendered}
+          numberEntry={numberEntry}
+          systemDateEntries={systemDateEntries}
+          config={config}
+          onPatch={onPatch}
+          databaseId={databaseId}
+          onReorderFields={onReorderFields}
+        />
+        {menuItems.length > 0 && (
+          <DropdownMenu>
+            <Tooltip label="View options">
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="View options"
+                  className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-muted hover:bg-hover hover:text-ink aria-expanded:bg-hover"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-56">
+              <ViewMenuItems items={menuItems} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {ws && db && !readOnly && viewType !== 'dashboard' && <NewRecordButton ws={ws} db={db} />}
+      </div>
+      {view && onRenameView && (
+        <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
+      )}
     </div>
   );
 }
 
 /**
- * A plain link, not a fetch: the browser handles the download, so we don't buffer
- * a large CSV into memory just to re-emit it as a blob. Credentials ride the
- * cookie the app already uses.
+ * #964 — "N of M": the rows this view shows, out of every row in the database. Two server-side
+ * counts (the same `/aggregate` the table header uses, never a count of loaded pages), so it stays
+ * true past the first page. Shown as just "M" when nothing narrows the view.
  */
-export function ExportCsvButton({
+function ViewCount({
   ws,
   db,
-  viewId,
-  viewType,
+  config,
+  personalFilter,
 }: {
   ws: string;
   db: string;
-  viewId?: string;
-  /**
-   * #725 — only the TOOLTIP depends on this; the URL is unchanged. A form view
-   * has no rows of its own, so "this view's rows" is the same category error
-   * #725 removed from the Filter and Sort controls, left behind in the copy.
-   *
-   * The export itself is correct on a form and deliberately untouched: it
-   * queries the DATABASE's records (export.service.ts) rather than a result
-   * set, and because a form view does not use `hidden_field_ids` — forms own
-   * field membership through config.form.fields (#224) — the CSV carries every
-   * field rather than only the ones the form asked for. That is the right
-   * answer for submissions, which is why this is a copy fix and not a gate.
-   */
-  viewType?: string;
+  config: ViewConfig;
+  personalFilter?: FilterNode;
 }) {
-  const href = `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/export/csv${viewId ? `?view=${viewId}` : ''}`;
-  const scopedToView = Boolean(viewId) && viewType !== 'form';
+  const search = useViewSearch(db);
+  const body = queryBodyFromConfig(config, personalFilter, search);
+  const shown = useRecordCount(ws, db, body['filter'], true, body['q'] as string | undefined);
+  const total = useRecordCount(ws, db);
+  if (total.data === undefined) return null;
+  const narrowed = shown.data !== undefined && shown.data !== total.data;
   return (
-    <a
-      href={href}
-      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
-      title={scopedToView ? "Download this view's rows as CSV" : 'Download every record as CSV'}
-    >
-      <Download className="h-3.5 w-3.5" /> CSV
-    </a>
+    <span className="whitespace-nowrap px-1 text-label tabular-nums text-muted" aria-live="polite">
+      {narrowed ? `${shown.data} of ${total.data}` : String(total.data)}
+    </span>
   );
+}
+
+/**
+ * #964 — the toolbar's ONE primary button. It makes a blank record and opens it (what the mobile
+ * quick-add already does), on every view type. It also answers `storyos:new-record`, the event the
+ * command palette's "New record here" has always dispatched and nothing used to listen for.
+ */
+function NewRecordButton({ ws, db }: { ws: string; db: string }) {
+  const router = useRouter();
+  const create = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db } },
+        body: { values: {} },
+      });
+      if (error) throw error;
+      return data as unknown as { id: string };
+    },
+    onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`),
+    onError: () => toast.error('Could not create the record'),
+  });
+  useEffect(() => {
+    const onNew = () => create.mutate();
+    window.addEventListener('storyos:new-record', onNew);
+    return () => window.removeEventListener('storyos:new-record', onNew);
+  }, [create]);
+  return (
+    <button
+      type="button"
+      onClick={() => create.mutate()}
+      disabled={create.isPending}
+      className="flex h-7 items-center gap-1 rounded-[var(--radius-control)] bg-primary px-2.5 text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
+    >
+      <Plus className="h-3.5 w-3.5" /> New
+    </button>
+  );
+}
+
+/**
+ * The CSV export is a plain link, not a fetch: the browser handles the download, so we don't buffer a
+ * large CSV into memory just to re-emit it as a blob. Credentials ride the cookie the app already uses.
+ * (#964: it is the view menu's "Export CSV" now, so this is the href, not a button.)
+ *
+ * #725 — a form view has no rows of its own; the export queries the DATABASE's records and, because a
+ * form does not use `hidden_field_ids`, carries every field. That is the right answer for submissions.
+ */
+export function csvExportHref(ws: string, db: string, viewId?: string): string {
+  return `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/export/csv${viewId ? `?view=${viewId}` : ''}`;
 }
 
 export function ColorByButton({
@@ -797,51 +629,6 @@ export function ColorByButton({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/**
- * #515 — the ONE group-by field picker, shared by the New View dialog and
- * board-view.tsx's own reorder screen from #499's disabled-reason logic
- * (`boardGroupDisabledReason`/`listGroupDisabledReason`). Extracted rather
- * than a second inline copy, which is exactly the drift #375/#380/#383/#399/
- * #408/#422 already shipped — Mira's grounding on #515 named this explicitly
- * as required, not optional, for whichever surface re-groups an EXISTING view.
- */
-export function GroupByFieldSelect({
-  viewType,
-  fields,
-  value,
-  onChange,
-  id,
-}: {
-  viewType: 'board' | 'list';
-  fields: Field[];
-  value: string;
-  onChange: (fieldId: string) => void;
-  id?: string;
-}) {
-  return (
-    <select
-      id={id}
-      className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {viewType === 'list' && <option value="">None</option>}
-      {/* #225: every field is listed. One that can't group is disabled with the
-          reason, because a silently-omitted field reads as a bug — that is
-          literally how #267 and #272 were both reported. */}
-      {fields.map((f) => {
-        const reason = viewType === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
-        return (
-          <option key={f.id} value={f.id} disabled={reason !== null}>
-            {f.displayName}
-            {reason ? ` — ${reason}` : ''}
-          </option>
-        );
-      })}
-    </select>
   );
 }
 
@@ -1252,16 +1039,7 @@ export function FilterChip({
  * (MN-253). One `FilterGroup` (persisted as `ViewConfig.filters`) drives both —
  * pinning just formalizes what used to be "every active condition is a chip".
  */
-/** The label of the ungrouped bucket, matched to board-view.tsx's own copy so
- * the toggle names the column the user is actually looking at (#428). */
-function noValueLabelFor(groupType: string | undefined): string {
-  if (groupType === 'date') return 'No date';
-  if (groupType === 'select' || groupType === 'workflow') return 'No value';
-  return 'Unassigned';
-}
-
 export function FiltersSection({
-  grouping,
   fields,
   members,
   ws,
@@ -1281,15 +1059,6 @@ export function FiltersSection({
   onChange: (filters: FilterGroup | undefined) => void;
   /** #259 — current viewer's personal override for THIS view, if any. */
   personalFilter?: FilterNode;
-  /** #428 — present only for a grouped view; forwarded straight to the builder. */
-  grouping?: {
-    hideEmpty: boolean;
-    hideEmptyNoValue: boolean;
-    noValueLabel: string;
-    columnSort: ColumnSort;
-    canSortColumns: boolean;
-    onChange: (patch: Partial<ViewConfig>) => void;
-  };
 }) {
   const [open, setOpen] = useState(false);
   const canUsePersonalScope = Boolean(ws && db && viewId);
@@ -1519,7 +1288,6 @@ export function FiltersSection({
             <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               <FilterBuilderPanel
                 sectionLabel="Global"
-                grouping={grouping}
                 fields={fields}
                 members={members}
                 ws={ws}
@@ -1628,7 +1396,6 @@ function PinnedFilterChip({
  * own local state instead of a persisted `ViewConfig.filters`.
  */
 export function FilterBuilderPanel({
-  grouping,
   fields,
   members,
   ws,
@@ -1646,16 +1413,6 @@ export function FilterBuilderPanel({
   connector: FilterConnector;
   nodes: FilterNode[];
   onNodesChange: (next: FilterNode[]) => void;
-  /** #428 — only supplied for a GROUPED view; absent on an ungrouped one, where
-   * these controls would do nothing. */
-  grouping?: {
-    hideEmpty: boolean;
-    hideEmptyNoValue: boolean;
-    noValueLabel: string;
-    columnSort: ColumnSort;
-    canSortColumns: boolean;
-    onChange: (patch: Partial<ViewConfig>) => void;
-  };
   onConnectorChange: (next: FilterConnector) => void;
   /** #259 — true when this instance is editing the PERSONAL tree, not the
    * shared view's. Swaps the copy so "no filters yet" doesn't read as if it's
@@ -1790,83 +1547,6 @@ export function FilterBuilderPanel({
         </div>
       )}
 
-      {/*
-        #428 — the group toggles live HERE, at the bottom of the Filter panel.
-        
-        That placement is the ticket's, and it is right: hiding empty groups IS
-        a filter on what you see, so this is where someone looks for it rather
-        than in view settings. Only rendered for a grouped view — on an
-        ungrouped table these would be two switches that do nothing.
-      */}
-      {grouping && <GroupVisibilityToggles {...grouping} />}
-    </div>
-  );
-}
-
-/**
- * #428 — two switches, not one.
- *
- * "No Epic" is a different question from "an epic with no issues". The
- * ungrouped bucket is usually the triage pile — the most important column on
- * the board — so it gets its own control rather than being swept away with the
- * empty real groups. Collapsing these into a single toggle is the obvious
- * implementation and the wrong one.
- */
-function GroupVisibilityToggles({
-  hideEmpty,
-  hideEmptyNoValue,
-  noValueLabel,
-  columnSort,
-  canSortColumns,
-  onChange,
-}: {
-  hideEmpty: boolean;
-  hideEmptyNoValue: boolean;
-  noValueLabel: string;
-  columnSort: ColumnSort;
-  canSortColumns: boolean;
-  onChange: (patch: Partial<ViewConfig>) => void;
-}) {
-  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-label text-ink hover:bg-hover';
-  return (
-    <div className="border-t border-border-default py-1">
-      <span className="block px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted">Groups</span>
-      <label className={row}>
-        Hide empty groups
-        <input
-          type="checkbox"
-          checked={hideEmpty}
-          onChange={(e) => onChange({ hide_empty_groups: e.target.checked || undefined })}
-        />
-      </label>
-      <label className={row}>
-        {/* Named after the actual bucket ("Unassigned", "No value", "No date")
-            so it is obvious WHICH column this hides. */}
-        Hide “{noValueLabel}” when empty
-        <input
-          type="checkbox"
-          checked={hideEmptyNoValue}
-          onChange={(e) => onChange({ hide_empty_no_value_group: e.target.checked || undefined })}
-        />
-      </label>
-      {canSortColumns && (
-        <label className={row}>
-          {/* #427 — column order, next to the other which-columns-do-I-see
-              controls. The Sort panel sorts CARDS and now says so. */}
-          Column order
-          <select
-            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1 py-0.5 text-label text-ink"
-            value={columnSort}
-            onChange={(e) => onChange({ column_sort: e.target.value as ColumnSort })}
-          >
-            {(Object.keys(COLUMN_SORT_LABELS) as ColumnSort[]).map((k) => (
-              <option key={k} value={k}>
-                {COLUMN_SORT_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
     </div>
   );
 }
@@ -2930,253 +2610,3 @@ function SortRow({
  * didn't implement).
  */
 export const NON_TOGGLABLE = new Set(['title', 'created_by', 'id']);
-
-/** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
-function CardFieldsButton({
-  fields,
-  shown,
-  onChange,
-  size,
-  onSizeChange,
-  numberEntry,
-  numberShown,
-  onNumberChange,
-}: {
-  fields: Field[];
-  shown: string[];
-  onChange: (ids: string[]) => void;
-  size?: 'small' | 'medium' | 'large';
-  onSizeChange: (size: 'small' | 'medium' | 'large') => void;
-  /** #702 — the synthetic permanent-number field, offered here ONLY for the
-   *  card-based view types that actually render it (list, feed) — see
-   *  ViewToolbar's own call site for which those are and why. Undefined on
-   *  board/calendar/gallery, which render it nowhere. */
-  numberEntry?: Field;
-  numberShown?: boolean;
-  onNumberChange?: (next: boolean) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-label hover:bg-hover',
-            shown.length ? 'text-ink' : 'text-muted',
-          )}
-        >
-          <EyeOff className="h-3.5 w-3.5" />
-          Cards
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-72 w-56 overflow-y-auto">
-        {size && (
-          <div className="px-2 pb-1.5 pt-1">
-            <div className="mb-1 text-meta font-semibold uppercase tracking-wider text-muted">Card size</div>
-            <div className="flex gap-1">
-              {(['small', 'medium', 'large'] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => onSizeChange(opt)}
-                  className={cn(
-                    'flex-1 rounded border px-1.5 py-1 text-label capitalize',
-                    size === opt
-                      ? 'border-[var(--accent)] bg-accent-soft text-ink'
-                      : 'border-border-default text-muted hover:bg-hover',
-                  )}
-                >
-                  {opt === 'small' ? 'S' : opt === 'medium' ? 'M' : 'L'}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <CardFieldPicker fields={fields} shown={shown} onChange={onChange} />
-        {numberEntry && onNumberChange && <RowGutterToggle shown={Boolean(numberShown)} onChange={onNumberChange} />}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/** Shown card fields (draggable, ordered) + a list to add more (MN-151). */
-function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: string[]; onChange: (ids: string[]) => void }) {
-  const sensors = useSortableSensors();
-  const shownFields = shown
-    .map((id) => fields.find((f) => f.id === id))
-    .filter((f): f is Field => Boolean(f));
-  const available = fields.filter((f) => !shown.includes(f.id));
-
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const from = shown.indexOf(String(active.id));
-    const to = shown.indexOf(String(over.id));
-    if (from < 0 || to < 0) return;
-    onChange(arrayMove(shown, from, to));
-  };
-  const cardFieldLabel = (id: string) => fields.find((f) => f.id === id)?.displayName;
-  const cardFieldDrag = useDragPresentation(cardFieldLabel, { onDragEnd }, shown);
-
-  return (
-    <>
-      {shownFields.length > 0 && (
-        <>
-          <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
-            Shown · drag to reorder
-          </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
-            <SortableContext items={shown} strategy={verticalListSortingStrategy}>
-              {shownFields.map((field) => (
-                <SortableCardField
-                  key={field.id}
-                  field={field}
-                  onRemove={() => onChange(shown.filter((id) => id !== field.id))}
-                />
-              ))}
-            </SortableContext>
-            <DragPreview>
-              {cardFieldDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-label font-medium text-ink shadow-[var(--shadow-lifted)]">
-                  {cardFieldLabel(cardFieldDrag.activeId) ?? ''}
-                </div>
-              )}
-            </DragPreview>
-          </DndContext>
-        </>
-      )}
-      {available.length > 0 && (
-        <>
-          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">Add</div>
-          {available.map((field) => (
-            <button
-              key={field.id}
-              onClick={() => onChange([...shown, field.id])}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body text-muted hover:bg-hover hover:text-ink"
-            >
-              <Plus className="h-3.5 w-3.5" /> {field.displayName}
-            </button>
-          ))}
-        </>
-      )}
-    </>
-  );
-}
-
-function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      // #656 — this was the fourth sortable in this file with NO drag styling at
-      // all; it now gets the same floating-preview + vacated-slot treatment as
-      // the other three.
-      className={cn(
-        'group flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover',
-        vacatedSlotClass(isDragging),
-      )}
-    >
-      <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-      <span className="flex-1 truncate">{field.displayName}</span>
-      <button
-        onClick={onRemove}
-        className="text-faint opacity-0 hover:text-error group-hover:opacity-100"
-        title="Remove from cards"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
-}
-
-/** #175 — the view toolbar's column-visibility menu, now the shared Fibery-parity
- * Fields menu (search + toggle switches + type icons + drag-to-reorder). Visibility
- * is persisted as `hidden_field_ids`; reorder writes `field.position` via `onReorder`. */
-function HiddenFieldsButton({
-  fields,
-  numberEntry,
-  hidden,
-  onChange,
-  onReorder,
-}: {
-  fields: Field[];
-  /** #699 AC2 — the synthetic permanent-number field, rendered as its OWN
-   *  labelled "Row gutter" section below, never mixed into the ordinary field
-   *  list: Dara's finding was that list MEMBERSHIP itself promises "this
-   *  becomes a column," a promise this entry can't keep for a surface where
-   *  it merges into the row-index gutter cell instead. #739 — table view no
-   *  longer merges it (it's an ordinary column there now), so the caller
-   *  passes `undefined` here for table and merges the entry into `fields`
-   *  itself instead; this prop/footer still exists for list and feed, which
-   *  haven't been re-skinned. Also undefined when the database has a real
-   *  `number` field row, which already flows through `fields` normally. */
-  numberEntry?: Field;
-  hidden: string[];
-  onChange: (ids: string[]) => void;
-  /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
-  onReorder?: (activeId: string, overId: string) => void;
-}) {
-  // #743 — the number field's entry in `hidden` uses ordinary present-means-
-  // hidden semantics, same as every other field, visible by default; see
-  // number-column.ts, shared with table-view.tsx's own reading of the same
-  // array so the two can't drift.
-  const candidateIds = useMemo(
-    () => new Set(numberEntry ? [...fields.map((f) => f.id), numberEntry.id] : fields.map((f) => f.id)),
-    [fields, numberEntry],
-  );
-  const hiddenCount = countHiddenFields(hidden, candidateIds);
-  const numberShown = numberEntry ? isFieldVisible(hidden, numberEntry.id) : false;
-  return (
-    <FieldsMenu
-      fields={fields}
-      isVisible={(f) => isFieldVisible(hidden, f.id)}
-      onToggle={(f, next) => onChange(toggleFieldVisibility(hidden, f.id, next))}
-      onReorder={onReorder}
-      triggerIcon={EyeOff}
-      triggerLabel={hiddenCount ? `${hiddenCount} hidden` : 'Hide fields'}
-      triggerActive={hiddenCount > 0}
-      footer={
-        numberEntry && <RowGutterToggle shown={numberShown} onChange={(next) => onChange(toggleFieldVisibility(hidden, numberEntry.id, next))} />
-      }
-    />
-  );
-}
-
-/**
- * #699 AC2 / #702 — the "Row gutter" section: one control for the synthetic
- * permanent-number field, shared by every surface that actually renders it
- * (table view's Hide-fields footer, and the Cards picker on the OTHER view
- * types that render it inline — currently list and feed; #702 found
- * board/calendar/gallery render it nowhere, so they get no control at all
- * rather than one with no effect). Extracted so a future surface that starts
- * rendering the number reuses this instead of re-casing the toggle a third
- * time (field-surfaces.md's rule).
- */
-function RowGutterToggle({ shown, onChange }: { shown: boolean; onChange: (next: boolean) => void }) {
-  return (
-    <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">Row gutter</p>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={shown}
-        onClick={() => onChange(!shown)}
-        className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-body text-ink hover:bg-hover"
-      >
-        <span
-          className={cn(
-            'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
-            shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
-          )}
-        >
-          <span className="h-3 w-3 rounded-full bg-card" />
-        </span>
-        {/* #743 — "ID" only; "Number" is the pre-#743 label and must not
-            reappear anywhere in the UI now that the field is visible by
-            default. */}
-        <span className="truncate">Show ID in the row gutter</span>
-      </button>
-    </div>
-  );
-}

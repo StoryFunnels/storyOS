@@ -1,7 +1,9 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
+import type { PlanAgent } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AiCreditsService } from '../billing/ai-credits.service';
+import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -229,9 +231,10 @@ export class ArchitectService {
     result: ArchitectBuildResult,
   ): Promise<LiveField> {
     const live = await this.liveFields(membership, databaseId);
-    const existing = live.find((f) => norm(f.displayName) === norm(field.name));
+    const decision = decideField(live, field.name, field.type);
     const label = `${dbName}.${field.name}`;
-    if (existing) {
+    if (decision.action === 'reuse') {
+      const existing = live.find((f) => norm(f.displayName) === norm(field.name))!;
       result.fields.push({ name: label, action: 'reused', id: existing.id });
       return existing;
     }
@@ -326,9 +329,9 @@ export class ArchitectService {
       // is already there the relation exists — creating it again would 422 on
       // the display-name uniqueness guard anyway, and reuse is the right answer.
       const live = await this.liveFields(membership, fromId);
-      const existing = live.find(
-        (f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field),
-      );
+      const existing = relationExists(live, planned.from_field)
+        ? live.find((f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field))
+        : undefined;
       if (existing) {
         result.relations.push({ name: label, action: 'reused', id: existing.id });
         continue;
@@ -362,9 +365,10 @@ export class ArchitectService {
       const databaseId = this.resolveDb(dbIds, planned.database, 'A state');
       const label = `${planned.database}.${planned.field}`;
       const live = await this.liveFields(membership, databaseId);
+      const decision = decideState(live, planned.field, planned.options);
       const existing = live.find((f) => norm(f.displayName) === norm(planned.field));
 
-      if (!existing) {
+      if (decision.action === 'create') {
         const created = (await this.fields.create(databaseId, {
           display_name: planned.field,
           type: 'select',
@@ -375,17 +379,17 @@ export class ArchitectService {
         continue;
       }
 
-      if (existing.type !== 'select') {
+      if (decision.action === 'blocked') {
         throw new UnprocessableEntityException(
-          `"${label}" already exists as a ${existing.type} field, but a workflow state must be a ` +
+          `"${label}" already exists as a ${decision.live_type} field, but a workflow state must be a ` +
             `select field. Rename or remove it, then build again.`,
         );
       }
 
       // Reused: add only the states it is missing. Untouched existing options
       // matter — this is somebody's live workflow, and the plan is additive.
-      await this.ensureOptions(databaseId, existing, planned);
-      result.states.push({ name: label, action: 'reused', id: existing.id });
+      await this.ensureOptions(databaseId, existing!, planned);
+      result.states.push({ name: label, action: 'reused', id: existing!.id });
     }
   }
 
@@ -394,14 +398,36 @@ export class ArchitectService {
     field: LiveField,
     planned: PlanState,
   ): Promise<void> {
-    const have = new Set((field.options ?? []).map((o) => norm(o.label)));
+    const missing = new Set(optionsMissing(field.options, planned.options).map(norm));
     for (const option of planned.options) {
-      if (have.has(norm(option.label))) continue;
+      if (!missing.has(norm(option.label))) continue;
       await this.fields.addOption(databaseId, field.id, {
         label: option.label,
         color: option.color ?? 'gray',
       });
     }
+  }
+
+  /**
+   * The PACK-DEFINED part of an agent record: what a pack ships and a pack update may bring up to date (#977): goal, instructions,
+   * scopes and approval policy. The name, the target databases (workspace-specific ids) and the enabled flag are the workspace's own and
+   * are never part of an update. One function for create and update so the two cannot disagree about what an agent is made of.
+   */
+  agentContentValues(planned: PlanAgent, optionId: (apiName: string, label: string) => string | null): Record<string, unknown> {
+    return {
+      goal: markdownToBlocks(planned.goal),
+      instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
+      scopes: planned.scopes.map((s) => optionId('scopes', s)).filter((id): id is string => Boolean(id)),
+      approval_policy: planned.approval_policy.map((p) => optionId('approval_policy', p)).filter((id): id is string => Boolean(id)),
+    };
+  }
+
+  /** The values to write onto an EXISTING agent record to bring it to `planned` (a pack update, #977). */
+  async agentUpdateValues(membership: Membership, planned: PlanAgent, agentsDbId: string): Promise<Record<string, unknown>> {
+    const agentFields = await this.liveFields(membership, agentsDbId);
+    const optionId = (apiName: string, label: string): string | null =>
+      agentFields.find((f) => f.apiName === apiName)?.options?.find((o) => o.label === label)?.id ?? null;
+    return this.agentContentValues(planned, optionId);
   }
 
   /**
@@ -448,14 +474,7 @@ export class ArchitectService {
         agentsDbId,
         {
           name: planned.name,
-          goal: markdownToBlocks(planned.goal),
-          instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
-          scopes: planned.scopes
-            .map((s) => optionId('scopes', s))
-            .filter((id): id is string => Boolean(id)),
-          approval_policy: planned.approval_policy
-            .map((p) => optionId('approval_policy', p))
-            .filter((id): id is string => Boolean(id)),
+          ...this.agentContentValues(planned, optionId),
           target_databases: targets.join(', '),
           // Build happens only after a human approved the plan (ADR-0010 §6), and
           // the plan they approved says what this agent does and what it must ask

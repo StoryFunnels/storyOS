@@ -74,6 +74,8 @@ export interface SidebarMenuAction {
    * the wrong branch.
    */
   hidden?: boolean;
+  /** #964 — shown but inert, with this reason as its title (the view menu's Delete on a database's only view). */
+  disabledReason?: string;
 }
 
 export function SidebarRowMenu({
@@ -132,6 +134,8 @@ export function SidebarRowMenu({
             ) : (
               <DropdownMenuItem
                 onSelect={action.onSelect}
+                disabled={Boolean(action.disabledReason)}
+                title={action.disabledReason}
                 className={action.danger ? 'text-error focus:text-error' : undefined}
               >
                 {action.icon}

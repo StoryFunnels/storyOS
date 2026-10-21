@@ -6,6 +6,8 @@ import { CONVERTIBLE } from '@storyos/schemas';
 import { createTestApp } from './helpers/app';
 import { signUpUser } from './helpers/users';
 import { call, joinAs } from './helpers/members';
+import { sql } from 'drizzle-orm';
+import { connectTestDb } from './helpers/db';
 
 /**
  * #957 — a text field becomes select / multi_select / workflow: each distinct non-empty TRIMMED value is one option
@@ -13,6 +15,7 @@ import { call, joinAs } from './helpers/members';
  * value as ONE option (no comma splitting). The dry run lists the options and writes nothing; past 200 distinct values
  * is refused naming the count.
  */
+const { db: raw } = connectTestDb();
 let app: NestFastifyApplication;
 let owner: { token: string };
 let ws: string, space: string;
@@ -37,6 +40,10 @@ async function textDb(values: Array<string | null>) {
     ids.push(res.json().id);
   }
   return { db, field: field.id as string, ids };
+}
+async function selectless(values: string[]) {
+  const t = await textDb(values);
+  return { db: t.db, field: t.field };
 }
 const change = (db: string, field: string, type: string, extra: Record<string, unknown> = {}) =>
   as('POST', `/workspaces/${ws}/databases/${db}/fields/${field}/change-type`, { type, ...extra });
@@ -87,7 +94,8 @@ describe('#957 text → choice', () => {
       expect.objectContaining({ label: 'done', records: 1 }),
     ]));
     expect(body.options).toHaveLength(3);
-    expect(body.empty_records).toBe(1); // the whitespace-only one; a record with no key is not read at all
+    expect(body.empty_records, 'the whitespace-only one AND the record that never had the key (#983: this used to say 1 and pin the under-count)').toBe(2);
+    expect(body.total_records).toBe(6);
     // nothing written: still text, no options, values untouched
     const f = (await detail(db)).fields.find((x: { id: string }) => x.id === field);
     expect(f.type).toBe('text');
@@ -140,6 +148,44 @@ describe('#957 text → choice', () => {
     const t = await textDb(['a']);
     expect((await change(t.db, t.field, 'select')).statusCode).toBe(201);
     expect((await change(t.db, t.field, 'text')).statusCode).toBe(201);
+  });
+});
+
+describe('#983 the dry run counts EVERY record without a value, not only the blank ones', () => {
+  it('on a database where most records never had the field set: absent, null, "" and whitespace all count; the totals add up; the convert leaves them empty with no error and no phantom option', async () => {
+    const db = (await as('POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Sparse ' + Math.random().toString(36).slice(2) })).json().id as string;
+    const f = (await as('POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: 'State', type: 'text' })).json();
+    const mk = async (name: string, status?: string) => (await as('POST', `/workspaces/${ws}/databases/${db}/records`, { values: { name, ...(status === undefined ? {} : { state: status }) } })).json().id as string;
+    const absent: string[] = [];
+    for (let i = 0; i < 12; i++) absent.push(await mk(`absent-${i}`)); // the key was NEVER set (an importer that skips a missing state)
+    const blank = await mk('blank', '');
+    const spaces = await mk('spaces', '   ');
+    const nulled = await mk('nulled', 'x');
+    await raw.execute(sql`UPDATE records SET values = jsonb_set(values, ${`{${f.id}}`}::text[], 'null'::jsonb) WHERE id = ${nulled}`);
+    for (const [name, status] of [['r1', 'a'], ['r2', 'a'], ['r3', 'b'], ['r4', 'c']] as const) await mk(name, status);
+
+    const dry = (await change(db, f.id, 'select', { dry_run: true })).json();
+    expect(dry.options.map((o: { label: string; records: number }) => `${o.label}:${o.records}`).sort()).toEqual(['a:2', 'b:1', 'c:1']);
+    expect(dry.empty_records, '12 absent + "" + "   " + null').toBe(15);
+    expect(dry.total_records).toBe(19);
+    expect(dry.options.reduce((n: number, o: { records: number }) => n + o.records, 0) + dry.empty_records, 'option counts + empty_records = every record').toBe(dry.total_records);
+
+    // nothing written by the dry run
+    expect((await detail(db)).fields.find((x: { id: string }) => x.id === f.id).type).toBe('text');
+
+    const res = await change(db, f.id, 'select');
+    expect(res.statusCode, res.body).toBe(201);
+    const after = (await detail(db)).fields.find((x: { id: string }) => x.id === f.id);
+    expect(after.options.map((o: { label: string }) => o.label).sort(), 'no phantom option from the absent, null, blank or whitespace records').toEqual(['a', 'b', 'c']);
+    for (const id of [...absent, blank, spaces, nulled]) {
+      const rec = (await as('GET', `/workspaces/${ws}/databases/${db}/records/${id}`)).json();
+      expect(rec.values.state ?? null, `record ${rec.title} stays empty`).toBeNull();
+    }
+    // and a database with no empty records reports none
+    const full = await selectless(['a', 'b']);
+    const fullDry = (await change(full.db, full.field, 'select', { dry_run: true })).json();
+    expect(fullDry.empty_records).toBe(0);
+    expect(fullDry.total_records).toBe(2);
   });
 });
 

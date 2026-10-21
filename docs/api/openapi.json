@@ -18945,7 +18945,8 @@
                   "enum": [
                     "reuse",
                     "rename",
-                    "skip"
+                    "skip",
+                    "update"
                   ]
                 },
                 "rename_to": {

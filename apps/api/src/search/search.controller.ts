@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, records, selectOptions, spaces } from '../db/schema';
+import { user } from '../db/auth-schema';
 import { notDeleted } from '../db/soft-delete';
 import { AuthGuard } from '../auth/auth.guard';
 import { AccessService } from '../access/access.service';
@@ -29,6 +30,68 @@ export class SearchController {
     private readonly access: AccessService,
     private readonly recordsService: RecordsService,
   ) {}
+
+  /**
+   * #979 — for each record, who LAST set `userId` into one of its person fields, and when.
+   *
+   * Derived from the activity trail (`activity_events`, a `record.updated` event's `payload.diff`), not from a new column and not from
+   * `record_field_changes`: that table is plan-gated (Free captures nothing, Pro keeps a day), so the answer would vanish on exactly the
+   * workspaces most likely to ask. The activity trail is written for every update, has no pruning job today, and is indexed by
+   * (record_id, created_at), so one query per database page (at most 50 records) reads it.
+   *
+   * An event counts when a person field's `to` CONTAINS the user and its `from` did not: the change that put them there, whether the
+   * field holds one person or several. `DISTINCT ON (record_id) ... ORDER BY created_at DESC` is the LAST such change, so
+   * A → B → me reports whoever set me, and me → removed → me again reports the second setter.
+   *
+   * No row means no change ever put the user there (the record was created with them set, was imported, or the trail predates the
+   * assignment's capture): `null`, never a guess. The actor's name is what the record's own activity feed already shows to a caller who
+   * can read the record, which every caller of this endpoint can for a row it returns.
+   */
+  private async assignedBy(
+    recordIds: string[],
+    userFieldIds: string[],
+    userId: string,
+  ): Promise<Map<string, { assigned_by: { id: string; name: string; kind: 'user' | 'agent' }; assigned_at: Date }>> {
+    const out = new Map<string, { assigned_by: { id: string; name: string; kind: 'user' | 'agent' }; assigned_at: Date }>();
+    if (recordIds.length === 0 || userFieldIds.length === 0) return out;
+    const me = JSON.stringify(userId);
+    const events = await this.db.execute<{
+      record_id: string;
+      actor_id: string | null;
+      created_at: Date;
+      source: string | null;
+      agent_id: string | null;
+      agent_name: string | null;
+    }>(sql`
+      SELECT DISTINCT ON (e.record_id) e.record_id, e.actor_id, e.created_at, e.source, e.agent_id, e.agent_name
+      FROM activity_events e
+      WHERE e.record_id IN (${sql.join(recordIds.map((id) => sql`${id}::uuid`), sql`, `)})
+        AND e.type = 'record.updated'
+        AND jsonb_typeof(e.payload->'diff') = 'object'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_each(e.payload->'diff') d
+          WHERE d.key IN (${sql.join(userFieldIds.map((id) => sql`${id}`), sql`, `)})
+            AND (d.value->'to') @> ${me}::jsonb
+            AND NOT COALESCE((d.value->'from') @> ${me}::jsonb, false)
+        )
+      ORDER BY e.record_id, e.created_at DESC, e.id DESC
+    `);
+    const rows = events.rows;
+    const actorIds = [...new Set(rows.map((r) => r.actor_id).filter((id): id is string => Boolean(id)))];
+    const names = new Map(
+      (actorIds.length ? await this.db.query.user.findMany({ where: inArray(user.id, actorIds), columns: { id: true, name: true } }) : []).map((a) => [a.id, a.name]),
+    );
+    for (const r of rows) {
+      const agent = r.source === 'agent' || Boolean(r.agent_id);
+      const by = agent
+        ? { id: r.agent_id ?? r.actor_id ?? '', name: r.agent_name ?? names.get(r.actor_id ?? '') ?? '(agent)', kind: 'agent' as const }
+        : r.actor_id
+          ? { id: r.actor_id, name: names.get(r.actor_id) ?? '(deactivated)', kind: 'user' as const }
+          : null;
+      if (by) out.set(r.record_id, { assigned_by: by, assigned_at: new Date(r.created_at) });
+    }
+    return out;
+  }
 
   /** Renderable field metadata for a database's dense My Work rows (MN-072). */
   private async denseFields(databaseId: string) {
@@ -216,10 +279,20 @@ export class SearchController {
     const groups: Array<{
       database: { id: string; name: string; icon: string | null; color: string | null };
       fields: Awaited<ReturnType<SearchController['denseFields']>>;
-      records: Array<{ id: string; title: string; number: number | null; updated_at: Date; values: Record<string, unknown> }>;
+      records: Array<{
+        id: string;
+        title: string;
+        number: number | null;
+        updated_at: Date;
+        values: Record<string, unknown>;
+        /** #979 — who last set the caller into a person field of this record, or null (see `assignedBy`). */
+        assigned_by: { id: string; name: string; kind: 'user' | 'agent' } | null;
+        assigned_at: Date | null;
+      }>;
     }> = [];
     for (const database of dbRows) {
       let predicate;
+      let userFieldIds: string[] = [];
       if (mode === 'created') {
         predicate = eq(records.createdBy, req.user.id);
       } else {
@@ -228,6 +301,7 @@ export class SearchController {
           columns: { id: true },
         });
         if (userFields.length === 0) continue;
+        userFieldIds = userFields.map((f) => f.id);
         predicate = or(...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`));
       }
       // #474 phase 4 — this database may be reachable ONLY via a
@@ -257,6 +331,8 @@ export class SearchController {
         req.membership,
       );
       const byId = new Map(projected.map((p) => [p.id, p]));
+      // #979 — who set me, and when (assigned tab only; the created tab has no assignment to explain). null = see `assignedBy`.
+      const assigned = mode === 'assigned' ? await this.assignedBy(rows.map((r) => r.id), userFieldIds, req.user.id) : new Map();
       groups.push({
         database: { id: database.id, name: database.name, icon: database.icon, color: database.color },
         fields: await this.denseFields(database.id),
@@ -267,6 +343,8 @@ export class SearchController {
           number: r.number,
           updated_at: r.updatedAt,
           values: byId.get(r.id)?.values ?? {},
+          assigned_by: assigned.get(r.id)?.assigned_by ?? null,
+          assigned_at: assigned.get(r.id)?.assigned_at ?? null,
         })),
       });
     }

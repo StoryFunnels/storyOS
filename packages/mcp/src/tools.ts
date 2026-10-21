@@ -3010,7 +3010,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would create WITHOUT creating anything.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff).',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3018,9 +3018,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .boolean()
           .optional()
           .describe('Show what would be created and create nothing. Worth doing first on a workspace that already has data.'),
+        update_agents: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Names of installed agents a person EDITED whose content should be replaced with this pack version (preview marks them agent_update.status = edited_needs_choice). Agents not named stay as they are.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean }>(async ({ workspace, slug, preview }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; update_agents?: string[] }>(async ({ workspace, slug, preview, update_agents }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3031,7 +3037,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // body a compile error rather than a 422 in production.
       const args = {
         params: { path: { ws: ws.id } } as never,
-        body: { manifest: pack.manifest } as never,
+        body: {
+          manifest: pack.manifest,
+          ...(update_agents?.length
+            ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
+            : {}),
+        } as never,
       };
       return text(
         await unwrap<unknown>(
@@ -3484,7 +3495,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get field usage',
       description:
-        'What depends on this field, before you delete it: records carrying a value, plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
+        'What depends on this field, before you delete it: records carrying a non-empty value (blank, whitespace-only and never-set records are not counted), plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -3506,7 +3517,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete field',
       description:
-        'Soft-delete a field (records keep their other values). Returns records_with_value. Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
+        'Soft-delete a field (records keep their other values). Returns records_with_value (records holding a non-empty value: blank, whitespace-only and never-set records are not counted). Call get_field_usage first — a view, automation, or formula that names this field keeps the reference and breaks (silently for views, at run time for automations/formulas) once the field is gone.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
@@ -5534,7 +5545,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'change_field_type',
     {
       title: 'Change field type',
-      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. text → select / multi_select / workflow turns each distinct non-empty trimmed value (case-sensitive, one option per value, no splitting on commas) into an option; the preview returns the option list with a record count per option and `empty_records`, a field with more than 200 distinct values is refused, and a workflow target keeps the one-workflow-per-database rule. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. text → select / multi_select / workflow turns each distinct non-empty trimmed value (case-sensitive, one option per value, no splitting on commas) into an option; the preview returns the option list with a record count per option, `empty_records` (EVERY record with no non-empty value: the field never set, null, blank or whitespace) and `total_records` (the option counts plus `empty_records` always add up to it), a field with more than 200 distinct values is refused, and a workflow target keeps the one-workflow-per-database rule. Unsupported conversions return a clear error. The preview lists `dependent_rules`: validation rules that read this field, and which of them would stop enforcing. A change that would leave an enabled rule unable to enforce is REFUSED naming the rules; confirming it is a person\'s decision and is deliberately not available here, so report the refusal to the person instead of working around it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -7078,7 +7089,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       description:
-        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them; kind:"created" = records they made; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = records they made (assigned_by is null there); kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
         'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
       inputSchema: {
         workspace: z.string(),

@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { Table2, Lock } from 'lucide-react';
-import { SidebarRowMenu, type SidebarMenuAction } from '@/components/sidebar-row-menu';
+import { SidebarRowMenu } from '@/components/sidebar-row-menu';
+import { buildViewMenu } from '@/components/views/view-menu';
+import { useViewMenuActions, viewMenuSidebarActions } from '@/components/views/view-menu-items';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -99,28 +101,45 @@ export function SidebarViewRow({
     </>
   );
 
-  const actions: SidebarMenuAction[] = [];
-  if (onRename) actions.push({ label: 'Rename', onSelect: () => onRename(view) });
-  if (onDelete) actions.push({ label: 'Delete', danger: true, onSelect: () => onDelete(view) });
-  if (onMove && view.folder_id) {
-    actions.push({
-      label: view.database_id ? 'Move back under its database' : 'Move to the space root',
-      separatorBefore: true,
-      onSelect: () => onMove(view.id, null),
-    });
-  }
-  if (onMove) {
-    folders
-      .filter((f) => f.id !== view.folder_id)
-      .forEach((f, i) =>
-        actions.push({
-          label: `Move to ${f.name}`,
-          // Separate the move block from rename/delete once, not per folder.
-          separatorBefore: i === 0 && !view.folder_id,
-          onSelect: () => onMove(view.id, f.id),
-        }),
-      );
-  }
+  // #964 — the ONE view menu (views/view-menu.ts), the same list the toolbar ⋯ and the tab ⋯ show.
+  // A space-level view has no database, so it gets the subset that needs none (rename, delete, move).
+  const viewActions = useViewMenuActions(ws, view.database_id);
+  const moves = [
+    // Only this door knows which folder a view is in, so only it can offer the way back out.
+    ...(onMove && view.folder_id
+      ? [
+          {
+            id: 'root',
+            label: view.database_id ? 'Move back under its database' : 'Move to the space root',
+            onSelect: () => onMove(view.id, null),
+          },
+        ]
+      : []),
+    ...(onMove
+      ? folders
+          .filter((f) => f.id !== view.folder_id)
+          .map((f) => ({ id: f.id, label: `Move to ${f.name}`, onSelect: () => onMove(view.id, f.id) }))
+      : []),
+  ];
+  const menuItems = buildViewMenu(
+    { name: view.name, isDefault: view.is_default, personal: view.personal },
+    {
+      canManage: canEdit,
+      // The sidebar does not know how many views the database has; the API refuses deleting the last.
+      canDelete: true,
+      onRename: onRename ? () => onRename(view) : undefined,
+      onDuplicate: viewActions ? () => viewActions.duplicate(view.id) : undefined,
+      onSetDefault: viewActions ? () => viewActions.setDefault(view.id) : undefined,
+      onCopyLink: viewActions ? () => void viewActions.copyLink(view.id) : undefined,
+      onShare:
+        viewActions && (view.type === 'table' || view.type === 'board' || view.type === 'dashboard')
+          ? () => viewActions.share(view.id)
+          : undefined,
+      onCopyToPersonal: viewActions ? () => viewActions.copyToPersonal(view.id) : undefined,
+      moves,
+      onDelete: onDelete ? () => onDelete(view) : undefined,
+    },
+  );
 
   return (
     /**
@@ -165,7 +184,7 @@ export function SidebarViewRow({
         *
         * Move entries now come and go with the folders; the MENU does not.
         */}
-      {canEdit && <SidebarRowMenu label={view.name} actions={actions} />}
+      {menuItems.length > 0 && <SidebarRowMenu label={view.name} actions={viewMenuSidebarActions(menuItems)} />}
     </SidebarRow>
   );
 }
