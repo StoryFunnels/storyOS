@@ -12,6 +12,7 @@ import { queryBodyFromConfig, type FilterNode, type ViewConfig } from './use-vie
 import { normalizeSearch, setViewSearch, useViewSearchText } from './view-search';
 import { stepIndex } from '@/lib/list-nav';
 import { useRecordCount, useRecordsInfinite } from '@/components/table-view/use-table-data';
+import { FIND_BOX, chipClass } from './toolbar-chip';
 
 /** How many matches the results list shows. Narrowing the text reaches the rest;
  * the list says how many more there are rather than pretending it is complete. */
@@ -124,9 +125,9 @@ export function ViewSearchBox({
         }}
         title={hint ? `Find in this view (${hint})` : 'Find in this view'}
         aria-label="Find in this view"
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-label text-muted hover:bg-hover hover:text-ink"
+        className={chipClass()}
       >
-        <Search className="h-3.5 w-3.5" />
+        <Search className="h-3 w-3" />
         Find
       </button>
     );
@@ -134,12 +135,9 @@ export function ViewSearchBox({
 
   return (
     <div
-      className={cn(
-        'relative flex items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5',
-        'focus-within:border-accent',
-      )}
+      className={FIND_BOX}
     >
-      <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
+      <Search className="h-3 w-3 shrink-0 text-muted" />
       <input
         ref={inputRef}
         autoFocus
