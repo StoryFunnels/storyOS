@@ -3,12 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { CellDisplay } from './cells';
-import { aiFieldState } from '@/lib/ai-field-state';
+import { aiFieldState, aiStateSpeaks, recordHasPendingAi } from '@/lib/ai-field-state';
+import { AI_PENDING_STALE_MS } from '@storyos/schemas';
 import type { Field } from './use-table-data';
 
 /**
- * Ticket #620 — an AI field's failed state is drawn from what the API reports (`<id>:error`), asserted on
- * the rendered cell. There is deliberately no "computing" case: the API does not report one.
+ * Ticket #620 — an AI field's states are drawn from what the API reports: `<id>:error` (failed), `<id>:computed_at`
+ * (computed) and, since #925, `<id>:pending_at` (computing), asserted on the rendered cell. Nothing is inferred.
  */
 const FIELD_ID = 'f-ai';
 const ai = { id: FIELD_ID, apiName: 'summary', displayName: 'Summary', type: 'ai', config: {}, isSystem: false } as unknown as Field;
@@ -73,5 +74,72 @@ describe('an AI field cell (#620)', () => {
     );
     expect(html).toContain('plain');
     expect(html).not.toContain('data-ai-state');
+  });
+});
+
+describe('the computing state (#620 / #925)', () => {
+  const NOW = Date.parse('2026-10-21T12:00:00Z');
+  const fresh = new Date(NOW - 10_000).toISOString();
+  const stale = new Date(NOW - AI_PENDING_STALE_MS - 1000).toISOString();
+  const state = (computed: Record<string, unknown>) => aiFieldState({ computed_values: computed }, FIELD_ID, NOW);
+
+  it('a fresh :pending_at marker is computing, and it wins over a failure and a computed stamp while it lasts', () => {
+    expect(state({ [`${FIELD_ID}:pending_at`]: fresh })).toEqual({ kind: 'computing', since: fresh });
+    expect(state({ [`${FIELD_ID}:pending_at`]: fresh, [`${FIELD_ID}:error`]: 'boom', [`${FIELD_ID}:computed_at`]: '2026-10-15T10:00:00Z' }).kind).toBe('computing');
+  });
+
+  it('a marker older than five minutes is NOT computing (a dead worker must not read as "computing" for ever)', () => {
+    expect(state({ [`${FIELD_ID}:pending_at`]: stale }).kind).toBe('none');
+    expect(state({ [`${FIELD_ID}:pending_at`]: stale, [`${FIELD_ID}:error`]: 'boom' }).kind).toBe('failed');
+  });
+
+  it('never inferred: an empty value, or a computed_at older than the edit, is not computing without the marker', () => {
+    expect(state({}).kind).toBe('none');
+    expect(state({ [`${FIELD_ID}:computed_at`]: '2020-01-01T00:00:00Z' }).kind).toBe('computed');
+    expect(state({ [`${FIELD_ID}:pending_at`]: 'not a date' }).kind).toBe('none');
+  });
+
+  it("another field's marker is not this field's", () => {
+    expect(state({ 'other:pending_at': fresh }).kind).toBe('none');
+  });
+
+  it('computing WITH a last good value: the value stays, dimmed, with "Computing…" beside it', () => {
+    const html = render('A neat summary', { [`${FIELD_ID}:pending_at`]: new Date().toISOString() });
+    expect(html).toContain('data-ai-state="computing"');
+    expect(html).toContain('A neat summary');
+    expect(html).toContain('opacity-60');
+    expect(html).toContain('Computing…');
+  });
+
+  it('computing with NO value says "Computing…" and is never a blank cell', () => {
+    const html = render(null, { [`${FIELD_ID}:pending_at`]: new Date().toISOString() });
+    expect(html).toContain('data-ai-state="computing"');
+    expect(html).toContain('Computing…');
+  });
+
+  it('the spinner is motion-safe, so reduced motion still gets the words', () => {
+    expect(render(null, { [`${FIELD_ID}:pending_at`]: new Date().toISOString() })).toContain('motion-safe:animate-spin');
+  });
+
+  it('computing is distinct from failed and computed in the DOM', () => {
+    const pending = new Date().toISOString();
+    expect(render('v', { [`${FIELD_ID}:pending_at`]: pending })).not.toContain('data-ai-state="failed"');
+    expect(render('v', { [`${FIELD_ID}:error`]: 'x' })).not.toContain('data-ai-state="computing"');
+  });
+
+  it('failed and computing both speak with no value; computed and none do not', () => {
+    expect(aiStateSpeaks({ kind: 'computing', since: fresh })).toBe(true);
+    expect(aiStateSpeaks({ kind: 'failed', reason: 'x', computedAt: null })).toBe(true);
+    expect(aiStateSpeaks({ kind: 'computed', computedAt: fresh })).toBe(false);
+    expect(aiStateSpeaks({ kind: 'none' })).toBe(false);
+    expect(aiStateSpeaks(undefined)).toBe(false);
+  });
+
+  it('polling runs only while some AI field has a FRESH marker, on any field of the record', () => {
+    expect(recordHasPendingAi({ computed_values: { 'a:pending_at': fresh, 'b:pending_at': stale } }, NOW)).toBe(true);
+    expect(recordHasPendingAi({ computed_values: { 'a:pending_at': stale } }, NOW)).toBe(false);
+    expect(recordHasPendingAi({ computed_values: { a: 'value', 'a:computed_at': fresh } }, NOW)).toBe(false);
+    expect(recordHasPendingAi({}, NOW)).toBe(false);
+    expect(recordHasPendingAi(undefined, NOW)).toBe(false);
   });
 });

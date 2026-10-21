@@ -6,6 +6,7 @@ import { PortalModule } from '../portal/portal.module';
 import { RecordsModule } from '../records/records.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ViewerStateModule } from '../viewer-state/viewer-state.module';
+import { DismissedHintsController, PinnedTabsController } from '../viewer-state/viewer-state.controller';
 import { ViewsController } from './views.controller';
 import { PersonalFilterController } from './personal-filter.controller';
 import { PublicViewsController } from './public-views.controller';
@@ -28,7 +29,7 @@ import { ViewsService } from './views.service';
   // BillingModule (#556): PublicViewsService reads the workspace's plan to
   // compute hide_branding, mirroring FormsService's existing wiring.
   imports: [WorkspacesModule, DatabasesModule, RecordsModule, ViewerStateModule, AccessModule, PortalModule, BillingModule],
-  controllers: [ViewsController, PersonalFilterController, SpaceViewsController, PublicViewsController],
+  controllers: [ViewsController, PersonalFilterController, PinnedTabsController, DismissedHintsController, SpaceViewsController, PublicViewsController],
   providers: [ViewsService, SpaceViewsService, PublicViewsService],
   exports: [ViewsService, SpaceViewsService],
 })
