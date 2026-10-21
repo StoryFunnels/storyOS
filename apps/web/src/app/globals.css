@@ -535,6 +535,23 @@ html[data-embed] body {
   outline-offset: 0;
 }
 
+/* #1018 — a ring is for the keyboard. After a mouse/touch press (`data-modality`, lib/input-modality.ts) it is hidden
+   on everything but text fields, whatever script focus follows the click. */
+html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [contenteditable='true']) {
+  outline: none;
+}
+
+/* #1018 — a sidebar row is ONE rounded rectangle: when its label link takes keyboard focus the ring is drawn on the
+   ROW, not on the inner link (which sat offset inside the highlight and was narrower than it). The row's own small
+   controls (⋯, the caret) keep their own ring. */
+[data-sidebar-row] :is(a, button).flex-1:focus-visible {
+  outline: none;
+}
+[data-sidebar-row]:has(:is(a, button).flex-1:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: 0;
+}
+
 /* #726 AC3 — components/ui/file-input.tsx layers a real (but invisible,
    opacity:0) <input type=file> over a decorative, aria-hidden Button, so
    native keyboard focus/activation/validation all keep working. That means
