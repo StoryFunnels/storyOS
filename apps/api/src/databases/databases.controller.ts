@@ -9,7 +9,9 @@ import {
   Post,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { ServerTimingInterceptor } from '../common/server-timing';
 import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -61,6 +63,7 @@ export class DatabasesController {
   }
 
   @Get(':db')
+  @UseInterceptors(ServerTimingInterceptor) // #1010 — Server-Timing: database time + statement count, timings only
   @ApiOperation({ summary: 'Database with live fields and views (schema introspection)' })
   get(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     return this.databases.get(req.membership, databaseId);

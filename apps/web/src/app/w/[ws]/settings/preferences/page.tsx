@@ -17,7 +17,7 @@ const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
 
 type Regional = UserPreferences['regional'];
 const DATE_OPTIONS: { value: Regional['dateFormat']; label: string }[] = [
-  { value: 'system', label: 'System default' },
+  { value: 'system', label: 'Friendly (Today, 21 Oct)' },
   { value: 'MDY', label: 'MM/DD/YYYY' },
   { value: 'DMY', label: 'DD/MM/YYYY' },
   { value: 'YMD', label: 'YYYY-MM-DD' },
@@ -81,7 +81,7 @@ export default function PreferencesPage() {
         <h2 className="mb-1 text-sm font-medium text-ink">Date &amp; time</h2>
         <p className="mb-4 text-body text-muted">
           How dates and times display across the app. Preview:{' '}
-          <span className="font-medium text-ink">{formatDateTime(new Date(), regional)}</span>
+          <span className="font-medium text-ink">{formatDateTime(new Date(), regional, { relative: false })}</span>
         </p>
         <div className="flex max-w-md flex-col gap-4">
           <SelectRow
@@ -90,7 +90,7 @@ export default function PreferencesPage() {
             options={DATE_OPTIONS}
             disabled={prefs.isLoading}
             onChange={(v) => setRegional({ dateFormat: v })}
-            preview={formatDate(new Date(), { ...regional, dateFormat: regional.dateFormat })}
+            preview={formatDate(new Date(), { ...regional, dateFormat: regional.dateFormat }, { relative: false })}
           />
           <SelectRow
             label="Time format"
