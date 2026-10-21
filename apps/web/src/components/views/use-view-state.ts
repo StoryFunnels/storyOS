@@ -328,6 +328,18 @@ export function useViewMutations(ws: string, db: string) {
       onSuccess: invalidate,
       onError: () => toast.error('Could not create the view'),
     }),
+    /** #928 — rename and/or replace the config in one write (the published copy of a Me view). */
+    updateView: useMutation({
+      mutationFn: async ({ id, name, config }: { id: string; name?: string; config?: ViewConfig }) => {
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+          params: { path: { ws, db, view: id } },
+          body: { ...(name !== undefined ? { name } : {}), ...(config ? { config: config as never } : {}) },
+        });
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not update the view'),
+    }),
     renameView: useMutation({
       mutationFn: async ({ id, name }: { id: string; name: string }) => {
         const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
