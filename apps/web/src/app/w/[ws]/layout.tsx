@@ -1,5 +1,6 @@
 'use client';
 
+import { useInputModality } from '@/lib/input-modality';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -31,6 +32,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   // from storage — so the drawer is guaranteed CLOSED on first paint and a
   // record is readable without the user manually closing it.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // #1018 — a focus ring is for the keyboard, never after a mouse press.
+  useInputModality();
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.

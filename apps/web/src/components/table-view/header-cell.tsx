@@ -271,8 +271,9 @@ export function HeaderCell({
         )}
         {/* The freeze mark: shown only on the frozen column, never as a button — Freeze / Unfreeze is in the menu. */}
         {isFirst && pinned && (
-          <span className="shrink-0 text-accent-text" title="Frozen">
-            <Snowflake className="h-2.5 w-2.5" aria-label="Frozen" />
+          // #1018 — the prototype's `.hfrz`: --c2 (blue), 12px, beside the label. Gold is agency's colour (#831).
+          <span className="flex shrink-0 text-[var(--c2)]" title="Frozen">
+            <Snowflake className="h-3 w-3" aria-label="Frozen" />
           </span>
         )}
       </span>

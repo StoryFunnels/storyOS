@@ -100,6 +100,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
   return (
     <div
       ref={ref}
+      data-sidebar-row=""
       /**
        * Caller styles are MERGED, never allowed to replace this. A draggable row
        * passes `{transform, transition}` from dnd-kit, and spreading that over

@@ -28,7 +28,6 @@ import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
   useMembers,
-  useRecordCount,
   useRecordMutations,
   useRecordsInfinite,
 } from './use-table-data';
@@ -42,7 +41,7 @@ import {
 } from './use-hierarchy';
 import type { ViewConfig } from '../views/use-view-state';
 import { andFilterNodes } from '../views/filter-config';
-import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/records';
+import { databaseNoun, recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { withSystemFields } from '../views/system-fields';
 import { atLeast } from '@/lib/access';
@@ -53,6 +52,8 @@ import { ViewQueryError } from '../views/query-error';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
 
 const DEFAULT_WIDTH = 180;
+/** #1018 — wide enough for "#", the 12px freeze mark and ⋯ side by side (56 clipped them); still a number gutter. */
+const ID_COLUMN_WIDTH = 76;
 const TITLE_WIDTH = 260;
 // #296: how far the pointer has to move before a mousedown-on-a-cell turns into
 // a range-select drag rather than an ordinary click — same distance columnSensors'
@@ -185,7 +186,6 @@ export function TableView({
   // index alone can't give without scrolling to the end. Same filter as the
   // grid's own query (root-only when nested), so it always matches what's on
   // screen at the top level.
-  const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter'], true, rootQueryBody?.['q'] as string | undefined);
 
   // #739 — the permanent record number as an ORDINARY column, "ID" in the UI,
   // `number` in code (T6). Computed via the SAME shared registry helper
@@ -430,7 +430,7 @@ export function TableView({
       widths[field.id] ??
       columnWidths?.[field.id] ??
       // The id column starts narrow (a compact number gutter) but is resizable (MN-087).
-      (field.type === 'id' ? 56 : field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
+      (field.type === 'id' ? ID_COLUMN_WIDTH : field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
     [widths, columnWidths],
   );
 
@@ -1173,25 +1173,11 @@ export function TableView({
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div
-              className={cn('flex w-14 shrink-0 items-center justify-center overflow-hidden bg-app text-meta font-medium text-faint', pinned && 'sticky left-0 z-30')}
-              // #659 — the persistent total-record-count AC: this gutter header is
-              // sticky in both axes already (pinned left + the header's own sticky
-              // top), so it's always on screen regardless of scroll — the one spot
-              // that never needed new positioning to satisfy "no scrolling required".
-              title={recordCount.data !== undefined ? `${recordCount.data} ${pluralNoun(noun, recordCount.data)}` : undefined}
-            >
-              {/* #930 — a bare number beside the 1, 2, 3… row numbers read as one more
-                  row number. The noun under it says what it counts; the count itself is
-                  still the server's (#755), never the loaded rows. */}
-              {recordCount.data === undefined ? (
-                '#'
-              ) : (
-                <span className="flex min-w-0 flex-col items-center leading-none">
-                  <span className="tabular-nums">{recordCount.data}</span>
-                  <span className="max-w-full truncate text-micro font-normal">{pluralNoun(noun, recordCount.data)}</span>
-                </span>
-              )}
-            </div>
+              // #1018 — the gutter header holds nothing: the count is the toolbar's "N of M", never a noun
+              // squeezed into 56px ("1 / agent trigg…"). (#930 put it here; #659's "always on screen" is the
+              // toolbar's, which is above the table and never scrolls.)
+              className={cn('flex w-14 shrink-0 items-center justify-center overflow-hidden bg-app', pinned && 'sticky left-0 z-30')}
+            />
             {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell
                 key={field.id}
