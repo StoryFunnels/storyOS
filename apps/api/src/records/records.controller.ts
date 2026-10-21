@@ -10,8 +10,10 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
   HttpCode,
 } from '@nestjs/common';
+import { ServerTimingInterceptor } from '../common/server-timing';
 import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -148,6 +150,7 @@ export class RecordsController {
   }
 
   @RequiresScope('read')
+  @UseInterceptors(ServerTimingInterceptor) // #1010 — Server-Timing: database time + statement count, timings only
   @Post('query')
   @ApiOperation({ summary: 'Query records: filter AST + sorts + q + keyset cursor (the workhorse)' })
   @ApiCreatedResponse({ type: QueryRecordsResponseDto })
