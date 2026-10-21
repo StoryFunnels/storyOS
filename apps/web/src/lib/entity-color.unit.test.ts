@@ -2,7 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
-import { DEFAULT_ENTITY_COLORS, databaseColor, defaultEntityColor, hashId } from './entity-color';
+import {
+  DEFAULT_ENTITY_COLORS,
+  DEFAULT_ENTITY_PALETTE,
+  databaseColor,
+  defaultEntityColor,
+  entityColor,
+  hashId,
+  isEntityToken,
+} from './entity-color';
 
 function uuid(n: number): string {
   // A spread of v4-shaped ids, deterministic so the test cannot flake.
@@ -24,9 +32,10 @@ describe('defaultEntityColor (#1001): a stable colour from the id', () => {
   });
 
   it('pins known ids, so a change to the hash cannot go unnoticed (it would recolour every workspace)', () => {
-    expect(defaultEntityColor('80b45166-9b95-41f1-b237-97a6e9ef5ffd')).toBe('pink');
-    expect(defaultEntityColor('549b4ab9-17ce-46de-bdf7-56eab5c105b5')).toBe('teal');
-    expect(defaultEntityColor('1392ae95-d35d-40a2-87aa-14005700d7d4')).toBe('blue');
+    // Index = hashId % 8 into the palette order; the server's backfill (#1016) uses the same hash and order.
+    expect(defaultEntityColor('80b45166-9b95-41f1-b237-97a6e9ef5ffd')).toBe('c6');
+    expect(defaultEntityColor('549b4ab9-17ce-46de-bdf7-56eab5c105b5')).toBe('c2');
+    expect(defaultEntityColor('1392ae95-d35d-40a2-87aa-14005700d7d4')).toBe('c1');
     expect(hashId('')).toBe(0x811c9dc5);
   });
 
@@ -37,15 +46,25 @@ describe('defaultEntityColor (#1001): a stable colour from the id', () => {
     for (const [color, n] of counts) expect(n, color).toBeLessThan(100);
   });
 
-  it('only ever names a colour the picker has, and never grey', () => {
-    for (const name of DEFAULT_ENTITY_COLORS) {
+  it('each default token corresponds to a picker palette name, never grey (what the server backfill stores)', () => {
+    expect(DEFAULT_ENTITY_PALETTE.map((p) => p.token)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']);
+    for (const { name } of DEFAULT_ENTITY_PALETTE) {
       expect(OPTION_COLORS[name], name).toBeTruthy();
       expect(name).not.toBe('gray');
     }
+    expect(new Set(DEFAULT_ENTITY_PALETTE.map((p) => p.name)).size).toBe(8);
   });
 });
 
 describe('databaseColor: a set colour wins, a missing one falls back', () => {
+  it('resolves a default token to a theme-aware variable and a chosen name to its fixed palette hex', () => {
+    expect(isEntityToken('c3')).toBe(true);
+    expect(isEntityToken('c9')).toBe(false);
+    expect(isEntityToken('blue')).toBe(false);
+    expect(entityColor('c3')).toBe('var(--c3)');
+    expect(entityColor('blue')).toBe(OPTION_COLORS.blue);
+    expect(entityColor(null)).toBeUndefined();
+  });
   it('keeps the colour a person chose', () => {
     expect(databaseColor('purple', 'any-id')).toBe('purple');
     expect(databaseColor('gray', 'any-id')).toBe('gray'); // an explicit grey is a choice
@@ -63,7 +82,25 @@ describe('databaseColor: a set colour wins, a missing one falls back', () => {
   });
 });
 
-describe('contrast: every default is a legible glyph on both sidebars (#1001 AC4)', () => {
+describe('contrast: every default token is a legible glyph on both sidebars, in both themes (#1001 AC4)', () => {
+  const css = readFileSync(join(import.meta.dirname, '..', 'app', 'globals.css'), 'utf8');
+  const block = (selector: string): string => {
+    const open = css.indexOf('{', css.indexOf(selector));
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === '{') depth++;
+      if (css[i] === '}' && --depth === 0) return css.slice(open, i);
+    }
+    throw new Error(selector);
+  };
+  const light = block(':root {');
+  const dark = block(":root[data-theme='dark']");
+  const hexOf = (b: string, name: string): string => {
+    const m = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`).exec(b);
+    if (m) return m[1]!;
+    if (b !== light) return hexOf(light, name);
+    throw new Error(`${name} missing`);
+  };
   const lum = (hex: string) => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
     const f = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -73,8 +110,18 @@ describe('contrast: every default is a legible glyph on both sidebars (#1001 AC4
     const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
     return (hi! + 0.05) / (lo! + 0.05);
   };
-  it.each(['#f4efe5', '#0a0d12'])('3:1 against %s', (bg) => {
-    for (const name of DEFAULT_ENTITY_COLORS) expect(ratio(OPTION_COLORS[name]!, bg), name).toBeGreaterThanOrEqual(3);
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: --c1..--c8 are declared and clear 3:1 on the sidebar and the frame', (_name, theme) => {
+    for (const token of DEFAULT_ENTITY_COLORS) {
+      for (const bg of ['--bg-sidebar', '--bg-frame']) {
+        expect(ratio(hexOf(theme, `--${token}`), hexOf(theme, bg)), `${token} on ${bg}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+  it('dark uses the prototype’s dark set, not the light values', () => {
+    for (const token of DEFAULT_ENTITY_COLORS) expect(hexOf(dark, `--${token}`)).not.toBe(hexOf(light, `--${token}`));
   });
 });
 

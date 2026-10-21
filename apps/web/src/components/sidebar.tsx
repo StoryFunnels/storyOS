@@ -46,7 +46,6 @@ import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
-import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   SIDEBAR_NAV_DEFAULT_W,
@@ -62,7 +61,7 @@ import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
-import { databaseColor } from '@/lib/entity-color';
+import { databaseColor, entityColor } from '@/lib/entity-color';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -2626,7 +2625,7 @@ function DatabaseBranch({
   const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
   const activeViewId = isHere ? currentViewId : null;
   const [expanded, toggle] = useDatabaseViewsExpanded(ws, db.id, activeViewId);
-  const tint = db.color ? OPTION_COLORS[db.color] : null;
+  const tint = entityColor(databaseColor(db.color, db.id)) ?? null;
 
   const renderView = (v: SidebarView) => (
     <SidebarViewRow

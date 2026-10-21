@@ -22,6 +22,7 @@ import {
   isSetIconRef,
   setIconName,
 } from './icon-set';
+import { entityColor } from '@/lib/entity-color';
 
 export const COLOR_NAMES = Object.keys(OPTION_COLORS);
 
@@ -137,7 +138,7 @@ export function IconColorPicker({
                   selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
                 )}
                 onClick={() => pickIcon(d.name)}
-                style={color ? { color: OPTION_COLORS[color] } : undefined}
+                style={color ? { color: entityColor(color) } : undefined}
               >
                 <d.Icon className="h-4 w-4" strokeWidth={2} />
               </button>
@@ -155,7 +156,7 @@ export function IconColorPicker({
                   selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
                 )}
                 onClick={() => pickBrand(d.slug)}
-                style={color ? { color: OPTION_COLORS[color] } : undefined}
+                style={color ? { color: entityColor(color) } : undefined}
               >
                 <BrandIcon slug={d.slug} size={16} />
               </button>
@@ -224,7 +225,7 @@ function CatChip({
 
 /** Large square preview of the icon on its background (the header look). */
 function IconPreview({ icon, color }: { icon: string | null; color: string | null }) {
-  const hex = color ? OPTION_COLORS[color] : null;
+  const hex = color ? (entityColor(color) ?? null) : null;
   return (
     <div
       className="option-tint flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
@@ -234,7 +235,7 @@ function IconPreview({ icon, color }: { icon: string | null; color: string | nul
          a second mechanism for one identical case is how these drift apart. */
       style={
         hex
-          ? ({ backgroundColor: `${hex}22`, ['--option-color' as string]: hex } as CSSProperties)
+          ? ({ backgroundColor: `color-mix(in srgb, ${hex} 13%, transparent)`, ['--option-color' as string]: hex } as CSSProperties)
           : undefined
       }
     >
@@ -261,11 +262,11 @@ export function EntityIconChip({
   fallback: React.ReactNode;
   className?: string;
 }) {
-  const hex = color ? OPTION_COLORS[color] : null;
+  const hex = color ? (entityColor(color) ?? null) : null;
   return (
     <span
       className={cn('inline-flex items-center justify-center rounded-[6px]', className)}
-      style={hex ? { backgroundColor: `${hex}22` } : undefined}
+      style={hex ? { backgroundColor: `color-mix(in srgb, ${hex} 13%, transparent)` } : undefined}
     >
       <EntityIcon icon={icon} color={color} size={size} fallback={fallback} />
     </span>
@@ -335,7 +336,7 @@ export function EntityIcon({
     return (
       <span
         className={cn('inline-flex shrink-0 items-center justify-center', className)}
-        style={color ? { color: OPTION_COLORS[color] } : undefined}
+        style={color ? { color: entityColor(color) } : undefined}
       >
         <Icon
           strokeWidth={2}
@@ -350,7 +351,7 @@ export function EntityIcon({
     return (
       <span
         className={cn('inline-flex shrink-0 items-center justify-center', className)}
-        style={color ? { color: OPTION_COLORS[color] } : undefined}
+        style={color ? { color: entityColor(color) } : undefined}
       >
         <BrandIcon slug={brandSlug} size={size} />
       </span>
@@ -376,7 +377,7 @@ export function EntityIcon({
   return (
     <span
       className={cn('inline-flex shrink-0 items-center', className)}
-      style={color ? { color: OPTION_COLORS[color] } : undefined}
+      style={color ? { color: entityColor(color) } : undefined}
     >
       {fallback}
     </span>

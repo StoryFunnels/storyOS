@@ -48,6 +48,18 @@
   --accent: #d4a017;
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
+
+  /* #1001 — the default colours of an unnamed database (--c1..--c8: the prototype's palette), picked by a stable hash of its
+     id (lib/entity-color.ts). Every one is at least 3:1 against both sidebars, the bar for a glyph. Light gold is #a67d12,
+     not the prototype's #d4a017, which is only 2.07:1 on the sidebar (#f4efe5). */
+  --c1: #a67d12;
+  --c2: #3d5296;
+  --c3: #2d7a4f;
+  --c4: #c0392b;
+  --c5: #8e5db8;
+  --c6: #1f8fa3;
+  --c7: #c9701f;
+  --c8: #9a7b4f;
   /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
      the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened to 4.56:1. */
   --accent-text: #8a6700;
@@ -292,6 +304,16 @@
   --accent: #e0af2b;
   --accent-hover: #f0c247;
   --accent-soft: #332e1c;
+
+  /* #1001 — the prototype's dark set; 6.1:1 or better on the dark sidebars. */
+  --c1: #e0af2b;
+  --c2: #7a92d6;
+  --c3: #57b37f;
+  --c4: #e2705f;
+  --c5: #b992dc;
+  --c6: #4fb8ca;
+  --c7: #e0965a;
+  --c8: #c1a988;
   --accent-text: var(--accent);
 
   /* Status — lifted for contrast on dark */

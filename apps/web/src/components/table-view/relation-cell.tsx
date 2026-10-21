@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/po
 import { EntityPickerRow } from '@/components/entity/entity-picker-row';
 import type { Field, RecordRow } from './use-table-data';
 import { databaseColor } from '@/lib/entity-color';
+import { isEntityToken } from '@/lib/entity-color';
 
 export interface LinkChip {
   id: string;
@@ -85,7 +86,8 @@ const DB_MARKER_COLORS: Record<string, string> = {
  */
 export function DbColorMarker({ color, className }: { color?: string | null; className?: string }) {
   if (!color) return null;
-  const hex = DB_MARKER_COLORS[color] ?? DB_MARKER_COLORS.gray!;
+  // #1001 — a default-colour token (`c1`..`c8`) is theme-aware; a chosen palette name keeps its fixed hex.
+  const hex = isEntityToken(color) ? `var(--${color})` : (DB_MARKER_COLORS[color] ?? DB_MARKER_COLORS.gray!);
   return (
     <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" className={cn('shrink-0', className)}>
       <path d="M1 3.2v5.6C1 10 3.2 11 6 11s5-1 5-2.2V3.2" fill={hex} />
