@@ -230,13 +230,21 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Tasks',
           name: 'Task Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Tasks', 'State') },
+          config: {
+            group_by_field_id: fieldRef('Tasks', 'State'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Tasks', 'Priority'), fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due Date')],
+          },
         },
         {
           database: 'Clients',
           name: 'Health Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Clients', 'Health') },
+          config: {
+            group_by_field_id: fieldRef('Clients', 'Health'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Clients', 'Owner'), fieldRef('Clients', 'Industry'), fieldRef('Clients', 'Monthly Value')],
+          },
         },
       ],
       automations: [
@@ -415,7 +423,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Tasks',
           name: 'Shared Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Tasks', 'State') },
+          config: {
+            group_by_field_id: fieldRef('Tasks', 'State'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due Date'), fieldRef('Tasks', 'Labels')],
+          },
         },
         {
           database: 'Tasks',
@@ -429,7 +441,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Deliverables',
           name: 'Delivery Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Deliverables', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Deliverables', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Deliverables', 'Due Date'), fieldRef('Deliverables', 'Link')],
+          },
         },
       ],
       automations: [
@@ -628,7 +644,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Issues',
           name: 'Issue Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Issues', 'State') },
+          config: {
+            group_by_field_id: fieldRef('Issues', 'State'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Issues', 'State'), fieldRef('Issues', 'Priority'), fieldRef('Issues', 'Assignee')],
+          },
         },
         {
           database: 'Issues',
@@ -640,7 +660,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Releases',
           name: 'Release Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Releases', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Releases', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Releases', 'Date'), fieldRef('Releases', 'Link')],
+          },
         },
       ],
       automations: [
@@ -802,7 +826,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Articles',
           name: 'Editorial Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Articles', 'Stage') },
+          config: {
+            group_by_field_id: fieldRef('Articles', 'Stage'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Articles', 'Author'), fieldRef('Articles', 'Content Type'), fieldRef('Articles', 'Target Publish Date')],
+          },
         },
         {
           database: 'Articles',
@@ -814,7 +842,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Topics',
           name: 'Topic map',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Topics', 'Priority') },
+          config: {
+            group_by_field_id: fieldRef('Topics', 'Priority'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Topics', 'Search Volume /mo')],
+          },
         },
       ],
       automations: [
@@ -1017,7 +1049,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Chapters',
           name: 'Manuscript Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Chapters', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Chapters', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Chapters', 'Word Count'), fieldRef('Chapters', 'POV / Theme')],
+          },
         },
         {
           database: 'Chapters',
@@ -1029,7 +1065,11 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Appearances',
           name: 'Pitch Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Appearances', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Appearances', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Appearances', 'Type'), fieldRef('Appearances', 'Show / Event'), fieldRef('Appearances', 'Date')],
+          },
         },
       ],
       automations: [
@@ -1210,13 +1250,21 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Sessions',
           name: 'Session Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Sessions', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Sessions', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Sessions', 'Date'), fieldRef('Sessions', 'Type')],
+          },
         },
         {
           database: 'Clients',
           name: 'Client Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Clients', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Clients', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Clients', 'Renewal Date'), fieldRef('Clients', 'Goal')],
+          },
         },
       ],
       automations: [
@@ -1401,13 +1449,21 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Proposals',
           name: 'Pipeline Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Proposals', 'Stage') },
+          config: {
+            group_by_field_id: fieldRef('Proposals', 'Stage'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Proposals', 'Value'), fieldRef('Proposals', 'Type'), fieldRef('Proposals', 'Expected Close')],
+          },
         },
         {
           database: 'Engagements',
           name: 'Engagement Board',
           type: 'board',
-          config: { group_by_field_id: fieldRef('Engagements', 'Status') },
+          config: {
+            group_by_field_id: fieldRef('Engagements', 'Status'),
+            // #1012 — the card shows what a person scans a board for, not a bare title. (The board hides the grouped field on the card: it is the column.)
+            card_field_ids: [fieldRef('Engagements', 'Monthly Value'), fieldRef('Engagements', 'End Date')],
+          },
         },
       ],
       automations: [
