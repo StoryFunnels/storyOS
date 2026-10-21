@@ -45,7 +45,8 @@ describe('the sidebar edge (#1000)', () => {
       expect(sticky, sticky).toMatch(/\bbg-frame\b/);
       expect(sticky, sticky).not.toMatch(/\bbg-sidebar\b/);
     }
-    // ...and the panel those rows sit on is bg-frame.
-    expect(src).toMatch(/className="flex h-full shrink-0 flex-col bg-frame"/);
+    // ...and the panel those rows sit on is bg-frame. (#994: the class string is now built with cn(), because the panel
+    // is hidden on desktop when the person hides the sidebar; the background is the same literal either way.)
+    expect(src).toMatch(/className=(?:"|\{cn\()'?flex h-full shrink-0 flex-col bg-frame/);
   });
 });
