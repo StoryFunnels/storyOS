@@ -7,6 +7,7 @@ import { authed, signUpUser } from './helpers/users';
 import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 import { RecordsService } from '../src/records/records.service';
 import { records } from '../src/db/schema';
+import { inArray } from 'drizzle-orm';
 
 /**
  * #897 — two rollup recomputes for ONE record could persist out of order: each read the aggregate, then wrote it in a later
@@ -103,4 +104,47 @@ describe('#897 concurrent recomputes cannot persist out of order', () => {
     for (let i = 0; i < 100 && (await stored()) !== 13; i++) await sleep(50);
     expect(await stored()).toBe(13);
   });
+});
+
+/**
+ * Vera's finding on the first version of this fix: the recompute held a TRANSACTION connection (for the advisory lock) while its
+ * compute helpers read through `this.db`, a SECOND pool connection. The pool is the default 10; with more concurrent recomputes than
+ * connections, every recompute held one and waited for another, so all of them waited on each other and the API stopped answering
+ * (her rig: 40 parallel child PATCHes, ten connections "idle in transaction", GET /me timing out). Every read in a recompute now goes
+ * through the connection that holds the lock.
+ */
+describe('#897 more concurrent recomputes than the pool has connections: the API keeps answering and every total settles', () => {
+  it('40 parallel child PATCHes (pool of 10): GET /me answers while they run, and all 40 parents end with the right total', async () => {
+    const PARENTS = 40;
+    const parents: string[] = [];
+    const children: string[] = [];
+    const memberFieldId = (await inject('GET', `/workspaces/${ws}/databases/${timeoffDb}`)).json().fields.find((f: { apiName: string }) => f.apiName === 'member').id as string;
+    for (let i = 0; i < PARENTS; i++) {
+      const parent = (await inject('POST', `/workspaces/${ws}/databases/${membersDb}/records`, { values: { name: `Pool parent ${i}` } })).json().id as string;
+      const child = (await inject('POST', `/workspaces/${ws}/databases/${timeoffDb}/records`, { values: { name: `Pool child ${i}`, days: 1 } })).json().id as string;
+      expect((await inject('PUT', `/workspaces/${ws}/databases/${timeoffDb}/records/${child}/links/${memberFieldId}`, { record_ids: [parent] })).statusCode).toBeLessThan(300);
+      parents.push(parent);
+      children.push(child);
+    }
+    const totals = async () => {
+      const rows = await rawDb.query.records.findMany({ where: inArray(records.id, parents), columns: { id: true, computedValues: true } });
+      return rows.map((r) => (r.computedValues as Record<string, unknown>)[rollupFieldId]);
+    };
+    for (let i = 0; i < 200 && !(await totals()).every((v) => v === 1); i++) await sleep(100); // the setup's own cascades
+
+    // 40 recomputes at once, 4x the pool
+    const patches = await Promise.all(children.map((id) => inject('PATCH', `/workspaces/${ws}/databases/${timeoffDb}/records/${id}`, { values: { days: 5 } })));
+    expect(patches.every((r) => r.statusCode === 200)).toBe(true);
+
+    // The API must stay responsive WHILE they run: a starved pool never answers this at all.
+    const alive = await Promise.race([inject('GET', '/me').then((r) => r.statusCode), sleep(8_000).then(() => 'STARVED' as const)]);
+    expect(alive, 'the API did not answer while 40 recomputes were running: the pool is starved').toBe(200);
+
+    let settled = false;
+    for (let i = 0; i < 300 && !settled; i++) {
+      settled = (await totals()).every((v) => v === 5);
+      if (!settled) await sleep(100);
+    }
+    expect(await totals(), 'every parent ends with its true total').toEqual(Array(PARENTS).fill(5));
+  }, 120_000);
 });

@@ -187,15 +187,15 @@ export class RecordsService {
   }
 
   /** Live field definitions + valid option ids, in validator shape. */
-  async fieldDefs(databaseId: string): Promise<FieldDef[]> {
-    const fieldRows = await this.db.query.fields.findMany({
+  async fieldDefs(databaseId: string, reader: Db = this.db): Promise<FieldDef[]> {
+    const fieldRows = await reader.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
     const selectFieldIds = fieldRows
       .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
       .map((f) => f.id);
     const options = selectFieldIds.length
-      ? await this.db.query.selectOptions.findMany({
+      ? await reader.query.selectOptions.findMany({
           where: inArray(selectOptions.fieldId, selectFieldIds),
         })
       : [];
@@ -222,7 +222,7 @@ export class RecordsService {
     const relationFields = fieldRows.filter((f) => f.type === 'relation');
     const relationIds = [...new Set(relationFields.map((f) => (f.config as Record<string, unknown>)['relation_id'] as string))];
     const relationRows = relationIds.length
-      ? await this.db.query.relations.findMany({ where: inArray(relations.id, relationIds) })
+      ? await reader.query.relations.findMany({ where: inArray(relations.id, relationIds) })
       : [];
     const cardinalityById = new Map(relationRows.map((r) => [r.id, r.cardinality]));
     const multiByFieldId = new Map<string, boolean>();
@@ -1518,6 +1518,11 @@ export class RecordsService {
        * stale materialized value (the sort key). Now the read happens only once the lock is held, so whichever recompute holds it
        * reads state at least as new as the change that triggered it, and the last writer is always the newest reader. Locks are
        * taken in sorted id order so two overlapping chunks cannot deadlock. Still fire-and-forget for the write that triggered it.
+       *
+       * EVERY read in here goes through `tx`, the connection that holds the lock: the compute helpers used to read through `this.db`, a
+       * SECOND pool connection, so N concurrent recomputes held N connections inside their transactions and each waited for another
+       * one. On the default 10-connection pool that deadlocks the API (Vera's rig: 40 parallel child PATCHes left GET /me timing out).
+       * One recompute, one connection.
        */
       await this.db.transaction(async (tx) => {
         for (const recordId of [...chunk].sort()) {
@@ -1525,7 +1530,7 @@ export class RecordsService {
         }
         const patchByRecord = new Map<string, Record<string, unknown>>();
         for (const def of rollupDefs) {
-          const values = await this.computeRollupValuesForChunk(def, defs, chunk);
+          const values = await this.computeRollupValuesForChunk(def, defs, chunk, tx as unknown as Db);
           for (const recordId of chunk) {
             const patch = patchByRecord.get(recordId) ?? {};
             patch[def.id] = values.has(recordId)
@@ -1537,7 +1542,7 @@ export class RecordsService {
           }
         }
         for (const def of pickOneDefs) {
-          const values = await this.computePickOneKeysForChunk(def, defs, chunk);
+          const values = await this.computePickOneKeysForChunk(def, defs, chunk, tx as unknown as Db);
           for (const recordId of chunk) {
             const patch = patchByRecord.get(recordId) ?? {};
             // No winner is null — never 0. A pick-one has no "count" reading, and
@@ -1579,6 +1584,7 @@ export class RecordsService {
     def: FieldDef,
     defs: FieldDef[],
     recordIds: string[],
+    reader: Db = this.db,
   ): Promise<Map<string, number | null>> {
     const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max' | 'collect';
     const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
@@ -1596,12 +1602,12 @@ export class RecordsService {
     let filterSql: SQL | undefined;
     let targetDefs: FieldDef[] | undefined;
     if (targetApiName || filterNode) {
-      const relation = await this.db.query.relations.findFirst({
+      const relation = await reader.query.relations.findFirst({
         where: eq(relations.id, relationId),
       });
       if (!relation) return result;
       const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
-      targetDefs = await this.fieldDefs(targetDbId);
+      targetDefs = await this.fieldDefs(targetDbId, reader);
       if (filterNode) {
         const ctx: CompilerContext = {
           defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -1612,7 +1618,7 @@ export class RecordsService {
     }
 
     if (op === 'count') {
-      const rows = await this.db
+      const rows = await reader
         .select({ mine: myCol, n: sql<number>`count(*)` })
         .from(recordLinks)
         .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt), filterSql))
@@ -1646,7 +1652,7 @@ export class RecordsService {
       if (!targetApiName || !targetDefs) return result;
       const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
       if (!targetFieldId) return result;
-      const rows = await this.db
+      const rows = await reader
         .select({
           mine: myCol,
           n: sql<number>`coalesce(sum(jsonb_array_length(${records.values}->${targetFieldId})), 0)`,
@@ -1681,7 +1687,7 @@ export class RecordsService {
             ? sql<number>`min(${numExpr})`
             : sql<number>`max(${numExpr})`;
 
-    const rows = await this.db
+    const rows = await reader
       .select({ mine: myCol, v: aggExpr })
       .from(recordLinks)
       .innerJoin(
@@ -1716,6 +1722,7 @@ export class RecordsService {
     def: FieldDef,
     defs: FieldDef[],
     recordIds: string[],
+    reader: Db = this.db,
   ): Promise<Map<string, string | number | boolean | null>> {
     const result = new Map<string, string | number | boolean | null>();
     const op = def.config['op'];
@@ -1728,12 +1735,12 @@ export class RecordsService {
     const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
 
     const side = relationDef.config['side'] as 'a' | 'b';
-    const relation = await this.db.query.relations.findFirst({
+    const relation = await reader.query.relations.findFirst({
       where: eq(relations.id, relationDef.config['relation_id'] as string),
     });
     if (!relation) return result;
     const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
-    const storedDefs = await this.fieldDefs(targetDbId);
+    const storedDefs = await this.fieldDefs(targetDbId, reader);
     // #351 overlay, same as the read path — ordering by the public #id is the
     // headline case and `number` has no stored fields row.
     const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
@@ -1749,7 +1756,7 @@ export class RecordsService {
     );
     const optionLabels = new Map<string, string>();
     if (labelledDefs.length > 0) {
-      const options = await this.db.query.selectOptions.findMany({
+      const options = await reader.query.selectOptions.findMany({
         where: inArray(
           selectOptions.fieldId,
           labelledDefs.map((d) => d.id),
@@ -1760,7 +1767,7 @@ export class RecordsService {
 
     const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
-    const links = await this.db
+    const links = await reader
       .select({ mine: myCol, other: otherCol })
       .from(recordLinks)
       .where(and(eq(recordLinks.relationId, relation.id), inArray(myCol, recordIds)));
@@ -1777,7 +1784,7 @@ export class RecordsService {
       };
       conditions.push(compileFilter(filterNode, ctx));
     }
-    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const targetRows = await reader.query.records.findMany({ where: and(...conditions) });
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
 
     const candidatesByParent = new Map<string, Array<(typeof targetRows)[number]>>();
