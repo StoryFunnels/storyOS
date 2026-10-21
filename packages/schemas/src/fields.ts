@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { stateCategorySchema } from './state-category';
+import { STATE_CATEGORIES } from './state-category';
+
+/** #1014 — a workflow/select option's state category (the values live in the zod-free `state-category.ts`). */
+export const stateCategorySchema = z.enum(STATE_CATEGORIES);
 import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';

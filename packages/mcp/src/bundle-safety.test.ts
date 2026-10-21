@@ -52,4 +52,13 @@ describe('mcp bundle safety', () => {
     // A guard whose glob silently stopped matching would pass forever.
     expect(sources(SRC).length).toBeGreaterThan(5);
   });
+
+  it('the zod-free schema subpaths the mcp imports stay zod-free (a zod import in one breaks the image at boot)', () => {
+    const schemasSrc = join(import.meta.dirname, '../../schemas/src');
+    for (const file of ['colors.ts', 'state-category.ts', 'icons.ts', 'markdown.ts', 'system-fields.ts']) {
+      let src: string;
+      try { src = readFileSync(join(schemasSrc, file), 'utf8'); } catch { continue; }
+      expect(src, `${file} must not import zod`).not.toMatch(/from ['"]zod['"]/);
+    }
+  });
 });

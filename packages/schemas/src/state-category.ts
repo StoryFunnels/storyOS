@@ -1,15 +1,15 @@
-import { z } from 'zod';
-
 /**
  * Ticket #1014 — what KIND of state a workflow option is, so "finished" is data and not a guess from the label.
  *
  * The five are Linear's state types (its states carry one, and the Linear import sets it from there): `backlog` (parked, not planned),
  * `unstarted` (planned, not begun), `started` (in progress), `completed` (done) and `canceled` (abandoned). `completed` and `canceled`
  * are the FINISHED ones: a record in either is no longer open work (`isFinishedStateCategory`).
+ *
+ * ZOD-FREE ON PURPOSE: the MCP image imports this file by subpath (`@storyos/schemas/state-category`), and a `zod` import here makes the bundle throw
+ * "Dynamic require of zod" at boot (see `packages/mcp/src/bundle-safety.test.ts`). The zod schema, `stateCategorySchema`, lives in `fields.ts`.
  */
 export const STATE_CATEGORIES = ['backlog', 'unstarted', 'started', 'completed', 'canceled'] as const;
 export type StateCategory = (typeof STATE_CATEGORIES)[number];
-export const stateCategorySchema = z.enum(STATE_CATEGORIES);
 
 /** A record in a `completed` or `canceled` state is finished. */
 export function isFinishedStateCategory(category: string | null | undefined): boolean {
