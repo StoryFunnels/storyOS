@@ -902,7 +902,7 @@ export function FilterValueEditor({
         value={typeof condition.value === 'string' ? condition.value : ''}
         onChange={(e) => onChange({ ...condition, value: e.target.value || null })}
       >
-        <option value="">{fill ? 'Pick a value…' : 'pick…'}</option>
+        <option value="">{fill ? 'Choose…' : 'pick…'}</option>
         {optionSource.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label}
@@ -1362,7 +1362,7 @@ export function FiltersSection({
               it is now always both, stacked, each labelled — reading the
               popover top to bottom IS reading the effective filter.
             */}
-            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[31rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               {/* #991 — Dara's header bar: "FILTER" in small mono caps on the left, "N of M applied" on the right.
                   #965 — M is every condition built (either section), N the ones that actually run (not disabled,
                   not unfinished). */}
@@ -1649,13 +1649,13 @@ export function FilterBuilderPanel({
 
 function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
   return (
-    <span className="flex flex-1 overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
+    <span className="inline-flex overflow-hidden rounded-[var(--radius-control)] border border-border-default text-micro font-semibold uppercase leading-none">
       {(['and', 'or'] as const).map((c) => (
         <button
           key={c}
           type="button"
           onClick={() => onChange(c)}
-          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+          className={cn('px-1 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
         >
           {c}
         </button>
@@ -1737,31 +1737,29 @@ function RuleLead({
   connector,
   onConnectorChange,
   dragProps,
-  compact,
 }: {
-  compact?: boolean;
   index: number;
   connector: FilterConnector;
   onConnectorChange: (next: FilterConnector) => void;
   dragProps: Record<string, unknown>;
 }) {
   return (
-    <div className={cn('flex shrink-0 items-center justify-between gap-0.5', compact ? 'w-[4rem]' : 'w-[4.75rem]')}>
+    <div className="relative flex w-10 shrink-0 items-center justify-end">
       <button
         type="button"
         {...dragProps}
-        className="shrink-0 cursor-grab touch-none rounded text-faint hover:text-muted focus-visible:text-ink"
+        className="absolute -left-3 top-1/2 shrink-0 -translate-y-1/2 cursor-grab touch-none rounded text-faint hover:text-muted focus-visible:text-ink"
         title="Drag to reorder"
         aria-label="Drag to reorder"
       >
         <GripVertical className="h-3 w-3" />
       </button>
       {index === 0 ? (
-        <span className="w-9 text-right text-micro text-faint">Where</span>
+        <span className="text-right text-micro text-faint">Where</span>
       ) : index === 1 ? (
         <ConnectorToggle value={connector} onChange={onConnectorChange} />
       ) : (
-        <span className="w-9 text-right text-micro text-faint">{connector}</span>
+        <span className="text-right text-micro text-faint">{connector}</span>
       )}
     </div>
   );
@@ -1950,14 +1948,14 @@ function ConditionRow({
       {/* #991 — ONE line: lead · field · operator · value (fills the rest) · eye / pin / ⋯ / ✕. On a phone the
           value drops to its own full-width line (#972) and the actions stay on the first. */}
       <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-        <RuleLead compact={nested} index={index} connector={connector} onConnectorChange={onConnectorChange} dragProps={{ ...attributes, ...listeners }} />
+        <RuleLead index={index} connector={connector} onConnectorChange={onConnectorChange} dragProps={{ ...attributes, ...listeners }} />
 
         {condition.icon && (
           <EntityIcon icon={condition.icon} color={null} size={13} fallback={null} />
         )}
         <select
           aria-label="Field"
-          className={cn(FILTER_CTL, 'min-w-0 truncate', nested ? 'max-w-[4.5rem]' : 'max-w-[6.5rem]', unfinishedCtl(unfinished), dim)}
+          className={cn(FILTER_CTL, 'w-20 shrink-0 truncate', unfinishedCtl(unfinished), dim)}
           value={condition.field}
           onChange={(e) => {
             const nextField = fields.find((f) => f.apiName === e.target.value);
@@ -1974,7 +1972,7 @@ function ConditionRow({
         </select>
         <select
           aria-label="Operator"
-          className={cn(FILTER_CTL, 'min-w-0 !text-muted', nested ? 'max-w-[4rem]' : 'max-w-[6rem]', unfinishedCtl(unfinished), dim)}
+          className={cn(FILTER_CTL, 'w-[100px] shrink-0 !text-muted', unfinishedCtl(unfinished), dim)}
           value={condition.op}
           onChange={(e) => {
             const nextOp = ops.find((o) => o.op === e.target.value)!;
@@ -1988,7 +1986,7 @@ function ConditionRow({
           ))}
         </select>
         {/* A chip set renders UNDER the rule, so the value slot collapses to a spacer and the actions stay on the line. */}
-        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
+        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
           <FilterValueEditor
             field={field}
             members={members}
@@ -2282,7 +2280,7 @@ function OptionMultiPick({
                   : 'text-muted',
             )}
           >
-            <span className="truncate">{selected.length ? '+ add' : fill ? 'Pick values…' : 'pick…'}</span>
+            <span className="truncate">{selected.length ? '+ add' : fill ? 'Choose…' : 'pick…'}</span>
             {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
           </button>
         </DropdownMenuTrigger>
@@ -2398,7 +2396,7 @@ function RecordPicker({
   });
 
   const titleFor = (id: string) => titles[id] || 'Untitled';
-  const label = selected.length === 0 ? (fill ? 'Pick records…' : 'pick…') : selected.map(titleFor).join(', ');
+  const label = selected.length === 0 ? (fill ? 'Choose…' : 'pick…') : selected.map(titleFor).join(', ');
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -2779,7 +2777,7 @@ function SortRow({
         <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>
         <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
         <select
-          className="h-[25px] w-[5.5rem] shrink-0 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
+          className="h-[25px] w-20 shrink-0 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
           value={sort.field}
           onChange={(e) => onChange({ ...sort, field: e.target.value })}
           aria-label="Sort field"
