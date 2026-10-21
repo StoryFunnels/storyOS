@@ -3,11 +3,17 @@ import {
   actionKindLabel,
   actionStatusLabel,
   approvalStatusLabel,
+  effectiveRunStatus,
   formatDuration,
+  formatDurationShort,
   humanizeSlug,
+  RUN_STATUS_FILTERS,
   runActionSummaryText,
   runStatusLabel,
+  runStatusTone,
   runStepSummary,
+  startedLabel,
+  stepStateWord,
   triggerKindLabel,
 } from './run-labels';
 
@@ -30,9 +36,15 @@ describe('runStatusLabel', () => {
     }
   });
 
-  it('uses specific quota wording', () => {
-    expect(runStatusLabel('skipped_quota')).toBe('Skipped — over quota');
+  it('speaks ONE vocabulary: Succeeded · Failed · Running · Skipped · Skipped (quota) · Awaiting approval (#997)', () => {
+    expect(runStatusLabel('ok')).toBe('Succeeded');
     expect(runStatusLabel('error')).toBe('Failed');
+    expect(runStatusLabel('running')).toBe('Running');
+    expect(runStatusLabel('skipped')).toBe('Skipped');
+    expect(runStatusLabel('skipped_quota')).toBe('Skipped (quota)');
+    expect(runStatusLabel('pending_approval')).toBe('Awaiting approval');
+    // The names it replaced must not survive anywhere in the map.
+    for (const s of RUN_STATUSES) expect(runStatusLabel(s)).not.toMatch(/^(OK|Completed|Waiting for approval)$/);
   });
 
   it('humanizes an unmapped status rather than showing the slug', () => {
@@ -162,5 +174,76 @@ describe('humanizeSlug', () => {
   it('title-cases slugs across separators', () => {
     expect(humanizeSlug('skipped_quota')).toBe('Skipped Quota');
     expect(humanizeSlug('post_social.linkedin')).toBe('Post Social Linkedin');
+  });
+});
+
+describe('effectiveRunStatus (#997): a run waiting for approval says so', () => {
+  const waiting = new Set(['run-1']);
+  it('an ok run with a pending approval is awaiting approval', () => {
+    expect(effectiveRunStatus('ok', 'run-1', waiting)).toBe('pending_approval');
+  });
+  it('an ok run with nothing pending stays succeeded', () => {
+    expect(effectiveRunStatus('ok', 'run-2', waiting)).toBe('ok');
+  });
+  it('only an ok run is promoted: a failed or skipped run keeps what the API said, pending approval or not', () => {
+    expect(effectiveRunStatus('error', 'run-1', waiting)).toBe('error');
+    expect(effectiveRunStatus('skipped_quota', 'run-1', waiting)).toBe('skipped_quota');
+  });
+});
+
+describe('the status filter and tones (#997)', () => {
+  it('offers All statuses first and then every state by the same label the pill shows', () => {
+    expect(RUN_STATUS_FILTERS[0]).toEqual({ value: '', label: 'All statuses' });
+    for (const f of RUN_STATUS_FILTERS.slice(1)) expect(f.label).toBe(runStatusLabel(f.value));
+    expect(RUN_STATUS_FILTERS.map((f) => f.label)).toEqual([
+      'All statuses',
+      'Awaiting approval',
+      'Succeeded',
+      'Failed',
+      'Running',
+      'Skipped',
+      'Skipped (quota)',
+    ]);
+  });
+  it('maps statuses to tones', () => {
+    expect(runStatusTone('ok')).toBe('ok');
+    expect(runStatusTone('error')).toBe('fail');
+    expect(runStatusTone('pending_approval')).toBe('wait');
+    expect(runStatusTone('running')).toBe('run');
+    expect(runStatusTone('skipped_quota')).toBe('skip');
+    expect(runStatusTone('skipped')).toBe('skip');
+  });
+  it('words a step as done / failed / waiting for you', () => {
+    expect(stepStateWord('succeeded')).toBe('done');
+    expect(stepStateWord('failed')).toBe('failed');
+    expect(stepStateWord('pending_approval')).toBe('waiting for you');
+  });
+});
+
+describe('startedLabel (#997)', () => {
+  const now = new Date('2026-10-21T12:00:00Z');
+  const fmt = (iso: string) => `D(${iso.slice(0, 10)})`;
+  it('reads recent runs relatively', () => {
+    expect(startedLabel('2026-10-21T11:59:40Z', now, fmt)).toBe('just now');
+    expect(startedLabel('2026-10-21T11:56:00Z', now, fmt)).toBe('4 min ago');
+    expect(startedLabel('2026-10-21T10:00:00Z', now, fmt)).toBe('2 h ago');
+    expect(startedLabel('2026-10-20T10:00:00Z', now, fmt)).toBe('yesterday');
+    expect(startedLabel('2026-10-18T12:00:00Z', now, fmt)).toBe('3 days ago');
+  });
+  it('falls back to the person\'s date format after a week, and never prints NaN', () => {
+    expect(startedLabel('2026-10-01T12:00:00Z', now, fmt)).toBe('D(2026-10-01)');
+    expect(startedLabel('not a date', now, fmt)).toBe('—');
+  });
+});
+
+describe('formatDurationShort (#997): fits the 64px Duration column', () => {
+  it('prints seconds with one decimal, minutes beyond, and a dash for none', () => {
+    expect(formatDurationShort(40)).toBe('<0.1 s');
+    expect(formatDurationShort(400)).toBe('0.4 s');
+    expect(formatDurationShort(3100)).toBe('3.1 s');
+    expect(formatDurationShort(125_000)).toBe('2m 5s');
+    expect(formatDurationShort(120_000)).toBe('2m');
+    expect(formatDurationShort(null)).toBe('—');
+    for (const ms of [0, 999, 59_999, 61_000]) expect(formatDurationShort(ms).length).toBeLessThanOrEqual(6);
   });
 });
