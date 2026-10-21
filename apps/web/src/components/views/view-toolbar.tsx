@@ -439,7 +439,7 @@ export function ViewToolbar({
         three lines of it. It is a container query on the toolbar's own width (not the viewport): the count and the
         Find / Display labels go first, then the Filter / Sort / New labels, then the Group chip is shortened — the
         controls keep their icons, so nothing is removed, and the primary row stays one line. */}
-    <div className="flex min-h-9 flex-nowrap items-center gap-[7px] [&_button]:whitespace-nowrap border-b border-border-default bg-app px-4 py-[9px] @max-[520px]:[&_.tb-count]:hidden @max-[520px]:[&_.tb-find]:hidden @max-[440px]:[&_.tb-display]:hidden @max-[400px]:[&_.tb-fs]:hidden @max-[400px]:[&_.tb-new]:hidden @max-[440px]:[&_.tb-group]:max-w-[5.5rem]">
+    <div className="flex min-h-9 flex-nowrap items-center gap-[7px] [&_button]:whitespace-nowrap border-b border-border-default bg-app px-4 py-[9px] @max-[600px]:[&_.tb-count]:hidden @max-[600px]:[&_.tb-find]:hidden @max-[560px]:[&_.tb-display]:hidden @max-[500px]:[&_.tb-new]:hidden @max-[500px]:[&_.tb-group]:max-w-[5.5rem] @max-[440px]:[&_.tb-fs]:hidden @max-[340px]:gap-1 @max-[340px]:px-2 @max-[340px]:[&_button]:px-2 @max-[340px]:[&_.tb-pinned]:hidden @max-[340px]:[&_.tb-group]:hidden">
       {/* #964 — Filter · Sort · [Group] · Find · N of M · Display · ⋯ · New, in that order. The
           left cluster is what narrows and orders the rows; the right is how they look, the view's
           own menu, and the one primary action. */}
@@ -1453,7 +1453,7 @@ function PinnedFilterChip({
   return (
     <span
       // #992 — a pinned condition is an ACTIVE chip in the prototype (gold), struck through while it is off.
-      className={cn(chipClass(!condition.disabled), condition.disabled && 'line-through opacity-55')}
+      className={cn('tb-pinned', chipClass(!condition.disabled), condition.disabled && 'line-through opacity-55')}
     >
       <button
         type="button"
