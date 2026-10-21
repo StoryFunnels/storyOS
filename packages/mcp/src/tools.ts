@@ -37,6 +37,11 @@ interface PendingApprovalResult {
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
+import { STATE_CATEGORIES } from '@storyos/schemas/state-category';
+
+/** #1014 — how a state category reads in a tool's parameter docs. */
+const STATE_CATEGORY_PARAM =
+  'State category: backlog | unstarted | started | completed | canceled (completed and canceled mean finished). Workflow options only (and select options that say it); inferred from the label when omitted on a workflow.';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveMemberIds, resolveSkill, resolveSpaceGroup, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
@@ -185,7 +190,7 @@ interface FieldDef {
   displayName: string;
   type: string;
   isSystem?: boolean;
-  options?: Array<{ id: string; label: string; color?: string; icon?: string | null }>;
+  options?: Array<{ id: string; label: string; color?: string; icon?: string | null; category?: string | null }>;
   relation?: { id?: string; target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
 }
 interface DatabaseDetail {
@@ -332,6 +337,8 @@ function describeFields(db: DatabaseDetail) {
           label: o.label,
           color: o.color,
           ...(o.icon ? { icon: o.icon } : {}),
+          // #1014 — a workflow/select option's state category, so what an agent reads is what it can write back (and 'finished' is not a guess).
+          ...(o.category ? { category: o.category } : {}),
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
       /*
@@ -3293,9 +3300,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       label: z.string(),
       color: z.string().optional(),
       icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (see list_icon_set).'),
+      category: z.enum(STATE_CATEGORIES).optional().describe(STATE_CATEGORY_PARAM),
     }),
   ]);
-  const normOptions = (o?: Array<string | { label: string; color?: string; icon?: string }>) =>
+  const normOptions = (o?: Array<string | { label: string; color?: string; icon?: string; category?: string }>) =>
     o?.map((x) => (typeof x === 'string' ? { label: x } : x));
 
   reg(
@@ -3312,7 +3320,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         database: z.string(),
         name: z.string().describe('Field name, e.g. "Status".'),
         type: z.enum(FIELD_TYPES),
-        options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon}.'),
+        options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon,category}. On a workflow field each option gets a state category (inferred from its label and position unless you give one).'),
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
       },
     },
@@ -3356,7 +3364,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .boolean()
           .optional()
           .describe('With `unique: true` — fold case and trim whitespace before comparing (default true).'),
-        add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
+        add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select/workflow field. A workflow option\'s state category is inferred from its label unless you give one.'),
         /*
          * #398 — the gap that pushed a careful agent toward a DESTRUCTIVE path.
          *
@@ -3372,10 +3380,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
               label: z.string().max(100).optional().describe('New label.'),
               color: z.string().optional().describe('New colour, from the option palette.'),
               icon: z.string().max(120).nullable().optional().describe('Curated icon ref, or null to clear.'),
+              category: z.enum(STATE_CATEGORIES).nullable().optional().describe(`${STATE_CATEGORY_PARAM} Pass null to clear it on a select option (a workflow option always keeps one).`),
             }),
           )
           .optional()
-          .describe('Recolour or rename EXISTING options. Records keep their values — ids are stable.'),
+          .describe('Recolour, rename or re-categorise EXISTING options. Records keep their values — ids are stable.'),
         remove_options: z
           .array(
             z.object({
@@ -3398,8 +3407,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       rename_to?: string;
       unique?: boolean;
       unique_normalize?: boolean;
-      add_options?: Array<string | { label: string; color?: string; icon?: string }>;
-      update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null }>;
+      add_options?: Array<string | { label: string; color?: string; icon?: string; category?: string }>;
+      update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null; category?: string | null }>;
       remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
     }>(
       async ({ workspace, database, field, rename_to, unique, unique_normalize, add_options, update_options, remove_options }) => {
@@ -3468,6 +3477,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
                 ...(patch.label !== undefined ? { label: patch.label } : {}),
                 ...(patch.color !== undefined ? { color: patch.color } : {}),
                 ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+                ...(patch.category !== undefined ? { category: patch.category } : {}),
               } as never,
             }),
           );

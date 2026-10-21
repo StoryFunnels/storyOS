@@ -424,8 +424,17 @@ export const selectOptions = pgTable('select_options', {
   /** #202: optional curated icon (a `set:<name>` / `brand:<slug>` ref), null = none. */
   icon: text('icon'),
   position: integer('position').notNull().default(0),
+  /**
+   * #1014 — the KIND of state this option is: backlog | unstarted | started | completed | canceled (Linear's state types). Set on the
+   * options of a WORKFLOW field (inferred from the label and position when nobody chooses one) and on a select option that says it, such
+   * as the Linear import's State; null on every other choice option. `completed` and `canceled` are the finished ones, so "finished" is
+   * data and not a guess from the label. See `packages/schemas/src/state-category.ts`.
+   */
+  category: text('category'),
   ...timestamps,
-});
+}, (t) => [
+  check('select_options_category_check', sql`${t.category} IS NULL OR ${t.category} IN ('backlog', 'unstarted', 'started', 'completed', 'canceled')`),
+]);
 
 export const views = pgTable(
   'views',

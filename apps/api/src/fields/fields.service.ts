@@ -14,6 +14,7 @@ import type {
   FormulaFieldInfo,
   FormulaNode,
   FormulaType,
+  StateCategory,
   SystemFieldType,
   ViewConfig,
 } from '@storyos/schemas';
@@ -25,6 +26,7 @@ import {
   FormulaError,
   formulaRefs,
   formulaTypeOfFieldType,
+  inferStateCategory,
   isTextToChoice,
   OPTION_COLORS,
   parseFormula,
@@ -410,7 +412,7 @@ export class FieldsService {
       display_name: string;
       type: CreatableFieldType;
       config?: Record<string, unknown>;
-      options?: Array<{ label: string; color?: string; icon?: string | null }>; // #202
+      options?: Array<{ label: string; color?: string; icon?: string | null; category?: StateCategory }>; // #202, #1014
     },
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
@@ -486,12 +488,14 @@ export class FieldsService {
         const optionRows = await tx
           .insert(selectOptions)
           .values(
-            input.options.map((option, i) => ({
+            input.options.map((option, i, all) => ({
               fieldId: field!.id,
               label: option.label,
               color: option.color ?? 'gray',
               icon: option.icon ?? null, // #202
               position: i, // #961 — dense, 0..n-1
+              // #1014 — a workflow is an ordered flow: its last option is the terminal state unless a label or the caller says otherwise
+              category: this.optionCategory(input.type, option.category, option.label, all.length > 1 && i === all.length - 1),
             })),
           )
           .returning();
@@ -1763,7 +1767,7 @@ export class FieldsService {
       if (toChoice && newOptions.length > 0) {
         const created = await tx
           .insert(selectOptions)
-          .values(newOptions.map((o, i) => ({ fieldId, label: o.label, color: o.color, position: i })))
+          .values(newOptions.map((o, i) => ({ fieldId, label: o.label, color: o.color, position: i, category: this.optionCategory(targetType, undefined, o.label, false) })))
           .returning({ id: selectOptions.id, label: selectOptions.label });
         for (const o of created) optionIds.set(o.label, o.id);
       }
@@ -1783,6 +1787,7 @@ export class FieldsService {
           .where(eq(records.id, u.id));
       }
       await tx.update(fields).set({ type: targetType, config: {} }).where(eq(fields.id, fieldId));
+      await this.syncCategoriesForType(tx, fieldId, targetType); // #1014
       // #172: options survive any conversion between optioned types (select ↔
       // multi_select ↔ workflow); they're only dropped when leaving that family.
       if (OPTIONED_FIELD_TYPES.has(field.type) && !OPTIONED_FIELD_TYPES.has(targetType)) {
@@ -1809,12 +1814,25 @@ export class FieldsService {
     return field;
   }
 
+  /**
+   * #1014 — the category a new choice option is stored with. A WORKFLOW option always has one: the caller's, else inferred
+   * (`inferStateCategory`). A SELECT option has one only when the caller gives it (the Linear import does); a multi-select option is not a
+   * state and refuses one, because a record holds several of them at once.
+   */
+  private optionCategory(type: string, given: StateCategory | null | undefined, label: string, isLast: boolean): StateCategory | null {
+    if (type === 'workflow') return given ?? inferStateCategory(label, { isLast });
+    if (given && type !== 'select') {
+      throw new UnprocessableEntityException(`A ${type} option has no state category: only a workflow or select option does.`);
+    }
+    return type === 'select' ? (given ?? null) : null;
+  }
+
   async addOption(
     databaseId: string,
     fieldId: string,
-    input: { label: string; color: string; icon?: string | null },
+    input: { label: string; color: string; icon?: string | null; category?: StateCategory },
   ) {
-    await this.assertSelectField(databaseId, fieldId);
+    const field = await this.assertSelectField(databaseId, fieldId);
     const existing = await this.db.query.selectOptions.findMany({
       where: eq(selectOptions.fieldId, fieldId),
       columns: { position: true },
@@ -1827,6 +1845,7 @@ export class FieldsService {
         color: input.color,
         icon: input.icon ?? null, // #202
         position: Math.max(-1, ...existing.map((o) => o.position)) + 1, // #961 — after the last, dense
+        category: this.optionCategory(field.type, input.category, input.label, false), // #1014 — appended, so not "the terminal state" by position
       })
       .returning();
     return option!;
@@ -1837,10 +1856,15 @@ export class FieldsService {
     fieldId: string,
     optionId: string,
     // #202: `icon: null` clears it; `undefined` leaves it unchanged (Drizzle skips undefined).
-    patch: { label?: string; color?: string; icon?: string | null; position?: number },
+    patch: { label?: string; color?: string; icon?: string | null; position?: number; category?: StateCategory | null },
   ) {
-    await this.assertSelectField(databaseId, fieldId);
+    const field = await this.assertSelectField(databaseId, fieldId);
     const { position, ...rest } = patch;
+    if (patch.category !== undefined) {
+      // #1014 — only a workflow or select option has a category; a workflow option always keeps one (null would be "unknown" on a flow)
+      if (field.type === 'multi_select') throw new UnprocessableEntityException('A multi-select option has no state category: only a workflow or select option does.');
+      if (patch.category === null && field.type === 'workflow') throw new UnprocessableEntityException('A workflow option always has a state category; pick one.');
+    }
     return this.db.transaction(async (tx) => {
       // #961 — serialise per field: the update and the renumber below must not interleave with another option write.
       await tx.execute(sql`SELECT 1 FROM ${fields} WHERE ${fields.id} = ${fieldId} FOR UPDATE`);
@@ -1863,6 +1887,24 @@ export class FieldsService {
     others.splice(Math.max(0, Math.min(Math.trunc(index), others.length)), 0, moved);
     for (const [i, o] of others.entries()) {
       if (o.position !== i) await tx.update(selectOptions).set({ position: i }).where(eq(selectOptions.id, o.id));
+    }
+  }
+
+  /**
+   * #1014 — after a field changes type, make its options' categories match the new type: converting TO a workflow gives every option
+   * without one the inferred category (the last option of the ordered flow is its terminal state, as everywhere else); converting to a
+   * multi-select clears them (a record holds several, so none of them is "the state"); to a select they are left as they are.
+   */
+  private async syncCategoriesForType(tx: Pick<Db, 'query' | 'update'>, fieldId: string, type: string) {
+    if (type === 'multi_select') {
+      await tx.update(selectOptions).set({ category: null }).where(eq(selectOptions.fieldId, fieldId));
+      return;
+    }
+    if (type !== 'workflow') return;
+    const rows = await tx.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, fieldId), orderBy: OPTION_ORDER });
+    for (const [i, o] of rows.entries()) {
+      if (o.category) continue;
+      await tx.update(selectOptions).set({ category: inferStateCategory(o.label, { isLast: rows.length > 1 && i === rows.length - 1 }) }).where(eq(selectOptions.id, o.id));
     }
   }
 

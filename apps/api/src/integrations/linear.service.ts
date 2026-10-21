@@ -1,4 +1,6 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { linearStateCategory } from '@storyos/schemas';
+import type { StateCategory } from '@storyos/schemas';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { VIA_STORYOS_PATTERN } from './linear-write-back.constants';
 import { DB } from '../db/db.module';
@@ -284,9 +286,15 @@ const STATE_COLOR: Record<string, string> = {
   canceled: 'red',
 };
 const stateColor = (type: string) => STATE_COLOR[type] ?? 'gray';
+/** #1014 — the category Linear's own state type says: the import SETS it, it never guesses from the name. Undefined for a type we do not know. */
+const stateCategory = (type: string): StateCategory | undefined => linearStateCategory(type) ?? undefined;
 
 /** #957 — Linear's fixed project states (`Project.state`), as Linear names them, in lifecycle order. */
 const PROJECT_STATES = ['backlog', 'planned', 'started', 'paused', 'completed', 'canceled'] as const;
+/** #1014 — Linear's project states as categories: planned is not begun, and a paused project is one that was started and has not finished. */
+const PROJECT_STATE_CATEGORY: Record<(typeof PROJECT_STATES)[number], StateCategory> = {
+  backlog: 'backlog', planned: 'unstarted', started: 'started', paused: 'started', completed: 'completed', canceled: 'canceled',
+};
 const PROJECT_STATE_COLOR: Record<(typeof PROJECT_STATES)[number], string> = {
   backlog: 'gray', planned: 'blue', started: 'green', paused: 'gold', completed: 'brown', canceled: 'red',
 };
@@ -566,8 +574,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const options = await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, stateField.id) });
       const byLabel = new Map(options.map((o) => [o.label.toLowerCase(), o]));
       for (const st of states) {
-        if (!byLabel.has(st.name.toLowerCase())) {
-          byLabel.set(st.name.toLowerCase(), await this.fields.addOption(issuesDbId, stateField.id, { label: st.name, color: stateColor(st.type) }));
+        const known = byLabel.get(st.name.toLowerCase());
+        if (!known) {
+          byLabel.set(st.name.toLowerCase(), await this.fields.addOption(issuesDbId, stateField.id, { label: st.name, color: stateColor(st.type), category: stateCategory(st.type) }));
+        } else if (stateCategory(st.type) && known.category !== stateCategory(st.type)) {
+          // #1014 — an earlier import has the option but no category: the team's state type says what it is, so say it (never the reverse).
+          await this.fields.updateOption(issuesDbId, stateField.id, known.id, { category: stateCategory(st.type) });
         }
       }
       const inLinearOrder = new Set(states.map((st) => st.name.toLowerCase()));
@@ -666,7 +678,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     });
     for (const f of [
       // #957: Linear's project states are a fixed set, so State is a select, not free text. The names are Linear's own.
-      { display_name: 'State', type: 'select' as const, config: {}, options: PROJECT_STATES.map((st) => ({ label: st, color: PROJECT_STATE_COLOR[st] })) },
+      { display_name: 'State', type: 'select' as const, config: {}, options: PROJECT_STATES.map((st) => ({ label: st, color: PROJECT_STATE_COLOR[st], category: PROJECT_STATE_CATEGORY[st] })) },
       { display_name: 'Target Date', type: 'date' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
       { display_name: 'Linear ID', type: 'text' as const, config: {} },
@@ -687,7 +699,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     });
     for (const f of [
       // #904: the options ARE the team's workflow states, named as in Linear, in Linear's order.
-      { display_name: 'State', type: 'select' as const, config: {}, options: states.map((st) => ({ label: st.name, color: stateColor(st.type) })) },
+      { display_name: 'State', type: 'select' as const, config: {}, options: states.map((st) => ({ label: st.name, color: stateColor(st.type), category: stateCategory(st.type) })) },
       { display_name: 'Priority', type: 'select' as const, config: {}, options: [
         { label: 'Urgent', color: 'red' }, { label: 'High', color: 'gold' },
         { label: 'Medium', color: 'blue' }, { label: 'Low', color: 'gray' },
@@ -1144,7 +1156,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const known = pickOption(options, state);
       if (known) return known;
       const color = PROJECT_STATE_COLOR[state as keyof typeof PROJECT_STATE_COLOR] ?? 'gray';
-      const created = await this.fields.addOption(projectsDbId, field.id, { label: state, color });
+      const created = await this.fields.addOption(projectsDbId, field.id, { label: state, color, category: PROJECT_STATE_CATEGORY[state as keyof typeof PROJECT_STATE_CATEGORY] });
       options.set(created.label, created.id);
       return created.id;
     };

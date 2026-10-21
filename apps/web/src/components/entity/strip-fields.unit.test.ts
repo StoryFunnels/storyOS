@@ -108,3 +108,30 @@ describe('gridFieldsExcludingStrip (ticket #937)', () => {
     expect(gridFieldsExcludingStrip(unified, strip, [notes]).map((x) => x.id)).toEqual(['priority', 'epic']);
   });
 });
+
+import { partitionStrip } from './strip-fields';
+
+describe('partitionStrip (#1019)', () => {
+  const f = (id: string, type: string): Field => ({ id, apiName: id, displayName: id, type }) as unknown as Field;
+  const status = f('status', 'workflow'), who = f('who', 'user'), epic = f('epic', 'relation'), done = f('done', 'button');
+  const values: Record<string, unknown> = { status: 'o1', who: undefined, epic: [] };
+  const valueOf = (x: Field) => values[x.apiName];
+
+  it('draws what has a value, keeps empty properties out of sight, and sets actions apart', () => {
+    const p = partitionStrip([status, who, epic, done], valueOf, new Set());
+    expect(p.shown.map((x) => x.id)).toEqual(['status']);
+    expect(p.absent.map((x) => x.id)).toEqual(['who', 'epic']);
+    expect(p.buttons.map((x) => x.id)).toEqual(['done']);
+  });
+  it('a property asked for through "+ Add property" is drawn even while empty — nothing loses its edit path', () => {
+    const p = partitionStrip([status, who], valueOf, new Set(['who']));
+    expect(p.shown.map((x) => x.id)).toEqual(['status', 'who']);
+    expect(p.absent).toEqual([]);
+  });
+  it('a button is never a property: not in shown, not in absent, whatever its value', () => {
+    const p = partitionStrip([done], () => 'x', new Set());
+    expect(p.shown).toEqual([]);
+    expect(p.absent).toEqual([]);
+    expect(p.buttons).toHaveLength(1);
+  });
+});
