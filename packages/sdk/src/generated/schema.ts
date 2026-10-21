@@ -6669,7 +6669,7 @@ export interface components {
             resolutions?: {
                 [key: string]: {
                     /** @enum {string} */
-                    action: "reuse" | "rename" | "skip";
+                    action: "reuse" | "rename" | "skip" | "update";
                     rename_to?: string;
                 };
             };
