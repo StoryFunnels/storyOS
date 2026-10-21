@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 /**
  * The filter AST — shared verbatim between saved views and POST /records/query
- * (ADR-0003). Flat AND in the v1 UI; the API allows and/or nesting ≤ 3 deep,
- * ≤ 50 conditions total.
+ * (ADR-0003). The UI builds the same shape the API accepts: and/or groups nested
+ * ≤ 3 deep (MN-258), ≤ 50 conditions total. It was flat AND in v1; the UI outgrew that.
  */
 
 export const filterOpSchema = z.enum([

@@ -1,36 +1,13 @@
 import { Body, Controller, Delete, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
-import { PreferencesService } from '../users/preferences.service';
+import { ViewerStateService } from '../viewer-state/viewer-state.service';
+import { collectionViewSchema } from '../viewer-state/viewer-state.kinds';
 
-const collectionViewConditionSchema = z.object({
-  field: z.string(),
-  op: z.string(),
-  value: z.unknown().optional(),
-});
-
-const collectionViewSortSchema = z.object({
-  field: z.string(),
-  direction: z.enum(['asc', 'desc']),
-});
-
-const setCollectionViewSchema = z.object({
-  filters: z
-    .union([
-      z.object({ and: z.array(collectionViewConditionSchema) }),
-      z.object({ or: z.array(collectionViewConditionSchema) }),
-    ])
-    .optional(),
-  sorts: z.array(collectionViewSortSchema).max(3).optional(),
-  sorts_nulls: z.enum(['first', 'last']).optional(),
-  color_by: z.string().optional(),
-  fields: z.array(z.string()).optional(),
-});
+const setCollectionViewSchema = collectionViewSchema;
 class SetCollectionViewDto extends createZodDto(setCollectionViewSchema) {}
 
 /**
@@ -51,14 +28,7 @@ class SetCollectionViewDto extends createZodDto(setCollectionViewSchema) {}
 @Controller('workspaces/:ws/databases/:db/fields/:field/personal-collection-view')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 export class PersonalCollectionViewController {
-  constructor(
-    private readonly databases: DatabasesService,
-    private readonly preferences: PreferencesService,
-  ) {}
-
-  private async assertViewer(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-  }
+  constructor(private readonly viewerState: ViewerStateService) {}
 
   @Get()
   @ApiOperation({ summary: 'My personal view override for this embedded collection' })
@@ -67,8 +37,7 @@ export class PersonalCollectionViewController {
     @Param('db') databaseId: string,
     @Param('field') fieldId: string,
   ) {
-    await this.assertViewer(req, databaseId);
-    const config = await this.preferences.getCollectionView(req.user.id, databaseId, fieldId);
+    const config = await this.viewerState.get(req.membership, 'collection_view', fieldId, databaseId);
     return { config: config ?? null };
   }
 
@@ -80,8 +49,7 @@ export class PersonalCollectionViewController {
     @Param('field') fieldId: string,
     @Body() body: SetCollectionViewDto,
   ) {
-    await this.assertViewer(req, databaseId);
-    const config = await this.preferences.setCollectionView(req.user.id, databaseId, fieldId, body);
+    const config = await this.viewerState.set(req.membership, 'collection_view', fieldId, body, databaseId);
     return { config };
   }
 
@@ -92,8 +60,7 @@ export class PersonalCollectionViewController {
     @Param('db') databaseId: string,
     @Param('field') fieldId: string,
   ) {
-    await this.assertViewer(req, databaseId);
-    await this.preferences.clearCollectionView(req.user.id, databaseId, fieldId);
+    await this.viewerState.clear(req.membership, 'collection_view', fieldId, databaseId);
     return { cleared: true };
   }
 }

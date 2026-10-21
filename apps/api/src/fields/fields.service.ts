@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { hasFieldValueSql, isEmptyFieldValue } from './field-value-emptiness';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   CreatableFieldType,
@@ -227,7 +228,11 @@ export class FieldsService {
     }
   }
 
-  /** Count of live records carrying a value for this field. */
+  /**
+   * Count of live records carrying a NON-EMPTY value for this field (ticket #984). This used to test whether the key EXISTS, so a
+   * record holding null, "" or whitespace counted as data and the delete warning over-reported. "Non-empty" is the one definition in
+   * `field-value-emptiness.ts`, the same one the text → choice dry run uses for `empty_records`.
+   */
   async usageCount(databaseId: string, fieldId: string): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -236,7 +241,7 @@ export class FieldsService {
         and(
           eq(records.databaseId, databaseId),
           isNull(records.deletedAt),
-          sql`${records.values} ? ${fieldId}`,
+          hasFieldValueSql(records.values, fieldId),
         ),
       );
     return row?.count ?? 0;
@@ -1696,12 +1701,26 @@ export class FieldsService {
     const toChoice = isTextToChoice(field.type, targetType);
     const distinct = new Map<string, number>();
     let emptyRecords = 0;
+    // #983 — `rows` holds only the records that CARRY the field's key (the conversion has nothing to do for the rest), so a record where the
+    // field was NEVER SET was not counted anywhere: on a database shaped like Linear Projects (210 records, 194 with no State) the preview
+    // said 16 and nothing about the 194. Empty means every live record with no non-empty value: key absent, null, "" or whitespace.
+    let absentRecords = 0;
     if (toChoice) {
       for (const row of rows) {
-        const label = String((row.values as Record<string, unknown>)[fieldId] ?? '').trim();
-        if (label === '') emptyRecords++;
-        else distinct.set(label, (distinct.get(label) ?? 0) + 1);
+        const stored = (row.values as Record<string, unknown>)[fieldId];
+        if (isEmptyFieldValue(stored)) emptyRecords++;
+        else {
+          const label = String(stored).trim();
+          distinct.set(label, (distinct.get(label) ?? 0) + 1);
+        }
       }
+      absentRecords = (
+        await this.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(records)
+          .where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt), sql`NOT (${records.values} ? ${fieldId})`))
+      )[0]!.n;
+      emptyRecords += absentRecords;
       if (distinct.size > TEXT_TO_CHOICE_MAX_OPTIONS) {
         throw new UnprocessableEntityException(
           `This field holds ${distinct.size} distinct values; converting to ${targetType} would create that many options (the limit is ${TEXT_TO_CHOICE_MAX_OPTIONS}). It looks like free text, not a list of choices.`,
@@ -1723,7 +1742,13 @@ export class FieldsService {
     // in the order the values first appear when reading the table top to bottom. Positions below are dense (0..n-1).
     const newOptions = [...distinct.entries()].map(([label, count], i) => ({ label, count, color: OPTION_COLORS[i % OPTION_COLORS.length]! }));
     const choicePreview = toChoice
-      ? { options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })), empty_records: emptyRecords }
+      ? {
+          options: newOptions.map((o) => ({ label: o.label, color: o.color, records: o.count })),
+          /** Every live record with no non-empty value (absent key, null, blank): the ones that stay empty. */
+          empty_records: emptyRecords,
+          /** Every live record in the database: the option counts plus `empty_records` always add up to this. */
+          total_records: rows.length + absentRecords,
+        }
       : {};
 
     const dependentRules = await this.dependentRules(databaseId, field, { toType: targetType });

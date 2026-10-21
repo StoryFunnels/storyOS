@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { DatabaseDetail } from '../table-view/use-table-data';
@@ -593,6 +594,16 @@ export function useSetPersonalFilter(ws: string, db: string) {
   });
 }
 
+/**
+ * #965 — what the cache holds once a viewer's personal filter is cleared. It must be `null`, the same
+ * "no override" the GET answers (`{filter: null}`): react-query v5 treats `setQueryData(key, undefined)`
+ * as "leave it alone", so the old `undefined` write left the stale filter in place and "Clear my filter"
+ * restored nothing until a reload (Vera, PR 1150).
+ */
+export function forgetPersonalFilter(qc: QueryClient, ws: string, db: string, viewId: string) {
+  qc.setQueryData(['personal-filter', ws, db, viewId], null);
+}
+
 /** Clears the current viewer's personal filter override for one view. */
 export function useClearPersonalFilter(ws: string, db: string) {
   const qc = useQueryClient();
@@ -604,7 +615,7 @@ export function useClearPersonalFilter(ws: string, db: string) {
       );
       if (error) throw error;
     },
-    onSuccess: (_void, viewId) => qc.setQueryData(['personal-filter', ws, db, viewId], undefined),
+    onSuccess: (_void, viewId) => forgetPersonalFilter(qc, ws, db, viewId),
     onError: () => toast.error('Could not clear your personal filter'),
   });
 }

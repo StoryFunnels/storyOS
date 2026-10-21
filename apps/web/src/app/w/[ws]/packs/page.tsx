@@ -39,6 +39,8 @@ import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-
  * different manifest.
  */
 
+import { itemEffect, releaseNotes, type PackItemKind } from '@/lib/pack-update';
+
 type PackSource = 'registry' | 'marketplace';
 
 interface RegistryCard {
@@ -226,23 +228,82 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
         : 'bg-hover text-muted';
   const label = action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
   return (
-    <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${style}`}>{label}</span>
+    <span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-meta font-medium ${style}`}>{label}</span>
   );
 }
 
-function PreviewSection({ title, items }: { title: string; items: PreviewItem[] }) {
+function PreviewSection({ title, kind, items }: { title: string; kind: PackItemKind; items: PreviewItem[] }) {
   if (items.length === 0) return null;
   return (
     <div>
       <p className="mb-1.5 text-meta font-medium uppercase tracking-wider text-muted">{title}</p>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         {items.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-2 text-body">
-            <span className="text-ink-secondary">{item.name}</span>
+          <div key={item.name} className="flex items-start justify-between gap-2 text-body">
+            <span className="min-w-0">
+              <span className="block text-ink-secondary">{item.name}</span>
+              {/* #978 — what installing will really do, stated by the install code's own rules (lib/pack-update.ts) */}
+              <span className="block text-label text-muted">{itemEffect(kind, item.action)}</span>
+            </span>
             <ActionBadge action={item.action} />
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * #978 (part 1) — the update header: "v1.4 → v1.5", when it was published, and what changed in every version the update
+ * crosses. A pack with no author notes (every built-in pack, and any marketplace pack whose author wrote none) says so
+ * rather than leaving the space blank.
+ */
+function UpdateHeader({
+  from,
+  to,
+  versions,
+}: {
+  from: string;
+  to: string;
+  versions: Array<{ version: string; changelog?: string; published_at: string }> | undefined;
+}) {
+  const notes = releaseNotes(versions, from, to);
+  return (
+    <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3" data-testid="pack-update-header">
+      <p className="text-prose font-semibold text-ink">
+        v{from} → v{to}
+        {notes.latest && (
+          <span className="ml-2 text-label font-normal text-muted">
+            published {new Date(notes.latest.published_at).toLocaleDateString()}
+          </span>
+        )}
+      </p>
+      {notes.noNotes ? (
+        <p className="mt-1.5 text-body text-muted">No notes from the author.</p>
+      ) : (
+        <div className="mt-2 flex flex-col gap-2">
+          {notes.latest && (
+            <div>
+              <p className="text-label font-semibold text-ink">What’s new in {notes.latest.version}</p>
+              <p className="whitespace-pre-line text-body text-ink-secondary">
+                {notes.latest.changelog?.trim() || 'No notes from the author.'}
+              </p>
+            </div>
+          )}
+          {notes.earlier.length > 0 && (
+            <div>
+              <p className="text-label font-semibold text-ink">Earlier versions</p>
+              <div className="flex flex-col gap-1">
+                {notes.earlier.map((v) => (
+                  <p key={v.version} className="whitespace-pre-line text-body text-ink-secondary">
+                    <span className="font-medium text-ink">{v.version}</span> — {v.changelog?.trim() || 'No notes from the author.'}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -314,13 +375,23 @@ function InstallDialog({
   ws,
   slug,
   source = 'registry',
+  installed,
   onOpenChange,
 }: {
   ws: string;
   slug: string;
   source?: PackSource;
+  /** #978 — this workspace's install of the pack, if any: when it has an update waiting, the dialog is an UPDATE dialog. */
+  installed?: InstallSummary;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Frozen when the dialog opens: installing refetches the installed list, which would otherwise flip this to "not an
+  // update" under the result screen.
+  const [update] = useState(() =>
+    installed?.update_available && installed.latest_version
+      ? { from: installed.version, to: installed.latest_version }
+      : null,
+  );
   const qc = useQueryClient();
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
   const [result, setResult] = useState<InstallResult | null>(null);
@@ -390,11 +461,11 @@ function InstallDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent title={entry.data?.name ?? 'Install pack'} className="max-w-xl">
+      <DialogContent title={entry.data ? (update ? `Update ${entry.data.name}` : entry.data.name) : update ? 'Update pack' : 'Install pack'} className="max-w-xl">
         {result ? (
           <div className="flex flex-col gap-4">
             <p className="text-body text-ink-secondary">
-              {result.name} v{result.version} is installed. Here’s what you got:
+              {update ? `${result.name} is now v${result.version}. Here’s what was added:` : `${result.name} v${result.version} is installed. Here’s what you got:`}
             </p>
             <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
               {created(result).length === 0 ? (
@@ -444,6 +515,13 @@ function InstallDialog({
               </div>
             ) : preview.data ? (
               <>
+                {update && (
+                  <UpdateHeader
+                    from={update.from}
+                    to={update.to}
+                    versions={entry.data && 'versions' in entry.data ? entry.data.versions : undefined}
+                  />
+                )}
                 <p className="text-body text-ink-secondary">{entry.data?.summary}</p>
                 {entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] && (
                   <img
@@ -460,10 +538,10 @@ function InstallDialog({
                   </ul>
                 )}
                 <div className="flex max-h-[40vh] flex-col gap-3 overflow-y-auto">
-                  <PreviewSection title="Databases" items={preview.data.databases} />
-                  <PreviewSection title="Views" items={preview.data.views} />
-                  <PreviewSection title="Automations" items={preview.data.automations} />
-                  <PreviewSection title="Agents" items={preview.data.agents} />
+                  <PreviewSection title="Databases" kind="database" items={preview.data.databases} />
+                  <PreviewSection title="Views" kind="view" items={preview.data.views} />
+                  <PreviewSection title="Automations" kind="automation" items={preview.data.automations} />
+                  <PreviewSection title="Agents" kind="agent" items={preview.data.agents} />
                 </div>
                 {preview.data.unmet.length > 0 && (
                   <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
@@ -495,6 +573,8 @@ function InstallDialog({
                       <span className="flex items-center gap-1.5">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing…
                       </span>
+                    ) : update ? (
+                      `Update to v${update.to}`
                     ) : (
                       'Install pack'
                     )}
@@ -817,6 +897,7 @@ export default function PacksPage() {
           ws={ws}
           slug={open.slug}
           source={open.source}
+          installed={installedBySlug.get(open.slug)}
           onOpenChange={(isOpen) => !isOpen && setOpen(null)}
         />
       )}
