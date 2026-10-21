@@ -3,7 +3,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -27,6 +27,7 @@ import { ViewToolbar } from '@/components/views/view-toolbar';
 import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
+import { useViewMenuActions, useViewMoves } from '@/components/views/view-menu-items';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import { defaultTableHiddenFieldIds } from './default-table-columns';
 import {
@@ -65,6 +66,9 @@ function DatabasePageInner() {
   const openFieldId = searchParams.get('field');
   const { views, activeView, config, patch, personalFilter } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
+  // #964 — the ONE view menu: the actions every door runs the same way, and where a view can be moved.
+  const viewActions = useViewMenuActions(ws, db);
+  const movesFor = useViewMoves(ws, db, database.data?.spaceId);
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
     () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name, image: m.user.image })),
@@ -79,6 +83,29 @@ function DatabasePageInner() {
   const [sharingViewId, setSharingViewId] = useState<string | null>(null);
   const [describing, setDescribing] = useState(false);
   const sharingView = views.find((v) => v.id === sharingViewId);
+  const canShare = (type: string) => type === 'table' || type === 'board' || type === 'dashboard';
+  // #964 — the sidebar door's "Share…" lands here with `?share=1`: open the dialog for the view in
+  // the URL, once, then drop the flag so a refresh or a back-navigation does not reopen it.
+  const wantsShare = searchParams.get('share');
+  useEffect(() => {
+    if (!wantsShare || !activeView) return;
+    if (canShare(activeView.type) && !activeView.ownerUserId) setSharingViewId(activeView.id);
+    router.replace(`/w/${ws}/d/${db}?view=${activeView.id}`);
+  }, [wantsShare, activeView?.id]);
+  // The delete confirmation is one function: the tab's ⋯ and the toolbar's ⋯ both run it.
+  const confirmDeleteView = async (view: { id: string; name: string }) => {
+    if (
+      !(await confirm({
+        title: `Delete view "${view.name}"?`,
+        message: 'The view is removed. Records are not affected.',
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return;
+    viewMutations.deleteView.mutate(view.id);
+    router.replace(`/w/${ws}/d/${db}`);
+  };
 
   // Drag-to-reorder the canonical field order from the "Hide fields" panel (#338)
   // — the same field.position the table columns use, so both surfaces agree.
@@ -156,7 +183,6 @@ function DatabasePageInner() {
                   canManage={!readOnly}
                   canDelete={!readOnly && views.length > 1}
                   mutations={viewMutations}
-                  fields={database.data?.fields ?? []}
                   onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
                   onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
                   // #751 — #555 shipped board/dashboard support in the public
@@ -166,24 +192,10 @@ function DatabasePageInner() {
                   // to reach either, so the API's own publish-time validation
                   // (cross-database tiles, hidden-field references) was
                   // unreachable from the UI at all.
-                  onShare={
-                    view.type === 'table' || view.type === 'board' || view.type === 'dashboard'
-                      ? () => setSharingViewId(view.id)
-                      : undefined
-                  }
-                  onDelete={async () => {
-                    if (
-                      !(await confirm({
-                        title: `Delete view "${view.name}"?`,
-                        message: 'The view is removed. Records are not affected.',
-                        confirmLabel: 'Delete',
-                        danger: true,
-                      }))
-                    )
-                      return;
-                    viewMutations.deleteView.mutate(view.id);
-                    router.replace(`/w/${ws}/d/${db}`);
-                  }}
+                  onShare={canShare(view.type) ? () => setSharingViewId(view.id) : undefined}
+                  onCopyLink={viewActions ? () => void viewActions.copyLink(view.id) : undefined}
+                  moves={movesFor(view.id)}
+                  onDelete={() => void confirmDeleteView(view)}
                 />
               ))}
             </SortableContext>
@@ -293,6 +305,30 @@ function DatabasePageInner() {
         personalFilter={personalFilter}
         onReorderFields={schemaEditable ? onReorderFields : undefined}
         readOnly={readOnly}
+        view={
+          activeView
+            ? { name: activeView.name, isDefault: Boolean(activeView.isDefault), personal: Boolean(activeView.ownerUserId) }
+            : undefined
+        }
+        viewMenu={
+          activeView
+            ? {
+                canManage: !readOnly,
+                canDelete: !readOnly && views.length > 1,
+                onDuplicate: () =>
+                  viewMutations.duplicateView.mutate(activeView.id, {
+                    onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`),
+                  }),
+                onSetDefault: () => viewMutations.setDefaultView.mutate(activeView.id),
+                onCopyLink: viewActions ? () => void viewActions.copyLink(activeView.id) : undefined,
+                onShare: canShare(activeView.type) ? () => setSharingViewId(activeView.id) : undefined,
+                onCopyToPersonal: () => viewMutations.copyViewToPersonal.mutate(activeView.id),
+                moves: movesFor(activeView.id),
+                onDelete: () => void confirmDeleteView(activeView),
+              }
+            : undefined
+        }
+        onRenameView={activeView ? (name) => viewMutations.renameView.mutate({ id: activeView.id, name }) : undefined}
       />
       </ErrorBoundary>
 
