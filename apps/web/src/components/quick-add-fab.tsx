@@ -11,6 +11,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useWithShortcut } from '@/lib/shortcuts';
+import { databaseColor } from '@/lib/entity-color';
 
 /**
  * Mobile quick-capture (mobile-responsive-plan.md, MN-230c): "a fast 'new
@@ -96,7 +97,7 @@ export function QuickAddFab() {
                 onClick={() => create.mutate(db.id)}
                 className="flex min-h-[44px] w-full items-center gap-2.5 rounded px-2 py-2 text-left text-prose text-ink hover:bg-hover disabled:opacity-50"
               >
-                <EntityIcon icon={db.icon} color={db.color} fallback={<Database className="h-4 w-4" />} />
+                <EntityIcon icon={db.icon} color={databaseColor(db.color, db.id)} fallback={<Database className="h-4 w-4" />} />
                 {db.name}
               </button>
             ))}

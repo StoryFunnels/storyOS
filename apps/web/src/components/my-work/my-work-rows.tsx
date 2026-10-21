@@ -16,6 +16,7 @@ import {
   type MyWorkDbConfig,
 } from './group-config';
 import { assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
+import { databaseColor } from '@/lib/entity-color';
 
 export const rowKey = (row: Pick<MyWorkRow, 'dbId' | 'record'>) => `${row.dbId}:${row.record.id}`;
 
@@ -87,7 +88,7 @@ export function MyWorkRowButton({
       )}
     >
       <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-        <EntityIcon icon={database.icon} color={database.color} fallback={<Database className="h-3.5 w-3.5" />} />
+        <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
       </span>
       <span className="min-w-0 flex-1">
         <span data-mw-title className="block truncate text-body font-medium text-ink">
@@ -131,7 +132,7 @@ export function SectionHeader({
         {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
       <Link href={`/w/${ws}/d/${database.id}`} className="flex min-w-0 items-center gap-1.5 hover:text-ink">
-        <EntityIcon icon={database.icon} color={database.color} fallback={<Database className="h-3.5 w-3.5" />} />
+        <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
         <span className="truncate">{database.name}</span>
         <span className="text-faint">{count}</span>
       </Link>

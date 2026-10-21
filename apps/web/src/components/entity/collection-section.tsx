@@ -43,6 +43,7 @@ import { isSingleOption } from '@/components/table-view/field-kinds';
 import { SelectDriftBanner } from './select-drift-banner';
 import { collectionControlsVisible } from './collection-empty';
 import { useOpenInSplit } from './split-panel-context';
+import { databaseColor } from '@/lib/entity-color';
 
 const COLLECTION_CAP = 20;
 
@@ -343,7 +344,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                     {/* MN-299: target-database cylinder marker — distinct from the
                         color-by dot below, which reflects THIS row's own color-by
                         field value, not the target database's color. */}
-                    <DbColorMarker color={targetDb.data?.color} />
+                    <DbColorMarker color={databaseColor(targetDb.data?.color, targetDbId)} />
                     {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
                     {row.number != null && (
                       /* #669 — the record number STAYS faint. #326 names it as its

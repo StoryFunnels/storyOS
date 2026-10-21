@@ -11,6 +11,7 @@ import type { FilterConnector, FilterNode } from '@/components/views/filter-conf
 import { cn } from '@/lib/utils';
 import { toField, type MyWorkDbConfig } from './group-config';
 import { SORT_LABELS, appliedConditionCount, filterChips, type MyWorkGroup, type MyWorkSortKey } from './my-work-model';
+import { databaseColor } from '@/lib/entity-color';
 
 export type MyWorkGrouping = 'none' | 'database';
 const GROUPING_LABELS: Record<MyWorkGrouping, string> = { none: 'None', database: 'Database' };
@@ -187,7 +188,7 @@ function FilterPopover({
           return (
             <section key={g.database.id} className="border-b border-border-default last:border-b-0">
               <header className="flex items-center gap-1.5 px-3 pt-3 text-label font-semibold text-ink">
-                <EntityIcon icon={g.database.icon} color={g.database.color} fallback={<Database className="h-3.5 w-3.5" />} />
+                <EntityIcon icon={g.database.icon} color={databaseColor(g.database.color, g.database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
                 {g.database.name}
                 {n > 0 && <span className="font-normal text-faint">· {n} applied</span>}
               </header>

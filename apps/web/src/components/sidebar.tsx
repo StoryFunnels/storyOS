@@ -62,6 +62,7 @@ import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { databaseColor } from '@/lib/entity-color';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -931,7 +932,7 @@ function HiddenSection({
             <HiddenRow key={`s-${s.id}`} icon={s.icon} color={s.color} name={s.name} onUnhide={() => onUnhide('space', s.id)} />
           ))}
           {databases.map((d) => (
-            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={d.color} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
+            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={databaseColor(d.color, d.id)} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
           ))}
         </div>
       )}
@@ -957,7 +958,7 @@ function HiddenRow({
             these rows' icons sat 20px left of everything else */}
         <span aria-hidden className="-mr-0 block w-3 shrink-0" />
         <GlyphSlot>
-          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5" />} />
         </GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
       </span>
@@ -2817,10 +2818,12 @@ function DatabaseRow({
           className="flex min-w-0 flex-1 items-center gap-2"
         >
           <GlyphSlot>
+            {/* #1001 — no `text-muted` on the fallback glyph: it overrides the colour the icon's wrapper hands down, so every database drew
+                the same grey whatever colour it had. */}
             <EntityIcon
               icon={db.icon}
-              color={db.color}
-              fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+              color={databaseColor(db.color, db.id)}
+              fallback={<Database className="h-3.5 w-3.5" />}
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
