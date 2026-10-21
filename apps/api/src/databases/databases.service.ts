@@ -1,10 +1,12 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { BOUNDARY_REFUSAL } from '../access/resource-scope';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
-import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
+import { defaultEntityColor } from '@storyos/schemas';
+import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, recordLinks, records, relations, selectOptions, spaces, views } from '../db/schema';
@@ -470,6 +472,8 @@ export class DatabasesService {
     // bounded loop: on that specific unique violation, recompute the next free
     // suffix (now that the winner's row is committed) and try again. Any other
     // error propagates untouched.
+    // #1016 — the id is chosen HERE so the default colour can be derived from it: stable, never grey unless a person picks grey.
+    const id = randomUUID();
     for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
       const apiSlug = await this.uniqueSlug(input.space_id, input.name);
       try {
@@ -477,6 +481,7 @@ export class DatabasesService {
           const [database] = await tx
             .insert(databases)
             .values({
+              id,
               workspaceId: membership.workspaceId,
               spaceId: input.space_id,
               name: input.name,
@@ -484,10 +489,10 @@ export class DatabasesService {
               // caller (HTTP API, templates, integrations), not just requests
               // that go through createDatabaseSchema.
               icon: normalizeIconInput(input.icon, input.name),
-              // MN-299: auto-assign a random palette color at creation time so
-              // relation chips always have something to render; the icon-picker
-              // swatch UI (update()) can still override it manually afterward.
-              color: input.color ?? randomDatabaseColor(),
+              // MN-299 / #1016: every database has a colour from the start, so relation chips always have something to render. It
+              // is the SAME id-derived default the app draws with (@storyos/schemas), not a random pick that could land on grey;
+              // the icon-picker swatch (update()) and an explicit `color` still win, grey included.
+              color: input.color ?? defaultEntityColor(id),
               // #400: normalized in the service for the same reason `icon` is —
               // packs, templates and the Architect build databases by calling
               // here, never through createDatabaseSchema.

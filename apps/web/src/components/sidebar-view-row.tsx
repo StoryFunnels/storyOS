@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Database, Table2, Lock } from 'lucide-react';
+import { Database, Table2, Lock, Star } from 'lucide-react';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { buildViewMenu } from '@/components/views/view-menu';
 import { useViewMenuActions, viewMenuSidebarActions } from '@/components/views/view-menu-items';
@@ -96,6 +96,9 @@ export function SidebarViewRow({
     ? `/w/${ws}/d/${view.database_id}?view=${view.id}`
     : `/w/${ws}/v/${view.id}`;
 
+  const viewActions = useViewMenuActions(ws, view.database_id);
+  const pinned = Boolean(viewActions?.pins.isPinned(view.id));
+
   // #1013 — a view that reads several databases names them at its right edge (the prototype's `srcMarks`).
   const databases = useDatabases(ws);
   const marks = sourceMarks(
@@ -110,6 +113,8 @@ export function SidebarViewRow({
         <Icon className="h-3 w-3 text-muted" style={tint ? { color: tint } : undefined} />
       </GlyphSlot>
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
+      {/* #994 — a view pinned to the viewer's tabs carries a small gold star at the right edge (the prototype's pinned mark). */}
+      {pinned && <Star className="h-[11px] w-[11px] shrink-0 text-accent" aria-label="Pinned to your tabs" />}
       {view.personal && (
         // #291 — badge that it is private. Never say whose: the payload does
         // not carry an owner id, and this must not become the place it leaks.
@@ -120,7 +125,6 @@ export function SidebarViewRow({
 
   // #964 — the ONE view menu (views/view-menu.ts), the same list the toolbar ⋯ and the tab ⋯ show.
   // A space-level view has no database, so it gets the subset that needs none (rename, delete, move).
-  const viewActions = useViewMenuActions(ws, view.database_id);
   const moves = [
     // Only this door knows which folder a view is in, so only it can offer the way back out.
     ...(onMove && view.folder_id
