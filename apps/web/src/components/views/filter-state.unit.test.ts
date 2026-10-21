@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyViewCause, filterButtonState } from './filter-state';
+import { appliedConditionsOnField, emptyViewCause, filterButtonState } from './filter-state';
 import type { FilterGroup } from './filter-config';
 
 const group = (...conds: Array<Record<string, unknown>>): FilterGroup => ({ and: conds }) as unknown as FilterGroup;
@@ -91,5 +91,22 @@ describe('emptyViewCause (#965): why a view is empty', () => {
 
   it('nothing narrows the view and it is still empty with records existing: no cause to name', () => {
     expect(emptyViewCause(counts)).toBeNull();
+  });
+});
+
+describe('appliedConditionsOnField (#992): the header mark follows the Filter button rule', () => {
+  it('an unfinished condition on the field carries no mark', () => {
+    expect(appliedConditionsOnField(group({ field: 'status', op: 'eq', value: '' }), 'status')).toBe(0);
+  });
+  it('a disabled condition carries no mark', () => {
+    expect(appliedConditionsOnField(group(done({ disabled: true })), 'status')).toBe(0);
+  });
+  it('counts only applied conditions on THAT field, at any depth', () => {
+    const nested = { and: [done(), { or: [done(), done({ field: 'owner' }), done({ disabled: true })] }] } as unknown as FilterGroup;
+    expect(appliedConditionsOnField(nested, 'status')).toBe(2);
+    expect(appliedConditionsOnField(nested, 'owner')).toBe(1);
+  });
+  it('no filter at all is zero', () => {
+    expect(appliedConditionsOnField(undefined, 'status')).toBe(0);
   });
 });

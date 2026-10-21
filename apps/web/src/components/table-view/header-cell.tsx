@@ -31,11 +31,11 @@ import type { ViewConfig } from '../views/use-view-state';
 import {
   buildFilterGroup,
   clearConditionsForField,
-  conditionPathsForField,
   filterConditions,
   filterConnector,
 } from '../views/filter-config';
 import { MAX_SORTS, isSortableFormula } from '../views/sort-config';
+import { appliedConditionsOnField } from '../views/filter-state';
 
 export function HeaderCell({
   ws,
@@ -116,8 +116,10 @@ export function HeaderCell({
   // nothing on the header indicated one was active, so a narrowed table read as
   // "the filter silently did nothing". Counts conditions at any depth, and the
   // clear is one action rather than a trip to the toolbar's builder.
+  // #992 — only APPLIED conditions mark the header, the same rule as the Filter button (a disabled or
+  // unfinished condition hides nothing, so it must not look like a filtered column).
   const filteredCount = useMemo(
-    () => (config ? conditionPathsForField(filterConditions(config.filters), field.apiName).length : 0),
+    () => (config ? appliedConditionsOnField(config.filters as never, field.apiName) : 0),
     [config, field.apiName],
   );
   const isFiltered = filteredCount > 0;
