@@ -100,6 +100,17 @@ Manual order (table default and within-column kanban order) is stored as a fract
 record — reordering touches only the moved record. Sorted views ignore manual order and use the
 sort instead.
 
+## Opening and renaming a record in a table
+
+- **Click the title text** to open the record. On a wide screen it opens in the
+  [split panel](/concepts/split-screen/) beside the table; ⌘/Ctrl-click or middle-click opens it in
+  a new tab. Board, gallery, list, feed and timeline views open a record the same way — click it.
+- **Click the empty part of the title cell** to select it without opening anything.
+- **Rename** with a double-click on the empty part of the title cell, or select the cell and press
+  **Enter**. A single click never starts a rename.
+- From the keyboard, **e** opens the record under the cursor (see
+  [Keyboard shortcuts](/guides/keyboard-shortcuts/)).
+
 ## The row number, the ID, and the default columns
 
 A table has two different numbers on the left, and they mean different things:

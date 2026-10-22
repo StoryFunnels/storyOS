@@ -7,7 +7,7 @@ import { computeRangeBounds, hasCrossedDragThreshold, parseCellDataset } from '.
  * that shared mechanism directly, independent of which input method produced
  * the far corner, plus the drag-vs-click threshold decision that keeps a
  * plain click (cell selection, checkbox toggle, relation-chip navigation,
- * title "Open" link, …) working exactly as it did before this feature.
+ * title text link, …) working exactly as it did before this feature.
  */
 
 describe('computeRangeBounds — the shared range state behind every selection input', () => {
