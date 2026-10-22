@@ -4,7 +4,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
-import { Check, ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { DndContext, closestCenter } from '@dnd-kit/core';
@@ -538,7 +538,7 @@ export function TableView({
   // only remembers where it started; nothing changes yet, so an ordinary
   // click (no movement past DRAG_THRESHOLD) still runs the click handler
   // below completely untouched — including #293's relation-chip link-through
-  // and the title row's "Open" link, both of which already stop propagation
+  // and the title text's link (renderTitleLink), both of which stop propagation
   // on their own click today. Only once the pointer has moved past the
   // threshold do we treat it as a real drag: anchor the range at the
   // mousedown cell (like a fresh, non-shift click would) and grow the far
@@ -547,7 +547,7 @@ export function TableView({
   const draggingRef = useRef(false);
   // Swallows the single click that follows a real drag's mouseup, so
   // whatever the pointer happens to land on (a cell, a relation chip, the
-  // title's "Open" link, a row button, …) doesn't also fire its own click on
+  // title text's link, a row button, …) doesn't also fire its own click on
   // top of the range we just finished dragging out.
   const suppressClickRef = useRef(false);
   const [dragSelecting, setDragSelecting] = useState(false);
@@ -805,8 +805,8 @@ export function TableView({
       toggleSelect(cursor.row, e.shiftKey);
     } else if (e.key.toLowerCase() === 'e' && cursor) {
       const row = rows[cursor.row];
-      // #199 — the keyboard's "open" goes through the same entry point the Open
-      // chip uses, so `e` and a click cannot disagree about whether a record opens
+      // #199 — the keyboard's "open" goes through the same entry point the title
+      // link uses, so `e` and a click cannot disagree about whether a record opens
       // in the split panel. A keyboard event carries no mouse button, so it is
       // always an unmodified primary "click" as far as `useOpenRecord` is concerned.
       if (row)
@@ -868,6 +868,48 @@ export function TableView({
     isDraggingCol || !lastVCol
       ? 0
       : columnVirtualizer.getTotalSize() - (lastVCol.start + lastVCol.size);
+
+  /**
+   * #1020 — the title TEXT is the way into a record, as a click on a card or row already is
+   * in every other view (board, gallery, list, feed, timeline). It replaced a hover
+   * "Open" chip at the cell's right edge that was hard to find and hard to hit.
+   *
+   * Only the text is the link, so the rest of the cell keeps the grid's model:
+   * a click on the empty part selects the cell, double-click or Enter renames, and
+   * a single click never starts a rename (2474278b). Shift-click is left to the
+   * cell so it still extends a range; a drag that starts on the text is still a
+   * range select (the grid's onClickCapture swallows the click that ends it).
+   * #199 — opens beside the table in the split panel on desktop; the `href`
+   * still carries cmd/middle-click to a new tab, and below `md` the default
+   * navigation runs unchanged.
+   */
+  function renderTitleLink(field: Field, rowIdx: number, colIndex: number, row: RecordRow) {
+    const value = valueOf(row, field);
+    return (
+      <Link
+        href={recordHref(ws, db, row)}
+        draggable={false}
+        onClick={(e) => {
+          if (e.shiftKey) {
+            e.preventDefault();
+            return;
+          }
+          e.stopPropagation();
+          setRangeEnd(null);
+          setCursor({ row: rowIdx, col: colIndex });
+          openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+        className="min-w-0 max-w-full truncate rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      >
+        {isEmptyCellValue(value) ? (
+          <span className="text-body font-medium text-faint">Untitled</span>
+        ) : (
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} />
+        )}
+      </Link>
+    );
+  }
 
   // #251 — cell renderer extracted so frozen and non-frozen columns share
   // one render path (field-surfaces.md: never duplicate render logic).
@@ -1061,15 +1103,7 @@ export function TableView({
             ) : (
               <span className="h-3 w-3 shrink-0" />
             )}
-            <div className="min-w-0 flex-1 truncate">
-              <CellDisplay
-                field={field}
-                value={valueOf(row, field)}
-                memberNames={memberNames}
-                memberImages={memberImages}
-                ws={ws}
-              />
-            </div>
+            <div className="min-w-0 flex-1 truncate">{renderTitleLink(field, rowIdx, colIndex, row)}</div>
             {/* #233 — the child page-size ceiling (200) is a real limit, not a
                 display choice; naming it here rather than silently truncating
                 matches how the rest of this codebase declares a gap instead
@@ -1079,43 +1113,18 @@ export function TableView({
                 200+
               </span>
             )}
-            <Link
-              href={recordHref(ws, db, row)}
-              onClick={(e) => {
-                e.stopPropagation();
-                openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
-              }}
-              className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
-            >
-              <Maximize2 className="h-3 w-3" /> Open
-            </Link>
           </div>
+        ) : field.type === 'title' ? (
+          renderTitleLink(field, rowIdx, colIndex, row)
         ) : (
-          <>
-            <CellDisplay
-              field={field}
-              value={valueOf(row, field)}
-              aiState={field.type === 'ai' ? aiFieldState(row, field.id) : undefined}
-              memberNames={memberNames}
-              memberImages={memberImages}
-              ws={ws}
-            />
-            {field.type === 'title' && (
-              <Link
-                href={recordHref(ws, db, row)}
-                // #199 — opens beside the table in the split panel on desktop; the
-                // `href` still carries cmd/middle-click to a new tab, and below `md`
-                // the default navigation runs unchanged.
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
-                }}
-                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-meta font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
-              >
-                <Maximize2 className="h-3 w-3" /> Open
-              </Link>
-            )}
-          </>
+          <CellDisplay
+            field={field}
+            value={valueOf(row, field)}
+            aiState={field.type === 'ai' ? aiFieldState(row, field.id) : undefined}
+            memberNames={memberNames}
+            memberImages={memberImages}
+            ws={ws}
+          />
         )}
       </div>
     );
@@ -1363,8 +1372,8 @@ export function TableView({
                             {item.index + 1}
                           </span>
                         )}
-                        {/* The labelled "Open" affordance on the title cell is the single way
-                            to expand a row (#90) — no duplicate icon here. */}
+                        {/* The title text is the single way to open a row from the mouse
+                            (#90, see renderTitleLink) — no duplicate icon here. */}
                         {!readOnly && (
                           <div
                             className={cn(
