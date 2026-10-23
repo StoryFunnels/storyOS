@@ -68,6 +68,7 @@ import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { memoizeForRequest } from '../access/request-memo';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
+import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
 // runtime dependency on CommentsService, so this can't create the module
@@ -3147,6 +3148,7 @@ export class RecordsService {
     agentId?: string,
     agentName?: string,
   ): Promise<ProjectedRecord> {
+    await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
@@ -4186,6 +4188,7 @@ export class RecordsService {
     depth = 0,
     source: ChangeSource = 'human',
   ): Promise<{ deleted: true } | PendingApprovalResult> {
+    await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.getRow(databaseId, recordId);
     const held = await this.checkDeleteGate(workspaceId, databaseId, [recordId], actorId, source);
     if (held) return held;

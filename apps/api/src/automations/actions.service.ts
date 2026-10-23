@@ -1,4 +1,5 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
 // #342 — automations compute numbers through the SAME engine as formula fields,
@@ -259,6 +260,9 @@ export class AutomationActionsService {
      */
     source?: ChangeSource,
   ): Promise<void> {
+    // #1029 — the database the actions run against must belong to the workspace they run for. execute() re-validates
+    // first, so this one line also covers every agent/automation/button execution, not just save time.
+    await assertDatabaseInWorkspace(this.db, workspaceId, databaseId);
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
