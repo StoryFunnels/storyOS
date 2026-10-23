@@ -18,6 +18,8 @@ PG_USER="${PG_USER:-storyos}"
 PG_DB="${PG_DB:-storyos}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=manifest.sh
+. "$SCRIPT_DIR/manifest.sh"
 CHECKS_SQL="$SCRIPT_DIR/integrity-checks.sql"
 ATTACHMENTS_VOLUME="${ATTACHMENTS_VOLUME:-${PROJECT}_storyos_attachments}"
 
@@ -39,18 +41,29 @@ pass "structural integrity (auth loads, relations + attachments resolve)"
 # 2. row-count parity against the recovery point's baseline.
 if [ -f "$BACKUP_DIR/counts.tsv" ]; then
   log "asserting row-count parity vs $BACKUP_DIR/counts.tsv"
-  while IFS='|' read -r table expected; do
+  # #892 — backup.sh writes this file with COPY … (FORMAT text), which separates
+  # fields with a TAB. Splitting on '|' (psql -A's separator) handed the whole
+  # line to `table` and the check died before it ever compared a count.
+  # The file is read on fd 3, not stdin: `docker compose exec` inside the loop
+  # reads stdin too, swallowed every line after the first, and the "match" only
+  # ever covered the first table.
+  checked=0
+  while IFS=$'\t' read -r table expected <&3; do
     [ -n "${table:-}" ] || continue
-    actual="$(psql_q "SELECT count(*) FROM \"$table\"")"
+    expected="${expected%$'\r'}"
+    actual="$(psql_q "SELECT count(*) FROM \"$table\"" </dev/null)"
     [ "$actual" = "$expected" ] || die "row count drift on '$table': source=$expected restored=$actual"
-  done < "$BACKUP_DIR/counts.tsv"
-  pass "row counts match source for every table"
+    checked=$((checked + 1))
+  done 3< "$BACKUP_DIR/counts.tsv"
+  [ "$checked" -gt 0 ] || die "counts.tsv has no rows — nothing to compare"
+  pass "row counts match source for all $checked tables"
 else
   log "no counts.tsv in $BACKUP_DIR — skipping parity check"
 fi
 
 # 3. attachments present & openable (local driver only).
-STORAGE_DRIVER="$(grep -E '^STORAGE_DRIVER=' "$BACKUP_DIR/manifest.env" 2>/dev/null | cut -d= -f2 || echo local)"
+STORAGE_DRIVER="$(manifest_get "$BACKUP_DIR/manifest.env" STORAGE_DRIVER)"
+STORAGE_DRIVER="${STORAGE_DRIVER:-local}"
 if [ "$STORAGE_DRIVER" = "s3" ]; then
   log "STORAGE_DRIVER=s3 — attachment files live in the object store; skipping file check"
 else

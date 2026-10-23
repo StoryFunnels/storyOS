@@ -70,9 +70,10 @@ docker compose up -d      # api reconciles the schema on boot (migrations are id
 Every restore asserts: **auth loads** (users/sessions present), **row counts
 match** the source, **relations resolve** (no dangling links), and **attachments
 are present and openable**. These run automatically inside `restore.sh` and can
-be run any time with `verify-restore.sh <project> backups/<label>`. The exact
-dump → restore → check path is exercised in CI, so the documented commands can't
-silently rot.
+be run any time with `verify-restore.sh <project> backups/<label>`. CI runs the
+shipped `backup.sh` → `restore.sh` → `verify-restore.sh` end to end, and checks
+that each of these assertions fails when it should, so the documented commands
+can't silently rot.
 
 ### Guidance & larger deployments
 

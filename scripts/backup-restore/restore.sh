@@ -35,6 +35,8 @@ PG_USER="${PG_USER:-storyos}"
 PG_DB="${PG_DB:-storyos}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=manifest.sh
+. "$SCRIPT_DIR/manifest.sh"
 ATTACHMENTS_VOLUME="${RESTORE_PROJECT}_storyos_attachments"
 
 log() { printf '\033[1;34m[restore]\033[0m %s\n' "$*"; }
@@ -56,6 +58,11 @@ cleanup() {
   else
     log "tearing down clone '$RESTORE_PROJECT' (and its volumes)"
     dc down -v >/dev/null 2>&1 || true
+    # The attachments volume is made by `docker run` below, not by compose, so
+    # `down -v` leaves it behind — with real customer files in it. Never the live one.
+    if [ "$RESTORE_PROJECT" != "$LIVE_PROJECT" ]; then
+      docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
+    fi
   fi
 }
 trap cleanup EXIT
@@ -63,10 +70,20 @@ trap cleanup EXIT
 cd "$REPO_ROOT"
 
 log "verifying checksums against manifest"
-# shellcheck disable=SC1091
-. "$BACKUP_DIR/manifest.env"
+# #891 — read as data, never `source`d: manifests written before the fix carry
+# an unquoted `ATTACHMENTS=local volume <name>` line that bash runs as a command.
+MANIFEST="$BACKUP_DIR/manifest.env"
+LABEL="$(manifest_get "$MANIFEST" LABEL)"
+STORAGE_DRIVER="$(manifest_get "$MANIFEST" STORAGE_DRIVER)"
+DB_DUMP_SHA256="$(manifest_get "$MANIFEST" DB_DUMP_SHA256)"
+ATTACHMENTS_SHA256="$(manifest_get "$MANIFEST" ATTACHMENTS_SHA256)"
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
-[ "$(sha256 "$BACKUP_DIR/db.dump")" = "${DB_DUMP_SHA256:-}" ] || die "db.dump checksum mismatch — backup is corrupt"
+[ -n "$DB_DUMP_SHA256" ] || die "manifest.env has no DB_DUMP_SHA256 — cannot prove db.dump is intact"
+[ "$(sha256 "$BACKUP_DIR/db.dump")" = "$DB_DUMP_SHA256" ] || die "db.dump checksum mismatch — backup is corrupt"
+if [ -f "$BACKUP_DIR/attachments.tgz" ] && [ -n "$ATTACHMENTS_SHA256" ]; then
+  [ "$(sha256 "$BACKUP_DIR/attachments.tgz")" = "$ATTACHMENTS_SHA256" ] \
+    || die "attachments.tgz checksum mismatch — backup is corrupt"
+fi
 
 log "bringing up isolated postgres (project '$RESTORE_PROJECT')"
 dc up -d "$PG_SERVICE"
@@ -85,6 +102,11 @@ dc exec -T "$PG_SERVICE" pg_restore -U "$PG_USER" -d "$PG_DB" --clean --if-exist
 
 if [ -s "$BACKUP_DIR/attachments.tgz" ] && [ "${STORAGE_DRIVER:-local}" != "s3" ]; then
   log "restoring attachments into volume '$ATTACHMENTS_VOLUME'"
+  # Start from an EMPTY clone volume: files left by an earlier rehearsal would let
+  # verify-restore.sh's "every attachment has a file" pass for a backup that lacks them.
+  if [ "$RESTORE_PROJECT" != "$LIVE_PROJECT" ]; then
+    docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
+  fi
   docker run --rm -v "$ATTACHMENTS_VOLUME":/data -v "$(cd "$BACKUP_DIR" && pwd)":/in:ro alpine \
     sh -c 'cd /data && tar xzf /in/attachments.tgz' || die "attachments unpack failed"
 fi
