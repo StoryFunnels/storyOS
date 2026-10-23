@@ -8,6 +8,7 @@ import posthog from 'posthog-js';
 import { CheckCircle2, CircleAlert, Clipboard, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { AiConnectionsSection } from '@/components/settings/ai-connections-list';
 import { ClientLogo } from '@/components/connect-ai-logos';
 import { cn } from '@/lib/utils';
 import { MCP_ENDPOINT, MCP_ORIGIN, api } from '@/lib/api';
@@ -104,8 +105,8 @@ function ConnectedCard({ onAnother }: { onAnother: () => void }) {
           know what you did and what it did.
         </p>
         <p className="mb-3 text-body leading-[1.55] text-ink-secondary">
-          To disconnect, remove <b className="font-semibold text-ink">{CONNECTOR_NAME}</b> in your AI’s
-          connector settings.
+          To disconnect, use the list below, or remove <b className="font-semibold text-ink">{CONNECTOR_NAME}</b> in
+          your AI’s connector settings.
         </p>
         <p className="mb-1 text-label font-semibold uppercase tracking-[0.06em] text-muted">Try asking it</p>
         {[
@@ -247,6 +248,8 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
           </div>
         </>
       )}
+
+      <AiConnectionsSection ws={ws} />
 
       <details className="mt-3.5 text-label text-muted">
         <summary className="cursor-pointer font-semibold">Advanced — tokens and self-managed StoryOS</summary>
