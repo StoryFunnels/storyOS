@@ -19,7 +19,19 @@ describe('notDoneConditions (#928)', () => {
       { field: 'state', op: 'has_none', value: ['o2', 'o3'] },
     ]);
   });
-  it('adds nothing rather than guessing: no workflow field, or no recognisable finished option', () => {
+  it('reads the option\'s state category (ticket #1014), which wins over the label', () => {
+    const field = {
+      id: 'f1', apiName: 'state', displayName: 'State', type: 'workflow',
+      options: [
+        { id: 'a', label: 'Shipped it', category: 'completed' },
+        { id: 'b', label: 'Done', category: 'started' },
+        { id: 'c', label: 'Dropped', category: 'canceled' },
+        { id: 'd', label: 'Doing', category: 'started' },
+      ],
+    } as unknown as Field;
+    expect(notDoneConditions([field])).toEqual([{ field: 'state', op: 'has_none', value: ['a', 'c'] }]);
+  });
+  it('adds nothing when there is no workflow field or nothing in it is finished', () => {
     expect(notDoneConditions([])).toEqual([]);
     expect(notDoneConditions([wf(['Backlog', 'Shipping', 'Parked'])])).toEqual([]);
     expect(notDoneConditions([{ ...wf(['Done']), type: 'select' } as unknown as Field])).toEqual([]);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { StateCategory } from '@storyos/schemas';
 import {
   appliedConditionCount,
   buildRows,
@@ -227,26 +228,39 @@ describe('a finished record is not overdue and never sorts first (#1002)', () =>
   });
 });
 
-describe('isCompletedState (#1002): the best the data allows, deliberately narrow', () => {
-  const wf: DenseField = { id: 'w', api_name: 's', display_name: 'State', type: 'workflow', options: [opt('a', 'Backlog'), opt('b', 'Review'), opt('c', 'Shipped it')] };
-  const sel: DenseField = { id: 's', api_name: 's', display_name: 'Status', type: 'select', options: [opt('a', 'Low'), opt('b', 'High')] };
-  it('a finished label counts, case and surrounding space aside', () => {
-    const f: DenseField = { ...wf, options: [opt('a', 'Open'), opt('b', '  closed ')] };
-    expect(isCompletedState(f, 'b')).toBe(true);
-    expect(isCompletedState(f, 'a')).toBe(false);
-  });
-  it('the LAST option of a workflow is its terminal state, whatever it is called', () => {
+describe('isCompletedState (#1017): finished is the option\'s state CATEGORY', () => {
+  const withCat = (id: string, label: string, category: StateCategory | null) => ({ ...opt(id, label), category });
+  const wf: DenseField = {
+    id: 'w', api_name: 's', display_name: 'State', type: 'workflow',
+    options: [withCat('a', 'Backlog', 'backlog'), withCat('b', 'Review', 'started'), withCat('c', 'Shipped it', 'completed'), withCat('d', 'Dropped', 'canceled')],
+  };
+  it('completed and canceled are finished, whatever the label says', () => {
     expect(isCompletedState(wf, 'c')).toBe(true);
+    expect(isCompletedState(wf, 'd')).toBe(true);
+    expect(isCompletedState(wf, 'a')).toBe(false);
     expect(isCompletedState(wf, 'b')).toBe(false);
   });
-  it('a plain select\'s last option is just its last option — not promoted', () => {
-    expect(isCompletedState(sel, 'b')).toBe(false);
+  it('the category wins over the label: a person who set "Done" to started is believed', () => {
+    const f: DenseField = { ...wf, options: [withCat('x', 'Done', 'started'), withCat('y', 'Doing', 'completed')] };
+    expect(isCompletedState(f, 'x')).toBe(false);
+    expect(isCompletedState(f, 'y')).toBe(true);
   });
-  it('no state, no field, an unknown id, a one-option workflow: open', () => {
+  it('the last option is NOT promoted any more — only its category says it is finished', () => {
+    const f: DenseField = { ...wf, options: [withCat('a', 'Open', 'unstarted'), withCat('b', 'Whatever', 'started')] };
+    expect(isCompletedState(f, 'b')).toBe(false);
+  });
+  it('a null category (a plain select named Status that never had one) falls back to the ONE rule, by label', () => {
+    const sel: DenseField = { id: 's', api_name: 's', display_name: 'Status', type: 'select', options: [withCat('a', 'Low', null), withCat('b', '  closed ', null), withCat('c', 'Cancelled', null)] };
+    expect(isCompletedState(sel, 'a')).toBe(false);
+    expect(isCompletedState(sel, 'b')).toBe(true);
+    expect(isCompletedState(sel, 'c')).toBe(true);
+    // an option from an API that predates categories (no field at all) is the same as null
+    expect(isCompletedState({ ...sel, options: [opt('z', 'Done')] }, 'z')).toBe(true);
+  });
+  it('no state, no field, an unknown id: open', () => {
     expect(isCompletedState(wf, null)).toBe(false);
     expect(isCompletedState(null, 'c')).toBe(false);
     expect(isCompletedState(wf, 'zzz')).toBe(false);
-    expect(isCompletedState({ ...wf, options: [opt('a', 'Only')] }, 'a')).toBe(false);
   });
   it('reads a multi-valued stored array by its first element, like the state pill does', () => {
     expect(isCompletedState(wf, ['c'])).toBe(true);

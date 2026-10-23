@@ -17,6 +17,9 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
+import { STATE_CATEGORY_OPTIONS, categoryEditable } from '@/lib/state-category-labels';
+import type { StateCategory } from '@storyos/schemas';
 import type { Field } from './use-table-data';
 import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
@@ -128,7 +131,7 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
   });
 
   const patchOption = useMutation({
-    mutationFn: async ({ id, ...body }: { id: string; label?: string; color?: string; icon?: string | null; position?: number }) => {
+    mutationFn: async ({ id, ...body }: { id: string; label?: string; color?: string; icon?: string | null; position?: number; category?: StateCategory | null }) => {
       const { error } = await api.PATCH(
         '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}',
         { params: { path: { ws, db, field: field.id, option: id } }, body: body as never },
@@ -136,6 +139,7 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
       if (error) throw error;
     },
     onSuccess: invalidate,
+    onError: () => toast.error('Could not save that'),
   });
 
   // #963 — ONE atomic call per drag: POST .../options/reorder takes the full ordered id list (#961), so a
@@ -227,6 +231,8 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
               onRecolor={(color) => patchOption.mutate({ id: option.id, color })}
               onSetIcon={(icon) => patchOption.mutate({ id: option.id, icon })}
               onRename={(label) => patchOption.mutate({ id: option.id, label })}
+              categoryMode={categoryEditable(field.type)}
+              onSetCategory={(category) => patchOption.mutate({ id: option.id, category })}
               onRemove={() => removeOption.mutate(option.id)}
             />
           ))}
@@ -266,11 +272,16 @@ function SortableOptionRow({
   onRecolor,
   onSetIcon,
   onRename,
+  categoryMode,
+  onSetCategory,
   onRemove,
 }: {
+  /** #1017 — how this field's options carry a state category: always (workflow), optionally (select), never. */
+  categoryMode: 'required' | 'optional' | null;
+  onSetCategory: (category: StateCategory | null) => void;
   /** #963 — 1-based place in the order; visible only in this editor. */
   position: number;
-  option: { id: string; label: string; color: string; icon?: string | null };
+  option: { id: string; label: string; color: string; icon?: string | null; category?: StateCategory | null };
   onRecolor: (color: string) => void;
   /** #202 — set/clear this option's curated icon. */
   onSetIcon: (icon: string | null) => void;
@@ -316,6 +327,25 @@ function SortableOptionRow({
         }}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       />
+      {/* #1017 — what KIND of state this is. Finished (Done / Canceled) is what My Work, "Assigned to me" and overdue
+          read, so it is a choice here, not a guess from the label. A workflow option always has one; a select's may be
+          left unset. */}
+      {categoryMode && (
+        <Select
+          size="sm"
+          className="w-32 shrink-0"
+          aria-label={`State category of ${option.label}`}
+          value={option.category ?? ''}
+          onChange={(e) => onSetCategory(e.target.value === '' ? null : (e.target.value as StateCategory))}
+        >
+          {categoryMode === 'optional' && <option value="">No category</option>}
+          {STATE_CATEGORY_OPTIONS.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      )}
       <button type="button" className="p-1 text-faint hover:text-error" onClick={onRemove}>
         <Trash2 className="h-3.5 w-3.5" />
       </button>

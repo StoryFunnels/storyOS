@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { Users } from 'lucide-react';
+import { inferStateCategory, isFinishedStateCategory } from '@storyos/schemas';
 import { useDismissedHints } from '@/lib/dismissed-hints';
 import type { Field } from '@/components/table-view/use-table-data';
 import type { FilterCondition } from './filter-config';
@@ -10,16 +11,13 @@ import type { FilterCondition } from './filter-config';
  * #928 — what a freshly made "Assigned to me" view says about itself, and the "not done" half of what it filters.
  */
 
-/** Options that mean "finished", by label. A workflow state has no machine-readable category yet (ticket #1014 adds
- *  one), so until then only these plain words are recognised and anything else is left in rather than guessed at:
- *  a view that still shows a finished card is a nuisance, one that hides a live card is a defect. */
-const FINISHED = /^(done|completed?|closed|cancell?ed|resolved)$/i;
-
-/** "…and not done": the first workflow field's finished options, as one `is none of`. Empty when there is no
- *  workflow field or none of its options is recognisably finished. */
+/** "…and not done": the first workflow field's finished options (state category completed or canceled, ticket #1014 /
+ *  #1017), as one `is none of`. Empty when there is no workflow field or none of its options is finished. */
 export function notDoneConditions(fields: Field[]): FilterCondition[] {
   const workflow = fields.find((f) => f.type === 'workflow');
-  const finished = (workflow?.options ?? []).filter((o) => FINISHED.test(o.label.trim())).map((o) => o.id);
+  const finished = (workflow?.options ?? [])
+    .filter((o) => isFinishedStateCategory(o.category ?? inferStateCategory(o.label)))
+    .map((o) => o.id);
   return workflow && finished.length > 0 ? [{ field: workflow.apiName, op: 'has_none', value: finished }] : [];
 }
 

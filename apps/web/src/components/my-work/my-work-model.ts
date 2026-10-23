@@ -6,6 +6,7 @@
  * place the old per-database layout and the new merged one could disagree: the same stored per-database
  * preferences (`MyWorkDbConfig`) feed both.
  */
+import { inferStateCategory, isFinishedStateCategory } from '@storyos/schemas';
 import { isIncompleteCondition } from '@storyos/schemas';
 import { filterConditions, flattenFilterTree, isFilterGroup } from '../views/filter-config';
 import type { FilterCondition, FilterGroup } from '../views/filter-config';
@@ -70,17 +71,14 @@ export function pickFacetFields(fields: DenseField[]): Pick<Facets, 'stateField'
   return { stateField, priorityField, dueField };
 }
 
-/** The labels that mean "finished" — the same vocabulary the done-style automation recipes already use (automation-recipes.ts). */
-const COMPLETED_LABEL = /^(done|complete|completed|closed|shipped|resolved|cancell?ed|archived)$/i;
-
 /**
- * #1002 — is this state a finished one?
+ * #1002 / #1017 — is this state a finished one?
  *
- * There is NO state-category data in the model today: a workflow option is a label, a colour, an icon and a position
- * (`select_options`), so "use the workflow's state categories" has nothing to read. Until options carry a category (a
- * schema change, filed on the ticket), this is the best the data allows and it is deliberately narrow: a label from the
- * finished vocabulary, or the LAST option of a WORKFLOW field (the terminal state of an ordered flow; a plain select's
- * last option is just its last option, so it is not promoted). A record with no state is open.
+ * Read from the option's STATE CATEGORY (ticket #1014): `completed` and `canceled` are finished. A workflow option always
+ * has one; a plain select named State/Status may never have been given one, and for that option alone the category is
+ * inferred from its label by the same `inferStateCategory` the API's backfill uses — one rule, not a second copy of it
+ * here. (The old read-time guess also promoted the LAST workflow option; the category replaces that, and a workflow's
+ * last option is `completed` by the backfill whenever it was.) A record with no state is open.
  */
 export function isCompletedState(field: DenseField | null, raw: unknown): boolean {
   if (!field) return false;
@@ -89,8 +87,7 @@ export function isCompletedState(field: DenseField | null, raw: unknown): boolea
   const options = field.options ?? [];
   const opt = options.find((o) => o.id === v);
   if (!opt) return false;
-  if (COMPLETED_LABEL.test(opt.label.trim())) return true;
-  return field.type === 'workflow' && options.length > 1 && options[options.length - 1]!.id === opt.id;
+  return isFinishedStateCategory(opt.category ?? inferStateCategory(opt.label));
 }
 
 function optionOf(field: DenseField | null, raw: unknown): FacetOption | null {

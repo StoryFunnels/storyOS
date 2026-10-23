@@ -1,5 +1,6 @@
 'use client';
 
+import type { StateCategory } from '@storyos/schemas';
 import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 import {
   useInfiniteQuery,
@@ -18,6 +19,8 @@ export interface SelectOption {
   color: string;
   /** #202: optional curated icon ref (`set:<name>` / `brand:<slug>`), null = none. */
   icon?: string | null;
+  /** #1017 — what KIND of state this option is (ticket #1014). Null on a select option nobody categorised. */
+  category?: StateCategory | null;
 }
 
 export interface Field {
