@@ -390,3 +390,44 @@ describe('public forms (MN-101)', () => {
     });
   });
 });
+
+describe('ticket #1032 — a form redirect_url can never be a script (stored XSS on the app origin)', () => {
+  const attacks = ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'java\tscript:alert(1)', 'javascript://%0aalert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)'];
+  const config = (redirect_url: string, public_token: string) => ({
+    sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+    form: { title: 'Redirects', access: 'public', public_token, fields: [{ field_id: nameFieldId }], redirect_url },
+  });
+
+  it.each(attacks)('creating a form with redirect_url %j is refused, and nothing is stored', async (attack) => {
+    const res = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Attack', type: 'form', config: config(attack, 'tok-attack') });
+    expect(res.statusCode, res.body).toBe(422);
+    expect((await pub('GET', '/public/forms/tok-attack')).statusCode).toBe(404);
+  });
+
+  it.each(attacks)('changing an existing form to redirect_url %j is refused, and the good value stays', async (attack) => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: `Good ${attack.slice(0, 4)}`, type: 'form', config: config('https://example.com/thanks', `tok-good-${attacks.indexOf(attack)}`) });
+    expect(created.statusCode, created.body).toBe(201);
+    const res = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}`, { config: config(attack, `tok-good-${attacks.indexOf(attack)}`) });
+    expect(res.statusCode, res.body).toBe(422);
+    const def = (await pub('GET', `/public/forms/tok-good-${attacks.indexOf(attack)}`)).json();
+    expect(def.redirect_url).toBe('https://example.com/thanks');
+  });
+
+  it('a real https redirect still works and is served', async () => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Fine', type: 'form', config: config('https://example.com/thanks', 'tok-fine') });
+    expect(created.statusCode, created.body).toBe(201);
+    expect((await pub('GET', '/public/forms/tok-fine')).json().redirect_url).toBe('https://example.com/thanks');
+  });
+
+  it('a value stored BEFORE the rule (or written around the API) is never handed to a visitor: it reads back as no redirect', async () => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Legacy', type: 'form', config: config('https://example.com/thanks', 'tok-legacy') });
+    expect(created.statusCode, created.body).toBe(201);
+    // simulate an old row: write the hostile value straight into the stored config
+    const { views } = await import('../src/db/schema');
+    const { eq, sql } = await import('drizzle-orm');
+    await db.update(views).set({ config: sql`jsonb_set(${views.config}, '{form,redirect_url}', '"javascript:alert(document.domain)"')` }).where(eq(views.id, created.json().id));
+    const def = (await pub('GET', '/public/forms/tok-legacy')).json();
+    expect(def.redirect_url).toBeNull();
+    expect(JSON.stringify(def)).not.toContain('javascript:');
+  });
+});

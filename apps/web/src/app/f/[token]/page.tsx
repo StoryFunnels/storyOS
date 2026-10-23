@@ -1,5 +1,6 @@
 'use client';
 
+import { safeHttpUrl } from '@storyos/schemas/safe-url';
 import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
@@ -127,8 +128,11 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error?.message ?? 'Something went wrong. Please try again.');
       }
-      if (def?.redirect_url) {
-        window.location.href = def.redirect_url;
+      // Ticket #1032: assigning to location.href is NOT guarded by the router, and `javascript:` there runs script on this
+      // origin. Navigate only to an http(s) address, whatever the server sent; anything else falls through to the success message.
+      const target = safeHttpUrl(def?.redirect_url);
+      if (target) {
+        window.location.href = target;
         return;
       }
       setStatus('done');

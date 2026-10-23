@@ -12,6 +12,7 @@ import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICO
 // Subpath, not the barrel: the system-field registry is zod-free (see note above),
 // so it can be imported as a value here without inlining a CJS require('zod').
 import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system-fields';
+import { HTTP_URL_MESSAGE, isHttpUrl } from '@storyos/schemas/safe-url';
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
@@ -3794,7 +3795,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when, hidden, value} for per-field overrides. `hidden`+`value` stamps a fixed value onto every submission without ever showing that field to the visitor — a job/tenant id, a UTM tag. Omit to fall back to card_fields.'),
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
-        form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
+        form_redirect_url: z
+          .string()
+          .url()
+          .max(500)
+          .refine(isHttpUrl, { message: HTTP_URL_MESSAGE })
+          .optional()
+          .describe('form: redirect here (an http:// or https:// address only) instead of showing success_message.'),
         folder: z.string().optional().describe('#347 — put the view in this sidebar FOLDER (name or id) instead of nesting it under its database. Placement only: the view still belongs to its database. Omit to nest it under the database, which is the default.'),
       },
     },
@@ -3875,7 +3882,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_fields: z.array(formFieldShape).optional(),
         form_access: z.enum(['members', 'link', 'public']).optional(),
         form_success_message: z.string().max(500).optional(),
-        form_redirect_url: z.string().url().max(500).optional(),
+        form_redirect_url: z.string().url().max(500).refine(isHttpUrl, { message: HTTP_URL_MESSAGE }).optional(),
         folder: z.string().optional().describe('#347 — move the view into this sidebar FOLDER (name or id). Pass null to move it back under its database. Placement only; the view still belongs to its database.'),
         unfile: z.boolean().optional().describe('#347 — move the view back out of its folder, to nest under its database again. Use this rather than folder:null, which MCP cannot express.'),
       },

@@ -26,6 +26,10 @@
       "types": "./dist/state-category.d.ts",
       "default": "./dist/state-category.js"
     },
+    "./safe-url": {
+      "types": "./dist/safe-url.d.ts",
+      "default": "./dist/safe-url.js"
+    },
     "./icons": {
       "types": "./dist/icons.d.ts",
       "default": "./dist/icons.js"

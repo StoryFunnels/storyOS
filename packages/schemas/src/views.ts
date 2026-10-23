@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HTTP_URL_MESSAGE, isHttpUrl } from './safe-url';
 import { atLeastOneField } from './patch';
 import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
@@ -458,7 +459,8 @@ export const viewConfigSchema = z.object({
       access: z.enum(['members', 'link', 'public']).default('members'),
       /** Shown after a successful submit; optional redirect instead. */
       success_message: z.string().max(500).optional(),
-      redirect_url: z.string().url().max(500).optional(),
+      // Ticket #1032: http(s) ONLY. zod's `.url()` accepts `javascript:` and `data:`, and the public form page navigates here.
+      redirect_url: z.string().url().max(500).refine(isHttpUrl, { message: HTTP_URL_MESSAGE }).optional(),
       /**
        * #711 phase 1 — how an EMBEDDED form should look on the host's page.
        *
