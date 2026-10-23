@@ -243,12 +243,15 @@ export function useViewState(
     mutationFn: async () => {
       if (!activeView || !draft) return;
       const saved = draft;
-      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+      const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
         params: { path: { ws, db, view: activeView.id } },
         body: { config: saved as never },
       });
       if (error) throw error;
-      return { viewId: activeView.id, saved };
+      // #1041 — the server owns the form's public token: it mints one when sharing starts and the browser only
+      // learns it from this response. Fold the SERVER's config into the cache, not the one we sent.
+      const server = (data as { config?: ViewConfig } | undefined)?.config;
+      return { viewId: activeView.id, sent: saved, saved: server ?? saved };
     },
     /**
      * #312 — the three-step flicker: hide a column and it hid, REAPPEARED, then hid
@@ -277,7 +280,7 @@ export function useViewState(
       );
       // Only drop the draft if the user hasn't edited again while this was in flight
       // — otherwise a fast second edit would be thrown away by its own save.
-      setDraft((cur) => (cur && JSON.stringify(cur) === JSON.stringify(result.saved) ? null : cur));
+      setDraft((cur) => (cur && JSON.stringify(cur) === JSON.stringify(result.sent) ? null : cur));
       void qc.invalidateQueries({ queryKey: ['database', ws, db] });
     },
     onError: () => toast.error('Could not save the view'),

@@ -563,14 +563,17 @@ function FormBuilder({
               Sharing with one specific client or collaborator? Invite them as a guest instead —
               viewer and commenter access is free, always, not a trial.
             </FreeGuestTip>
-            {!token ? (
+            {access === 'members' && !token ? (
               <button
                 type="button"
                 className="self-start rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-body font-medium text-[var(--text-on-dark)] hover:brightness-110"
-                onClick={() => patchForm({ public_token: crypto.randomUUID().replace(/-/g, ''), access: 'link' })}
+                onClick={() => patchForm({ access: 'link' })}
               >
                 Create a shareable link
               </button>
+            ) : !token ? (
+              // #1041 — the server mints the token; until the save comes back there is no link to show.
+              <p role="status" className="text-label text-muted">Creating the link…</p>
             ) : (
               <>
                 <div className="flex items-center gap-2">
