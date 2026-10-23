@@ -142,7 +142,7 @@ export function ConsentCard({
             <input
               type="radio"
               name="consent-access"
-              className="mt-1"
+              className="mt-1 accent-[var(--primary)]"
               checked={access === opt}
               onChange={() => onChange({ access: opt })}
             />
