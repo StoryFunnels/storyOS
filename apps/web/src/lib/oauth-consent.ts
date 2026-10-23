@@ -37,14 +37,21 @@ export type ConsentOutcome = { kind: 'redirect'; url: string } | { kind: 'failed
 const asRecord = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
-/** The URL when it is http(s), else null — the page navigates to whatever the server answers, and `javascript:`
- *  there would run on the app's own origin (the same class as a form's redirect_url, ticket #1032). The check is
- *  on the PARSED protocol, so `JaVaScRiPt:` and a tab inside the scheme do not slip past a prefix test. */
-export function httpTarget(value: unknown): string | null {
+/** Schemes that run or expose content in the app's own context if navigated to. */
+const REFUSED_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'file:', 'blob:', 'about:']);
+
+/**
+ * The URL when the page may navigate to it, else null. The SERVER is the authority on where a code goes: it
+ * exact-matches `redirect_uri` against the client's registered URIs, so native clients work — loopback
+ * (`http://127.0.0.1:PORT`, RFC 8252) and custom schemes (`cursor://`, `vscode://`). This is defence in depth
+ * for the one thing the page must never do: navigate to a scheme that runs script (the same class as a form's
+ * redirect_url, ticket #1032). The check is on the PARSED protocol, so `JaVaScRiPt:` and a tab inside the
+ * scheme do not slip past a prefix test; anything that does not parse (empty, relative, `//host`) is refused.
+ */
+export function redirectTarget(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   try {
-    const { protocol } = new URL(value);
-    return protocol === 'http:' || protocol === 'https:' ? value : null;
+    return REFUSED_SCHEMES.has(new URL(value).protocol) ? null : value;
   } catch {
     return null;
   }
@@ -95,7 +102,7 @@ export function readConsent(status: number, body: unknown): ConsentLoad {
 export function readDecision(status: number, body: unknown): ConsentOutcome {
   const rec = asRecord(body);
   if (status >= 200 && status < 300) {
-    const url = httpTarget(rec.redirect_url);
+    const url = redirectTarget(rec.redirect_url);
     return url ? { kind: 'redirect', url } : { kind: 'failed', code: 'invalid' };
   }
   return { kind: 'failed', code: failureCode(rec, status) };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { httpTarget, readConsent, readDecision } from './oauth-consent';
+import { redirectTarget, readConsent, readDecision } from './oauth-consent';
 
 const ready = {
   client_name: 'Claude',
@@ -51,6 +51,16 @@ describe('readConsent (#1030)', () => {
 });
 
 describe('readDecision (#1030)', () => {
+  it.each([
+    'cursor://anysphere.cursor-mcp/oauth/callback?code=x&state=y',
+    'vscode://ms-vscode.mcp/callback?code=x',
+    'http://127.0.0.1:6274/oauth/callback?code=x',
+    'http://[::1]:8080/cb?code=x',
+    'http://localhost:3000/cb?code=x',
+  ])('follows a native-client redirect the server sent: %s', (url) => {
+    expect(readDecision(200, { redirect_url: url })).toEqual({ kind: 'redirect', url });
+  });
+
   it('follows an https or http redirect', () => {
     expect(readDecision(200, { redirect_url: 'https://claude.ai/cb?code=x&state=y' })).toEqual({
       kind: 'redirect',
@@ -67,6 +77,9 @@ describe('readDecision (#1030)', () => {
     'java\tscript:alert(1)',
     'data:text/html,<script>alert(1)</script>',
     'vbscript:msgbox(1)',
+    'file:///etc/passwd',
+    'blob:https://claude.ai/3f2a',
+    'about:blank',
     '//evil.example/cb',
     '',
   ])('refuses the redirect %j', (url) => {
@@ -86,10 +99,11 @@ describe('readDecision (#1030)', () => {
   });
 });
 
-describe('httpTarget', () => {
-  it('passes http(s) and nothing else', () => {
-    expect(httpTarget('https://a.example/x')).toBe('https://a.example/x');
-    expect(httpTarget('ftp://a.example')).toBeNull();
-    expect(httpTarget('not a url')).toBeNull();
+describe('redirectTarget', () => {
+  it('refuses the schemes that run or expose content, and anything that does not parse', () => {
+    expect(redirectTarget('https://a.example/x')).toBe('https://a.example/x');
+    expect(redirectTarget('cursor://x/y')).toBe('cursor://x/y');
+    expect(redirectTarget('javascript:1')).toBeNull();
+    expect(redirectTarget('not a url')).toBeNull();
   });
 });
