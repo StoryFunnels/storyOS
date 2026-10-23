@@ -78,7 +78,6 @@ describe('Agents system database (MN-214a, ADR-0010)', () => {
     expect(trigger.options.map((o: { label: string }) => o.label)).toEqual([
       'Manual',
       'State change',
-      'Schedule',
       'Automation',
     ]);
     const approval = detail.fields.find((f: { apiName: string }) => f.apiName === 'approval_policy');
