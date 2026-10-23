@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, inArray, lte } from 'drizzle-orm';
+import type { ChangeSource } from '../db/schema';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, recordFieldChanges } from '../db/schema';
@@ -31,7 +32,7 @@ export class AuditLogService {
 
   async list(
     workspaceId: string,
-    filter: { actor?: string; entity?: string; from?: string; to?: string; limit?: number; cursor?: string },
+    filter: { actor?: string; entity?: string; source?: ChangeSource[]; from?: string; to?: string; limit?: number; cursor?: string },
   ) {
     const limit = filter.limit ?? 50;
     const to = filter.to ? new Date(filter.to) : new Date();
@@ -50,6 +51,10 @@ export class AuditLogService {
     if (filter.actor) {
       eventConditions.push(eq(activityEvents.actorId, filter.actor));
       changeConditions.push(eq(recordFieldChanges.actorUserId, filter.actor));
+    }
+    if (filter.source?.length) {
+      eventConditions.push(inArray(activityEvents.source, filter.source));
+      changeConditions.push(inArray(recordFieldChanges.source, filter.source));
     }
     if (filter.entity) {
       eventConditions.push(eq(activityEvents.recordId, filter.entity));
@@ -112,6 +117,12 @@ export class AuditLogService {
         actor_id: e.actorId,
         actor_name: actorName(e.actorId),
         source: e.source,
+        // #934 — the credential and the agent behind the action, from the columns #882 / #541 already stamp: the audit
+        // log is where "which credential did that" is a LIST, not one lookup per row. Null = a session, an OAuth grant,
+        // an automation, or before the credential was recorded. No user_id: the human is `actor_*`, as before.
+        credential_id: e.tokenId,
+        agent_id: e.agentId,
+        agent_name: e.agentName,
         payload: e.payload,
         created_at: e.createdAt,
         cursorTs: e.cursorTs,
@@ -124,6 +135,7 @@ export class AuditLogService {
         actor_id: c.actorUserId,
         actor_name: actorName(c.actorUserId),
         source: c.source,
+        credential_id: c.tokenId,
         old_value: c.oldValue,
         new_value: c.newValue,
         created_at: c.createdAt,

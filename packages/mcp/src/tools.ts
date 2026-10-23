@@ -7097,14 +7097,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         entity: z.string().optional().describe('Narrow to one record id.'),
         from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
         to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+        source: z
+          .string()
+          .optional()
+          .describe('#934 — narrow to actions by these kinds of actor, comma-separated: human, agent, automation, mcp (e.g. "agent,mcp" for what agents did). Each event row also carries credential_id (which token did it) and agent_id/agent_name.'),
       },
     },
-    handle<{ workspace: string; actor?: string; entity?: string; from?: string; to?: string }>(
-      async ({ workspace, actor, entity, from, to }) => {
+    handle<{ workspace: string; actor?: string; entity?: string; source?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, source, from, to }) => {
         const ws = await resolveWorkspace(client, workspace);
         const query: Record<string, string> = {};
         if (actor) query.actor = actor;
         if (entity) query.entity = entity;
+        if (source) query.source = source;
         if (from) query.from = from;
         if (to) query.to = to;
         const res = await unwrap<unknown>(

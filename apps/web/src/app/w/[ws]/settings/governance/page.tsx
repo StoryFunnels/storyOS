@@ -1,5 +1,6 @@
 'use client';
 
+import { AgentActions } from '@/components/governance/agent-actions';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -222,6 +223,13 @@ export default function GovernancePage() {
                 ))}
               </div>
             )}
+          </Section>
+
+          <Section
+            title="Recent agent actions"
+            lead="What agents and API tokens changed lately, newest first, each with the credential that did it and the member it ran as. Select one for the full chain."
+          >
+            <AgentActions ws={ws} />
           </Section>
 
           <Section title="Always enforced" lead="These hold in every workspace.">
