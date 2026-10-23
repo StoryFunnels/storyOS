@@ -47,6 +47,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `STRIPE_TAX_ENABLED` | `false` | `true` to calculate/collect VAT/sales tax via Stripe Tax (paid add-on; must be activated in the dashboard) |
 | `PLATFORM_ADMIN_EMAIL` | unset | on API boot, grants `/admin` access to this email if a matching user already signed up — otherwise logs a warning and retries next boot. Set it, sign up with that exact address first if you haven't, then restart the `api` container once. Manage further admins from `/admin` itself afterward rather than rotating this var. |
 | `MCP_OAUTH` | `false` | Turns the API into an OAuth authorization server for hosted-MCP connectors (MN-154), so a claude.ai/ChatGPT connector can sign in instead of pasting a PAT. **Read the ⚠️ warning in [Hosted MCP & OAuth](#hosted-mcp--oauth) before enabling** — it changes how the MCP endpoint challenges clients and can make existing PAT connections need reconnection. Requires the oidc tables migrated. |
+| `MCP_OAUTH_REDIRECT_HOSTS` | _(unset)_ | Only with `MCP_OAUTH`. Extra redirect URIs an OAuth client may register, beyond the built-in AI hosts (`claude.ai`, `claude.com`, `chatgpt.com`, `chat.openai.com`, `platform.openai.com`) and loopback addresses. Comma-separated https hosts. Custom app schemes (`cursor://`, `vscode://`) are allowed; `javascript:`, `data:`, `vbscript:`, `file:` and `blob:` never are. Registration of any other redirect URI is refused (#1030). |
 
 ## Client portals (#708)
 
@@ -91,6 +92,14 @@ that presents a valid PAT always authenticates, **whether or not `MCP_OAUTH` is 
 > re-added**. Do not enable it on a production instance that other people's PAT
 > connectors depend on without warning them first. When it boots with `MCP_OAUTH` on,
 > both the API and the MCP server log a warning to this effect.
+
+### What a person approves (consent), and what an OAuth connection can reach
+
+When `MCP_OAUTH` is on, **every** authorization stops on a consent page (`/oauth/consent` in the web app): it names the client, the host the code is sent to, and what is being asked, and the person picks **one workspace** and **read or write**. No code is issued until they press Allow; Deny sends the client `access_denied`. The server forces this step, so a client cannot skip it by leaving out `prompt=consent` (#1030).
+
+The approved workspace and read/write level are enforced on every request: another workspace answers `404`, a read connection cannot write. A connection made **before** this existed has no approval and is refused until the client is reconnected. A person sees and removes their connections under **Settings → Connect your AI**; removing one ends it immediately.
+
+Registration is open (RFC 7591) but only for redirect URIs real AI clients use: `claude.ai`, `claude.com`, `chatgpt.com`, `chat.openai.com`, `platform.openai.com`, loopback addresses (`127.0.0.1`, `localhost`, `[::1]`, any port) and native-app schemes such as `cursor://` and `vscode://`. Anything else is refused with `invalid_redirect_uri`. At authorize time the request's `redirect_uri` must be byte-for-byte one the client registered. To allow another https host, set `MCP_OAUTH_REDIRECT_HOSTS` (for example `example.com`).
 
 Leaving `MCP_OAUTH` unset (the default) keeps the endpoint PAT-only, which is the
 right choice for most self-hosted setups: mint a PAT under **Settings → API** and paste

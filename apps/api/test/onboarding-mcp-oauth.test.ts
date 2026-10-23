@@ -1,5 +1,6 @@
 // MUST be first: turns MCP_OAUTH on before AppModule is imported (env() caches it).
 import { restoreMcpOAuth } from './helpers/enable-mcp-oauth';
+import { approveAuthorize } from './helpers/oauth-consent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHash, randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -40,7 +41,9 @@ async function connectClaude(sessionToken: string): Promise<Record<string, unkno
   const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: 'https://example.com/cb', scope, code_challenge: challenge, code_challenge_method: 'S256', state: 'st' });
   const authRes = await app.inject({ method: 'GET', url: `/api/v1/auth/mcp/authorize?${q}`, headers: { authorization: `Bearer ${sessionToken}` } });
   expect(authRes.statusCode).toBe(302);
-  const code = new URL(String(authRes.headers.location)).searchParams.get('code')!;
+  // #1030: authorize now sends the person to the consent page; this is them pressing Allow.
+  const approved = await approveAuthorize(app, sessionToken, String(authRes.headers.location));
+  const code = new URL(approved).searchParams.get('code')!;
   const tok = await app.inject({
     method: 'POST', url: '/api/v1/auth/mcp/token', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     payload: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: 'https://example.com/cb', client_id: clientId, code_verifier: verifier }).toString(),

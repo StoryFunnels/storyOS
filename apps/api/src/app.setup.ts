@@ -1,4 +1,5 @@
 import multipart from '@fastify/multipart';
+import { firstDisallowedRedirect, parseRedirectAllowlist } from './auth/mcp-oauth-policy';
 import type { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -162,6 +163,20 @@ function mountAuthHandler(app: NestFastifyApplication) {
       }
 
       const url = new URL(request.raw.url ?? '/', env().API_URL);
+      // #1030 — the OAuth authorize step issues a code WITHOUT asking unless the request says prompt=consent, and the request is
+      // the client's. So the server says it for them: whatever `prompt` came in, it leaves as `consent`, and the person is
+      // always sent to the consent page before any code exists.
+      if (env().MCP_OAUTH && path === AUTHORIZE_PATH) url.searchParams.set('prompt', 'consent');
+      // #1030 — registration is open to anyone, so it is narrowed to redirect URIs real AI clients use.
+      if (env().MCP_OAUTH && path === REGISTER_PATH && request.method === 'POST') {
+        const bad = firstDisallowedRedirect(request.body, parseRedirectAllowlist(env().MCP_OAUTH_REDIRECT_HOSTS));
+        if (bad !== null) {
+          return reply.status(400).send({
+            error: 'invalid_redirect_uri',
+            error_description: `The redirect URI ${bad} is not allowed for this server. Hosted AI clients and loopback addresses are; an operator can add more with MCP_OAUTH_REDIRECT_HOSTS.`,
+          });
+        }
+      }
       const body =
         request.body && request.method !== 'GET' ? JSON.stringify(request.body) : undefined;
 
@@ -212,6 +227,9 @@ function mountAuthHandler(app: NestFastifyApplication) {
     },
   });
 }
+
+const AUTHORIZE_PATH = '/api/v1/auth/mcp/authorize';
+const REGISTER_PATH = '/api/v1/auth/mcp/register';
 
 /** The authorization-server metadata document (RFC 8414), mounted under the auth base. */
 function isAsMetadataPath(path: string): boolean {

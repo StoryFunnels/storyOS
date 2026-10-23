@@ -188,6 +188,11 @@ export const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  /**
+   * #1030 — extra https hosts OAuth clients may register redirect URIs on, beyond the built-in AI hosts (claude.ai,
+   * chatgpt.com, ...), loopback and native-app schemes. Comma-separated. Unset = built-ins only.
+   */
+  MCP_OAUTH_REDIRECT_HOSTS: z.string().optional(),
   /** Per token/session. Test default is effectively unlimited. */
   RATE_LIMIT_PER_MINUTE: z.coerce
     .number()

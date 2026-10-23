@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { approveAuthorize } from './helpers/oauth-consent';
 
 /**
  * #331 — hosted-MCP OAuth (MN-154). Exercises the real, wired-up authorization
@@ -93,7 +94,9 @@ async function runOAuthFlow(
     headers: { authorization: `Bearer ${sessionToken}` },
   });
   expect(authRes.statusCode).toBe(302);
-  const location = String(authRes.headers.location);
+  const authorizeLocation = String(authRes.headers.location);
+  // #1030: authorize now sends the person to the consent page; this is them pressing Allow.
+  const location = authorizeLocation.includes('consent_code=') ? await approveAuthorize(app, sessionToken, authorizeLocation) : authorizeLocation;
   const code = new URL(location).searchParams.get('code');
   if (!code) return { authorizeLocation: location };
 
@@ -128,6 +131,10 @@ describe('#331 hosted-MCP OAuth scope discovery', () => {
 
   it('a client that mirrors the discovery document gets a token the API accepts', async () => {
     const { token: session } = await signUpUser(app, 'MCP OAuth User');
+    // #1030: the connection is approved for one workspace, so it exists before the flow and is the one approved.
+    const wsId = (
+      await app.inject({ method: 'POST', url: '/api/v1/workspaces', headers: authed(session), payload: { name: 'oauth src' } })
+    ).json().id as string;
     const clientId = await registerClient();
 
     // No explicit scope → uses whatever the discovery document advertises.
@@ -146,9 +153,6 @@ describe('#331 hosted-MCP OAuth scope discovery', () => {
     // #858 — and it is classified as the AI it is. `/me` does not expose `source`, so read it
     // where it is stamped: the provenance of something this token writes. This line pinned
     // `human` by omission for a long time (the suite asserted `via` and never `source`).
-    const wsId = (
-      await app.inject({ method: 'POST', url: '/api/v1/workspaces', headers: authed(session), payload: { name: 'oauth src' } })
-    ).json().id as string;
     const written = await app.inject({
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/skills`,

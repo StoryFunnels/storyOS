@@ -3,9 +3,11 @@ export const STORYOS_MCP_SCOPE = 'storyos.mcp';
 /**
  * The full scope set the StoryOS authorization server supports for hosted-MCP
  * OAuth (MN-154 / #331). `offline_access` is what better-auth keys refresh-token
- * issuance off; `storyos.mcp` is ours — the guard (auth.guard.ts) requires it on
- * an OAuth access token, so it MUST be advertised, or a spec-conformant client
- * never requests it and its token is rejected. Mirrors packages/mcp `oauth.ts`.
+ * issuance off; `storyos.mcp` is ours and is advertised so a spec-conformant client
+ * requests it. The guard does NOT require it on a token (better-auth drops scopes
+ * outside its built-ins when it mints one — see auth.guard.ts); what a token may do
+ * is the workspace and read/write ceiling its owner approved on the consent page
+ * (#1030, oauth-grant.ts). Mirrors packages/mcp `oauth.ts`.
  */
 export const MCP_SUPPORTED_SCOPES = [
   'openid',
