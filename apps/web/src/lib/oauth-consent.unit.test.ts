@@ -1,72 +1,72 @@
 import { describe, expect, it } from 'vitest';
-import { redirectTarget, readConsent, readDecision } from './oauth-consent';
+import { readConsent, readDecision, redirectTarget } from './oauth-consent';
 
 const ready = {
   client_name: 'Claude',
   redirect_host: 'claude.ai',
-  scopes: [{ id: 'read', label: 'Read your records' }],
-  workspace: { id: 'ws1', name: 'Acme' },
+  scopes: [{ id: 'openid', label: 'Know who you are' }],
+  workspaces: [{ id: 'w1', name: 'Acme' }, { id: 'w2', name: 'Side project' }],
+  access_options: ['read', 'write'],
 };
+const envelope = (code: string, message: string) => ({ error: { code, message } });
 
 describe('readConsent (#1030)', () => {
-  it('reads a complete request', () => {
+  it('reads a complete request, with the workspaces to choose from and the access levels offered', () => {
     expect(readConsent(200, ready)).toEqual({ kind: 'ready', request: ready });
   });
 
-  it('keeps a request with no scopes — the screen says so rather than refusing it', () => {
-    const r = readConsent(200, { ...ready, scopes: [] });
-    expect(r.kind).toBe('ready');
-  });
-
-  // The danger is a 200 the screen cannot read being drawn as an empty Allow button.
+  // The danger is a 200 the screen cannot read being drawn as an Allow button for something unnamed.
   it.each([
     ['no client name', { ...ready, client_name: '' }],
-    ['no workspace', { ...ready, workspace: undefined }],
+    ['no redirect host', { ...ready, redirect_host: undefined }],
+    ['workspaces not a list', { ...ready, workspaces: 'w1' }],
+    ['a workspace without a name', { ...ready, workspaces: [{ id: 'w1' }] }],
     ['scopes not a list', { ...ready, scopes: 'read' }],
-    ['a scope without a label', { ...ready, scopes: [{ id: 'read' }] }],
+    ['a scope without a label', { ...ready, scopes: [{ id: 'openid' }] }],
+    ['no access levels', { ...ready, access_options: [] }],
+    ['only unknown access levels', { ...ready, access_options: ['admin'] }],
     ['not an object', 'ok'],
     ['null', null],
   ])('a 200 with %s is never shown as ready', (_n, body) => {
     expect(readConsent(200, body)).toEqual({ kind: 'failed', code: 'invalid' });
   });
 
-  it('maps the known failure codes and carries the workspace name for not_member', () => {
-    expect(readConsent(410, { code: 'expired' })).toEqual({ kind: 'failed', code: 'expired', workspaceName: undefined });
-    expect(readConsent(403, { code: 'not_member', workspace: { name: 'Acme' } })).toEqual({
-      kind: 'failed',
-      code: 'not_member',
-      workspaceName: 'Acme',
-    });
+  it('keeps only the access levels it knows', () => {
+    const r = readConsent(200, { ...ready, access_options: ['read', 'admin'] });
+    expect(r.kind === 'ready' && r.request.access_options).toEqual(['read']);
   });
 
-  it('an unknown code, a bare 404 or no body is "invalid", never ready', () => {
-    for (const [status, body] of [[400, { code: 'weird' }], [404, null], [401, {}]] as const) {
-      expect(readConsent(status, body)).toMatchObject({ kind: 'failed', code: 'invalid' });
+  it('a person in no workspace is a dead end with its own wording, not an empty chooser', () => {
+    expect(readConsent(200, { ...ready, workspaces: [] })).toEqual({ kind: 'failed', code: 'no_workspace' });
+  });
+
+  it('maps the server statuses: 410 keeps the server sentence, 403 is not-a-session, 404 and the rest are invalid', () => {
+    expect(readConsent(410, envelope('gone', 'This authorization request was already answered.'))).toEqual({
+      kind: 'failed',
+      code: 'expired',
+      message: 'This authorization request was already answered.',
+    });
+    expect(readConsent(403, envelope('forbidden', 'x'))).toEqual({ kind: 'failed', code: 'not_a_session' });
+    for (const [status, body] of [[404, envelope('not_found', 'x')], [422, null], [400, {}]] as const) {
+      expect(readConsent(status, body)).toEqual({ kind: 'failed', code: 'invalid' });
     }
   });
 
   it('a server error is "unavailable", so the screen says nothing was connected and to retry', () => {
-    expect(readConsent(502, null)).toMatchObject({ kind: 'failed', code: 'unavailable' });
+    expect(readConsent(502, null)).toEqual({ kind: 'failed', code: 'unavailable' });
   });
 });
 
 describe('readDecision (#1030)', () => {
   it.each([
+    'https://claude.ai/cb?code=x&state=y',
     'cursor://anysphere.cursor-mcp/oauth/callback?code=x&state=y',
     'vscode://ms-vscode.mcp/callback?code=x',
     'http://127.0.0.1:6274/oauth/callback?code=x',
     'http://[::1]:8080/cb?code=x',
-    'http://localhost:3000/cb?code=x',
-  ])('follows a native-client redirect the server sent: %s', (url) => {
+    'http://localhost:3000/cb?error=access_denied&state=y',
+  ])('follows a redirect the server sent: %s', (url) => {
     expect(readDecision(200, { redirect_url: url })).toEqual({ kind: 'redirect', url });
-  });
-
-  it('follows an https or http redirect', () => {
-    expect(readDecision(200, { redirect_url: 'https://claude.ai/cb?code=x&state=y' })).toEqual({
-      kind: 'redirect',
-      url: 'https://claude.ai/cb?code=x&state=y',
-    });
-    expect(readDecision(200, { redirect_url: 'http://localhost:6274/oauth/callback?code=x' }).kind).toBe('redirect');
   });
 
   // The page does window.location.assign(url): a javascript: URL here would run on the app's own origin.
@@ -92,9 +92,10 @@ describe('readDecision (#1030)', () => {
   });
 
   it('does not follow a redirect that came with a failure status', () => {
-    expect(readDecision(410, { code: 'expired', redirect_url: 'https://claude.ai/cb' })).toEqual({
+    expect(readDecision(410, { error: { code: 'gone', message: 'expired' }, redirect_url: 'https://claude.ai/cb' })).toEqual({
       kind: 'failed',
       code: 'expired',
+      message: 'expired',
     });
   });
 });
