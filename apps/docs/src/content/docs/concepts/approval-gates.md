@@ -81,14 +81,20 @@ Nothing on it widens a scope or decides an approval.
   server doesn't enforce shows as **"Does nothing"**, with the server's reason, never as protection.
 - **Approvals.** How many are waiting and, of the latest 100, how many were approved, rejected or
   expired, with who decided, when, and why. These are counts of the latest 100, not totals.
+- **Recent agent actions.** What agents and API tokens changed, newest first (25 at a time), each with
+  the credential that did it and the member it ran as. Select one for the full chain: the member, the
+  credential (live or revoked), what it could reach and may do, the agent, and the action. An action
+  with no recorded credential says so on its row, in words: it was made before credentials were
+  tracked, or through a sign-in session or an OAuth connection. A row is never drawn with a blank link.
 - **Always enforced.** Only a person can approve or reject; an approval is decided once; an agent
   never has more access than its owner; and publishing to the outside is held for approval unless an
   admin turns that off.
 
 **What it cannot show.** The scopes and approval policies on the page describe a run **when StoryOS
 runs the agent**. They do not describe an API token or a connected AI client, which act as the person
-who made them. There is no audit export yet, and past actions aren't linked to the credential that
-performed them, so the page can't say which token or agent identity authorised a given action.
+who made them. There is no audit export yet, and an action
+made through a sign-in session, an OAuth connection or an automation, or before credentials were
+tracked, names no credential, because none was recorded.
 
 ## Not built
 
