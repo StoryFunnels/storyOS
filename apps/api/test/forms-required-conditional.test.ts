@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
+import { liveFormUrl, trackFormToken } from './helpers/form-token';
 import { authed, signUpUser } from './helpers/users';
 
 // #500 — a dedicated app instance (and so a dedicated throttle bucket) rather
@@ -16,11 +17,13 @@ let nameFieldId: string;
 let msgFieldId: string;
 
 async function as(method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  const res = await app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  trackFormToken(payload, res); // #1041: learn the server-minted form token
+  return res;
 }
 /** Unauthenticated request (no headers) — the public form path. */
 async function pub(method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, payload: payload as never });
+  return app.inject({ method: method as never, url: `/api/v1${liveFormUrl(url)}`, payload: payload as never });
 }
 
 beforeAll(async () => {

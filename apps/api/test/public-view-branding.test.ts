@@ -4,6 +4,7 @@ import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
 import { billingSubscriptions } from '../src/db/schema';
 import { createTestApp } from './helpers/app';
+import { liveFormUrl, trackFormToken } from './helpers/form-token';
 import { authed, signUpUser } from './helpers/users';
 
 /**
@@ -21,11 +22,13 @@ let spaceId: string;
 let token: string;
 
 async function as(method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(admin.token), payload: payload as never });
+  const res = await app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(admin.token), payload: payload as never });
+  trackFormToken(payload, res); // #1041: learn the server-minted form token
+  return res;
 }
 /** Unauthenticated request — the public view path. */
 async function pub(url: string) {
-  return app.inject({ method: 'GET', url: `/api/v1${url}` });
+  return app.inject({ method: 'GET', url: `/api/v1${liveFormUrl(url)}` });
 }
 
 async function setPlan(plan: 'free' | 'pro' | 'business' | 'enterprise') {

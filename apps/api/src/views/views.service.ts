@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { resolveFormSharing, stripPublicSharing } from './view-sharing';
 import { randomBytes } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
@@ -617,7 +618,9 @@ export class ViewsService {
     // #181: default a Board's group-by to the database's workflow field when one
     // exists and the caller didn't pick one (validation then runs on the result).
     const live = await this.liveFields(databaseId);
-    const config = defaultBoardGroupBy(input.type, input.config, live);
+    // #1041 — `share` is service-owned (never accepted from a body) and a form token is minted here, never taken from the client.
+    const base = defaultBoardGroupBy(input.type, input.config, live);
+    const config: ViewConfig = { ...base, share: undefined, form: resolveFormSharing(base.form, undefined) };
     await this.validateConfig(databaseId, input.type, config);
     const siblings = await this.db.query.views.findMany({
       where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
@@ -699,13 +702,8 @@ export class ViewsService {
     //    a deliberate revoke/regenerate (the caller DOES set access/token)
     //    still works, matching this ticket's own AC #3.
     const oldForm = (view.config as ViewConfig | null)?.form;
-    const form = patch.config?.form
-      ? {
-          ...patch.config.form,
-          public_token: patch.config.form.public_token ?? oldForm?.public_token,
-          access: patch.config.form.access ?? oldForm?.access,
-        }
-      : oldForm;
+    // #1041 — the token is server-minted; whatever the client sends as `public_token` is ignored (see resolveFormSharing).
+    const form = patch.config?.form ? resolveFormSharing(patch.config.form, oldForm) : oldForm;
     const config = patch.config
       ? { ...patch.config, share: (view.config as ViewConfig | null)?.share, form }
       : patch.config;
@@ -753,7 +751,7 @@ export class ViewsService {
         databaseId,
         name: `${source.name} copy`,
         type: source.type,
-        config: source.config,
+        config: stripPublicSharing(source.config as Record<string, unknown>), // #1041: a copy never carries a public token
         position: target,
         isDefault: false, // a copy is never the default
         createdBy: source.createdBy,
