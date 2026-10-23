@@ -1,5 +1,6 @@
 'use client';
 
+import type { StateCategory } from '@storyos/schemas';
 import { Check, Group, SlidersHorizontal } from 'lucide-react';
 import {
   DropdownMenu,
@@ -27,7 +28,7 @@ export interface DenseField {
   api_name: string;
   display_name: string;
   type: string;
-  options?: Array<{ id: string; label: string; color: string }>;
+  options?: Array<{ id: string; label: string; color: string; category?: StateCategory | null }>;
 }
 export type { FilterCondition };
 /** Per-database My Work config (mirrors the API's MyWorkDbConfig). Uses the SAME

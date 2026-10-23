@@ -104,10 +104,11 @@ export class SearchController {
     const opts = selectIds.length
       ? await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, selectIds) })
       : [];
-    const byField = new Map<string, Array<{ id: string; label: string; color: string }>>();
+    const byField = new Map<string, Array<{ id: string; label: string; color: string; category: string | null }>>();
     for (const o of opts) {
       const list = byField.get(o.fieldId) ?? [];
-      list.push({ id: o.id, label: o.label, color: o.color });
+      // #1017 — the state category rides along, so My Work reads "finished" as data (ticket #1014) instead of guessing from the label.
+      list.push({ id: o.id, label: o.label, color: o.color, category: o.category ?? null });
       byField.set(o.fieldId, list);
     }
     return dense.map((f) => ({

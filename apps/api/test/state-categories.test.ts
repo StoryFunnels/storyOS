@@ -216,3 +216,25 @@ describe('#1014 the Linear import sets it from Linear\'s state type', () => {
     expect(Object.fromEntries(project.options.map((o) => [o.label, o.category]))).toEqual({ backlog: 'backlog', planned: 'unstarted', started: 'started', paused: 'started', completed: 'completed', canceled: 'canceled' });
   });
 });
+
+describe('#1017 My Work reads the category as data', () => {
+  it('the dense field metadata carries each option’s category (the web’s isCompletedState reads it instead of guessing from the label)', async () => {
+    const db = await database('My Work Categories');
+    const me = (await as('GET', `/workspaces/${ws}/members`)).json()[0].user.id as string;
+    const assignee = (await as('POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: 'Assignee', type: 'user', config: {} })).json();
+    const state = await field(db, 'Stage', 'workflow', ['Todo', 'Doing', 'Shipped', 'Dropped'], [{}, {}, {}, { category: 'canceled' }]);
+    const rec = await as('POST', `/workspaces/${ws}/databases/${db}/records`, { values: { name: 'Mine', [assignee.apiName]: me } });
+    expect(rec.statusCode, rec.body).toBe(201);
+    const work = (await as('GET', `/workspaces/${ws}/my-work`)).json() as {
+      groups: Array<{ database: { id: string }; fields: Array<{ id: string; options?: Array<{ label: string; category: string | null }> }> }>;
+    };
+    const group = work.groups.find((g) => g.database.id === db)!;
+    const options = group.fields.find((f) => f.id === state.id)!.options!;
+    expect(options.map((o) => [o.label, o.category])).toEqual([
+      ['Todo', 'unstarted'],
+      ['Doing', 'started'],
+      ['Shipped', 'completed'],
+      ['Dropped', 'canceled'],
+    ]);
+  });
+});
