@@ -31,7 +31,7 @@ the tree.
 
 ## 2. The tree is `Space → Folder → ( Database | Document | View )`
 
-**Decision.** Views become the third leaf type in the existing sidebar tree.
+**Decision.** Views become the third leaf type in the existing sidebar tree. (A presentational *Space Group* tier now sits above the Space; see the amendment at the end of this section for what it is and what it must never become.)
 
 **How much of this already exists — corrected 2026-08-21.** An earlier revision
 of this ADR claimed "mixed leaf types in one folder already render". **That was
@@ -65,10 +65,53 @@ Documents being half-wired is its own small gap — worth finishing while
 `FolderSection` is being generalised, since it is then nearly free — but it is
 not a prerequisite for views.
 
-**Therefore: do not introduce a fourth container.** Anything that wants a home in
-the sidebar becomes a leaf type on this tree. A "dashboard container", a "board
-group", a "saved query object" — each would be a parallel hierarchy with its own
-folder semantics, ordering, and access rules to keep in sync.
+**Therefore: do not introduce a fourth container that owns anything.** Anything
+that wants a home in the sidebar becomes a leaf type on this tree. A "dashboard
+container", a "board group", a "saved query object" — each would be a parallel
+hierarchy with its own folder semantics, ordering, and access rules to keep in
+sync.
+
+### Amended 2026-10-23 (ticket #798): one presentational tier shipped — and the line it must not cross
+
+This rule used to read as a flat prohibition, and a **space group** shipped
+anyway (ticket #742, Otto's ruling of 2026-09-24). The document and the product
+have to say the same thing, so this is the statement of what that exception is.
+It is a **knowing exception**, allowed only because it is *not* the thing the
+rule was written against:
+
+- **What shipped.** `space_groups` (`workspace_id`, `name`, `color`, `position`)
+  and a nullable `spaces.group_id` (`ON DELETE SET NULL`). The tree reads
+  `Space Group → Space → Folder → ( Database | Document | View )`, and the Group
+  level is optional: the groups render above the ungrouped spaces, which sit below
+  them as spaces always did.
+- **Why it is not a parallel hierarchy.** A group is a **heading with an order**.
+  The membership lives on the *space* (the space points up at its group, never
+  the other way), a group holds no data, and **the space remains the only access
+  boundary** (§6: the space is the door, each source the room). Deleting a group
+  ungroups its spaces and loses nothing else.
+- **What brings the original objection back.** Any ONE of these makes a group a
+  fourth container and voids this amendment — it would need its own ADR, not a
+  reading of this one:
+  1. a group **owning children**: a database, document, view or record belonging
+     to a group rather than to a space;
+  2. a group **carrying grants**, a `restricted` flag, or any access rule of its
+     own, or `visibleSpaceIds` / `effectiveForSpace` / `effectiveForDatabase`
+     consulting a group in either direction (widening or narrowing);
+  3. a group with **membership rules** (who may be in it, who may add to it);
+  4. a group with **its own ordering or folder semantics for the things below it**
+     beyond ordering the groups themselves.
+- **Checkable, not just stated.** The tripwire is tested:
+  `apps/api/test/sidebar-groups-presentational.test.ts` (grouping stored in
+  `workspaces.settings` is never read for visibility) and
+  `apps/api/test/sidebar-groups-real-schema.test.ts` (against the real
+  `space_groups` / `spaces.group_id`: a guest scoped to one grouped space sees
+  only that space, in both directions; an admin or member is unaffected; and the
+  direct-open path, not just the sidebar list, is covered). The shipped
+  behaviour: group-header reordering (ticket #774, PR #915), headers on
+  `SidebarRow`'s gutter (ticket #779), and the user-facing docs (PR #1058).
+
+If a test in that pair starts failing, a group has acquired access semantics:
+that is condition 2 above, not a flaky test.
 
 ## 3. A view has a database XOR a space, enforced by a CHECK
 

@@ -144,7 +144,12 @@ The load-bearing decisions:
 - **A view keeps its owning database AND gets a place in the sidebar tree.**
   The tree is `Space → Folder → ( Database | Document | View )` — the first two
   leaf types already existed (`space_folders`, MN-096). **Do not add a fourth
-  container**; anything navigable becomes a leaf on this tree.
+  container that owns anything**; anything navigable becomes a leaf on this
+  tree. One knowing exception ships: **space groups** are a presentational
+  heading above spaces (membership lives on `spaces.group_id`, never on the
+  group). A group owning children, carrying any access rule, or having its own
+  ordering/folder semantics voids the exception and needs its own ADR — see
+  the 2026-10-23 amendment in the ADR.
 - **A view has a database XOR a space**, enforced by a CHECK (the
   `access_grants_scope_xor` precedent). Reject it in the controller too — a 500
   from a constraint violation is not an API contract.
