@@ -20,6 +20,7 @@ import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
 import { databaseColor } from '@/lib/entity-color';
+import { RunAgentEditor, type RunAgentAction } from '@/components/automations/run-agent-editor';
 
 /**
  * #274 — an optional per-action condition (#245's backend): this action runs only
@@ -66,6 +67,8 @@ export type ButtonAction = ({ condition?: ActionCondition } & (
   // fields. `headers` is write-only the same way send_webhook's is (#249).
   // Ticket #42 / #826: publish to LinkedIn or X. Gated by default; `require_approval: false` is admin-only server-side.
   | PostSocialAction
+  // Ticket #1056: run an agent from a rule or a button — on a schedule, that is an agent working while nobody is signed in.
+  | RunAgentAction
   | {
       type: 'http_request';
       method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -101,6 +104,7 @@ export const ACTION_TYPE_GROUPS: Array<{ label: string; options: Array<{ value: 
       { value: 'send_slack_message', label: 'Send a Slack message' },
       { value: 'send_email', label: 'Send an email' },
       { value: 'post_social', label: 'Post to LinkedIn or X' },
+      { value: 'run_agent', label: 'Run an agent' },
     ],
   },
   {
@@ -151,6 +155,7 @@ export function defaultActionFor(
     };
   }
   if (type === 'post_social') return defaultPostSocial(ctx.socialConnection);
+  if (type === 'run_agent') return { type: 'run_agent', agent: '' };
   if (type === 'http_request') return { type: 'http_request', method: 'GET', url: '' };
   return { type: 'add_comment', body_template: '' };
 }
@@ -166,6 +171,7 @@ export function ButtonActionsEditor({
   onChange,
   restrictToWebhookSafe,
   ruleId,
+  trigger,
 }: {
   ws: string;
   db: string;
@@ -180,6 +186,8 @@ export function ButtonActionsEditor({
    * Undefined for a brand-new unsaved rule, or when editing a button's config
    * (buttons have no test endpoint). */
   ruleId?: string;
+  /** Ticket #1056: the parent rule's trigger and whether it has a filter, so "Run an agent" on a schedule can say how many runs it makes. Absent for a button. */
+  trigger?: { type: string; hasFilter: boolean };
 }) {
   const databases = useDatabases(ws);
   const mailConnections = useMailConnections(ws);
@@ -287,6 +295,16 @@ export function ButtonActionsEditor({
             condition={action.condition}
             onChange={(condition) => patch(i, { ...action, condition })}
           />
+          )}
+
+          {action.type === 'run_agent' && (
+            <RunAgentEditor
+              ws={ws}
+              action={action}
+              onChange={(next) => patch(i, next)}
+              triggerType={trigger?.type}
+              hasFilter={trigger?.hasFilter}
+            />
           )}
 
           {action.type === 'set_values' && (
