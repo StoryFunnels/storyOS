@@ -9,6 +9,7 @@ import { authed, signUpUser } from './helpers/users';
 import { connectTestDb } from './helpers/db';
 import { redirectUriAllowed, parseRedirectAllowlist, firstDisallowedRedirect, DEFAULT_REDIRECT_HOSTS } from '../src/auth/mcp-oauth-policy';
 import { formatGrantScopes, parseGrantScopes } from '../src/auth/oauth-grant';
+import { MAX_REGISTERED_REDIRECTS } from '../src/auth/loopback-redirect';
 
 /**
  * #1030 — hosted-MCP OAuth gave a victim's whole account to whoever registered a client: registration was open, authorize
@@ -130,6 +131,67 @@ describe('#1030 the redirect URI at authorize must EXACT-match a registered one'
       expect(String(res.headers.location ?? '')).not.toContain('consent_code');
     },
   );
+});
+
+describe('#1030 loopback redirects may differ by PORT only (RFC 8252 §7.3)', () => {
+  const loopbackClient = async (uri: string) => {
+    const res = await register(uri, 'CLI');
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json().client_id as string;
+  };
+  const authorizeAt = async (sessionToken: string, clientId: string, redirectUri: string) => {
+    const verifier = b64url(randomBytes(32));
+    const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'openid offline_access', state: 'cli', code_challenge: b64url(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256' });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/auth/mcp/authorize?${q}`, headers: { authorization: `Bearer ${sessionToken}` } });
+    return { res, verifier };
+  };
+
+  it('a CLI that registered one port and now listens on another completes the whole flow on the NEW port', async () => {
+    const u = (await signUpUser(app, 'Loopback CLI')).token;
+    const ws = await workspace(u, 'CLI WS');
+    const clientId = await loopbackClient('http://127.0.0.1:1111/callback');
+    const fresh = 'http://127.0.0.1:54321/callback';
+    const { res, verifier } = await authorizeAt(u, clientId, fresh);
+    expect(res.statusCode, res.body).toBe(302);
+    expect(String(res.headers.location)).toMatch(/\/oauth\/consent\?/);
+    const decided = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(String(res.headers.location)), decision: 'allow', workspace_id: ws, access: 'read' });
+    const back = new URL(decided.json().redirect_url);
+    expect(`${back.origin}${back.pathname}`, 'the code goes to the port the client is actually listening on').toBe(fresh);
+    const tok = await app.inject({
+      method: 'POST', url: '/api/v1/auth/mcp/token', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({ grant_type: 'authorization_code', code: back.searchParams.get('code')!, redirect_uri: fresh, client_id: clientId, code_verifier: verifier }).toString(),
+    });
+    expect(tok.statusCode, tok.body).toBe(200);
+  });
+
+  it.each([
+    ['http://127.0.0.1:2222/other', 'a different PATH'],
+    ['http://127.0.0.1:2222/callback?x=1', 'a different query'],
+    ['http://localhost:2222/callback', 'a different loopback HOST (127.0.0.1 vs localhost)'],
+    ['https://127.0.0.1:2222/callback', 'a different scheme'],
+    ['http://evil.example:2222/callback', 'a non-loopback host'],
+    ['http://127.0.0.1.evil.example:2222/callback', 'a loopback-looking host'],
+    ['http://user@127.0.0.1:2222/callback', 'credentials'],
+  ])('%s is refused (%s): only the port may vary', async (uri) => {
+    const u = (await signUpUser(app, 'Loopback Strict')).token;
+    const clientId = await loopbackClient('http://127.0.0.1:1111/callback');
+    const { res } = await authorizeAt(u, clientId, uri);
+    expect(res.statusCode, res.body).toBe(400);
+  });
+
+  it('a non-loopback client gets NO port flexibility (https://example.com:444 stays refused), and a hosted client is untouched', async () => {
+    const u = (await signUpUser(app, 'Not Loopback')).token;
+    const clientId = await client();
+    expect((await authorizeAt(u, clientId, 'https://example.com:444/cb')).res.statusCode).toBe(400);
+  });
+
+  it('the registered list is bounded: a client cycling ports stops growing at the cap', async () => {
+    const u = (await signUpUser(app, 'Port Cycler')).token;
+    const clientId = await loopbackClient('http://127.0.0.1:1111/callback');
+    for (let port = 3000; port < 3000 + MAX_REGISTERED_REDIRECTS + 5; port++) await authorizeAt(u, clientId, `http://127.0.0.1:${port}/callback`);
+    const row = ((await db.execute(sql`SELECT redirect_urls FROM oauth_application WHERE client_id = ${clientId}`)) as unknown as { rows: Array<{ redirect_urls: string }> }).rows[0]!;
+    expect(row.redirect_urls.split(',').length).toBe(MAX_REGISTERED_REDIRECTS);
+  });
 });
 
 describe('#1030 the consent screen', () => {

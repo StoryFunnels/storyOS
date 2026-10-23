@@ -1,4 +1,7 @@
 import multipart from '@fastify/multipart';
+import { DB } from './db/db.module';
+import type { Db } from './db/client';
+import { allowLoopbackPort } from './auth/loopback-redirect';
 import { firstDisallowedRedirect, parseRedirectAllowlist } from './auth/mcp-oauth-policy';
 import type { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ThrottlerStorage } from '@nestjs/throttler';
@@ -166,7 +169,13 @@ function mountAuthHandler(app: NestFastifyApplication) {
       // #1030 — the OAuth authorize step issues a code WITHOUT asking unless the request says prompt=consent, and the request is
       // the client's. So the server says it for them: whatever `prompt` came in, it leaves as `consent`, and the person is
       // always sent to the consent page before any code exists.
-      if (env().MCP_OAUTH && path === AUTHORIZE_PATH) url.searchParams.set('prompt', 'consent');
+      if (env().MCP_OAUTH && path === AUTHORIZE_PATH) {
+        url.searchParams.set('prompt', 'consent');
+        // RFC 8252 §7.3: a loopback redirect may differ from the registered one by port only.
+        const clientId = url.searchParams.get('client_id');
+        const requested = url.searchParams.get('redirect_uri');
+        if (clientId && requested) await allowLoopbackPort(app.get<Db>(DB), clientId, requested);
+      }
       // #1030 — registration is open to anyone, so it is narrowed to redirect URIs real AI clients use.
       if (env().MCP_OAUTH && path === REGISTER_PATH && request.method === 'POST') {
         const bad = firstDisallowedRedirect(request.body, parseRedirectAllowlist(env().MCP_OAUTH_REDIRECT_HOSTS));
