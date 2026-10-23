@@ -199,9 +199,18 @@ integrity SQL — asserting row-count parity, that the checks pass, and that the
 **fail** when auth data is missing. If the schema moves under the checks, CI goes
 red before an operator ever hits it.
 
-What CI does **not** spin up is the full multi-container Compose stack (api / web
-/ caddy) or the attachment-volume tar; those steps are documented and the shell
-scripts are their executable specification.
+The scripts themselves run end to end in CI too, in
+`apps/api/test/backup-restore-scripts.test.ts`: it brings up the `postgres`
+service from this repo's `docker-compose.yml` as its own Compose project, seeds
+it and its attachments volume, then runs the real `backup.sh` → `restore.sh` →
+`verify-restore.sh`. Besides the passing restore, it proves each check can
+**fail**: a drifted count in `counts.tsv`, an attachment file missing from the
+archive, a corrupted `db.dump`, and a restore aimed at the live project without
+`--force`. It also restores a `manifest.env` in the old unquoted format, so
+recovery points made before that fix still restore.
+
+What CI does **not** spin up is the rest of the Compose stack (api / web / caddy)
+or the S3 attachments path.
 
 ## See also
 

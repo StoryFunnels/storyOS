@@ -25,6 +25,8 @@ ATTACHMENTS_VOLUME="${ATTACHMENTS_VOLUME:-${COMPOSE_PROJECT_NAME}_storyos_attach
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=manifest.sh
+. "$SCRIPT_DIR/manifest.sh"
 BACKUPS_DIR="${BACKUPS_DIR:-$REPO_ROOT/backups}"
 
 LABEL="${1:-$(date -u +%Y%m%dT%H%M%SZ)}"
@@ -90,18 +92,20 @@ else
 fi
 
 # --- 4. manifest -----------------------------------------------------------
+# #891 — every value quoted (manifest_line): ATT_NOTE has spaces, and an
+# unquoted `ATTACHMENTS=local volume …` line is not data to bash.
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-cat > "$TMP/manifest.env" <<EOF
-# StoryOS recovery point — restore db.dump and attachments.tgz TOGETHER.
-LABEL=$LABEL
-CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-COMPOSE_PROJECT=$COMPOSE_PROJECT_NAME
-GIT_COMMIT=$GIT_COMMIT
-STORAGE_DRIVER=$STORAGE_DRIVER
-ATTACHMENTS=$ATT_NOTE
-DB_DUMP_SHA256=$(sha256 "$TMP/db.dump")
-ATTACHMENTS_SHA256=$(sha256 "$TMP/attachments.tgz")
-EOF
+{
+  echo "# StoryOS recovery point — restore db.dump and attachments.tgz TOGETHER."
+  manifest_line LABEL "$LABEL"
+  manifest_line CREATED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  manifest_line COMPOSE_PROJECT "$COMPOSE_PROJECT_NAME"
+  manifest_line GIT_COMMIT "$GIT_COMMIT"
+  manifest_line STORAGE_DRIVER "$STORAGE_DRIVER"
+  manifest_line ATTACHMENTS "$ATT_NOTE"
+  manifest_line DB_DUMP_SHA256 "$(sha256 "$TMP/db.dump")"
+  manifest_line ATTACHMENTS_SHA256 "$(sha256 "$TMP/attachments.tgz")"
+} > "$TMP/manifest.env"
 
 # --- 5. publish atomically -------------------------------------------------
 mkdir -p "$BACKUPS_DIR"
