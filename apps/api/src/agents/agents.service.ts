@@ -5,6 +5,7 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
@@ -1519,6 +1520,10 @@ export class AgentsService implements OnModuleInit {
     }
     const payload = parsed.data;
     this.assertActionAllowed(principal, action);
+    // #1029 — the ids in a staged payload are DATA, not authority: re-authorise the target against the workspace the
+    // approval is being decided in, before anything is read, deleted or executed. (The apply paths below read by
+    // record id alone, so without this a foreign workspace's ids work.)
+    await assertDatabaseInWorkspace(this.db, workspaceId, payload.database_id);
 
     if (payload.apply === 'record_delete') {
       const result = await this.recordsService.softDelete(
@@ -1628,14 +1633,25 @@ export class AgentsService implements OnModuleInit {
       (approvalRow.actionSnapshot as ApprovalActionSnapshot).action.type === 'agent_proposed_action'
         ? ((approvalRow.actionSnapshot as ApprovalActionSnapshot).action as AgentProposedActionSnapshot)
         : null;
-    const staged: StagedAction | null = snapshotAction
+    const serverStaged: StagedAction | null = snapshotAction
       ? {
           action: snapshotAction.proposed,
           steps: snapshotAction.steps,
           principal: snapshotAction.principal,
           usage: snapshotAction.usage,
         }
-      : parseStaged(run.values['pending_action']);
+      : null;
+    // #1029 — an APPROVE acts only on the server-side approvals row. `pending_action` is an ordinary, user-editable text
+    // field on the run record (any contributor can PATCH it), so a run record forged with status "Waiting approval" and a
+    // hand-written payload + principal used to be applied as if the server had staged it. It is a display copy and is
+    // never trusted to decide what runs. A REJECT applies nothing, so it may still read it to close a legacy parked run.
+    const stagedFromRecord = snapshotAction ? null : parseStaged(run.values['pending_action']);
+    if (verdict === 'approve' && !serverStaged) {
+      throw new UnprocessableEntityException(
+        'This run has no server-side approval to apply — reject it and run the agent again',
+      );
+    }
+    const staged = serverStaged ?? stagedFromRecord;
     if (!staged) {
       throw new UnprocessableEntityException(
         'This run is waiting for approval but has no staged action to resolve',
@@ -1787,6 +1803,14 @@ export class AgentsService implements OnModuleInit {
   ): Promise<{ action: ProposedAction; steps: AgentStep[] } | null> {
     const { runsDb } = await this.ensurePack(membership);
     const run = await this.resolveRun(runsDb.id, runRef);
+    // #1029 — show what the SERVER staged (the approvals row), not the editable display copy: what a person is asked to
+    // approve must be what would actually run.
+    const approvalRow = await this.approvals.findByRunId(membership.workspaceId, run.id);
+    const snap = approvalRow?.actionSnapshot as ApprovalActionSnapshot | undefined;
+    if (approvalRow?.status === 'pending' && snap?.action.type === 'agent_proposed_action') {
+      const a = snap.action as AgentProposedActionSnapshot;
+      return { action: a.proposed, steps: a.steps };
+    }
     const staged = parseStaged(run.values['pending_action']);
     if (!staged) return null;
     return { action: staged.action, steps: staged.steps };
