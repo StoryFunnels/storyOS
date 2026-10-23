@@ -90,7 +90,7 @@ export class FormsService {
     const [view] = await this.db
       .select()
       .from(views)
-      .where(sql`${views.config} -> 'form' ->> 'public_token' = ${token}`)
+      .where(and(sql`${views.config} -> 'form' ->> 'public_token' = ${token}`, isNull(views.deletedAt))) // #1041: a deleted view's link is dead
       .limit(1);
     if (!view) throw new NotFoundException('Form not found');
     const form = ((view.config as Record<string, unknown>).form ?? {}) as {

@@ -452,6 +452,7 @@ export const viewConfigSchema = z.object({
             }),
         )
         .default([]),
+      // #1041 — accepted for compatibility but IGNORED: the server mints the token (and drops it when access is `members`).
       public_token: z.string().max(64).optional(),
       /** Who may open/submit the form (MN-101). members = signed-in only;
        * link = anyone with the token; public = same, advertised as open. */

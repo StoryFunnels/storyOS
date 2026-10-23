@@ -1,5 +1,6 @@
 // MUST be first: caps RATE_LIMIT_PER_MINUTE before AppModule is imported.
 import { TEST_RATE_LIMIT, restoreRateLimit } from './helpers/throttle-limit';
+import { liveFormUrl, trackFormToken } from './helpers/form-token';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -26,13 +27,15 @@ const FORM_TOKEN = 'tok-throttle';
 /** A fresh, never-issued PAT-shaped bearer — resolves to nobody. */
 const bogusPat = () => `mn_pat_${randomBytes(18).toString('base64url')}`;
 
-function inject(method: string, url: string, opts: { token?: string; bearer?: string; payload?: unknown } = {}) {
+async function inject(method: string, url: string, opts: { token?: string; bearer?: string; payload?: unknown } = {}) {
   const headers = opts.token
     ? authed(opts.token)
     : opts.bearer
       ? { authorization: `Bearer ${opts.bearer}` }
       : {};
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers, payload: opts.payload as never });
+  const res = await app.inject({ method: method as never, url: `/api/v1${liveFormUrl(url)}`, headers, payload: opts.payload as never });
+  trackFormToken(opts.payload, res); // #1041: learn the server-minted form token
+  return res;
 }
 
 beforeAll(async () => {
