@@ -28,6 +28,12 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
   const calls: string[] = [];
   const fetcher: LinearFetcher = async (query, variables) => {
     calls.push(String(query.match(/query (\w+)/)?.[1]));
+    /** #1027 — an `updatedAt > since` filter, as the incremental queries send. A node with no `updatedAt` always counts as changed. */
+    const sinceOnly = <T extends Record<string, unknown>>(all: T[]) => {
+      const since = variables['since'];
+      if (typeof since !== 'string') return all;
+      return all.filter((n) => typeof n['updatedAt'] !== 'string' || n['updatedAt'] > since);
+    };
     const page = <T,>(all: T[]) => {
       const first = Math.min(Number(query.match(/first: (\d+)/)?.[1] ?? 50), 250);
       const start = variables['after'] ? Number(variables['after']) : 0;
@@ -36,13 +42,16 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
       return { nodes, pageInfo: { hasNextPage: end < all.length, endCursor: String(end) } };
     };
     if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name }) => ({ id, key, name }))) };
-    if (query.includes('query TeamComments(')) {
+    if (query.includes('query TeamComments')) {
       const t = teams.find((x) => x.id === variables['id']);
       if (!t) throw new Error('fake Linear: no such team for comments');
-      return { comments: page(t.data.comments ?? []) };
+      return { comments: page(sinceOnly(t.data.comments ?? [])) };
     }
     const team = teams.find((t) => t.id === variables['id']);
     if (!team) throw new Error(`fake Linear: no team ${String(variables['id'])}`);
+    if (query.includes('TeamIssueCount')) {
+      if (variables['since'] !== undefined) throw new Error('fake Linear: an incremental read must not ask for the total');
+    }
     if (query.includes('TeamIssueCount')) return { team: { issueCount: opts.issueCount ? opts.issueCount(team) : team.data.issues.nodes.length } };
     if (query.includes('TeamLabels')) return { team: { labels: page(team.data.labels.nodes) } };
     if (query.includes('TeamCycles')) return { team: { cycles: page(team.data.cycles.nodes) } };
@@ -57,7 +66,7 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
         ...n,
         labels: { ...(n['labels'] as { nodes: unknown[] }), pageInfo: { hasNextPage: false, endCursor: null } },
       }));
-      return { team: { issues: page(withInfo) } };
+      return { team: { issues: page(sinceOnly(withInfo)) } };
     }
     throw new Error(`fake Linear: unrecognised query ${query.slice(0, 40)}`);
   };
