@@ -135,3 +135,32 @@ describe('partitionStrip (#1019)', () => {
     expect(p.buttons).toHaveLength(1);
   });
 });
+
+import { addableProperties, fieldTitle, plainValue } from './strip-fields';
+
+describe('the strip names its values (ticket #1060)', () => {
+  const opt = (id: string, label: string) => ({ id, label, color: 'gray' });
+  const sel = (api: string, name: string, type = 'select'): Field =>
+    ({ id: api, apiName: api, displayName: name, type, options: [opt('o1', 'Low'), opt('o2', 'High')] }) as unknown as Field;
+  const names = new Map([['u1', 'Illia']]);
+
+  it('says each value in words, for the tooltip and aria-label', () => {
+    expect(plainValue(sel('p', 'Priority'), 'o1', names)).toBe('Low');
+    expect(plainValue(sel('p', 'Priority', 'multi_select'), ['o1', 'o2'], names)).toBe('Low, High');
+    expect(plainValue({ ...sel('a', 'Assignee'), type: 'user' } as Field, 'u1', names)).toBe('Illia');
+    expect(plainValue({ ...sel('e', 'Epic'), type: 'relation' } as Field, [{ title: 'StoryOS-security' }], names)).toBe('StoryOS-security');
+  });
+  it('titles it "Field: Value", and never invents a value it cannot read', () => {
+    expect(fieldTitle(sel('p', 'Priority'), 'o1', names)).toBe('Priority: Low');
+    expect(fieldTitle(sel('p', 'Priority'), 'gone', names)).toBe('Priority'); // a dangling option id
+    expect(fieldTitle(sel('p', 'Priority'), null, names)).toBe('Priority');
+  });
+  it('offers "+ Add property" only the EMPTY, fillable fields that are not already drawn', () => {
+    const f = (id: string, type: string) => ({ id, apiName: id, displayName: id, type }) as unknown as Field;
+    const fields = [f('prio', 'select'), f('who', 'user'), f('body', 'rich_text'), f('calc', 'formula'), f('rolled', 'rollup'), f('made', 'created_at'), f('kids', 'relation'), f('done', 'button'), f('due', 'date'), f('shown', 'select')];
+    const values: Record<string, unknown> = { who: undefined, due: '2026-10-24', shown: 'x' };
+    const kids = { ...fields[6]!, relation: { cardinality: 'many_to_many', side: 'a' } } as unknown as Field;
+    const out = addableProperties([fields[0]!, fields[1]!, fields[2]!, fields[3]!, fields[4]!, fields[5]!, kids, fields[7]!, fields[8]!, fields[9]!], [fields[9]!], (x) => values[x.apiName]);
+    expect(out.map((x) => x.id)).toEqual(['prio', 'who']);
+  });
+});

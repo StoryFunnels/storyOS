@@ -66,7 +66,8 @@ import {
 } from '@/components/entity/entity-field-utils';
 import type { FieldGroup, Zone } from '@/components/entity/entity-field-utils';
 import { FieldPicker, TopRowMenu, TopStripAdd, useSetFieldConfig } from '@/components/entity/field-controls';
-import { canPinToStrip, gridFieldsExcludingStrip, partitionStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
+import { addableProperties, canPinToStrip, fieldTitle, gridFieldsExcludingStrip, partitionStrip, stripFields, stripPlan } from '@/components/entity/strip-fields';
+import { STRIP_LABEL, StripChipContext } from '@/components/entity/strip-chip';
 import { BodyScalar, ScalarValue, SidebarField, TopChip, UnifiedFieldRow } from '@/components/entity/scalar-fields';
 import { CollectionSection } from '@/components/entity/collection-section';
 import { RichTextFieldSection } from '@/components/entity/rich-text-field';
@@ -544,6 +545,14 @@ export function RecordDetail({
     (f) => (AUDIT_TYPES.has(f.type) ? true : record.data?.values[f.apiName]),
     revealed,
   );
+  // #1060 — what the strip draws: the strip's own values, plus any field asked for through "+ Add property" (even one that is not
+  // in the strip's configuration), and the empty eligible fields that remain are what "+ Add property" offers.
+  const stripValueOf = (f: Field) => (AUDIT_TYPES.has(f.type) ? true : record.data?.values[f.apiName]);
+  const stripShown = [
+    ...stripParts.shown,
+    ...visibleFields.filter((f) => revealed.has(f.id) && !strip.fields.some((s) => s.id === f.id) && f.type !== 'button'),
+  ];
+  const stripAddable = addableProperties(visibleFields, stripShown, stripValueOf);
   const vp = {
     ws,
     db,
@@ -837,44 +846,52 @@ export function RecordDetail({
               of field-zoning's pin-to-top UI. #809: the row reads the stored `top` zone, and falls
               back to the type heuristic only while a database has none. */}
           {(strip.fields.length > 0 || (watchers.query.data?.watchers.length ?? 0) > 0) && (
-            <div className="mb-5 flex flex-wrap items-center gap-1.5">
-              {/* #1019 — ONE chip for every property, the prototype's `.strip`: the value brings its own coloured pill
-                  or avatar and nothing wraps it in a second box. Empty properties are absent (not grey placeholder
-                  boxes) and come back through "+ Add property"; actions are buttons, kept apart at the end. */}
-              {stripParts.shown.map((field) => (
-                <span key={field.id} className="inline-flex min-h-6 items-center text-label text-ink-secondary">
-                  <ScalarValue field={field} strip {...vp} />
-                </span>
-              ))}
-              {!readOnly && stripParts.absent.length > 0 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="inline-flex h-6 items-center gap-1 rounded-full px-2 text-label text-faint hover:text-ink">
-                      <Plus className="h-3 w-3" aria-hidden /> Add property
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {stripParts.absent.map((field) => (
-                      <DropdownMenuItem key={field.id} onSelect={() => setRevealed((r) => new Set(r).add(field.id))}>
-                        {field.displayName}
-                      </DropdownMenuItem>
+            <StripChipContext.Provider value>
+              <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {/* #1060 (replacing #1019's draft) — every VALUE is the one pill (select, state, relation) or the person (avatar +
+                    name), the prototype's `.strip`; a faint label names each value that does not name itself ("Priority [Low]"),
+                    and every one carries its field name as a tooltip and aria-label ("Priority: Low"). Empty properties are
+                    absent and come back through "+ Add property"; an ACTION is the app's secondary button, set apart at the
+                    right end, never a tinted chip like a value. */}
+                {stripShown.map((field) => {
+                  const title = fieldTitle(field, record.data?.values[field.apiName], memberNames);
+                  return (
+                    <span key={field.id} role="group" aria-label={title} title={title} className="inline-flex min-h-[19px] items-center gap-1.5">
+                      {!SELF_EVIDENT_IN_STRIP.has(field.type) && <span className={STRIP_LABEL}>{field.displayName}</span>}
+                      <ScalarValue field={field} strip {...vp} />
+                    </span>
+                  );
+                })}
+                {!readOnly && stripAddable.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className="inline-flex h-[19px] items-center gap-1 text-label text-muted hover:text-ink">
+                        <Plus className="h-3 w-3" aria-hidden /> Add property
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {stripAddable.map((field) => (
+                        <DropdownMenuItem key={field.id} onSelect={() => setRevealed((r) => new Set(r).add(field.id))}>
+                          {field.displayName}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {(watchers.query.data?.watchers.length ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] px-2 py-1 text-label text-muted">
+                    {watchers.query.data!.watchers.length} watching
+                  </span>
+                )}
+                {stripParts.buttons.length > 0 && (
+                  <span className="ml-auto flex flex-wrap items-center gap-1.5">
+                    {stripParts.buttons.map((field) => (
+                      <ScalarValue key={field.id} field={field} strip {...vp} />
                     ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-              {(watchers.query.data?.watchers.length ?? 0) > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-[var(--radius-chip)] px-2 py-1 text-label text-muted">
-                  {watchers.query.data!.watchers.length} watching
-                </span>
-              )}
-              {stripParts.buttons.length > 0 && (
-                <span className="ml-auto flex flex-wrap items-center gap-1.5">
-                  {stripParts.buttons.map((field) => (
-                    <ScalarValue key={field.id} field={field} {...vp} />
-                  ))}
-                </span>
-              )}
-            </div>
+                  </span>
+                )}
+              </div>
+            </StripChipContext.Provider>
           )}
 
           {/* #780 — the unified field area: every field that was in a top or
@@ -1289,6 +1306,8 @@ export function RecordDetail({
  * banner), per Ievgen's ruling: hide the UI, keep the code and the stored
  * config exactly as they are. This is the literal smallest mechanism that
  * stops it rendering, since no feature-flag system already covers this. */
+/** Ticket #1060 — values that name themselves in the strip: the state and people carry no label. */
+const SELF_EVIDENT_IN_STRIP = new Set(['workflow', 'user', 'created_by']);
 const SHOW_LEGACY_ZONING_UI = false;
 
 /**
