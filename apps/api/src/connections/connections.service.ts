@@ -18,7 +18,7 @@ import { env } from '../config/env';
 import { open, seal } from '../common/secretbox';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DeploymentService } from '../deployment/deployment.service';
-import { availabilityFor, PROVIDER_REGISTRY } from './providers';
+import { availabilityFor, httpBaseUrlProblem, PROVIDER_REGISTRY } from './providers';
 import type { ConnectionFetcher, ProviderDescriptor } from './providers';
 
 type ConnectionRow = typeof connections.$inferSelect;
@@ -148,9 +148,37 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     return new Map(rows.filter((r) => r.connectionId).map((r) => [r.connectionId as string, r.count]));
   }
 
+  /** #1035 — the non-secret `base_url` of an HTTP connection, read out of its sealed auth server-side; the credential itself is never returned. */
+  private httpBaseUrl(row: ConnectionRow): string | null {
+    if (row.provider !== 'http') return null;
+    try {
+      const auth = JSON.parse(open(row.authSealed)) as { base_url?: unknown };
+      return typeof auth.base_url === 'string' && auth.base_url ? auth.base_url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** #1035 — set the one URL prefix an HTTP connection's credential may be sent to. Admin only (the controller). */
+  async setBaseUrl(workspaceId: string, id: string, baseUrl: string) {
+    const row = await this.requireRow(workspaceId, id);
+    if (row.provider !== 'http') throw new UnprocessableEntityException('Only an HTTP connection has a base URL');
+    const problem = httpBaseUrlProblem(baseUrl);
+    if (problem) throw new UnprocessableEntityException(problem);
+    const auth = JSON.parse(open(row.authSealed)) as Record<string, unknown>;
+    const [updated] = await this.db
+      .update(connections)
+      .set({ authSealed: seal(JSON.stringify({ ...auth, base_url: baseUrl })) })
+      .where(and(eq(connections.id, id), eq(connections.workspaceId, workspaceId)))
+      .returning();
+    return this.present(updated!);
+  }
+
   /** Client-safe view — NEVER includes authSealed (MN-252 AC). */
   private present(row: ConnectionRow, errorCount24h = 0) {
+    const baseUrl = this.httpBaseUrl(row);
     return {
+      ...(row.provider === 'http' ? { base_url: baseUrl, needs_base_url: baseUrl === null } : {}),
       id: row.id,
       provider: row.provider,
       name: row.name,

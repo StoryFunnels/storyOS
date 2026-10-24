@@ -7019,6 +7019,43 @@
       }
     },
     "/api/v1/workspaces/{ws}/connections/{id}": {
+      "patch": {
+        "operationId": "ConnectionsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set the one URL prefix an HTTP connection's credential may be sent to (#1035)",
+        "tags": [
+          "connections"
+        ]
+      },
       "delete": {
         "operationId": "ConnectionsController_remove",
         "parameters": [
@@ -15721,6 +15758,19 @@
           "provider",
           "name",
           "auth"
+        ]
+      },
+      "UpdateConnectionDto": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "maxLength": 500,
+            "format": "uri"
+          }
+        },
+        "required": [
+          "base_url"
         ]
       },
       "DiscoverSourceDto": {

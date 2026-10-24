@@ -68,7 +68,7 @@ describe('HttpRequestActionService.run — auth merge at send time (MN-263)', ()
   it('merges a bearer token into Authorization, never into the stored action', async () => {
     guardedFetchMock.mockResolvedValue(fakeGuardedFetchResult());
     const { service } = newService();
-    await service.run(payload({ connection_id: 'conn1' }), helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-abc' } }));
+    await service.run(payload({ connection_id: 'conn1' }), helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-abc', base_url: 'https://api.example.com' } }));
     const [, , init] = guardedFetchMock.mock.calls[0]!;
     expect((init as { headers: Record<string, string> }).headers.Authorization).toBe('Bearer tok-abc');
   });
@@ -78,7 +78,7 @@ describe('HttpRequestActionService.run — auth merge at send time (MN-263)', ()
     const { service } = newService();
     await service.run(
       payload({ connection_id: 'conn1' }),
-      helpers({ provider: 'http', auth: { auth_style: 'basic', username: 'alice', password: 'hunter2' } }),
+      helpers({ provider: 'http', auth: { auth_style: 'basic', username: 'alice', password: 'hunter2', base_url: 'https://api.example.com' } }),
     );
     const [, , init] = guardedFetchMock.mock.calls[0]!;
     const expected = `Basic ${Buffer.from('alice:hunter2').toString('base64')}`;
@@ -90,7 +90,7 @@ describe('HttpRequestActionService.run — auth merge at send time (MN-263)', ()
     const { service } = newService();
     await service.run(
       payload({ connection_id: 'conn1', headers: { 'X-Existing': 'keep' } }),
-      helpers({ provider: 'http', auth: { auth_style: 'headers', headers: { 'X-Api-Key': 'k-123' } } }),
+      helpers({ provider: 'http', auth: { auth_style: 'headers', headers: { 'X-Api-Key': 'k-123' }, base_url: 'https://api.example.com' } }),
     );
     const [, , init] = guardedFetchMock.mock.calls[0]!;
     const headers = (init as { headers: Record<string, string> }).headers;
@@ -227,7 +227,7 @@ describe('HttpRequestActionService.run — secret redaction (MN-263)', () => {
     const { service } = newService();
     const result = await service.run(
       payload({ connection_id: 'conn1' }),
-      helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-super-secret-999' } }),
+      helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-super-secret-999', base_url: 'https://api.example.com' } }),
     );
     const body = (result as { body: string }).body;
     expect(body).not.toContain('tok-super-secret-999');
@@ -240,7 +240,7 @@ describe('HttpRequestActionService.run — secret redaction (MN-263)', () => {
     );
     const { service } = newService();
     const err = (await service
-      .run(payload({ connection_id: 'conn1' }), helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-super-secret-999' } }))
+      .run(payload({ connection_id: 'conn1' }), helpers({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-super-secret-999', base_url: 'https://api.example.com' } }))
       .catch((e) => e)) as ProviderError;
     expect(err.message).not.toContain('tok-super-secret-999');
   });
@@ -289,5 +289,73 @@ describe('HttpRequestActionService.sendForTest (MN-263)', () => {
     } as never);
     expect(result.status).toBe(200);
     expect(result.available_paths).toEqual(expect.arrayContaining(['id', 'nested.tag']));
+  });
+});
+
+
+/**
+ * #1035 — the request URL is the rule AUTHOR's to choose (any member's), and the connection is an ADMIN's. A connection's credential is
+ * only sent to the base URL an admin set on it; every other destination is refused BEFORE anything is sent, and a connection with no
+ * base URL (made before this existed) sends nothing at all.
+ */
+describe('HttpRequestActionService — a connection credential only goes to its base URL (#1035)', () => {
+  const conn = (base_url?: string) => ({ provider: 'http', auth: { auth_style: 'bearer', token: 'tok-admin-secret', ...(base_url ? { base_url } : {}) } });
+
+  it.each([
+    ['https://attacker.example/steal', 'a different host'],
+    ['https://api.example.com.evil.example/x', 'a host that merely STARTS with the base host'],
+    ['https://evil.example/https://api.example.com/x', 'the base URL smuggled into the path'],
+    ['https://api.example.com@evil.example/x', 'userinfo naming the base host, real host elsewhere'],
+    ['http://api.example.com/x', 'the same host over plain http (scheme downgrade)'],
+    ['https://api.example.com:8443/x', 'a different port'],
+    ['https://API.EXAMPLE.COM.evil.example/x', 'case games on a different host'],
+  ])('refuses %s (%s) before sending anything', async (url) => {
+    const { service } = newService();
+    await expect(service.run(payload({ connection_id: 'c', url }), helpers(conn('https://api.example.com')))).rejects.toThrow(/outside this connection/);
+    expect(guardedFetchMock, 'nothing was sent').not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['https://api.example.com/v10/x', 'a path that only starts with /v1'],
+    ['https://api.example.com/other', 'outside the path prefix'],
+    ['https://api.example.com/v1/../admin', 'a dot-dot walk out of the prefix'],
+    ['https://api.example.com/v1/%2e%2e/admin', 'an encoded dot-dot walk'],
+  ])('with base https://api.example.com/v1: refuses %s (%s)', async (url) => {
+    const { service } = newService();
+    await expect(service.run(payload({ connection_id: 'c', url }), helpers(conn('https://api.example.com/v1')))).rejects.toThrow(/outside this connection/);
+    expect(guardedFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a connection with NO base URL sends nothing and says an admin must set one (non-retryable)', async () => {
+    const { service } = newService();
+    const err = await service.run(payload({ connection_id: 'c', url: 'https://api.example.com/x' }), helpers(conn())).then(() => null, (e: { message: string; retryable?: boolean }) => e);
+    expect(err!.message).toMatch(/no allowed base URL/);
+    expect(err!.retryable).toBe(false);
+    expect(guardedFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a URL inside the base is still sent WITH the credential, and the cross-origin header names are handed to the guard', async () => {
+    guardedFetchMock.mockResolvedValue(fakeGuardedFetchResult());
+    const { service } = newService();
+    await service.run(payload({ connection_id: 'c', url: 'https://api.example.com/v1/things?x=1' }), helpers(conn('https://api.example.com/v1')));
+    const [, , init, opts] = guardedFetchMock.mock.calls[0]!;
+    expect((init as { headers: Record<string, string> }).headers.Authorization).toBe('Bearer tok-admin-secret');
+    expect((opts as { stripOnCrossOrigin: string[] }).stripOnCrossOrigin).toContain('authorization');
+  });
+
+  it('a rule with NO connection is unaffected: no base URL is needed when no credential is sent', async () => {
+    guardedFetchMock.mockResolvedValue(fakeGuardedFetchResult());
+    const { service } = newService();
+    await service.run(payload({ url: 'https://anywhere.example/x' }), helpers());
+    expect(guardedFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('the editor\'s "Send test request" is held to the same rule (the attack\'s one click): 422, nothing sent, no token in the message', async () => {
+    const connections = { getDecryptedAuth: vi.fn().mockResolvedValue(conn('https://api.example.com')) };
+    const service = new HttpRequestActionService({ query: { fields: { findMany: vi.fn().mockResolvedValue([]) } } } as never, { registerExecutor: vi.fn() } as never, connections as never, {} as never);
+    const err = await service.sendForTest('ws1', 'db1', null, 'u1', { type: 'http_request', method: 'GET', url: 'https://attacker.example/', connection_id: 'c' } as never).then(() => null, (e: Error) => e);
+    expect(err!.message).toMatch(/outside this connection/);
+    expect(err!.message).not.toContain('tok-admin-secret');
+    expect(guardedFetchMock).not.toHaveBeenCalled();
   });
 });

@@ -405,3 +405,43 @@ describe('#1036 outgoing webhooks never follow a redirect and never reach a priv
     expect(targetHits).toBe(0);
   });
 });
+
+
+describe('#1035 credentials do not follow a redirect to another origin', () => {
+  const sent: Array<{ url: string; headers: Record<string, string> }> = [];
+  const stub = (steps: Record<string, Response>) => (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    sent.push({ url, headers: { ...(init?.headers as Record<string, string>) } });
+    return steps[url]!;
+  }) as unknown as typeof fetch;
+  beforeEach(() => { sent.length = 0; });
+
+  it('a cross-origin hop loses Authorization, Cookie and the connection\'s own header names; the first hop keeps them', async () => {
+    const f = stub({
+      'https://api.example.com/start': new Response(null, { status: 302, headers: { location: 'https://other.example.org/landing' } }),
+      'https://other.example.org/landing': new Response('ok', { status: 200 }),
+    });
+    await guardedFetch(f, 'https://api.example.com/start', { method: 'GET', headers: { Authorization: 'Bearer SECRET', Cookie: 'sid=1', 'X-Api-Key': 'KEY', 'X-Keep': 'yes' } }, { stripOnCrossOrigin: ['x-api-key'] });
+    expect(sent[0]!.headers).toMatchObject({ Authorization: 'Bearer SECRET', 'X-Api-Key': 'KEY' });
+    expect(sent[1]!.headers).toEqual({ 'X-Keep': 'yes' });
+  });
+
+  it('a SAME-origin redirect keeps them (an API redirecting within itself still authenticates)', async () => {
+    const f = stub({
+      'https://api.example.com/a': new Response(null, { status: 301, headers: { location: '/b' } }),
+      'https://api.example.com/b': new Response('ok', { status: 200 }),
+    });
+    await guardedFetch(f, 'https://api.example.com/a', { method: 'GET', headers: { Authorization: 'Bearer SECRET' } });
+    expect(sent[1]!.headers.Authorization).toBe('Bearer SECRET');
+  });
+
+  it('a different PORT or a scheme change is a different origin and strips too', async () => {
+    const f = stub({
+      'https://api.example.com/a': new Response(null, { status: 302, headers: { location: 'https://api.example.com:8443/b' } }),
+      'https://api.example.com:8443/b': new Response(null, { status: 302, headers: { location: 'http://api.example.com:8443/c' } }),
+      'http://api.example.com:8443/c': new Response('ok', { status: 200 }),
+    });
+    await guardedFetch(f, 'https://api.example.com/a', { method: 'GET', headers: { Authorization: 'Bearer SECRET' } });
+    expect(sent.map((s) => 'Authorization' in s.headers)).toEqual([true, false, false]);
+  });
+});

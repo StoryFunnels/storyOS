@@ -410,7 +410,15 @@ export async function guardedFetch(
   fetcherArg: typeof fetch | undefined,
   initialUrl: string,
   init: GuardedFetchInit,
-  opts: { allowPrivateCidrs?: string[]; maxRedirects?: number; maxBodyBytes?: number; followRedirects?: boolean; binary?: boolean } = {},
+  opts: {
+    allowPrivateCidrs?: string[];
+    maxRedirects?: number;
+    maxBodyBytes?: number;
+    followRedirects?: boolean;
+    binary?: boolean;
+    /** Header names (case-insensitive) to drop when a redirect leaves the origin the request started on. `Authorization`, `Cookie` and `Proxy-Authorization` are ALWAYS dropped there. */
+    stripOnCrossOrigin?: string[];
+  } = {},
 ): Promise<GuardedFetchResult> {
   // #1036: the real network transport is ALWAYS the address-pinned one. A caller that passes the global `fetch` (every production
   // caller does) gets it here, so no caller has to remember to opt in; only a test's stub is used as given.
@@ -418,6 +426,8 @@ export async function guardedFetch(
   const maxRedirects = opts.maxRedirects ?? 3;
   const maxBodyBytes = opts.maxBodyBytes ?? 1_000_000;
   let url = initialUrl;
+  let headers = init.headers;
+  const dropOnLeave = new Set(['authorization', 'proxy-authorization', 'cookie', ...(opts.stripOnCrossOrigin ?? []).map((h) => h.toLowerCase())]);
   for (let hop = 0; hop <= maxRedirects; hop++) {
     let parsed: URL;
     try {
@@ -431,7 +441,7 @@ export async function guardedFetch(
     await assertPublicHost(parsed.hostname, { allowPrivateCidrs: opts.allowPrivateCidrs });
     const res = await fetcher(url, {
       method: init.method,
-      headers: init.headers,
+      headers,
       body: init.body,
       redirect: 'manual',
       signal: init.signal,
@@ -445,7 +455,12 @@ export async function guardedFetch(
       if (hop === maxRedirects) {
         throw new SsrfBlockedError(`too many redirects (> ${maxRedirects})`);
       }
-      url = new URL(location, url).toString();
+      const next = new URL(location, url);
+      // #1035 — credentials follow a redirect only within the origin they were sent to: a 302 to another host must not carry them.
+      if (next.origin !== new URL(url).origin) {
+        headers = Object.fromEntries(Object.entries(headers).filter(([k]) => !dropOnLeave.has(k.toLowerCase())));
+      }
+      url = next.toString();
       continue;
     }
     if (opts.binary) {
