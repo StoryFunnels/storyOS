@@ -12,6 +12,7 @@ import {
   UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -46,6 +47,7 @@ export class UsersController {
     private readonly membershipEvents: MembershipEventsService,
   ) {}
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post('me/avatar')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Set my avatar (multipart field "file", png/jpeg/webp ≤1MB)' })
@@ -72,6 +74,7 @@ export class UsersController {
     return { image: url };
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Delete('me/avatar')
   @ApiOperation({ summary: 'Remove my avatar (falls back to initials)' })
   async remove(@Req() req: AuthedRequest) {

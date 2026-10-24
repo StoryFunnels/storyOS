@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -130,12 +131,14 @@ export class PreferencesController {
     return this.preferences.get(req.user.id);
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Patch()
   @ApiOperation({ summary: 'Update my preferences (deep-merged)' })
   update(@Req() req: AuthedRequest, @Body() body: PreferencesPatchDto) {
     return this.preferences.update(req.user.id, body);
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Patch('lists')
   @ApiOperation({
     summary:

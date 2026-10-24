@@ -25,7 +25,7 @@ export type Membership = typeof memberships.$inferSelect & {
 };
 export type WorkspaceRequest = AuthedRequest & { membership: Membership };
 
-const MIN_ROLE_KEY = 'storyos:minRole';
+export const MIN_ROLE_KEY = 'storyos:minRole';
 const ROLE_RANK = { guest: 0, member: 1, admin: 2 } as const;
 export type Role = keyof typeof ROLE_RANK;
 
