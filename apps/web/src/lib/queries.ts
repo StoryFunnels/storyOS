@@ -38,6 +38,9 @@ export interface DatabaseSummary {
   color: string | null;
   apiSlug: string;
   position: number;
+  /** #1058 — the API marks the databases it provisions itself (Agents, Runs, Agent Triggers, Members). On the list payload
+   *  already (the row is spread); never set over HTTP. */
+  isSystem?: boolean;
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   /** #400 — the one-line purpose. Null/absent is the normal state. */

@@ -65,6 +65,8 @@ export interface DatabaseDetail {
   descriptionHidden?: boolean;
   descriptionOrder?: number | null;
   name: string;
+  /** #1058 — set by the API on the databases it provisions (Agents, Runs, Agent Triggers, Members); see lib/system-databases. */
+  isSystem?: boolean;
   icon: string | null;
   color: string | null;
   my_access: 'viewer' | 'commenter' | 'editor' | 'creator' | 'admin';
