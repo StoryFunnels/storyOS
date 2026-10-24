@@ -329,7 +329,7 @@ describe('HttpRequestActionService — a connection credential only goes to its 
   it('a connection with NO base URL sends nothing and says an admin must set one (non-retryable)', async () => {
     const { service } = newService();
     const err = await service.run(payload({ connection_id: 'c', url: 'https://api.example.com/x' }), helpers(conn())).then(() => null, (e: { message: string; retryable?: boolean }) => e);
-    expect(err!.message).toMatch(/no allowed base URL/);
+    expect(err!.message).toMatch(/Set this connection's base URL/);
     expect(err!.retryable).toBe(false);
     expect(guardedFetchMock).not.toHaveBeenCalled();
   });

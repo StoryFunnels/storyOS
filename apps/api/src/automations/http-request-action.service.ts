@@ -69,7 +69,7 @@ function secretLiteralsFromAuth(auth: HttpConnectionAuth | undefined): string[] 
 export function assertUrlAllowedForConnection(auth: HttpConnectionAuth | undefined, url: string): string | null {
   if (!auth) return null;
   if (!auth.base_url) {
-    return 'This connection has no allowed base URL yet, so its credential is not sent anywhere. An admin must set one on the connection.';
+    return "Set this connection's base URL: it has none, so its credential is not sent anywhere and this request was not made. An admin sets the base URL on the connection (the one place its credential may go)."; 
   }
   if (!urlWithinBase(url, auth.base_url)) {
     return "The request URL is outside this connection's allowed base URL, so the credential was not sent.";

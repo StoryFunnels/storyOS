@@ -13,7 +13,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import type { ProviderDescriptorSummary } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationJobs, connections } from '../db/schema';
+import { automationJobs, automations, connections, databases } from '../db/schema';
 import { env } from '../config/env';
 import { open, seal } from '../common/secretbox';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -76,7 +76,57 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     if (env().NODE_ENV !== 'test') {
       this.timer = setInterval(() => void this.refreshDueTokens(), REFRESH_TICK_MS);
+      // #1035 — one-time-in-effect: connections made before `base_url` existed get it from where their rules already send them.
+      void this.backfillHttpBaseUrls().catch((e: unknown) => this.logger.warn(`http base_url backfill failed: ${String(e)}`));
     }
+  }
+
+  /**
+   * #1035 — the credential of an HTTP connection is only sent to its `base_url`, and every connection made before that existed has
+   * none. The URL a rule sends to is already the admin's de-facto statement of where the credential goes, so it is taken from there,
+   * but ONLY when it is unambiguous: every http_request action that uses the connection has a literal host and they all share ONE
+   * origin. The base URL is that ORIGIN (not a path), because a rule's path says nothing about what else the API exposes.
+   * Anything else (no rule uses it, rules point at several origins, a templated host) is LEFT without one, flagged `needs_base_url`,
+   * and its runs fail loudly until an admin sets one. Idempotent: only connections without a base URL are touched.
+   */
+  async backfillHttpBaseUrls(): Promise<{ set: number; ambiguous: number; unused: number }> {
+    const rows = await this.db.query.connections.findMany({ where: eq(connections.provider, 'http') });
+    const result = { set: 0, ambiguous: 0, unused: 0 };
+    for (const row of rows) {
+      if (this.httpBaseUrl(row)) continue;
+      const rules = await this.db
+        .select({ actions: automations.actions })
+        .from(automations)
+        .innerJoin(databases, eq(databases.id, automations.databaseId))
+        .where(eq(databases.workspaceId, row.workspaceId));
+      const origins = new Set<string>();
+      let templatedHost = false;
+      let used = false;
+      for (const rule of rules) {
+        for (const action of (Array.isArray(rule.actions) ? rule.actions : []) as Array<{ type?: string; url?: string; connection_id?: string }>) {
+          if (action?.type !== 'http_request' || action.connection_id !== row.id || typeof action.url !== 'string') continue;
+          used = true;
+          const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(action.url)?.[1] ?? '';
+          if (authority.includes('{') || authority.includes('}')) { templatedHost = true; continue; }
+          try {
+            const u = new URL(action.url);
+            if (httpBaseUrlProblem(u.origin) === null) origins.add(u.origin);
+            else templatedHost = true;
+          } catch {
+            templatedHost = true;
+          }
+        }
+      }
+      if (!used) { result.unused++; continue; }
+      if (templatedHost || origins.size !== 1) { result.ambiguous++; continue; }
+      const auth = JSON.parse(open(row.authSealed)) as Record<string, unknown>;
+      await this.db.update(connections).set({ authSealed: seal(JSON.stringify({ ...auth, base_url: [...origins][0] })) }).where(eq(connections.id, row.id));
+      result.set++;
+    }
+    if (result.set || result.ambiguous || result.unused) {
+      this.logger.log(`http connection base_url backfill: ${result.set} set from their rules, ${result.ambiguous} ambiguous, ${result.unused} unused (these need an admin to set one)`);
+    }
+    return result;
   }
 
   onModuleDestroy() {
