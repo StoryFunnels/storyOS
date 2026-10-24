@@ -33,10 +33,24 @@ Eleven actions, all available to buttons and rules alike.
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
 | **Send an email** | A templated 1:1 email through a Resend or SMTP connection. See below. |
 | **Call an API** | Any method, any URL, optional auth, and it can read the response back onto fields. See below. |
-| **Run an agent** | Launches an agent from the Agents database against the triggering record. |
+| **Run an agent** | Launches an agent from the Agents database against the triggering record. With **On a schedule**, this is how an agent works overnight: it runs once for each record the rule's filter selects. See below. |
 
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
+
+### Running an agent on a schedule
+
+Choose **Run an agent** under **Then**, pick the agent, and add an optional instruction for the run. Pair it with **On a
+schedule** and the agent works while nobody is signed in. Two things to know:
+
+- **It runs once for each matching record.** A scheduled rule acts on every record its filter selects (up to 500 each
+  time), so add a filter, or a sort and limit, to narrow it. The editor warns you when a scheduled rule has none.
+- **What runs overnight depends on the agent's AI mode.** A **Non-AI** agent runs by itself. An agent set to
+  **Your own AI** only does its work while your AI client is connected to StoryOS. **StoryOS AI** runs on credits. The
+  editor says which one applies when you choose the agent.
+
+A step the agent proposes that needs a person's approval still stops and waits for them. Every run appears in
+**Automation runs** and in the Runs database, with the trigger **Automation**.
 
 > **Three different things are called "webhook" here.** *Send a webhook* (above) and *webhook
 > received* (below) are per-rule, one action or trigger in a chain of many. A **webhook

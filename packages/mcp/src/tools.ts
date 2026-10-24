@@ -6184,7 +6184,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run agent',
       description:
-        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record.',
+        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from the Agents database)."),
@@ -8522,7 +8522,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
-        'run_agent{agent, prompt?, ...}. ' +
+        'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
+        'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
+        'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +
+        'What "overnight" means depends on the agent\'s AI mode: Non-AI runs by itself; Your own AI only works while your AI client is connected ' +
+        'to StoryOS; StoryOS AI runs on credits. A step the agent proposes that needs a person\'s approval still stops and waits. Scheduled runs show ' +
+        'in get_runs and in the Runs database with Trigger "Automation" ("Schedule" is not a run trigger). ' +
         // #245: per-action condition — shipped, previously undocumented here.
         'ANY action also takes an optional `condition` (a filter AST, same shape as query_records) — that ONE action is SKIPPED when it ' +
         'does not match, and the rest of the rule still runs. NOTE: an action condition is passed through raw, so it must use api_names ' +

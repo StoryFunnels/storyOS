@@ -68,7 +68,7 @@ const DEFAULT_RETRY_DELAY_MS = 50;
  * 'Automation' (MN-109 Phase A) is a regular automation rule or button —
  * schedule / record event / button — as opposed to the Architect's
  * state-transition bindings ('State change', #212). */
-export type RunTrigger = 'Manual' | 'State change' | 'Schedule' | 'Automation';
+export type RunTrigger = 'Manual' | 'State change' | 'Automation';
 
 /**
  * Guardrails a caller can layer onto a dispatch (MN-109 Phase A). All optional
@@ -312,6 +312,35 @@ export class AgentsService implements OnModuleInit {
     await this.fields.addOption(databaseId, field.id, { label, color });
   }
 
+  /**
+   * Ticket #1056 — "Schedule" was a label nothing dispatched with: a run on a schedule is a rule's run_agent action, recorded as
+   * 'Automation'. A pack provisioned before this still offers it on the Agents and Runs "Trigger" fields; retire it where no record uses it.
+   */
+  private async retireScheduleTrigger(agentsDbId: string, runsDbId: string): Promise<void> {
+    await this.retireSelectOption(agentsDbId, 'trigger', 'Schedule');
+    await this.retireSelectOption(runsDbId, 'trigger', 'Schedule');
+  }
+
+  /**
+   * Remove a select option by label from a pre-existing pack, but ONLY where nothing uses it (no confirm, so a record or a rule that
+   * does keeps it and this stays silent). Idempotent, and best-effort: ensuring a pack must never fail because of a retired label.
+   */
+  private async retireSelectOption(databaseId: string, apiName: string, label: string): Promise<void> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
+    });
+    if (!field) return;
+    const option = (await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, field.id) })).find(
+      (o) => o.label === label,
+    );
+    if (!option) return;
+    try {
+      await this.fields.removeOption(databaseId, field.id, option.id, { confirm: false });
+    } catch {
+      /* in use (or a rule leans on it): leave it; there is nothing wrong with a label that something still uses */
+    }
+  }
+
   /** label → option id for a select/multi_select field, for writing values. */
   private async optionIdsByLabel(
     databaseId: string,
@@ -348,6 +377,8 @@ export class AgentsService implements OnModuleInit {
   ): Promise<{ agentsDb: Database; runsDb: Database; triggersDb: Database; created: boolean }> {
     const existing = await this.findPackDbs(membership.workspaceId);
     if (existing.agentsDb && existing.runsDb && existing.triggersDb) {
+      // A complete pack skips every back-fill below; the retired "Schedule" label must still go (ticket #1056).
+      await this.retireScheduleTrigger(existing.agentsDb.id, existing.runsDb.id);
       return {
         agentsDb: existing.agentsDb,
         runsDb: existing.runsDb,
@@ -397,7 +428,6 @@ export class AgentsService implements OnModuleInit {
           options: [
             { label: 'Manual', color: 'gray' },
             { label: 'State change', color: 'green' },
-            { label: 'Schedule', color: 'purple' },
             { label: 'Automation', color: 'teal' },
           ],
         },
@@ -474,7 +504,6 @@ export class AgentsService implements OnModuleInit {
           options: [
             { label: 'Manual', color: 'gray' },
             { label: 'State change', color: 'green' },
-            { label: 'Schedule', color: 'purple' },
             { label: 'Automation', color: 'teal' },
           ],
         },
@@ -619,6 +648,7 @@ export class AgentsService implements OnModuleInit {
     // after either database was just created above (the option is already there).
     await this.ensureSelectOption(agentsDb.id, 'trigger', 'Automation', 'teal');
     await this.ensureSelectOption(runsDb.id, 'trigger', 'Automation', 'teal');
+    await this.retireScheduleTrigger(agentsDb.id, runsDb.id);
 
     let triggersDb = existing.triggersDb;
     if (!triggersDb) {
