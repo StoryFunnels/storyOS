@@ -68,6 +68,7 @@ import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { memoizeForRequest } from '../access/request-memo';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
+import { RUNTIME_OWNED_RUN_FIELDS, isAgentRuntimeWrite } from './runtime-owned-fields';
 import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -2798,6 +2799,27 @@ export class RecordsService {
     return this.get(databaseId, created.id);
   }
 
+  /**
+   * #1062 — a member (REST, MCP, batch, undo) may not write the Agent Runs fields the runtime owns. The check is in-memory
+   * first, so a write that names none of those keys never costs a query. Identity is the is_system FLAG plus the pack name
+   * (findPackDbs' rule, #318); #1063 moves this to a fixed system key.
+   */
+  private async assertNotRuntimeOwned(databaseId: string, keys: string[]): Promise<void> {
+    if (isAgentRuntimeWrite()) return;
+    const hits = keys.filter((k) => RUNTIME_OWNED_RUN_FIELDS.includes(k));
+    if (hits.length === 0) return;
+    const [db] = await this.db
+      .select({ isSystem: databases.isSystem, name: databases.name })
+      .from(databases)
+      .where(eq(databases.id, databaseId))
+      .limit(1);
+    if (db?.isSystem && db.name === 'Runs') {
+      throw new UnprocessableEntityException(
+        `${hits.map((k) => `"${k}"`).join(', ')} on an agent run ${hits.length === 1 ? 'is' : 'are'} set by the agent runtime and cannot be written directly.`,
+      );
+    }
+  }
+
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
   async createBatch(
     workspaceId: string,
@@ -2821,6 +2843,7 @@ export class RecordsService {
     const source: ChangeSource = options.source ?? 'human';
     const agentId = options.agentId;
     const agentName = options.agentName;
+    for (const input of inputs) await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -3149,6 +3172,7 @@ export class RecordsService {
     agentName?: string,
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
+    await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
