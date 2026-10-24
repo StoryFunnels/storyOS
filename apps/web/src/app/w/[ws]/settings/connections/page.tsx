@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
+import { BaseUrlDialog } from '@/components/connections/base-url-dialog';
+import { baseUrlSummary, httpBaseUrlProblem, needsBaseUrl } from '@/lib/http-base-url';
 import { cn } from '@/lib/utils';
 import {
   connectControl,
@@ -33,6 +35,9 @@ interface Connection {
   /** MN-264: last-24h failed-job count + circuit-breaker state. */
   error_count_24h: number;
   breaker_open_until: string | null;
+  /** #1035 — HTTP connections only: where the credential may be sent, and the flag for one that has none (it sends nothing). */
+  base_url?: string | null;
+  needs_base_url?: boolean;
 }
 
 interface ProviderDescriptor {
@@ -223,7 +228,7 @@ export default function ConnectionsSettingsPage() {
         {(connections.data ?? []).map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0"
+            className="flex flex-col gap-2 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
@@ -234,8 +239,18 @@ export default function ConnectionsSettingsPage() {
               </p>
               <p className="mt-0.5 text-label text-muted">
                 <StatusPill status={c.status} />
+                {needsBaseUrl(c) && (
+                  <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-meta font-medium text-ink">Needs base URL</span>
+                )}
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
+              {needsBaseUrl(c) ? (
+                <p role="status" className="mt-1 text-label font-medium text-ink">
+                  Set this connection&rsquo;s base URL: until then it sends nothing, and rules that use it fail.
+                </p>
+              ) : (
+                baseUrlSummary(c) && <p className="mt-1 truncate text-label text-muted">{baseUrlSummary(c)}</p>
+              )}
               <p className="mt-1 text-[11px] leading-4 text-ink-secondary">
                 <strong>Next:</strong> {providerUseGuidance(c.provider).description}
               </p>
@@ -288,7 +303,7 @@ export default function ConnectionsSettingsPage() {
                 </details>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
@@ -297,6 +312,7 @@ export default function ConnectionsSettingsPage() {
               >
                 Test
               </Button>
+              {c.provider === 'http' && <BaseUrlDialog ws={ws} connection={c} />}
               {providerUseGuidance(c.provider).href && (
                 <Link
                   href={`/w/${ws}/settings/integrations/${providerUseGuidance(c.provider).href}`}
@@ -791,6 +807,8 @@ function HttpConnectDialog({
   const [password, setPassword] = useState('');
   const [headerName, setHeaderName] = useState('X-Api-Key');
   const [headerValue, setHeaderValue] = useState('');
+  // #1035 — the one address the credential may be sent to; the API refuses a connection without one.
+  const [baseUrl, setBaseUrl] = useState('');
 
   // #112 — open pre-named when a social-ingest page deep-links here.
   useEffect(() => {
@@ -805,23 +823,26 @@ function HttpConnectDialog({
     setPassword('');
     setHeaderName('X-Api-Key');
     setHeaderValue('');
+    setBaseUrl('');
   }
 
   const valid =
-    style === 'bearer'
+    httpBaseUrlProblem(baseUrl) === null &&
+    (style === 'bearer'
       ? Boolean(token.trim())
       : style === 'basic'
         ? Boolean(username.trim()) && password.length > 0
-        : Boolean(headerName.trim()) && Boolean(headerValue.trim());
+        : Boolean(headerName.trim()) && Boolean(headerValue.trim()));
 
   const create = useMutation({
     mutationFn: async () => {
-      const auth =
+      const credential =
         style === 'bearer'
           ? { auth_style: 'bearer', token }
           : style === 'basic'
             ? { auth_style: 'basic', username, password }
             : { auth_style: 'headers', headers: { [headerName]: headerValue } };
+      const auth = { ...credential, base_url: baseUrl.trim() };
       const { error } = await api.POST('/api/v1/workspaces/{ws}/connections', {
         params: { path: { ws } },
         body: { provider: provider.id, name, auth } as never,
@@ -870,6 +891,20 @@ function HttpConnectDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="http-conn-base-url-new">Base URL</Label>
+            <Input
+              id="http-conn-base-url-new"
+              required
+              inputMode="url"
+              placeholder="https://api.example.com/v1"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
+            <p className="text-label text-muted">
+              The one address this credential may be sent to (host and, optionally, a path prefix). A rule that points anywhere else is refused.
+            </p>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="http-conn-style">Auth style</Label>
