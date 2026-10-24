@@ -172,14 +172,17 @@ export default function AuditLogPage() {
             <div
               key={e.id}
               data-testid="audit-row"
-              className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0"
+              className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-border-default px-3 py-2 last:border-b-0"
             >
-              <span className="w-36 shrink-0 text-label text-faint">{dateTime(e.created_at)}</span>
-              <span className="w-32 shrink-0 truncate text-body text-ink">
+              <span className="shrink-0 text-label text-faint sm:w-36">{dateTime(e.created_at)}</span>
+              <span className="min-w-0 flex-1 truncate text-body text-ink sm:w-32 sm:flex-none sm:shrink-0">
                 {e.actor_name ?? '(unknown)'}
               </span>
               <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-faint">{e.source}</span>
-              <span className="min-w-0 flex-1 truncate text-body text-ink-secondary" title={e.record_id ?? undefined}>
+              <span
+                className={`min-w-0 basis-full text-body text-ink-secondary sm:basis-0 sm:flex-1 ${structural ? 'break-words' : 'truncate'}`}
+                title={e.record_id ?? undefined}
+              >
                 {structural ? (
                   <>
                     {structural.verb} the {structural.noun}{' '}
