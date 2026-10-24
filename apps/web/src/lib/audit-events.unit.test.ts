@@ -10,7 +10,8 @@ describe('structural audit events read as sentences (#1059)', () => {
     expect(describeStructuralEvent('database.deleted', obj('database', 'Leads'))).toMatchObject({ verb: 'deleted', noun: 'database', name: 'Leads' });
     expect(describeStructuralEvent('space.restored', obj('space', 'Client Work'))).toMatchObject({ verb: 'restored', noun: 'space' });
     expect(describeStructuralEvent('view.restricted', obj('view', 'Board'))).toMatchObject({ verb: 'restricted', noun: 'view' });
-    expect(describeStructuralEvent('database.unrestricted', obj('database', 'Leads'))).toMatchObject({ verb: 'opened to everyone' });
+    expect(describeStructuralEvent('database.unrestricted', obj('database', 'Leads'))).toMatchObject({ verb: 'opened', suffix: ' to everyone' });
+    expect(describeStructuralEvent('database.deleted', obj('database', 'Leads'))!.suffix).toBe('');
   });
 
   it('a space delete names the databases that went with it', () => {

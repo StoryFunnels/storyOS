@@ -26,9 +26,11 @@ export interface StructuralEvent {
   kind: Kind;
   action: Action;
   name: string;
-  /** The sentence after the actor: "deleted the database", then the name is drawn bold by the caller. */
+  /** The sentence after the actor: `<verb> the <noun> <name><suffix>`, the name drawn bold by the caller. */
   verb: string;
   noun: string;
+  /** Only "opened … to everyone" reads on after the name. */
+  suffix: string;
   /** A fact the event carries about what else changed, or where the object lived. */
   detail: string | null;
 }
@@ -41,7 +43,7 @@ const VERBS: Record<Action, string> = {
   restored: 'restored',
   purged: 'purged',
   restricted: 'restricted',
-  unrestricted: 'opened to everyone',
+  unrestricted: 'opened',
 };
 
 /** The structural event behind an audit entry, or null for anything else (a record event, a field change, an unknown type). */
@@ -64,5 +66,5 @@ export function describeStructuralEvent(type: string | undefined, payload: unkno
     if (typeof p.database_name === 'string') detail = `in the database ${p.database_name}`;
     else if (typeof p.space_name === 'string') detail = `in the space ${p.space_name}`;
   }
-  return { kind, action, name, verb: VERBS[action], noun: kind, detail };
+  return { kind, action, name, verb: VERBS[action], noun: kind, suffix: action === 'unrestricted' ? ' to everyone' : '', detail };
 }

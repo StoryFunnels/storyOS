@@ -171,6 +171,7 @@ export default function AuditLogPage() {
             return (
             <div
               key={e.id}
+              data-testid="audit-row"
               className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0"
             >
               <span className="w-36 shrink-0 text-label text-faint">{dateTime(e.created_at)}</span>
@@ -183,6 +184,7 @@ export default function AuditLogPage() {
                   <>
                     {structural.verb} the {structural.noun}{' '}
                     <span className="font-medium text-ink">{structural.name}</span>
+                    {structural.suffix}
                     {structural.detail && <span className="text-muted"> · {structural.detail}</span>}
                   </>
                 ) : e.kind === 'event' ? (
