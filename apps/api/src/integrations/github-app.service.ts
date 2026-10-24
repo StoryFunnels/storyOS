@@ -49,6 +49,8 @@ interface CachedToken {
 interface StatePayload {
   /** Workspace the admin started the connect from. */
   ws: string;
+  /** #1037 — the person who started it. The callback only completes for THEIR session. */
+  u?: string;
   /** Random nonce — makes each state single-use-ish and unguessable. */
   n: string;
   /** Issued-at, epoch ms. */
@@ -305,14 +307,14 @@ export class GithubAppService {
    * so this signature — not any request-supplied ws id — is what proves the
    * workspace the admin actually started from (CSRF).
    */
-  signState(workspaceId: string): string {
-    const payload: StatePayload = { ws: workspaceId, n: randomBytes(9).toString('base64url'), t: this.now() };
+  signState(workspaceId: string, userId?: string): string {
+    const payload: StatePayload = { ws: workspaceId, ...(userId ? { u: userId } : {}), n: randomBytes(9).toString('base64url'), t: this.now() };
     const data = base64url(JSON.stringify(payload));
     return `${data}.${this.stateHmac(data)}`;
   }
 
-  /** Verify a returned `state`; returns the bound workspace id, or null. */
-  verifyState(state: string | undefined): { workspaceId: string } | null {
+  /** Verify a returned `state`; returns the bound workspace and starter, or null. */
+  verifyState(state: string | undefined): { workspaceId: string; userId?: string; nonce: string; expiresAt: number } | null {
     if (!state) return null;
     const dot = state.lastIndexOf('.');
     if (dot <= 0) return null;
@@ -326,7 +328,7 @@ export class GithubAppService {
       const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8')) as StatePayload;
       if (!payload.ws || typeof payload.t !== 'number') return null;
       if (this.now() - payload.t > STATE_MAX_AGE_MS) return null;
-      return { workspaceId: payload.ws };
+      return { workspaceId: payload.ws, userId: payload.u, nonce: payload.n, expiresAt: payload.t + STATE_MAX_AGE_MS };
     } catch {
       return null;
     }
@@ -384,10 +386,17 @@ export class GithubAppService {
    * null if the user authorized but has not installed the App on any account yet.
    */
   async resolveInstallationFromCode(code: string): Promise<number | null> {
+    return (await this.installationsForCode(code))[0] ?? null;
+  }
+
+  /**
+   * #1037 — every installation of this App the person who authorized with `code` can actually reach (`[]` when the code does not
+   * exchange). This list, and nothing a URL says, is what an installation id must be found in before it is linked to a workspace.
+   */
+  async installationsForCode(code: string): Promise<number[]> {
     const token = await this.exchangeCodeForToken(code);
-    if (!token) return null;
-    const ids = await this.listUserInstallations(token);
-    return ids[0] ?? null;
+    if (!token) return [];
+    return this.listUserInstallations(token);
   }
 
   private jwtHeaders(jwt: string): Record<string, string> {

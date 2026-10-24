@@ -2419,7 +2419,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GitHub App OAuth callback — verifies state, captures installation id */
+        /** GitHub App OAuth callback — verifies state and the signed-in person, resolves the installation from the OAuth code */
         get: operations["GithubOAuthController_callback"];
         put?: never;
         post?: never;
