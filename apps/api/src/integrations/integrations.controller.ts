@@ -14,6 +14,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { slackWebhookUrlProblem } from './slack.service';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
@@ -167,7 +168,8 @@ class SlackConfigDto extends createZodDto(
   z.object({
     bot_token: z.string().min(1).max(255).optional(),
     default_channel: z.string().min(1).max(200).optional(),
-    webhook_url: z.string().url().max(500).optional(),
+    // #1034: https + a public host; the same rule is re-checked at save and at send (SlackService.slackWebhookUrlProblem)
+    webhook_url: z.string().url().max(500).refine((u) => slackWebhookUrlProblem(u) === null, { message: 'must be an https URL on a public host, with no credentials' }).optional(),
   }),
 ) {}
 

@@ -1494,6 +1494,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attach a file the server fetches from a public URL (guarded: no private/metadata addresses, redirects re-checked, size-capped). `?field=<id>` as for upload */
+        post: operations["AttachmentsController_fromUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
         parameters: {
             query?: never;
@@ -5307,6 +5324,12 @@ export interface components {
             list: "dismissed_workspaces" | "views_only_workspaces";
             add?: string[];
             remove?: string[];
+        };
+        AttachFromUrlDto: {
+            /** Format: uri */
+            url: string;
+            filename?: string;
+            mime?: string;
         };
         CreateRelationDto: {
             /** Format: uuid */
@@ -9254,6 +9277,32 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AttachmentsController_fromUrl: {
+        parameters: {
+            query: {
+                field: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachFromUrlDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {
