@@ -47,5 +47,5 @@ The service reads:
 | `STORYOS_URL` | Where the MCP server calls the API (defaults to the internal `api` service). |
 | `PORT` | Listen port (`3002`). |
 
-For a one-click connector experience (no pasted token), enable the
+For a connector experience with no pasted token (sign in, then Allow), enable the
 [OAuth connector](/mcp/oauth/).

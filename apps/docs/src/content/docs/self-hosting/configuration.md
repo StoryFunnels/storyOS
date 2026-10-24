@@ -76,7 +76,7 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register the redirect URI
 
 ## MCP OAuth (optional)
 
-To let cloud clients connect the [hosted MCP endpoint](/mcp/hosted/) with a one-click
+To let cloud clients connect the [hosted MCP endpoint](/mcp/hosted/) with a sign-in and an Allow page
 [OAuth connector](/mcp/oauth/) instead of pasting a token, enable the OAuth authorization server:
 
 | Variable          | Where         | Notes                                                                                   |
