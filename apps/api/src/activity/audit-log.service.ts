@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, inArray, lte } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import type { ChangeSource } from '../db/schema';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -13,15 +13,10 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } 
  * record-level create/update/delete/restore is already captured; this makes
  * it visible workspace-wide instead of per-record, admin-only, filterable.
  *
- * KNOWN, STATED GAP (per this ticket's own AC #2): structural deletions of a
- * database, view or space are NOT emitted to activity_events today — none of
- * DatabasesService.remove()/SpacesService.remove()/ViewsService.remove() even
- * take an actorId parameter yet. That is a real, separate piece of work (at
- * minimum: thread actorId through all three, decide whether a space-cascaded
- * database deletion gets its own row) — flagged here rather than built
- * silently into this PR's scope or silently ignored. "Who deleted this
- * database" is NOT answerable from this endpoint yet; "who changed or
- * deleted this RECORD" is.
+ * #1059 closed the gap this comment used to state: a space, database or view deleted, restored, restricted or unrestricted is now an
+ * `activity_events` row too (`activity/structural-events.ts`, `record_id` null, the object in `payload.object`), read by the same
+ * query. What is still NOT here: a PERMANENT purge (none exists; everything is a soft delete, #453) and anything in a PERSONAL space or
+ * a personal view, which are private from admins and so never in a workspace-wide log.
  */
 @Injectable()
 export class AuditLogService {
@@ -32,7 +27,7 @@ export class AuditLogService {
 
   async list(
     workspaceId: string,
-    filter: { actor?: string; entity?: string; source?: ChangeSource[]; from?: string; to?: string; limit?: number; cursor?: string },
+    filter: { actor?: string; entity?: string; type?: string[]; source?: ChangeSource[]; from?: string; to?: string; limit?: number; cursor?: string },
   ) {
     const limit = filter.limit ?? 50;
     const to = filter.to ? new Date(filter.to) : new Date();
@@ -57,8 +52,15 @@ export class AuditLogService {
       changeConditions.push(inArray(recordFieldChanges.source, filter.source));
     }
     if (filter.entity) {
-      eventConditions.push(eq(activityEvents.recordId, filter.entity));
+      // #1059 — an entity is a RECORD, or a space/database/view named in a structural event's payload.
+      eventConditions.push(or(eq(activityEvents.recordId, filter.entity), sql`${activityEvents.payload} -> 'object' ->> 'id' = ${filter.entity}`)!);
       changeConditions.push(eq(recordFieldChanges.recordId, filter.entity));
+    }
+    if (filter.type?.length) {
+      // #1059 — narrow to event types (`database.deleted`, `space.restricted`, `record.deleted`...). A field change is not an event
+      // type of its own, so a type filter leaves them out.
+      eventConditions.push(inArray(activityEvents.type, filter.type));
+      changeConditions.push(sql`false`);
     }
     // #851 — a (created_at, id) tuple, NOT created_at alone: rows of one transaction share it.
     // One cursor serves both tables: it is only a (timestamp, uuid) constant to compare against,
@@ -113,6 +115,8 @@ export class AuditLogService {
         kind: 'event' as const,
         id: e.id,
         record_id: e.recordId,
+        // #1059 — for a structural event (space/database/view deleted, restored, restricted): what it happened to. null for a record event.
+        object: (e.payload as { object?: { kind: string; id: string; name: string } } | null)?.object ?? null,
         type: e.type,
         actor_id: e.actorId,
         actor_name: actorName(e.actorId),

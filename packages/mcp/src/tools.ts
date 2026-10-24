@@ -7091,11 +7091,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Workspace-wide audit log',
       description:
-        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). KNOWN GAP: structural deletions of a database, view or space are NOT captured here yet — only record-level create/update/delete/restore. Read-only.',
+        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). #1059 — also records structural events on a space, database or view: deleted, restored, restricted, unrestricted (type e.g. "database.deleted"; rows carry `object` {kind,id,name}). Deleting a space names the databases that went with it. Personal-space content is private and never appears. There is no purge — deletion is soft and restorable. Read-only.',
       inputSchema: {
         workspace: z.string(),
         actor: z.string().optional().describe('Narrow to one user id (from list_members).'),
-        entity: z.string().optional().describe('Narrow to one record id.'),
+        entity: z.string().optional().describe('Narrow to one record, space, database or view id.'),
+        type: z.string().optional().describe('#1059 — narrow to event types, comma-separated, e.g. "space.deleted,database.deleted,view.deleted,database.restricted". Omit for everything.'),
         from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
         to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
         source: z
@@ -7104,12 +7105,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('#934 — narrow to actions by these kinds of actor, comma-separated: human, agent, automation, mcp (e.g. "agent,mcp" for what agents did). Each event row also carries credential_id (which token did it) and agent_id/agent_name.'),
       },
     },
-    handle<{ workspace: string; actor?: string; entity?: string; source?: string; from?: string; to?: string }>(
-      async ({ workspace, actor, entity, source, from, to }) => {
+    handle<{ workspace: string; actor?: string; entity?: string; type?: string; source?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, type, source, from, to }) => {
         const ws = await resolveWorkspace(client, workspace);
         const query: Record<string, string> = {};
         if (actor) query.actor = actor;
         if (entity) query.entity = entity;
+        if (type) query.type = type;
         if (source) query.source = source;
         if (from) query.from = from;
         if (to) query.to = to;

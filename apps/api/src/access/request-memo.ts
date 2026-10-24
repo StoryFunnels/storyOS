@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { runWithCredential } from '../common/credential-context';
+import type { RequestActor } from '../common/credential-context';
 
 /**
  * #861 — a memo whose lifetime IS one HTTP request, and nothing wider.
@@ -49,13 +50,24 @@ export function forgetForRequest(prefix: string): void {
 export class RequestMemoInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // #882 — interceptors run AFTER the guards, so the auth guard has already set `auth.tokenId` (PATs only).
-    const tokenId = (context.switchToHttp().getRequest<{ auth?: { tokenId?: string } }>()?.auth?.tokenId) ?? null;
+    const request = context.switchToHttp().getRequest<{
+      auth?: { tokenId?: string; source?: RequestActor['source']; agentId?: string; agentName?: string };
+      user?: { id?: string };
+    }>();
+    const tokenId = request?.auth?.tokenId ?? null;
+    // #1059 — who is acting, for audit events written below the controller (see RequestActor).
+    const actor: RequestActor | null = request?.user?.id
+      ? { userId: request.user.id, source: request.auth?.source ?? null, agentId: request.auth?.agentId ?? null, agentName: request.auth?.agentName ?? null }
+      : null;
     return new Observable((subscriber) =>
-      runWithCredential(tokenId, () =>
-        store.run(new Map(), () => {
-          const subscription = next.handle().subscribe(subscriber);
-          return () => subscription.unsubscribe();
-        }),
+      runWithCredential(
+        tokenId,
+        () =>
+          store.run(new Map(), () => {
+            const subscription = next.handle().subscribe(subscriber);
+            return () => subscription.unsubscribe();
+          }),
+        actor,
       ),
     );
   }
