@@ -31,16 +31,14 @@ export class CalendarSyncController {
   // #939 — an integration setting, like the write routes below. These two reads had no role gate, so a guest could list which
   // databases are synced to which calendar, and make the server call Google with the connection's stored token.
   @Get('calendars')
-  @MinRole('admin')
-  @RequiresScope('read')
+  @MinRole('admin') // #1049: an admin-role route needs an admin-scoped token, GET included (no explicit 'read' override)
   @ApiOperation({ summary: 'List writable calendars for a Calendar connection' })
   calendars(@Req() req: WorkspaceRequest, @Query('connection_id') connectionId: string) {
     return this.calendar.listCalendars(req.membership.workspaceId, connectionId);
   }
 
   @Get('bindings')
-  @MinRole('admin')
-  @RequiresScope('read')
+  @MinRole('admin') // #1049: as above
   @ApiOperation({ summary: 'List database-to-calendar sync bindings' })
   bindings(@Req() req: WorkspaceRequest) {
     return this.calendar.listBindings(req.membership.workspaceId);

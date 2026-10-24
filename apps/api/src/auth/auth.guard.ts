@@ -18,8 +18,24 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
-import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
+import { RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
+import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+
+/**
+ * The scope a token needs for a route. An explicit `@RequiresScope` wins. Otherwise a route that needs the ADMIN ROLE
+ * (`@MinRole('admin')`, on the handler or the controller) needs an ADMIN-scoped token for every method, GET included (#1049):
+ * the role check only asks whether the token's OWNER is an admin, so before this a "write, no schema changes" token of an
+ * admin could invite an attacker as admin, add grants or create an exfiltrating webhook, and a READ token of an admin could
+ * read the audit log. Everything else: GET reads, other methods write. Exported so a test can enumerate every route.
+ */
+export type ReflectTargets = Parameters<Reflector['getAllAndOverride']>[1];
+export function requiredTokenScope(reflector: Reflector, targets: ReflectTargets, method: string): TokenScope {
+  const explicit = reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, targets);
+  if (explicit) return explicit;
+  if (reflector.getAllAndOverride<string>(MIN_ROLE_KEY, targets) === 'admin') return 'admin';
+  return method === 'GET' ? 'read' : 'write';
+}
 
 export interface AuthedUser {
   id: string;
@@ -107,11 +123,11 @@ export class AuthGuard implements CanActivate {
     },
   ): void {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    const explicit = this.reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    const required: TokenScope = explicit ?? (request.method === 'GET' ? 'read' : 'write');
+    // #1049 — account-level routes with no :ws (create a workspace, accept an invite, edit the profile) are a person's alone.
+    if (this.reflector.getAllAndOverride<boolean>(SESSION_ONLY_KEY, [context.getHandler(), context.getClass()])) {
+      throw new ForbiddenException('This needs a signed-in session: an API token or an AI connection cannot do it.');
+    }
+    const required = requiredTokenScope(this.reflector, [context.getHandler(), context.getClass()], request.method);
     if (!scopeSatisfies(resolved.scope, required)) {
       throw new ForbiddenException(
         `This token is ${resolved.scope}-scoped; ${required} access is required here.`,
