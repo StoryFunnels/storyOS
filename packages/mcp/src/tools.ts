@@ -6123,7 +6123,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its Agents / Runs / Agent Triggers databases. Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6167,7 +6167,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set up the agent engine',
       description:
-        'Provision the Agentic OS space and its three databases (Agents, Runs, Agent Triggers). Idempotent — safe to call when it already exists, which is why get_agents and this can be used together without a check-then-act race. After this, create an agent with create_record against the Agents database.',
+        'Provision the Agentic OS space and its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs) and Triggers (agentic_os/agent_triggers). Idempotent — safe to call when it already exists, which is why get_agents and this can be used together without a check-then-act race. After this, create an agent with create_record against the Agents database.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {

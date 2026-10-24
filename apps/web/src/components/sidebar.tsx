@@ -27,6 +27,7 @@ import { useViewsOnlyMode } from '@/lib/views-only-mode';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { AccountMenu as AvatarMenu } from '@/components/account-menu';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
+import { agentSystemKey, isSystemOnlySpace } from '@/lib/system-databases';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
@@ -1119,7 +1120,7 @@ type DialogState =
 function SpaceSection({
   ws,
   space,
-  databases,
+  databases: allSpaceDatabases,
   canEdit,
   isAdmin,
   groups,
@@ -1142,6 +1143,9 @@ function SpaceSection({
    * inside a group (stacks right below that group's own sticky band). */
   stickyTop?: number;
 }) {
+  // #1058 — the Agentic OS system databases (Agents, Agent runs, Triggers) are reached from the AI section, not listed here.
+  // Nothing is deleted or moved: their URLs, views and MCP refs all still resolve.
+  const databases = allSpaceDatabases.filter((d) => agentSystemKey(d) === null);
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
   const pathname = usePathname();
@@ -1686,6 +1690,25 @@ function SpaceSection({
     (docs.data ?? []).find((doc) => doc.id === id)?.title ??
     folders.find((f) => f.id === id)?.name;
   const itemDrag = useDragPresentation(itemLabel, { onDragEnd: onSpaceDragEnd });
+
+  // #1058 — a space that holds only the system databases leaves the list; one a person also put their own database,
+  // document, folder or view in stays (showing only those). Hidden until its contents have loaded, so it never flashes in.
+  // The views of the hidden system databases themselves are not "something else in the space".
+  const hiddenDbIds = new Set(allSpaceDatabases.filter((d) => agentSystemKey(d) !== null).map((d) => d.id));
+  const extrasLoaded = docs.isSuccess && foldersQuery.isSuccess && viewsQuery.isSuccess;
+  if (
+    isSystemOnlySpace(
+      allSpaceDatabases,
+      extrasLoaded
+        ? {
+            documents: docs.data.length,
+            folders: folders.length,
+            views: spaceViews.filter((v) => !(v.database_id && hiddenDbIds.has(v.database_id))).length,
+          }
+        : undefined,
+    )
+  )
+    return null;
 
   return (
     <div className="mb-1">
