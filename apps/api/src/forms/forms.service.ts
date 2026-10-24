@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { safeHttpUrl } from '@storyos/schemas';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   isFormFieldVisible,
@@ -90,7 +91,7 @@ export class FormsService {
     const [view] = await this.db
       .select()
       .from(views)
-      .where(sql`${views.config} -> 'form' ->> 'public_token' = ${token}`)
+      .where(and(sql`${views.config} -> 'form' ->> 'public_token' = ${token}`, isNull(views.deletedAt))) // #1041: a deleted view's link is dead
       .limit(1);
     if (!view) throw new NotFoundException('Form not found');
     const form = ((view.config as Record<string, unknown>).form ?? {}) as {
@@ -295,7 +296,8 @@ export class FormsService {
       description: form.description ?? null,
       submit_text: form.submit_text || 'Submit',
       success_message: form.success_message ?? null,
-      redirect_url: form.redirect_url ?? null,
+      // Ticket #1032: a value stored before the schema refused non-http(s) must never be handed to a visitor's browser.
+      redirect_url: safeHttpUrl(form.redirect_url),
       hide_branding: hideBranding,
       // #711 phase 1 — how an EMBEDDED form should look on the host's page.
       // Served to an unauthenticated visitor because it IS the presentation of

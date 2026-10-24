@@ -19,6 +19,7 @@ import type { Auth } from '../auth/auth';
 import { toWebHeaders } from '../auth/auth.guard';
 import { TokensService } from '../tokens/tokens.service';
 import { mintDownloadUrl, verifyDownloadSignature } from './signed-download';
+import { SAFE_IMAGE_MIMES, sniffImageMime } from './image-sniff';
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — editor images, not bulk file storage
 
@@ -44,11 +45,17 @@ export class FilesService {
   ) {}
 
   async upload(workspaceId: string, input: { filename: string; mime: string; data: Buffer }, actorId: string) {
-    if (!input.mime.startsWith('image/')) {
-      throw new UnprocessableEntityException('Only images can be embedded in the editor.');
-    }
     if (input.data.length > MAX_BYTES) {
       throw new UnprocessableEntityException(`Image too large (${input.data.length} bytes; limit ${MAX_BYTES}).`);
+    }
+    // #1031 — the BYTES decide, not the claimed type: SVG (script-capable) and anything else is refused, and a claimed
+    // type that disagrees with the bytes is refused rather than "corrected".
+    const real = sniffImageMime(input.data);
+    if (!real) {
+      throw new UnprocessableEntityException(`Only ${SAFE_IMAGE_MIMES.join(', ')} images can be embedded in the editor.`);
+    }
+    if (input.mime !== real) {
+      throw new UnprocessableEntityException(`The file is ${real} but was sent as ${input.mime || 'no type'}.`);
     }
     const key = `editor/${workspaceId}/${randomUUID()}`;
     await getStorage().put(key, input.data, input.mime);

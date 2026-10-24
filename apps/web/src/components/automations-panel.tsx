@@ -1052,11 +1052,16 @@ function RuleEditor({
             onChange={setActions}
             restrictToWebhookSafe={isWebhookTrigger}
             ruleId={rule?.id}
+            trigger={{ type: triggerType, hasFilter: Boolean(conditionField) }}
           />
         )}
       </div>
 
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {/* Ticket #1056 — a "Run an agent" step with no agent chosen cannot be saved; say why instead of greying the button. */}
+        {actions.some((a) => a.type === 'run_agent' && !(a as { agent?: string }).agent) && (
+          <span className="mr-auto text-label text-muted">Choose the agent to run.</span>
+        )}
         <Button variant="secondary" size="sm" onClick={() => onDone()}>
           Cancel
         </Button>
@@ -1066,6 +1071,7 @@ function RuleEditor({
             busy ||
             !name.trim() ||
             actions.length === 0 ||
+            actions.some((a) => a.type === 'run_agent' && !(a as { agent?: string }).agent) ||
             (triggerType === 'record_linked' && !relationFieldId)
           }
           onClick={save}

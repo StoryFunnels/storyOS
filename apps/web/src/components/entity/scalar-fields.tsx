@@ -1,5 +1,6 @@
 'use client';
 
+import { STRIP_PILL } from './strip-chip';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -137,9 +138,10 @@ export function ScalarValue({ field, cell, strip, record, ws, db, rec, members, 
             key={chip.id}
             className={cn(
               'group/chip inline-flex max-w-full items-center gap-1 text-label text-ink',
-              // #1019 — the prototype's `.chip`: 26px, pill radius, hairline border, card fill.
+              // #1060 — in the strip a relation wears the SAME pill as every other value (entity/strip-chip.ts), in a neutral
+              // tint with the target database's glyph; the bordered pill with a dot is gone.
               strip
-                ? 'h-[26px] rounded-full border border-border-default bg-card px-2.5 hover:border-border-strong'
+                ? cn(STRIP_PILL, 'bg-hover pr-1 text-ink-secondary hover:bg-active')
                 : 'rounded border border-border-default bg-hover px-1.5 py-0.5 hover:border-border-strong',
             )}
           >
@@ -268,7 +270,7 @@ export function ScalarValue({ field, cell, strip, record, ws, db, rec, members, 
     );
   }
   // #811 — no type badge: see computedBadgeLabel. The control labels itself.
-  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
+  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} strip={strip} />;
   if (editing) {
     // relative anchor so absolute-positioned option lists / pickers drop under the field
     return (

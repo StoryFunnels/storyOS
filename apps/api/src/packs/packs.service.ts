@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { stripPublicSharing } from '../views/view-sharing';
 import { createHash } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
@@ -906,8 +907,9 @@ export class PacksService {
         database: db.name,
         name: view.name,
         type: view.type as 'table',
+        // #1041 — a pack is a template, not a published form: no token, no published-view block travels with it.
         config: refify(
-          view.config ?? {},
+          stripPublicSharing((view.config ?? {}) as Record<string, unknown>),
           idToRef,
           `The view "${db.name}.${view.name}"`,
         ) as Record<string, unknown>,
@@ -2099,7 +2101,8 @@ export class PacksService {
 
       // THE rewrite. Without it a view installs carrying the *source*
       // workspace's field ids: it validates, it saves, and it groups by nothing.
-      const config = deref(planned.config, refToId, `The view "${label}"`);
+      // #1041 — a manifest in the wild may carry a token from before export stripped them: it is never installed.
+      const config = stripPublicSharing(deref(planned.config, refToId, `The view "${label}"`) as Record<string, unknown>);
       // Through the ordinary validated create, so a pack cannot install a view a
       // person could not — `ViewsService.create` re-checks the config against
       // this database's live fields, which is also what catches a manifest whose

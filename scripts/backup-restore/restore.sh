@@ -88,12 +88,28 @@ fi
 log "bringing up isolated postgres (project '$RESTORE_PROJECT')"
 dc up -d "$PG_SERVICE"
 
-log "waiting for postgres to be ready"
-for _ in $(seq 1 30); do
-  if dc exec -T "$PG_SERVICE" pg_isready -U "$PG_USER" >/dev/null 2>&1; then break; fi
+# #1061 — a FRESH container runs initdb, then the image's entrypoint starts a throwaway server that listens on the
+# unix socket only, then restarts as the real server. Two things went wrong with a flat 30 x 1s poll of `pg_isready`:
+# a cold start next to the CI shards and image builds can take longer than 30s, and the socket-only server answers
+# pg_isready and then goes away under pg_restore. So: poll over TCP (the throwaway server does not listen on it),
+# require two answers in a row, and give it a bounded, configurable deadline.
+PG_READY_TIMEOUT="${PG_READY_TIMEOUT:-120}"
+log "waiting for postgres to be ready (up to ${PG_READY_TIMEOUT}s)"
+ready=0
+deadline=$(( $(date +%s) + PG_READY_TIMEOUT ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if dc exec -T "$PG_SERVICE" pg_isready -h 127.0.0.1 -U "$PG_USER" >/dev/null 2>&1; then
+    ready=$((ready + 1))
+    [ "$ready" -ge 2 ] && break
+  else
+    ready=0
+  fi
   sleep 1
 done
-dc exec -T "$PG_SERVICE" pg_isready -U "$PG_USER" >/dev/null 2>&1 || die "postgres did not become ready"
+if [ "$ready" -lt 2 ]; then
+  dc logs --tail 20 "$PG_SERVICE" >&2 || true
+  die "postgres did not become ready within ${PG_READY_TIMEOUT}s (last output above): the restore did not start, the backup was not tested"
+fi
 
 log "rebuilding database '$PG_DB' from db.dump"
 # --clean --if-exists so a re-run is idempotent; -Fc dump restored with pg_restore.

@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { STRIP_PERSON, STRIP_PILL, useStripChip } from '@/components/entity/strip-chip';
 import { useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -190,11 +192,13 @@ export function OptionIcon({ icon }: { icon?: string | null }) {
 
 export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
+  // Ticket #1060 — in the record header strip every value wears the strip's one pill (entity/strip-chip.ts).
+  const strip = useStripChip();
   return (
     <span
       /* #533 — the shape, type step and weight come from the shared chip
          primitive; `option-tint` and `max-w-full` are this surface's own. */
-      className={cn(chipVariants({ variant: 'value' }), 'option-tint max-w-full')}
+      className={cn(strip ? STRIP_PILL : chipVariants({ variant: 'value' }), 'option-tint max-w-full')}
       style={{ backgroundColor: `${color}22`, ['--option-color' as string]: color } as CSSProperties}
     >
       <OptionIcon icon={option.icon} />
@@ -361,6 +365,7 @@ export function AttachmentChips({ value, wrap }: { value: unknown; wrap?: boolea
 
 export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiState, ws }: DisplayProps) {
   const fmt = useDateFormat();
+  const strip = useStripChip();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
   // #620 — ahead of the empty-cell shortcut: a failed or computing field with no value yet must still say so.
@@ -481,8 +486,8 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
       return (
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           {ids.map((id) => (
-            <span key={id} className="flex min-w-0 items-center gap-1 text-body">
-              <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
+            <span key={id} className={cn('flex min-w-0 items-center gap-1', strip ? STRIP_PERSON : 'text-body')}>
+              <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={strip ? 18 : 16} />
               <span className="truncate">{memberNames.get(id) ?? '(unknown)'}</span>
             </span>
           ))}
@@ -1265,6 +1270,7 @@ export function PressButton({
   field,
   disabled,
   onPressed,
+  strip,
 }: {
   ws: string;
   db: string;
@@ -1272,6 +1278,8 @@ export function PressButton({
   field: Field;
   disabled?: boolean;
   onPressed?: () => void;
+  /** Ticket #1060 — in the record header strip an action is the app's secondary button, never a tinted chip like a value. */
+  strip?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
@@ -1308,6 +1316,23 @@ export function PressButton({
     void qc.invalidateQueries({ queryKey: ['collection', ws] });
     void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
     onPressed?.();
+  }
+
+  if (strip) {
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        // 27px, a strong border and no fill (the prototype's `.btn`): a control, so it cannot be mistaken for a value pill.
+        className="h-[27px] shrink-0 whitespace-normal border-border-strong bg-transparent px-[11px] text-label leading-[normal]"
+        title={disabled ? 'Requires editor access' : undefined}
+        onClick={press}
+        disabled={disabled || busy}
+        data-strip-action
+      >
+        {busy ? '…' : field.displayName}
+      </Button>
+    );
   }
 
   return (

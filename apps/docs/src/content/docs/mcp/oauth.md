@@ -35,6 +35,26 @@ a person's.
   [token](/api/authentication/) can be capped at read, write or admin power and bound to specific
   spaces or databases. That is for delegating to a script or a tool, not for your own AI.
 
+## Connect any other client
+
+Claude and ChatGPT have step-by-step guides on **Settings → Connect your AI**. For any other app or
+command-line tool that can connect to a **remote MCP server**, pick **Other** on that page. It shows
+the same three things every client needs:
+
+1. **Add a remote MCP server** in your client (it may call it a connector, a custom connector or an
+   MCP server). It must support remote servers over streamable HTTP; a tool that can only run a
+   local command cannot use the address.
+2. **Name** it `StoryOS`, and paste the server **address** (`https://mcp.storyos.dev/mcp` on the cloud
+   instance, or your own).
+3. **Sign in with OAuth** (recommended). StoryOS opens a page asking you to allow the connection:
+   choose the **one workspace** it may reach and whether it can **read only** or **read and write**,
+   then click **Allow**. If your client cannot open a sign-in page, use a
+   [personal access token](/api/authentication/) instead, from **Settings → API tokens** (shown once),
+   sent as `Authorization: Bearer …`. Never paste a token into a sign-in page.
+
+A client that signs in through your browser may use a loopback address (`http://127.0.0.1:<port>`) or
+its own app scheme as its redirect; StoryOS checks it against what the client registered.
+
 ## Enable it (self-host)
 
 OAuth is off unless you turn it on. It requires the OIDC tables to be migrated, then set these

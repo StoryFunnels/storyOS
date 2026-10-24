@@ -109,6 +109,69 @@ export function gridFieldsExcludingStrip<T extends { id: string }>(
  *   - `buttons`: action fields (Mark as Done). An action is a button, not a property chip, so it is kept apart
  *     and drawn as one.
  */
+/**
+ * Ticket #1060 — a field's value as the plain text a tooltip or screen reader says ("Low", "Illia", "StoryOS-security"), for the
+ * strip's "Priority: Low". Never invents: a value this cannot read as words returns null and the name alone is used.
+ */
+export function plainValue(
+  field: Field,
+  value: unknown,
+  names: ReadonlyMap<string, string>,
+): string | null {
+  if (isEmptyValue(value)) return null;
+  const optionLabel = (id: unknown) => field.options?.find((o) => o.id === id)?.label;
+  switch (field.type) {
+    case 'select':
+    case 'workflow':
+      return optionLabel(value) ?? null;
+    case 'multi_select':
+      return Array.isArray(value) ? (value as unknown[]).map(optionLabel).filter(Boolean).join(', ') || null : null;
+    case 'user':
+    case 'created_by': {
+      const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
+      return ids.map((id) => names.get(id) ?? '').filter(Boolean).join(', ') || null;
+    }
+    case 'relation':
+      return Array.isArray(value)
+        ? (value as Array<{ title?: string | null }>).map((c) => c.title || 'Untitled').join(', ') || null
+        : null;
+    case 'checkbox':
+      return value === true ? 'Yes' : 'No';
+    case 'number':
+    case 'text':
+    case 'email':
+    case 'url':
+    case 'date':
+      return String(value);
+    default:
+      return null;
+  }
+}
+
+/** "Priority: Low", or just "Priority" when the value cannot be said in words. */
+export function fieldTitle(field: Field, value: unknown, names: ReadonlyMap<string, string>): string {
+  const said = plainValue(field, value, names);
+  return said ? `${field.displayName}: ${said}` : field.displayName;
+}
+
+/** Types a person can fill in from the strip. A computed, system or body-only field never is. */
+const NOT_ADDABLE = new Set(['title', 'id', 'created_at', 'updated_at', 'created_by', 'lookup', 'rollup', 'formula', 'button', 'rich_text', 'ai']);
+
+/**
+ * "+ Add property" lists the EMPTY strip-eligible fields that are not already drawn: the strip's own empty ones and any other empty
+ * field a person could fill in here. Nothing is offered that is computed, a system field, a body section or already shown.
+ */
+export function addableProperties(
+  candidates: Field[],
+  shown: Field[],
+  valueOf: (f: Field) => unknown,
+): Field[] {
+  const drawn = new Set(shown.map((f) => f.id));
+  return candidates.filter(
+    (f) => !drawn.has(f.id) && !NOT_ADDABLE.has(f.type) && canPinToStrip(f) && isEmptyValue(valueOf(f)),
+  );
+}
+
 export function partitionStrip(
   fields: Field[],
   valueOf: (f: Field) => unknown,

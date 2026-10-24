@@ -48,6 +48,10 @@ export function StoryOSToaster() {
       theme="light"
       toastOptions={{
         style: {
+          // #924 — a modal Dialog sets `body { pointer-events: none }`, and a toast is a sibling of the dialog's own branch, so
+          // while any dialog was open a toast could be seen and never clicked: its Undo went to the dialog's backdrop. A toast
+          // is always interactive.
+          pointerEvents: 'auto',
           borderRadius: 'var(--radius-card)',
           // Matches the app's elevated surfaces (dialogs, popovers) rather
           // than sonner's heavier default drop shadow. #661: that intent is now

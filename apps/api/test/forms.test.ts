@@ -5,6 +5,7 @@ import type { Db } from '../src/db/client';
 import { billingSubscriptions } from '../src/db/schema';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { liveFormUrl, trackFormToken } from './helpers/form-token';
 
 let app: NestFastifyApplication;
 let db: Db;
@@ -23,11 +24,13 @@ async function setPlan(plan: 'free' | 'pro' | 'business' | 'enterprise') {
 }
 
 async function as(method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  const res = await app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  trackFormToken(payload, res); // #1041: the server mints the token; learn it from the response
+  return res;
 }
 /** Unauthenticated request (no headers) — the public form path. */
 async function pub(method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, payload: payload as never });
+  return app.inject({ method: method as never, url: `/api/v1${liveFormUrl(url)}`, payload: payload as never });
 }
 
 async function makeForm(access: 'members' | 'link' | 'public', token_: string) {
@@ -368,25 +371,74 @@ describe('public forms (MN-101)', () => {
       expect(def.statusCode, 'a deliberate revoke must still take effect, not be overridden by the carve-out').toBe(404);
     });
 
-    it('a caller that DOES explicitly set a new token can regenerate the public link', async () => {
+    // #1041 — this used to assert the OPPOSITE ("a caller that sets a new token regenerates the link"). That behaviour was the
+    // vulnerability: the token is a credential, so the client choosing it let anyone register a token they had seen.
+    it('#1041: a client-supplied token is IGNORED — the link does not change; rotating is stop-sharing then share again', async () => {
       const view = await makeForm('public', 'tok-713-old');
-      const regen = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`, {
+      const url = `/workspaces/${wsId}/databases/${dbId}/views/${view.id}`;
+      const body = (access: string, tokenSent?: string) => ({
         config: {
           sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
-          form: {
-            title: 'Contact us',
-            access: 'public',
-            public_token: 'tok-713-new',
-            fields: [{ field_id: nameFieldId }],
-          },
+          form: { title: 'Contact us', access, ...(tokenSent ? { public_token: tokenSent } : {}), fields: [{ field_id: nameFieldId }] },
         },
       });
-      expect(regen.statusCode, regen.body).toBeLessThan(300);
+      const live = view.config.form.public_token as string;
 
-      const oldDef = await pub('GET', '/public/forms/tok-713-old');
-      expect(oldDef.statusCode, 'the OLD token must stop working once explicitly regenerated').toBe(404);
-      const newDef = await pub('GET', '/public/forms/tok-713-new');
-      expect(newDef.statusCode).toBe(200);
+      const kept = await as('PATCH', url, body('public', 'tok-713-new'));
+      expect(kept.statusCode).toBeLessThan(300);
+      expect(kept.json().config.form.public_token, 'the sent token changed nothing').toBe(live);
+      expect((await pub('GET', `/public/forms/${live}`)).statusCode).toBe(200);
+      expect((await pub('GET', '/public/forms/tok-713-new-never-minted')).statusCode, 'the sent value is not a live token').toBe(404);
+
+      expect((await as('PATCH', url, body('members'))).statusCode).toBeLessThan(300);
+      expect((await pub('GET', `/public/forms/${live}`)).statusCode, 'stopped: the link is dead').toBe(404);
+      const again = await as('PATCH', url, body('public'));
+      expect(again.statusCode).toBeLessThan(300);
+      const fresh = again.json().config.form.public_token as string;
+      expect(fresh, 'sharing again mints a NEW link').not.toBe(live);
+      expect((await pub('GET', `/public/forms/${live}`)).statusCode, 'the old link stays dead').toBe(404);
+      expect((await pub('GET', `/public/forms/${fresh}`)).statusCode).toBe(200);
     });
+  });
+});
+
+describe('ticket #1032 — a form redirect_url can never be a script (stored XSS on the app origin)', () => {
+  const attacks = ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'java\tscript:alert(1)', 'javascript://%0aalert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)'];
+  const config = (redirect_url: string, public_token: string) => ({
+    sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+    form: { title: 'Redirects', access: 'public', public_token, fields: [{ field_id: nameFieldId }], redirect_url },
+  });
+
+  it.each(attacks)('creating a form with redirect_url %j is refused, and nothing is stored', async (attack) => {
+    const res = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Attack', type: 'form', config: config(attack, 'tok-attack') });
+    expect(res.statusCode, res.body).toBe(422);
+    expect((await pub('GET', '/public/forms/tok-attack')).statusCode).toBe(404);
+  });
+
+  it.each(attacks)('changing an existing form to redirect_url %j is refused, and the good value stays', async (attack) => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: `Good ${attack.slice(0, 4)}`, type: 'form', config: config('https://example.com/thanks', `tok-good-${attacks.indexOf(attack)}`) });
+    expect(created.statusCode, created.body).toBe(201);
+    const res = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}`, { config: config(attack, `tok-good-${attacks.indexOf(attack)}`) });
+    expect(res.statusCode, res.body).toBe(422);
+    const def = (await pub('GET', `/public/forms/tok-good-${attacks.indexOf(attack)}`)).json();
+    expect(def.redirect_url).toBe('https://example.com/thanks');
+  });
+
+  it('a real https redirect still works and is served', async () => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Fine', type: 'form', config: config('https://example.com/thanks', 'tok-fine') });
+    expect(created.statusCode, created.body).toBe(201);
+    expect((await pub('GET', '/public/forms/tok-fine')).json().redirect_url).toBe('https://example.com/thanks');
+  });
+
+  it('a value stored BEFORE the rule (or written around the API) is never handed to a visitor: it reads back as no redirect', async () => {
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, { name: 'Legacy', type: 'form', config: config('https://example.com/thanks', 'tok-legacy') });
+    expect(created.statusCode, created.body).toBe(201);
+    // simulate an old row: write the hostile value straight into the stored config
+    const { views } = await import('../src/db/schema');
+    const { eq, sql } = await import('drizzle-orm');
+    await db.update(views).set({ config: sql`jsonb_set(${views.config}, '{form,redirect_url}', '"javascript:alert(document.domain)"')` }).where(eq(views.id, created.json().id));
+    const def = (await pub('GET', '/public/forms/tok-legacy')).json();
+    expect(def.redirect_url).toBeNull();
+    expect(JSON.stringify(def)).not.toContain('javascript:');
   });
 });

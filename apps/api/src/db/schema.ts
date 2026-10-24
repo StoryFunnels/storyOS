@@ -493,6 +493,17 @@ export const views = pgTable(
     index('views_space_idx').on(t.spaceId),
     index('views_folder_idx').on(t.folderId),
     /**
+     * #1041 — a public token resolves to exactly ONE view, ever. Both tokens used to be client-chosen, copied on duplicate
+     * and found by a `LIMIT 1` scan; two views holding one token made the public URL pick either. Deleted views stay in
+     * the index on purpose: a soft-deleted view's token must not be re-claimable until it is purged.
+     */
+    uniqueIndex('views_form_public_token_uq')
+      .on(sql`(${t.config} -> 'form' ->> 'public_token')`)
+      .where(sql`${t.config} -> 'form' ->> 'public_token' IS NOT NULL`),
+    uniqueIndex('views_share_public_token_uq')
+      .on(sql`(${t.config} -> 'share' ->> 'public_token')`)
+      .where(sql`${t.config} -> 'share' ->> 'public_token' IS NOT NULL`),
+    /**
      * #347 — a view has a database XOR a space, never both and never neither.
      *
      * XOR rather than "at least one" deliberately: a view with both has two

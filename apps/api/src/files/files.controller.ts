@@ -19,6 +19,21 @@ import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.gu
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import { FilesService } from './files.service';
+import { isSafeImageMime } from './image-sniff';
+
+/**
+ * #1031 — headers every file response carries. The app and the API share one origin, so anything a browser would EXECUTE
+ * from here runs as the viewer: nosniff stops type-guessing, the CSP sandbox stops script even if a type slips through,
+ * and a stored type outside the raster allowlist (an SVG uploaded before the allowlist existed) is never replayed: it is
+ * served as an opaque attachment.
+ */
+function applyFileHeaders(reply: FastifyReply, storedMime: string, filename?: string): void {
+  const safe = isSafeImageMime(storedMime);
+  reply.header('content-type', safe ? storedMime : 'application/octet-stream');
+  reply.header('x-content-type-options', 'nosniff');
+  reply.header('content-security-policy', "default-src 'none'; sandbox");
+  if (!safe) reply.header('content-disposition', `attachment; filename="${encodeURIComponent(filename ?? 'download')}"`);
+}
 
 /** Upload endpoint — workspace-scoped + auth'd (MN-097). */
 @ApiTags('files')
@@ -109,7 +124,7 @@ export class PublicFilesController {
   @ApiOperation({ summary: 'Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode)' })
   async serve(@Param('id') id: string, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
     const { stream, mime, cacheable } = await this.files.serveInline(id, req);
-    reply.header('content-type', mime);
+    applyFileHeaders(reply, mime);
     reply.header(
       'cache-control',
       cacheable ? 'public, max-age=31536000, immutable' : 'private, no-store',
@@ -136,7 +151,7 @@ export class FileDownloadController {
     @Res() reply: FastifyReply,
   ) {
     const { stream, mime, filename } = await this.files.streamForDownload(id, expires, sig);
-    reply.header('content-type', mime);
+    applyFileHeaders(reply, mime);
     reply.header('content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     // Short-TTL signed URL: never cache-immutable. no-store, not just no-cache —
     // this response is meaningfully different per signature/expiry pair and must

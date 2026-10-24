@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HTTP_URL_MESSAGE, isHttpUrl } from './safe-url';
 import { atLeastOneField } from './patch';
 import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
@@ -452,13 +453,15 @@ export const viewConfigSchema = z.object({
             }),
         )
         .default([]),
+      // #1041 — accepted for compatibility but IGNORED: the server mints the token (and drops it when access is `members`).
       public_token: z.string().max(64).optional(),
       /** Who may open/submit the form (MN-101). members = signed-in only;
        * link = anyone with the token; public = same, advertised as open. */
       access: z.enum(['members', 'link', 'public']).default('members'),
       /** Shown after a successful submit; optional redirect instead. */
       success_message: z.string().max(500).optional(),
-      redirect_url: z.string().url().max(500).optional(),
+      // Ticket #1032: http(s) ONLY. zod's `.url()` accepts `javascript:` and `data:`, and the public form page navigates here.
+      redirect_url: z.string().url().max(500).refine(isHttpUrl, { message: HTTP_URL_MESSAGE }).optional(),
       /**
        * #711 phase 1 — how an EMBEDDED form should look on the host's page.
        *

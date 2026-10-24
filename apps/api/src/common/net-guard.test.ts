@@ -1,11 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createServer } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const lookupMock = vi.fn();
 vi.mock('node:dns/promises', () => ({ lookup: (...args: unknown[]) => lookupMock(...args) }));
 
 import {
   assertPublicHost,
+  defaultWebhookFetcher,
   guardedFetch,
+  pinnedFetch,
   ipInCidr,
   isPrivateAddress,
   readBodyCapped,
@@ -46,7 +51,7 @@ describe('isPrivateAddress — every private/reserved range (MN-263)', () => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
 
-  it.each(['8.8.8.8', '1.1.1.1', '172.32.0.1', '172.15.255.255', '11.0.0.1', '2606:4700::1', '100.64.0.1'])(
+  it.each(['8.8.8.8', '1.1.1.1', '172.32.0.1', '172.15.255.255', '11.0.0.1', '2606:4700::1'])(
     'allows public address %s',
     (ip) => {
       expect(isPrivateAddress(ip)).toBe(false);
@@ -277,5 +282,126 @@ describe('readBodyCapped', () => {
     const { text, truncated } = await readBodyCapped(res, 8);
     expect(text).toBe('12345678');
     expect(truncated).toBe(true);
+  });
+});
+
+
+describe('#1036 the ranges that were missing', () => {
+  it.each([
+    ['100.64.0.1', 'CGNAT / Tailscale lower bound'], ['100.127.255.254', 'CGNAT upper bound'], ['198.18.0.1', 'benchmarking'], ['198.19.255.255', 'benchmarking upper'],
+    ['224.0.0.1', 'multicast'], ['239.255.255.250', 'multicast upper'], ['240.0.0.1', 'reserved'], ['255.255.255.255', 'broadcast'], ['192.0.0.1', 'IETF assignments'], ['192.0.2.1', 'documentation'],
+    ['64:ff9b::1', 'NAT64'], ['64:ff9b::7f00:1', 'NAT64 wrapping 127.0.0.1'], ['fec0::1', 'site-local'], ['ff02::1', 'IPv6 multicast'],
+    ['::ffff:7f00:1', 'IPv4-mapped loopback in HEX spelling'], ['::ffff:a00:1', 'IPv4-mapped 10.0.0.1 in hex spelling'], ['::ffff:a9fe:a9fe', 'IPv4-mapped metadata address in hex'],
+    ['2002:7f00:1::1', '6to4 wrapping 127.0.0.1'], ['2002:a00:1::', '6to4 wrapping 10.0.0.1'], ['::7f00:1', 'deprecated IPv4-compatible loopback'], ['::ffff:0:0', 'mapped 0.0.0.0'],
+  ])('refuses %s (%s)', (ip) => {
+    expect(isPrivateAddress(ip)).toBe(true);
+  });
+
+  it.each(['100.63.255.255', '100.128.0.1', '198.17.255.255', '198.20.0.1', '223.255.255.255', '2002:808:808::', '::ffff:808:808', '2001:4860:4860::8888', '64:ff9a::1'])(
+    'still allows the public address %s',
+    (ip) => {
+      expect(isPrivateAddress(ip)).toBe(false);
+    },
+  );
+});
+
+describe('#1036 the address that is checked is the address that is dialed', () => {
+  let server: Server;
+  let port: number;
+  let hits: Array<{ host: string | undefined; url: string | undefined }> = [];
+  let respond: (req: IncomingMessage) => { status: number; headers?: Record<string, string>; body?: string } = () => ({ status: 200, body: 'hello' });
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      hits.push({ host: req.headers.host, url: req.url });
+      const r = respond(req);
+      res.writeHead(r.status, r.headers);
+      res.end(r.body ?? '');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    port = (server.address() as AddressInfo).port;
+  });
+  afterAll(async () => { await new Promise((resolve) => server.close(resolve)); });
+  beforeEach(() => { hits = []; respond = () => ({ status: 200, body: 'hello' }); });
+
+  it('REBINDING: a name that resolves public for the check and private for the connection is refused, and the private host is never contacted', async () => {
+    lookupMock.mockReset();
+    lookupMock
+      .mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }]) // the pre-check: looks fine
+      .mockResolvedValue([{ address: '127.0.0.1', family: 4 }]); // the connection: now it points inside
+    await expect(guardedFetch(undefined, `http://rebind.example:${port}/secret`, { method: 'GET', headers: {} })).rejects.toThrow(/resolves to private address 127\.0\.0\.1/);
+    expect(hits, 'nothing reached the internal server').toHaveLength(0);
+  });
+
+  it('REBINDING through the GLOBAL fetch a production caller passes: it is swapped for the pinned transport, so it is covered too', async () => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }]).mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
+    await expect(guardedFetch(fetch, `http://rebind2.example:${port}/`, { method: 'GET', headers: {} })).rejects.toThrow(/blocked address 169\.254\.169\.254/);
+    expect(hits).toHaveLength(0);
+  });
+
+  it('every address a name resolves to is judged: one private answer among public ones refuses it', async () => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.5', family: 4 }]);
+    await expect(pinnedFetch()(`http://multi.example:${port}/`)).rejects.toThrow(/private address 10\.0\.0\.5/);
+    expect(hits).toHaveLength(0);
+  });
+
+  it('the connection really goes to the RESOLVED address, with the original Host header (proof the pinning works, not just refuses)', async () => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    const res = await pinnedFetch({ allowPrivateCidrs: ['127.0.0.0/8'] })(`http://pinned.example:${port}/path?q=1`, { method: 'POST', headers: { 'x-test': 'yes' }, body: '{"a":1}' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('hello');
+    expect(hits).toEqual([{ host: `pinned.example:${port}`, url: '/path?q=1' }]);
+    expect(lookupMock, 'resolved exactly once for this connection (no second lookup to poison)').toHaveBeenCalledTimes(1);
+  });
+
+  it('an IP literal is judged without any lookup', async () => {
+    lookupMock.mockReset();
+    await expect(pinnedFetch()(`http://127.0.0.1:${port}/`)).rejects.toThrow(/private address 127\.0\.0\.1/);
+    await expect(pinnedFetch()('http://[::ffff:7f00:1]/')).rejects.toThrow(/private address/);
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(hits).toHaveLength(0);
+  });
+
+  it('only http and https', async () => {
+    await expect(pinnedFetch()('file:///etc/passwd')).rejects.toThrow(/unsupported scheme/);
+  });
+});
+
+describe('#1036 outgoing webhooks never follow a redirect and never reach a private host', () => {
+  let target: Server;
+  let origin: Server;
+  let targetHits = 0;
+  let originPort: number;
+  let targetPort: number;
+
+  beforeAll(async () => {
+    target = createServer((_req, res) => { targetHits++; res.end('internal'); });
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve));
+    targetPort = (target.address() as AddressInfo).port;
+    origin = createServer((_req, res) => { res.writeHead(307, { location: `http://127.0.0.1:${targetPort}/replayed` }); res.end(); });
+    await new Promise<void>((resolve) => origin.listen(0, '127.0.0.1', resolve));
+    originPort = (origin.address() as AddressInfo).port;
+  });
+  afterAll(async () => { await new Promise((r) => origin.close(r)); await new Promise((r) => target.close(r)); });
+  beforeEach(() => { targetHits = 0; });
+
+  it('a 307 from the destination is a FAILED delivery, not followed: the redirect target is never contacted', async () => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    // allow loopback ONLY so the test can host the destination; the point is that the redirect is not followed even where it could be
+    const res = await guardedFetch(undefined, `http://hook.example:${originPort}/`, { method: 'POST', headers: {}, body: '{}' }, { followRedirects: false, allowPrivateCidrs: ['127.0.0.0/8'] });
+    expect(res.status).toBe(307);
+    expect(targetHits, 'the signed POST was not replayed at the redirect target').toBe(0);
+  });
+
+  it('defaultWebhookFetcher refuses a private destination outright (no allowlist is ever passed for webhooks)', async () => {
+    lookupMock.mockReset();
+    await expect(defaultWebhookFetcher(`http://127.0.0.1:${originPort}/`, { method: 'POST', headers: {}, body: '{}' })).rejects.toThrow(/private address/);
+    lookupMock.mockResolvedValue([{ address: '10.0.0.7', family: 4 }]);
+    await expect(defaultWebhookFetcher('http://intranet.example/', { method: 'POST', headers: {}, body: '{}' })).rejects.toThrow(/resolves to private address 10\.0\.0\.7/);
+    expect(targetHits).toBe(0);
   });
 });

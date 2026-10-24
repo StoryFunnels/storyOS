@@ -12,6 +12,7 @@ import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICO
 // Subpath, not the barrel: the system-field registry is zod-free (see note above),
 // so it can be imported as a value here without inlining a CJS require('zod').
 import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system-fields';
+import { HTTP_URL_MESSAGE, isHttpUrl } from '@storyos/schemas/safe-url';
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
@@ -2751,21 +2752,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   };
   const guessMime = (name: string): string | undefined => MIME_BY_EXT[name.split('.').pop()?.toLowerCase() ?? ''];
-  const nameFromUrl = (u: string): string => {
-    try {
-      const last = new URL(u).pathname.split('/').filter(Boolean).pop();
-      return last ? decodeURIComponent(last) : 'file';
-    } catch {
-      return 'file';
-    }
-  };
-
   reg(
     'attach_file',
     {
       title: 'Attach file',
       description:
-        'Attach a file to a record — either from a public `url` (fetched server-side) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
+        'Attach a file to a record — either from a public `url` (fetched by the StoryOS server, which refuses private/internal addresses and caps the size) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2790,27 +2782,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const db = await resolveDatabase(client, ws.id, database);
         const rec = await resolveRecordId(ws.id, db.id, record);
 
-        let data: Uint8Array;
-        let name = filename;
-        let type = mime;
-        if (url) {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`Could not fetch ${url} (HTTP ${res.status}).`);
-          data = new Uint8Array(await res.arrayBuffer());
-          name = name ?? nameFromUrl(url);
-          type = type ?? res.headers.get('content-type')?.split(';')[0]?.trim() ?? guessMime(name);
-        } else {
-          if (!filename) throw new Error('`filename` is required when attaching content_base64.');
-          data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
-          name = filename;
-          type = type ?? guessMime(filename);
-        }
-
         /*
          * #391 — resolve the field by NAME as well as id, like every other tool
-         * here. An agent has the schema from describe_database, where a field is
-         * "Cover", not a uuid; making it paste an id would be the kind of
-         * papercut that sends a session looking for a lookup tool.
+         * here. (Moved above the url branch by #1033: the server needs the id for either path.)
          */
         let fieldId: string | undefined;
         if (field) {
@@ -2830,7 +2804,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           fieldId = match.id;
         }
 
-        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data }, fieldId);
+        if (url) {
+          /*
+           * #1033 — the API fetches the URL, not this process. A bare `fetch(url)` here followed redirects and read the whole body
+           * with no cap from INSIDE the compose network (api:3001, the metadata service, ...) and handed the response back as a
+           * downloadable attachment. The API's endpoint refuses private/metadata addresses (checked on the address dialed, every
+           * redirect re-checked), times out, and caps the body while streaming.
+           */
+          const attachment = await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url', {
+              params: { path: { ws: ws.id, db: db.id, rec }, query: fieldId ? { field: fieldId } : {} } as never,
+              body: { url, ...(filename ? { filename } : {}), ...(mime ? { mime } : {}) } as never,
+            }),
+          );
+          return text(attachment);
+        }
+
+        if (!filename) throw new Error('`filename` is required when attaching content_base64.');
+        const data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
+        const name = filename;
+        const type = mime ?? guessMime(filename);
+
+        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name, mime: type, data }, fieldId);
         return text(attachment);
       },
     ),
@@ -3794,7 +3789,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help, visible_when, required_when, hidden, value} for per-field overrides. `hidden`+`value` stamps a fixed value onto every submission without ever showing that field to the visitor — a job/tenant id, a UTM tag. Omit to fall back to card_fields.'),
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
-        form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
+        form_redirect_url: z
+          .string()
+          .url()
+          .max(500)
+          .refine(isHttpUrl, { message: HTTP_URL_MESSAGE })
+          .optional()
+          .describe('form: redirect here (an http:// or https:// address only) instead of showing success_message.'),
         folder: z.string().optional().describe('#347 — put the view in this sidebar FOLDER (name or id) instead of nesting it under its database. Placement only: the view still belongs to its database. Omit to nest it under the database, which is the default.'),
       },
     },
@@ -3875,7 +3876,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_fields: z.array(formFieldShape).optional(),
         form_access: z.enum(['members', 'link', 'public']).optional(),
         form_success_message: z.string().max(500).optional(),
-        form_redirect_url: z.string().url().max(500).optional(),
+        form_redirect_url: z.string().url().max(500).refine(isHttpUrl, { message: HTTP_URL_MESSAGE }).optional(),
         folder: z.string().optional().describe('#347 — move the view into this sidebar FOLDER (name or id). Pass null to move it back under its database. Placement only; the view still belongs to its database.'),
         unfile: z.boolean().optional().describe('#347 — move the view back out of its folder, to nest under its database again. Use this rather than folder:null, which MCP cannot express.'),
       },
@@ -6116,7 +6117,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its Agents / Runs / Agent Triggers databases. Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6160,7 +6161,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set up the agent engine',
       description:
-        'Provision the Agentic OS space and its three databases (Agents, Runs, Agent Triggers). Idempotent — safe to call when it already exists, which is why get_agents and this can be used together without a check-then-act race. After this, create an agent with create_record against the Agents database.',
+        'Provision the Agentic OS space and its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs) and Triggers (agentic_os/agent_triggers). Idempotent — safe to call when it already exists, which is why get_agents and this can be used together without a check-then-act race. After this, create an agent with create_record against the Agents database.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6177,7 +6178,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run agent',
       description:
-        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record.',
+        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from the Agents database)."),
@@ -7097,14 +7098,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         entity: z.string().optional().describe('Narrow to one record id.'),
         from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
         to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+        source: z
+          .string()
+          .optional()
+          .describe('#934 — narrow to actions by these kinds of actor, comma-separated: human, agent, automation, mcp (e.g. "agent,mcp" for what agents did). Each event row also carries credential_id (which token did it) and agent_id/agent_name.'),
       },
     },
-    handle<{ workspace: string; actor?: string; entity?: string; from?: string; to?: string }>(
-      async ({ workspace, actor, entity, from, to }) => {
+    handle<{ workspace: string; actor?: string; entity?: string; source?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, source, from, to }) => {
         const ws = await resolveWorkspace(client, workspace);
         const query: Record<string, string> = {};
         if (actor) query.actor = actor;
         if (entity) query.entity = entity;
+        if (source) query.source = source;
         if (from) query.from = from;
         if (to) query.to = to;
         const res = await unwrap<unknown>(
@@ -8510,7 +8516,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
-        'run_agent{agent, prompt?, ...}. ' +
+        'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
+        'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
+        'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +
+        'What "overnight" means depends on the agent\'s AI mode: Non-AI runs by itself; Your own AI only works while your AI client is connected ' +
+        'to StoryOS; StoryOS AI runs on credits. A step the agent proposes that needs a person\'s approval still stops and waits. Scheduled runs show ' +
+        'in get_runs and in the Runs database with Trigger "Automation" ("Schedule" is not a run trigger). ' +
         // #245: per-action condition — shipped, previously undocumented here.
         'ANY action also takes an optional `condition` (a filter AST, same shape as query_records) — that ONE action is SKIPPED when it ' +
         'does not match, and the rest of the rule still runs. NOTE: an action condition is passed through raw, so it must use api_names ' +

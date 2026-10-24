@@ -15,9 +15,10 @@
  *  - An approval is decided by a person, once (assertHumanSource, and the atomic
  *    pending -> decided transition).
  *
- * What is deliberately NOT here: a claim of an audit export or of a per-action authorisation chain.
- * Neither exists (nothing links a past action to the credential that performed it), so the page
- * says so instead of leaving a gap that reads as coverage.
+ * What is deliberately NOT here: a claim of an audit export. None exists, so the page says so instead
+ * of leaving a gap that reads as coverage. The per-action chain (ticket #934) IS here, but only as far as it
+ * was recorded: an action names its credential when one was recorded (ticket #882) and says in words when
+ * none was, never a chain with a blank link.
  */
 
 export type Scope = 'read' | 'write' | 'admin';
@@ -205,7 +206,7 @@ export const ENFORCED_RULES: ReadonlyArray<{ title: string; detail: string }> = 
 /** What this page cannot tell you. Shown on the page; absence of these must never read as coverage. */
 export const NOT_COVERED: ReadonlyArray<string> = [
   'There is no audit export yet. This page cannot hand you a file of what your agents did.',
-  'Past actions are not linked to the credential that performed them, so this page cannot show, for a given action, which token or agent identity authorised it.',
+  'Actions made through a sign-in session, an OAuth connection or an automation, and actions from before credentials were tracked, name no credential, because none was recorded. Their rows say so.',
   'Approval counts cover the latest 100 approvals only.',
 ];
 
@@ -213,3 +214,115 @@ export function ungovernedWorkspace(agents: AgentPosture[], inForce: GateRow[]):
   const active = agents.filter((a) => a.enabled && a.scopeCeiling !== 'read');
   return active.length > 0 && inForce.length === 0 && active.every((a) => a.holds.length === 0);
 }
+
+// ── Recent agent actions and their chain (ticket #934) ────────────────────────────────────────────────────────────
+// Everything below reads what ticket #882 stamps on every write (the credential) and what ticket #541 does (the agent,
+// and the member the action ran as). There is no second provenance store; a row is the audit log's event row.
+
+/** One event row of GET /audit-log (admin). `credential_id` is null when no credential was recorded. */
+export interface AuditEventRow {
+  kind: 'event' | 'field_change';
+  id: string;
+  record_id: string;
+  type?: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  source: string | null;
+  credential_id?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** GET /credentials/:id — what a credential could reach, live or revoked. Carries no person. */
+export interface CredentialDto {
+  id: string;
+  name: string;
+  scope: Scope;
+  origin: string | null;
+  agent_id: string | null;
+  resource_scope: { space_ids: string[]; database_ids: string[] } | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+const ACTION_VERB: Record<string, string> = {
+  'record.created': 'Created',
+  'record.updated': 'Updated',
+  'record.deleted': 'Deleted',
+  'record.restored': 'Restored',
+};
+
+/** "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown as itself, not hidden. */
+export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>): string {
+  const verb = (row.type && ACTION_VERB[row.type]) ?? row.type ?? 'Changed';
+  const title = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
+  return title ? `${verb} “${title}”` : `${verb} a record`;
+}
+
+/** Only the rows an agent or a token made: the page lists those, never a person's own edits. */
+export function isAgentAction(row: Pick<AuditEventRow, 'kind' | 'source'>): boolean {
+  return row.kind === 'event' && (row.source === 'agent' || row.source === 'mcp');
+}
+
+/**
+ * What a row says when NO credential was recorded. It never shows a chain with a blank link and never a confident "unknown": it says
+ * what is true — nothing was recorded — and the three ways that happens.
+ */
+export const NO_CREDENTIAL_WORDS =
+  'No credential was recorded for this action. It was made before credentials were tracked, or through a sign-in session or an OAuth connection.';
+
+/** "Everything its owner could reach" for an unrestricted credential, else the spaces and databases it is bound to, by name. */
+export function reachWords(
+  scope: CredentialDto['resource_scope'],
+  names: { space: (id: string) => string | null; database: (id: string) => string | null },
+): string {
+  if (!scope) return 'Everything the person who made it could reach';
+  const parts = [
+    ...scope.space_ids.map((id) => `the space “${names.space(id) ?? 'a deleted space'}”`),
+    ...scope.database_ids.map((id) => `the database “${names.database(id) ?? 'a deleted database'}”`),
+  ];
+  return parts.length === 0 ? 'Nothing (bound to no space or database)' : `Only ${parts.join(' and ')}`;
+}
+
+export interface ChainStep {
+  label: string;
+  value: string;
+  /** Said when the link is known to be absent, so a gap reads as a gap and not as a blank. */
+  absent?: boolean;
+}
+
+/**
+ * The FULL chain behind one action, link by link: the member it ran as, the credential, the agent, then the action itself. A link that
+ * was not recorded is a step that says so (`absent`), not a missing row.
+ */
+export function chainOf(
+  row: AuditEventRow,
+  credential: CredentialDto | null | undefined,
+  names: { space: (id: string) => string | null; database: (id: string) => string | null },
+  fmt: (iso: string) => string,
+): ChainStep[] {
+  const steps: ChainStep[] = [
+    { label: 'Authorised for', value: row.actor_name ?? 'Nobody was recorded', absent: !row.actor_name },
+  ];
+  if (!row.credential_id) {
+    steps.push({ label: 'Credential', value: NO_CREDENTIAL_WORDS, absent: true });
+  } else if (!credential) {
+    steps.push({ label: 'Credential', value: 'This credential could not be loaded.', absent: true });
+  } else {
+    const state = credential.revoked_at ? `Revoked ${fmt(credential.revoked_at)}` : 'Live';
+    steps.push({ label: 'Credential', value: `${credential.name} · ${state}` });
+    steps.push({ label: 'Could reach', value: reachWords(credential.resource_scope, names) });
+    steps.push({ label: 'Allowed to', value: SCOPE_WORDS_LONG[credential.scope] });
+  }
+  if (row.agent_name) steps.push({ label: 'Agent', value: row.agent_name });
+  steps.push({ label: 'Action', value: `${describeAction(row)} · ${fmt(row.created_at)}` });
+  return steps;
+}
+
+const SCOPE_WORDS_LONG: Record<Scope, string> = {
+  read: 'Read only',
+  write: 'Read and change records',
+  admin: 'Everything, including settings',
+};

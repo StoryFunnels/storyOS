@@ -1,4 +1,5 @@
 'use client';
+import { databaseDisplayName } from '@/lib/system-databases';
 import { OPEN_PARAM } from '@/components/entity/split-screen';
 import { Tooltip } from '@/components/ui/tooltip';
 
@@ -207,7 +208,7 @@ function DatabasePageInner() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {database.data?.name}
+          {databaseDisplayName(database.data)}
         </h1>
         {/* Tabs scroll horizontally instead of clipping under the flex parent
             (MN-230b); min-w-0 lets this flex item shrink below content size so
@@ -703,7 +704,7 @@ function DatabasePageSurface() {
   const { ws, db } = useParams<{ ws: string; db: string }>();
   const database = useDatabase(ws, db);
   return (
-    <ListSurface label={database.data?.name || 'Database'}>
+    <ListSurface label={databaseDisplayName(database.data) || 'Database'}>
       <DatabasePageInner />
     </ListSurface>
   );

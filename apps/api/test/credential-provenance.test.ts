@@ -145,3 +145,46 @@ describe('#882 admin-only: a member, a guest and a bound token learn nothing', (
     }
   });
 });
+
+describe('#934 the audit log lists actions WITH their credential (the Governance screen reads this)', () => {
+  type Row = { kind: string; id: string; record_id: string; source: string | null; credential_id?: string | null; agent_id?: string | null; agent_name?: string | null; actor_name: string | null };
+  const audit = async (query = '') => (await own('GET', `/workspaces/${ws}/audit-log${query}`)).json().data as Row[];
+
+  it('an event row carries the credential that made it, and null — never a person — for a session write', async () => {
+    const rows = await audit();
+    const robot = rows.find((r) => r.kind === 'event' && r.record_id === r1);
+    const session = rows.find((r) => r.kind === 'event' && r.record_id === r2);
+    expect(robot?.credential_id).toBe(t1.id);
+    expect(session?.credential_id).toBeNull();
+  });
+
+  it('source=agent,mcp narrows to what agents and tokens did: the robot is in, the session write is out', async () => {
+    const rows = await audit('?source=agent,mcp');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.source === 'agent' || r.source === 'mcp')).toBe(true);
+    expect(rows.some((r) => r.record_id === r1)).toBe(true);
+    expect(rows.some((r) => r.record_id === r2)).toBe(false);
+  });
+
+  it('a source that is not one of the four is refused (422), not an empty list', async () => {
+    expect((await own('GET', `/workspaces/${ws}/audit-log?source=robot`)).statusCode).toBe(422);
+  });
+
+  it('an erased person is not resolvable through the new fields: the erased token\'s action names the credential, not Bob', async () => {
+    const rows = await audit('?source=agent,mcp');
+    const bobsRow = rows.find((r) => r.credential_id === tBob.id);
+    expect(bobsRow, JSON.stringify(rows.map((r) => r.credential_id))).toBeTruthy();
+    const body = JSON.stringify(bobsRow);
+    for (const needle of [bob.email, 'CP Bob', "Bob's laptop"]) expect(body, `must not contain ${needle}`).not.toContain(needle);
+  });
+
+  it('a member, a guest and a token bound to databases still cannot read the log (the credential ids are admin-only)', async () => {
+    const member = await joinAs(app, owner.token, ws, 'CP Member3', 'member');
+    const bound = await mint(owner.token, { name: 'bound to the log', scope: 'admin', resource_scope: { database_ids: [tasks] } });
+    for (const token of [member.token, gina.token, bound.token]) {
+      const res = await as(token, 'GET', `/workspaces/${ws}/audit-log?source=agent,mcp`);
+      expect([403, 404], res.body).toContain(res.statusCode);
+      expect(res.body).not.toContain(t1.id);
+    }
+  });
+});

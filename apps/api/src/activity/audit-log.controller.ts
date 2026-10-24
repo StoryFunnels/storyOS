@@ -10,6 +10,12 @@ import { AuditLogService } from './audit-log.service';
 const auditLogQuerySchema = z.object({
   actor: z.string().optional(),
   entity: z.uuid().optional(),
+  /** #934 — narrow to actions made by these kinds of actor: a comma list of human | agent | automation | mcp. */
+  source: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(['human', 'agent', 'automation', 'mcp'])).min(1).optional()),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),

@@ -52,7 +52,7 @@ Client events (`posthog.capture` in the web app):
 | `invite_sent` · `invite_accepted` | `settings/members`, `invite` |
 | `workspace_created` | `new-workspace` |
 | `onboarding_pack_installed` · `template_installed` | `new-workspace`, `template-gallery` |
-| `csv_import_completed` · `share_access_granted` | `import-wizard`, `share-dialog` |
+| `csv_import_completed` · `share_access_granted` | `import-wizard`, `access/manage-access-dialog` |
 | `integration_disconnected` | `settings/integrations` |
 | `mcp_endpoint_copied` | `settings/integrations` |
 | `mcp_setup_started` · `mcp_setup_client_selected` | `settings/connect-ai` |

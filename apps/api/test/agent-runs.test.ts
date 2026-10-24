@@ -166,7 +166,6 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
     expect(fields.get('trigger')!.options!.map((o) => o.label)).toEqual([
       'Manual',
       'State change',
-      'Schedule',
       'Automation',
     ]);
     // #544 — "Unknown" is a real, selectable option, distinct from the field
