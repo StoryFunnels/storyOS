@@ -2752,21 +2752,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   };
   const guessMime = (name: string): string | undefined => MIME_BY_EXT[name.split('.').pop()?.toLowerCase() ?? ''];
-  const nameFromUrl = (u: string): string => {
-    try {
-      const last = new URL(u).pathname.split('/').filter(Boolean).pop();
-      return last ? decodeURIComponent(last) : 'file';
-    } catch {
-      return 'file';
-    }
-  };
-
   reg(
     'attach_file',
     {
       title: 'Attach file',
       description:
-        'Attach a file to a record — either from a public `url` (fetched server-side) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
+        'Attach a file to a record — either from a public `url` (fetched by the StoryOS server, which refuses private/internal addresses and caps the size) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2791,27 +2782,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const db = await resolveDatabase(client, ws.id, database);
         const rec = await resolveRecordId(ws.id, db.id, record);
 
-        let data: Uint8Array;
-        let name = filename;
-        let type = mime;
-        if (url) {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`Could not fetch ${url} (HTTP ${res.status}).`);
-          data = new Uint8Array(await res.arrayBuffer());
-          name = name ?? nameFromUrl(url);
-          type = type ?? res.headers.get('content-type')?.split(';')[0]?.trim() ?? guessMime(name);
-        } else {
-          if (!filename) throw new Error('`filename` is required when attaching content_base64.');
-          data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
-          name = filename;
-          type = type ?? guessMime(filename);
-        }
-
         /*
          * #391 — resolve the field by NAME as well as id, like every other tool
-         * here. An agent has the schema from describe_database, where a field is
-         * "Cover", not a uuid; making it paste an id would be the kind of
-         * papercut that sends a session looking for a lookup tool.
+         * here. (Moved above the url branch by #1033: the server needs the id for either path.)
          */
         let fieldId: string | undefined;
         if (field) {
@@ -2831,7 +2804,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           fieldId = match.id;
         }
 
-        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data }, fieldId);
+        if (url) {
+          /*
+           * #1033 — the API fetches the URL, not this process. A bare `fetch(url)` here followed redirects and read the whole body
+           * with no cap from INSIDE the compose network (api:3001, the metadata service, ...) and handed the response back as a
+           * downloadable attachment. The API's endpoint refuses private/metadata addresses (checked on the address dialed, every
+           * redirect re-checked), times out, and caps the body while streaming.
+           */
+          const attachment = await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url', {
+              params: { path: { ws: ws.id, db: db.id, rec }, query: fieldId ? { field: fieldId } : {} } as never,
+              body: { url, ...(filename ? { filename } : {}), ...(mime ? { mime } : {}) } as never,
+            }),
+          );
+          return text(attachment);
+        }
+
+        if (!filename) throw new Error('`filename` is required when attaching content_base64.');
+        const data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
+        const name = filename;
+        const type = mime ?? guessMime(filename);
+
+        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name, mime: type, data }, fieldId);
         return text(attachment);
       },
     ),

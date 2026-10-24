@@ -14,6 +14,7 @@ import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { DomainEventsService } from '../events/domain-events.service';
 import { getStorage } from './storage';
+import { guardedFetch, SsrfBlockedError } from '../common/net-guard';
 
 const THUMB_WIDTH = 320;
 
@@ -28,6 +29,8 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
   }
   return Buffer.concat(chunks);
 }
+
+const FETCH_TIMEOUT_MS = 20_000;
 
 @Injectable()
 export class AttachmentsService {
@@ -77,6 +80,42 @@ export class AttachmentsService {
    * one is the cover?" was the ticket's opening complaint; with an ordered field
    * the answer is "the first one in Cover", not "whichever you remember".
    */
+  /**
+   * #1033 — fetch a URL on the server and attach it. The fetch is the guarded one (scheme allowlist, private/metadata addresses refused
+   * on the address actually dialed, every redirect re-checked), has a timeout, and stops reading the moment ATTACHMENT_MAX_BYTES is
+   * exceeded rather than buffering a multi-gigabyte body. What the remote answered is never put in an error.
+   */
+  async uploadFromUrl(
+    workspaceId: string,
+    recordId: string,
+    input: { url: string; filename?: string; mime?: string },
+    actorId: string,
+    fieldId?: string,
+    source: ChangeSource = 'human',
+  ) {
+    const max = env().ATTACHMENT_MAX_BYTES;
+    let res: Awaited<ReturnType<typeof guardedFetch>>;
+    try {
+      res = await guardedFetch(undefined, input.url, { method: 'GET', headers: { accept: '*/*', 'user-agent': 'StoryOS-Attach/1' }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }, { binary: true, maxBodyBytes: max });
+    } catch (error) {
+      // The reason is generic on purpose: naming the address a host resolved to would let a caller map the server's internal DNS.
+      if (error instanceof SsrfBlockedError) throw new UnprocessableEntityException('That URL cannot be fetched: it points at a private, internal or unsupported address.');
+      throw new UnprocessableEntityException('Could not fetch that URL (it did not answer in time, or the connection failed).');
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new UnprocessableEntityException(`Could not fetch that URL (HTTP ${res.status}).`);
+    }
+    if (res.truncated) {
+      throw new UnprocessableEntityException(`The file at that URL exceeds the ${Math.round(max / 1024 / 1024)}MB limit`);
+    }
+    const last = (() => {
+      try { return decodeURIComponent(new URL(res.finalUrl).pathname.split('/').filter(Boolean).pop() ?? ''); } catch { return ''; }
+    })();
+    const filename = (input.filename ?? (last || 'file')).slice(0, 255);
+    const mime = input.mime ?? res.headers.get('content-type')?.split(';')[0]?.trim() ?? 'application/octet-stream';
+    return this.upload(workspaceId, recordId, { filename, mime, data: res.bytes ?? Buffer.alloc(0) }, actorId, fieldId, source);
+  }
+
   async upload(
     workspaceId: string,
     recordId: string,
