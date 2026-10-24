@@ -231,6 +231,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/integrations/github/webhook': publicRoute('GithubWebhookController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'POST /api/v1/invites/accept': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'POST /api/v1/oauth/consent': workspaceLevel('account-level: the caller\'s own decision on their own pending OAuth request, session only; it names a workspace the caller is already a member of'),
+  'POST /api/v1/me/gdpr/erase': workspaceLevel('account-level: erases the caller\'s own account everywhere; session only (refused for a token or AI connection), touches no workspace content on its own'),
   'POST /api/v1/me/tokens': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'POST /api/v1/providers/resend/webhook/:connectionId': publicRoute('ResendWebhookController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'POST /api/v1/providers/shopify/webhook/:connectionId': publicRoute('ShopifyWebhookController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),

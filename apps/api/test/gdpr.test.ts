@@ -91,7 +91,7 @@ describe('GDPR data-subject tooling (MN-233)', () => {
     expect(res.statusCode).toBe(409);
   });
 
-  it('anonymize tombstones identity, kills the session, removes access, keeps history', async () => {
+  it('a workspace anonymize removes the person FROM THIS WORKSPACE (#1039), anonymises its tokens, keeps history', async () => {
     // #543 — a bound token with a personal name; erasure must keep the scope record and strip the person.
     const minted = await as(member.token, 'POST', '/me/tokens', {
       name: "Daria's laptop", workspace_id: wsId, resource_scope: { database_ids: [db] },
@@ -103,6 +103,7 @@ describe('GDPR data-subject tooling (MN-233)', () => {
     expect(res.statusCode, res.body).toBe(200);
     const out = res.json();
     expect(out.anonymized).toBe(true);
+    expect(out).toMatchObject({ scope: 'workspace', identity_erased: false });
     expect(out.removed.memberships).toBe(1);
     expect(out.retained_anonymized.api_tokens).toBeGreaterThanOrEqual(1);
 
@@ -126,16 +127,19 @@ describe('GDPR data-subject tooling (MN-233)', () => {
     const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
     expect(members.some((m: { user_id: string }) => m.user_id === memberId)).toBe(false);
 
-    // the member's session is destroyed — they can no longer authenticate
+    // #1039 — their ACCOUNT is untouched: the same session still works (a workspace admin does not own a person's identity)
     const me = await as(member.token, 'GET', '/me');
-    expect(me.statusCode).toBe(401);
+    expect(me.statusCode).toBe(200);
+    expect(me.json().email).toBe(member.email);
 
-    // the comment survives but its author is now the tombstone identity
+    // …but this workspace is closed to them
+    expect((await as(member.token, 'GET', `/workspaces/${wsId}/databases`)).statusCode).toBe(404);
+
+    // the comment survives (history is kept)
     const comments = (
       await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${db}/records/${recId}/comments`)
     ).json();
     expect(comments.data.length).toBeGreaterThanOrEqual(1);
-    expect(comments.data[0].author.name).toBe('Deleted user');
   });
 
   it('a removed membership can no longer be targeted', async () => {
@@ -228,5 +232,110 @@ describe('#494 — subject-access export includes the Members-database row', () 
     // guards that a MISSING row (not just a missing database) degrades to
     // null rather than throwing, whichever way it landed.
     expect(res.json()).toHaveProperty('members_row');
+  });
+});
+
+
+/**
+ * #1039 — an admin of workspace A (anyone, on hosted) could "erase" any member or guest and lock that person out of EVERY other
+ * workspace, with no way even to reset a password; if they were the only admin of workspace B, B was orphaned. The attack is run as
+ * the admin of A against a person who also belongs to B; the check is what that person can still do afterwards.
+ */
+describe('#1039 a workspace admin cannot erase a person\'s global identity', () => {
+  let attacker: { token: string; email: string };
+  let victim: { token: string; email: string };
+  let victimId: string;
+  let wsA: string, wsB: string, victimInA: string;
+
+  beforeAll(async () => {
+    attacker = await signUpUser(app, 'Admin Of A');
+    victim = await signUpUser(app, 'Victim Of Two');
+    victimId = (await as(victim.token, 'GET', '/me')).json().id;
+    wsA = (await as(attacker.token, 'POST', '/workspaces', { name: 'Attackers A' })).json().id;
+    wsB = (await as(victim.token, 'POST', '/workspaces', { name: 'Victims Own B' })).json().id; // the victim is the ONLY admin of B
+    const invite = await as(attacker.token, 'POST', `/workspaces/${wsA}/invites`, { email: victim.email, role: 'member' });
+    await as(victim.token, 'POST', '/invites/accept', { token: new URL(invite.json().accept_url).searchParams.get('token')! });
+    victimInA = ((await as(attacker.token, 'GET', `/workspaces/${wsA}/members`)).json() as Array<{ id: string; user_id: string }>).find((m) => m.user_id === victimId)!.id;
+  });
+
+  it('THE ATTACK: erasing the victim from A leaves their account, their sign-in and workspace B fully intact', async () => {
+    const res = await as(attacker.token, 'POST', `/workspaces/${wsA}/members/${victimInA}/gdpr/anonymize`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ scope: 'workspace', identity_erased: false });
+    // the victim is out of A…
+    expect((await as(victim.token, 'GET', `/workspaces/${wsA}/databases`)).statusCode).toBe(404);
+    // …and nothing else changed: same session, same real email, same workspace B, still its only admin
+    const me = await as(victim.token, 'GET', '/me');
+    expect(me.statusCode, me.body).toBe(200);
+    expect(me.json().email).toBe(victim.email);
+    expect(me.json().name).not.toBe('Deleted user');
+    expect((await as(victim.token, 'GET', `/workspaces/${wsB}/databases`)).statusCode).toBe(200);
+    const bMembers = (await as(victim.token, 'GET', `/workspaces/${wsB}/members`)).json() as Array<{ user_id: string; role: string }>;
+    expect(bMembers.find((m) => m.user_id === victimId)).toMatchObject({ role: 'admin' });
+    // the credentials survive: a password sign-in still resolves (the account row is there)
+    const rows = (await (app.get(DB) as unknown as { $client: { query: (q: string, p: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> } }).$client.query('select (select count(*) from account where user_id = $1)::int as accounts, (select email from "user" where id = $1) as email', [victimId])).rows[0]!;
+    expect(rows.accounts).toBeGreaterThanOrEqual(1);
+    expect(rows.email).toBe(victim.email);
+  });
+
+  it('a token the victim minted for ANOTHER workspace keeps working; only the one for the erasing workspace is anonymised', async () => {
+    const other = await signUpUser(app, 'Two Tokens');
+    const otherId = (await as(other.token, 'GET', '/me')).json().id;
+    const wsOwn = (await as(other.token, 'POST', '/workspaces', { name: 'Two Tokens Own' })).json().id;
+    const inv = await as(attacker.token, 'POST', `/workspaces/${wsA}/invites`, { email: other.email, role: 'member' });
+    await as(other.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+    const tokA = (await as(other.token, 'POST', '/me/tokens', { name: 'for A', workspace_id: wsA })).json().token as string;
+    const tokOwn = (await as(other.token, 'POST', '/me/tokens', { name: 'for own', workspace_id: wsOwn })).json().token as string;
+    const memId = ((await as(attacker.token, 'GET', `/workspaces/${wsA}/members`)).json() as Array<{ id: string; user_id: string }>).find((m) => m.user_id === otherId)!.id;
+    expect((await as(attacker.token, 'POST', `/workspaces/${wsA}/members/${memId}/gdpr/anonymize`)).statusCode).toBe(200);
+    expect((await as(tokA, 'GET', '/me')).statusCode, 'the token for the erasing workspace is dead').toBe(401);
+    expect((await as(tokOwn, 'GET', '/me')).statusCode, 'the token for their own workspace still works').toBe(200);
+  });
+
+  it('even a person with NO other workspace keeps their account: a workspace admin never destroys an identity', async () => {
+    const lone = await signUpUser(app, 'Only In A');
+    const loneId = (await as(lone.token, 'GET', '/me')).json().id;
+    const inv = await as(attacker.token, 'POST', `/workspaces/${wsA}/invites`, { email: lone.email, role: 'member' });
+    await as(lone.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+    const memId = ((await as(attacker.token, 'GET', `/workspaces/${wsA}/members`)).json() as Array<{ id: string; user_id: string }>).find((m) => m.user_id === loneId)!.id;
+    expect((await as(attacker.token, 'POST', `/workspaces/${wsA}/members/${memId}/gdpr/anonymize`)).statusCode).toBe(200);
+    expect((await as(lone.token, 'GET', '/me')).json().email).toBe(lone.email);
+  });
+});
+
+describe('#1039 the person can erase THEIR OWN identity (self-service, session only)', () => {
+  it('is refused for an API token, an unconfirmed body, and while they are the only admin of a workspace', async () => {
+    const u = await signUpUser(app, 'Self Eraser');
+    const ws = (await as(u.token, 'POST', '/workspaces', { name: 'Sole Admin WS' })).json().id;
+    const pat = (await as(u.token, 'POST', '/me/tokens', { name: 'p', workspace_id: ws })).json().token as string;
+    expect((await as(pat, 'POST', '/me/gdpr/erase', { confirm: true })).statusCode, 'a token cannot').toBe(403);
+    expect((await as(u.token, 'POST', '/me/gdpr/erase', {})).statusCode, 'no confirmation').toBeGreaterThanOrEqual(400);
+    const orphan = await as(u.token, 'POST', '/me/gdpr/erase', { confirm: true });
+    expect(orphan.statusCode, orphan.body).toBe(409);
+    expect(orphan.body).toContain('only admin');
+    expect((await as(u.token, 'GET', '/me')).statusCode, 'still signed in: nothing happened').toBe(200);
+  });
+
+  it('erases the account everywhere: tombstone, no sign-in, out of every workspace, other workspaces keep their admin', async () => {
+    const boss = await signUpUser(app, 'Boss');
+    const person = await signUpUser(app, 'Leaver');
+    const personId = (await as(person.token, 'GET', '/me')).json().id;
+    const ws1 = (await as(boss.token, 'POST', '/workspaces', { name: 'Boss WS 1' })).json().id;
+    const ws2 = (await as(boss.token, 'POST', '/workspaces', { name: 'Boss WS 2' })).json().id;
+    for (const ws of [ws1, ws2]) {
+      const inv = await as(boss.token, 'POST', `/workspaces/${ws}/invites`, { email: person.email, role: 'member' });
+      await as(person.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+    }
+    const res = await as(person.token, 'POST', '/me/gdpr/erase', { confirm: true });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ scope: 'global', identity_erased: true, workspaces_left: 2 });
+    expect((await as(person.token, 'GET', '/me')).statusCode, 'their session is destroyed').toBe(401);
+    for (const ws of [ws1, ws2]) {
+      const members = (await as(boss.token, 'GET', `/workspaces/${ws}/members`)).json() as Array<{ user_id: string }>;
+      expect(members.some((m) => m.user_id === personId), 'out of every workspace').toBe(false);
+      expect((await as(boss.token, 'GET', `/workspaces/${ws}/databases`)).statusCode, 'the workspaces carry on').toBe(200);
+    }
+    const row = (await (app.get(DB) as unknown as { $client: { query: (q: string, p: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> } }).$client.query('select email, name from "user" where id = $1', [personId])).rows[0]!;
+    expect(row).toMatchObject({ email: `deleted-${personId}@anonymized.invalid`, name: 'Deleted user' });
   });
 });
