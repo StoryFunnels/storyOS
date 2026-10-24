@@ -2807,7 +2807,8 @@ export interface paths {
         delete: operations["ConnectionsController_remove"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Set the one URL prefix an HTTP connection's credential may be sent to (#1035) */
+        patch: operations["ConnectionsController_update"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/connections/{id}/test": {
@@ -5941,6 +5942,10 @@ export interface components {
             auth: {
                 [key: string]: unknown;
             };
+        };
+        UpdateConnectionDto: {
+            /** Format: uri */
+            base_url: string;
         };
         DiscoverSourceDto: {
             /** Format: uuid */
@@ -11367,6 +11372,29 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ConnectionsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConnectionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

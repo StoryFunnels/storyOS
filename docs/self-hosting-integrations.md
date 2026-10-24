@@ -28,7 +28,7 @@ or self-managed.
 | Apify | `apify` | Personal API token (used by scheduled sources) |
 | Resend | `resend` | Resend API key (+ a verified from-address for `send_email`) |
 | SMTP | `smtp` | Host / port / from-address (optional user + pass) |
-| HTTP | `http` | Bearer token, basic auth, or a custom header for the `http_request` action |
+| HTTP | `http` | Bearer token, basic auth, or a custom header for the `http_request` action, **plus a `base_url`**: the one URL prefix (scheme, host, port and path) the credential may be sent to. A rule on this connection can only call URLs inside it; anything else is refused before a request is made, and a redirect to another origin drops the credential. A connection made before `base_url` existed sends nothing until an admin sets one (`PATCH /workspaces/{ws}/connections/{id}` with `{ "base_url": "https://api.example.com/v1" }`). |
 | Shopify | `shopify` | Store `*.myshopify.com` domain + a custom app's Admin API access token (used by the product-catalogue sources) |
 
 ### Shopify: creating the Admin API access token

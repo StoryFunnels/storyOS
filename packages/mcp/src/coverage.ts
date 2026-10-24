@@ -197,9 +197,9 @@ export const EXCLUDED: CoverageRule[] = [
    */
   {
     match:
-      /^(POST|DELETE) \/api\/v1\/workspaces\/\{ws\}\/connections(\/\{id\}\/(test|resume)|\/\{id\})?$|^GET \/api\/v1\/workspaces\/\{ws\}\/connections\/oauth\/\{provider\}\/start$/,
+      /^(POST|DELETE|PATCH) \/api\/v1\/workspaces\/\{ws\}\/connections(\/\{id\}\/(test|resume)|\/\{id\})?$|^GET \/api\/v1\/workspaces\/\{ws\}\/connections\/oauth\/\{provider\}\/start$/,
     reason:
-      '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
+      '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break, set an HTTP connection\'s allowed base URL (PATCH, #1035: an admin decides where a credential may go) and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
   },
   {
     match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers|\/api\/v1\/build-info)$/,

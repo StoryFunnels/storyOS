@@ -119,7 +119,8 @@ describe('http_request automation action (MN-263)', () => {
     const res = await inject('POST', `/workspaces/${wsId}/connections`, {
       provider: 'http',
       name: 'Test HTTP conn',
-      auth,
+      // #1035: a connection is created WITH the one URL prefix its credential may go to (here: the test server)
+      auth: { base_url: serverUrl, ...auth },
     });
     expect(res.statusCode, res.body).toBe(201);
     return res.json().id as string;

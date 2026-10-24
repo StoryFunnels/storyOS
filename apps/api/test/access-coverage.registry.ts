@@ -201,6 +201,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'PATCH /api/v1/users/me/preferences': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'PATCH /api/v1/users/me/preferences/lists': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'PATCH /api/v1/workspaces/:ws': adminOnly(),
+  'PATCH /api/v1/workspaces/:ws/connections/:id': adminOnly(),
   'PATCH /api/v1/workspaces/:ws/action-gates/:id': workspaceLevel('UNAUDITED: no access primitive referenced in action-gates/ — audit whether it can return scoped content'),
   'PATCH /api/v1/workspaces/:ws/databases/:db': scoped('assertAccess + visibleRecordIds + effectiveForDatabase', 'databases/databases.controller.ts'),
   'PATCH /api/v1/workspaces/:ws/databases/:db/automations/:id': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),

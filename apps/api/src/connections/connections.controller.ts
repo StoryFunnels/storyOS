@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
-import { createConnectionSchema } from '@storyos/schemas';
+import { createConnectionSchema, updateConnectionSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -10,6 +10,7 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { ConnectionsService } from './connections.service';
 
 class CreateConnectionDto extends createZodDto(createConnectionSchema) {}
+class UpdateConnectionDto extends createZodDto(updateConnectionSchema) {}
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res) —
  * same helper as integrations.controller.ts's `redirect`. */
@@ -50,6 +51,14 @@ export class ConnectionsController {
   @ApiOperation({ summary: 'Connect an api_key/smtp provider — runs a live health check before saving' })
   create(@Req() req: WorkspaceRequest, @Body() body: CreateConnectionDto) {
     return this.connections.create(req.membership.workspaceId, body, req.user.id);
+  }
+
+  @Patch(':id')
+  @MinRole('admin')
+  @RequiresScope('admin')
+  @ApiOperation({ summary: 'Set the one URL prefix an HTTP connection\'s credential may be sent to (#1035)' })
+  update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateConnectionDto) {
+    return this.connections.setBaseUrl(req.membership.workspaceId, id, body.base_url);
   }
 
   @Delete(':id')
