@@ -5638,6 +5638,14 @@
             }
           },
           {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "source",
             "required": false,
             "in": "query",

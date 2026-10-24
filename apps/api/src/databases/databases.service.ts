@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { recordStructuralEvent } from '../activity/structural-events';
 import { randomUUID } from 'node:crypto';
 import { BOUNDARY_REFUSAL } from '../access/resource-scope';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
@@ -610,6 +611,7 @@ export class DatabasesService {
     if (patch.restricted !== undefined && current.isSystem) {
       throw new UnprocessableEntityException('A system database (such as Members) cannot be restricted');
     }
+    const wasRestricted = current.restricted;
 
     // Moving to another space: keep the slug if free there, else suffix — the
     // per-space uniqueness (MN-153) would otherwise 500 on a collision.
@@ -648,7 +650,13 @@ export class DatabasesService {
       })
       .where(eq(databases.id, databaseId))
       .returning();
-    if (patch.restricted !== undefined) this.access.forgetClosed();
+    if (patch.restricted !== undefined) {
+      this.access.forgetClosed();
+      // #1059 / ADR-0018 — who closed or reopened a database's door. Only a CHANGE is an event.
+      if (wasRestricted !== patch.restricted) {
+        await recordStructuralEvent(this.db, { workspaceId: membership.workspaceId, kind: 'database', action: patch.restricted ? 'restricted' : 'unrestricted', id: databaseId, name: updated!.name });
+      }
+    }
     return updated!;
   }
 
@@ -740,6 +748,7 @@ export class DatabasesService {
     touching ??= await this.db.query.relations.findMany({
       where: or(eq(relations.databaseAId, databaseId), eq(relations.databaseBId, databaseId)),
     });
+    const doomed = await this.db.query.databases.findFirst({ where: eq(databases.id, databaseId), columns: { workspaceId: true, name: true } });
     await this.db.transaction(async (tx) => {
       if (touching.length > 0) {
         // Remove the paired fields living on OTHER databases (this db's own
@@ -760,6 +769,11 @@ export class DatabasesService {
         );
       }
       await softDeleteDatabaseCascade(tx, databaseId, new Date());
+      // #1059 — who deleted the database. Written HERE, not in remove(), so the delete that was held for approval and applied later
+      // (ApprovalsService reaches this method too) is logged as well. The actor is the request's: the approver, for a held delete.
+      if (doomed) {
+        await recordStructuralEvent(tx, { workspaceId: doomed.workspaceId, kind: 'database', action: 'deleted', id: databaseId, name: doomed.name, extra: { severed_relations: touching.length } });
+      }
     });
     return { deleted: true, severed_relations: touching.length };
   }
@@ -783,7 +797,10 @@ export class DatabasesService {
       where: and(eq(databases.id, databaseId), eq(databases.workspaceId, workspaceId), isNotNull(databases.deletedAt)),
     });
     if (!database) throw new NotFoundException('Database not found in trash');
-    await this.db.transaction((tx) => restoreDatabaseCascade(tx, databaseId, database.deletedAt!));
+    await this.db.transaction(async (tx) => {
+      await restoreDatabaseCascade(tx, databaseId, database.deletedAt!);
+      await recordStructuralEvent(tx, { workspaceId, kind: 'database', action: 'restored', id: databaseId, name: database.name }); // #1059
+    });
     return { restored: true, id: databaseId };
   }
 }

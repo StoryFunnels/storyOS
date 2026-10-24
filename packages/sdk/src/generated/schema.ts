@@ -10400,6 +10400,7 @@ export interface operations {
             query?: {
                 actor?: string;
                 entity?: string;
+                type?: string;
                 source?: string;
                 from?: string;
                 to?: string;

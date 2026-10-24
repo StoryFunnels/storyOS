@@ -9,10 +9,27 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  *
  * Leaf module with no imports of ours, because `db/schema.ts` reads it from a column default.
  */
-const store = new AsyncLocalStorage<{ tokenId: string | null }>();
+/**
+ * #1059 — WHO is acting, beside which credential: the person, what kind of actor (a human, an agent, an MCP client, an automation) and the
+ * agent behind a token. Structural audit events (a space, database or view deleted, restored, restricted) are written deep inside services
+ * that never took an actor, from REST and from MCP alike; this is how they are attributed without threading three parameters through every
+ * caller. Same rule as `tokenId`: outside a request there is no store, and absence is recorded as absence, never as a person.
+ */
+export interface RequestActor {
+  userId: string | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  agentId: string | null;
+  agentName: string | null;
+}
 
-export function runWithCredential<T>(tokenId: string | null, fn: () => T): T {
-  return store.run({ tokenId }, fn);
+const store = new AsyncLocalStorage<{ tokenId: string | null; actor: RequestActor | null }>();
+
+export function runWithCredential<T>(tokenId: string | null, fn: () => T, actor: RequestActor | null = null): T {
+  return store.run({ tokenId, actor }, fn);
+}
+
+export function currentActor(): RequestActor | null {
+  return store.getStore()?.actor ?? null;
 }
 
 export function currentCredentialId(): string | null {

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { recordStructuralEvent } from '../activity/structural-events';
 import { resolveFormSharing, stripPublicSharing } from './view-sharing';
 import { randomBytes } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
@@ -861,6 +862,7 @@ export class ViewsService {
       if (sharedCount <= 1) throw new ConflictException('A database must keep at least one view');
     }
     await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
+    await this.auditView(databaseId, removed, 'deleted');
     // Keep exactly one default: if we removed the default, promote the first remaining SHARED view.
     if (removed.isDefault) {
       const next = all
@@ -869,6 +871,17 @@ export class ViewsService {
       if (next) await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
     }
     return { deleted: true };
+  }
+
+  /**
+   * #1059 — a shared view deleted or restored is a workspace audit event. A PERSONAL view is private from admins too (ADR-0017/#291),
+   * so it never appears in a workspace-wide log: that rule is enforced here, once, for both directions.
+   */
+  private async auditView(databaseId: string, view: { id: string; name: string; type: string; ownerUserId: string | null }, action: 'deleted' | 'restored') {
+    if (view.ownerUserId) return;
+    const database = await this.db.query.databases.findFirst({ where: eq(databases.id, databaseId), columns: { workspaceId: true, name: true } });
+    if (!database) return;
+    await recordStructuralEvent(this.db, { workspaceId: database.workspaceId, kind: 'view', action, id: view.id, name: view.name, extra: { database_id: databaseId, database_name: database.name, view_type: view.type } });
   }
 
   /** #37 — deleted views on this database, for the trash view. Cascade-deleted
@@ -894,6 +907,7 @@ export class ViewsService {
     });
     if (!view) throw new NotFoundException('View not found in trash');
     await this.db.update(views).set({ deletedAt: null }).where(eq(views.id, viewId));
+    await this.auditView(databaseId, view, 'restored');
     return { restored: true, id: viewId };
   }
 
