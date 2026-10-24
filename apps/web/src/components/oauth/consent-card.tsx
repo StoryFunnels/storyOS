@@ -169,8 +169,8 @@ export function ConsentCard({
       )}
 
       <p className="text-label text-muted">
-        Only continue if you started this connection from {request.client_name}. Allowing replaces how apps you already
-        connected reach StoryOS: they stop working until they reconnect.
+        Only continue if you started this connection from {request.client_name}. Connections made before this update
+        stop working until they are reconnected.
       </p>
 
       <div className="flex gap-2">

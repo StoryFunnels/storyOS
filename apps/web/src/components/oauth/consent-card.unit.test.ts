@@ -39,7 +39,8 @@ describe('the consent screen states (#1030)', () => {
     expect(out).toContain('Know who you are');
     expect(out).toContain('>Allow<');
     expect(out).toContain('>Deny<');
-    expect(out).toContain('stop working until they reconnect');
+    expect(out).toContain('Connections made before this update');
+    expect(out).toContain('stop working until they are reconnected');
     expect(consentTitle(ready())).toBe('Allow Claude to connect?');
   });
 
