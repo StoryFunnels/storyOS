@@ -228,7 +228,7 @@ export default function ConnectionsSettingsPage() {
         {(connections.data ?? []).map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between gap-3 border-b border-border-default px-4 py-3 last:border-b-0"
+            className="flex flex-col gap-2 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
@@ -240,12 +240,12 @@ export default function ConnectionsSettingsPage() {
               <p className="mt-0.5 text-label text-muted">
                 <StatusPill status={c.status} />
                 {needsBaseUrl(c) && (
-                  <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-meta font-medium text-warning">Needs base URL</span>
+                  <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-meta font-medium text-ink">Needs base URL</span>
                 )}
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
               {needsBaseUrl(c) ? (
-                <p role="status" className="mt-1 text-label text-warning">
+                <p role="status" className="mt-1 text-label font-medium text-ink">
                   Set this connection&rsquo;s base URL: until then it sends nothing, and rules that use it fail.
                 </p>
               ) : (
@@ -303,7 +303,7 @@ export default function ConnectionsSettingsPage() {
                 </details>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
