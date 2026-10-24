@@ -51,7 +51,8 @@ export class WorkspacesController {
     // full session/oauth credential (no `workspaceId`) still sees every
     // membership. Clamping here mirrors the per-request ceiling AuthGuard
     // already enforces for `:ws` routes.
-    const scope = req.auth.via === 'token' ? req.auth.workspaceId : undefined;
+    // #1030: an OAuth connection is approved for ONE workspace, so discovery clamps for it exactly as for a PAT.
+    const scope = req.auth.via === 'token' || req.auth.via === 'oauth' ? req.auth.workspaceId : undefined;
     return this.workspaces.listForUser(req.user.id, scope);
   }
 

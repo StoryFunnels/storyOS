@@ -8,7 +8,10 @@ import {
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { oauthConsent } from '../db/auth-schema';
+import { parseGrantScopes } from './oauth-grant';
+import type { OauthGrant } from './oauth-grant';
 import { scopeSatisfies, type ResourceScope, type TokenScope } from '@storyos/schemas';
 import { RESOURCE_SCOPABLE_KEY } from '../access/resource-scope';
 import type { ChangeSource } from '../db/schema';
@@ -35,7 +38,7 @@ export interface AuthedUser {
  */
 export interface AuthContext {
   via: 'session' | 'token' | 'oauth';
-  /** Only set for `via: 'token'` — the workspace the PAT was minted for. */
+  /** Only set for `via: 'token'` (the workspace the PAT was minted for) and `via: 'oauth'` (the workspace the person approved, #1030). */
   workspaceId?: string;
   /** Only set for `via: 'token'` — the token's power ceiling (MN-134). */
   tokenScope?: TokenScope;
@@ -124,6 +127,17 @@ export class AuthGuard implements CanActivate {
     if (isRunButton && !resolved.allowRunButton) {
       throw new ForbiddenException('This token is not allowed to run buttons.');
     }
+  }
+
+  /** #1030 — the newest grant a person gave this OAuth client, or null. The consent row is the only record of it. */
+  private async oauthGrant(userId: string, clientId: string): Promise<OauthGrant | null> {
+    const rows = await this.db
+      .select({ scopes: oauthConsent.scopes })
+      .from(oauthConsent)
+      .where(and(eq(oauthConsent.userId, userId), eq(oauthConsent.clientId, clientId), eq(oauthConsent.consentGiven, true)))
+      .orderBy(desc(oauthConsent.createdAt))
+      .limit(1);
+    return parseGrantScopes(rows[0]?.scopes);
   }
 
   /**
@@ -229,6 +243,7 @@ export class AuthGuard implements CanActivate {
       this.auth.api as {
         getMcpSession?: (opts: { headers: Headers }) => Promise<{
           userId?: string;
+          clientId?: string;
           scopes?: string | string[];
         } | null>;
       }
@@ -247,8 +262,22 @@ export class AuthGuard implements CanActivate {
       // sessions (cookies) and PATs, and nothing else consumes its tokens — so every
       // token it mints is, by construction, an MCP token for the resolved user.
       if (mcpToken?.userId) {
+        // #1030 — a token is only as powerful as what its owner APPROVED for this client: one workspace and read or write.
+        // better-auth mints the token without either, so the grant is looked up (user + client) on every request. No grant
+        // means a flow nobody consented to (or a connection made before consent existed): refused, not defaulted to "all".
+        const grant = mcpToken.clientId ? await this.oauthGrant(mcpToken.userId, mcpToken.clientId) : null;
+        if (!grant) {
+          throw new UnauthorizedException('This AI connection has not been approved. Reconnect the client and approve it when asked.');
+        }
         const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
         if (account) {
+          // The same ceiling a PAT has (MN-122): 404, not 403, so a connection cannot probe which other workspaces exist. Checked
+          // BEFORE the power ceiling, so a read-only connection gets the same 404 for another workspace as a write one does.
+          const params = request.params as { ws?: string } | undefined;
+          if (params?.ws && params.ws.toLowerCase() !== grant.workspaceId) {
+            throw new NotFoundException('Workspace not found');
+          }
+          this.enforceTokenScope(context, { scope: grant.access, allowRunButton: true });
           (request as AuthedRequest).user = {
             id: account.id,
             email: account.email,
@@ -261,7 +290,13 @@ export class AuthGuard implements CanActivate {
           // AI connected through claude.ai skipped every gate meant for agents (ADR-0010's
           // publish rule, action gates, ungating an approval) and was badged as a person. A PAT
           // is `mcp`; this is the same kind of caller. Pinned by test/oauth-source.test.ts.
-          (request as AuthedRequest).auth = { via: 'oauth', source: 'mcp' };
+          (request as AuthedRequest).auth = {
+            via: 'oauth',
+            source: 'mcp',
+            workspaceId: grant.workspaceId,
+            tokenScope: grant.access,
+            allowRunButton: true,
+          };
           return true;
         }
       }

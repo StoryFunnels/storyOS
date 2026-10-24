@@ -14,3 +14,6 @@ export function restoreMcpOAuth(): void {
   if (original === undefined) delete process.env.MCP_OAUTH;
   else process.env.MCP_OAUTH = original;
 }
+
+// #1030 — registration only accepts real AI-client redirect URIs; the OAuth tests' fake client redirects to example.com.
+process.env.MCP_OAUTH_REDIRECT_HOSTS = 'example.com';

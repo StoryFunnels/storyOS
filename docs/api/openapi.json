@@ -79,6 +79,63 @@
         ]
       }
     },
+    "/api/v1/oauth/consent": {
+      "get": {
+        "operationId": "OauthConsentController_describe",
+        "parameters": [
+          {
+            "name": "consent_code",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you can bind it to",
+        "tags": [
+          "auth"
+        ]
+      },
+      "post": {
+        "operationId": "OauthConsentController_decide",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Allow (bound to one workspace and read or write) or deny an AI client; returns where to send the browser next",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/workspaces": {
       "get": {
         "operationId": "WorkspacesController_list",
@@ -11299,6 +11356,39 @@
       }
     },
     "schemas": {
+      "ConsentDecisionDto": {
+        "type": "object",
+        "properties": {
+          "consent_code": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 200
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        },
+        "required": [
+          "consent_code",
+          "decision"
+        ]
+      },
       "CreateWorkspaceDto": {
         "type": "object",
         "properties": {

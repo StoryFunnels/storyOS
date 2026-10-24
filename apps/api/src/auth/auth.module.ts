@@ -8,12 +8,16 @@ import { memberships } from '../db/schema';
 import { createAuth } from './auth';
 import { AuthGuard } from './auth.guard';
 import { AUTH } from './auth.tokens';
+import { OauthConsentController } from './oauth-consent.controller';
+import { OauthConsentService } from './oauth-consent.service';
 
 export { AUTH } from './auth.tokens';
 
 @Global()
 @Module({
+  controllers: [OauthConsentController],
   providers: [
+    OauthConsentService,
     {
       provide: AUTH,
       useFactory: (db: Db, emailService: EmailService, membershipEvents: MembershipEventsService) =>
