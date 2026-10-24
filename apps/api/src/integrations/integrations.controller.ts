@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
+  Inject,
   HttpCode,
   NotFoundException,
   Param,
@@ -15,7 +17,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { and, eq } from 'drizzle-orm';
+import { DB } from '../db/db.module';
+import type { Db } from '../db/client';
+import { memberships } from '../db/schema';
+import { verification } from '../db/auth-schema';
+import { AUTH } from '../auth/auth.tokens';
+import type { Auth } from '../auth/auth';
+import { toWebHeaders } from '../auth/auth.guard';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
@@ -205,7 +215,7 @@ export class IntegrationsController {
   @ApiOperation({ summary: 'Begin GitHub App OAuth connect (redirects to GitHub)' })
   connect(@Req() req: WorkspaceRequest, @Res() reply: FastifyReply) {
     this.requireAppConfigured();
-    const state = this.githubApp.signState(req.membership.workspaceId);
+    const state = this.githubApp.signState(req.membership.workspaceId, req.user.id);
     redirect(reply, this.githubApp.authorizeUrl(state));
   }
 
@@ -445,14 +455,19 @@ export class GithubOAuthController {
   constructor(
     private readonly github: GithubService,
     private readonly githubApp: GithubAppService,
+    @Inject(DB) private readonly db: Db,
+    @Inject(AUTH) private readonly auth: Auth,
   ) {}
 
   @Get('oauth/callback')
-  @ApiOperation({ summary: 'GitHub App OAuth callback — verifies state, captures installation id' })
+  @ApiOperation({ summary: 'GitHub App OAuth callback — verifies state and the signed-in person, resolves the installation from the OAuth code' })
   async callback(
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
     @Query('state') state?: string,
-    @Query('installation_id') installationId?: string,
+    // Deliberately IGNORED (#1037): it arrives in the URL, so anyone can put any installation id there. It is only ever compared to the
+    // list GitHub itself returns for the authorizing person; see below.
+    @Query('installation_id') claimedInstallationId?: string,
     @Query('code') code?: string,
   ) {
     if (!this.githubApp.isConfigured()) {
@@ -461,25 +476,49 @@ export class GithubOAuthController {
     const verified = this.githubApp.verifyState(state);
     if (!verified) throw new BadRequestException('Invalid or expired OAuth state');
 
-    // GitHub's user-auth flow returns a `code`, not an `installation_id` (only the
-    // separate install flow sends that). Accept an explicit installation_id when
-    // present, otherwise resolve it from the code by asking which installations of
-    // this App the authorizing user can reach.
-    let instId = Number(installationId);
-    if (!Number.isInteger(instId) || instId <= 0) {
-      const resolved = code
-        ? await this.githubApp.resolveInstallationFromCode(code).catch(() => null)
-        : null;
-      if (!resolved) {
-        throw new BadRequestException(
-          'Connected, but the StoryOS GitHub App is not installed on any account yet. ' +
-            'Install it on your repositories, then click Connect again.',
-        );
+    // #1037 — the state names WHO started the connect; only that person's session may finish it. A state carried to another
+    // browser (or replayed by someone who saw the URL) is useless without their cookie.
+    if (!verified.userId) throw new BadRequestException('This connect link is out of date; start the GitHub connection again');
+    const session = await this.auth.api.getSession({ headers: toWebHeaders(req.headers) }).catch(() => null);
+    if (!session || (session.user as { id: string }).id !== verified.userId) {
+      throw new ForbiddenException('Sign in as the person who started this GitHub connection, then try again');
+    }
+    // Saving an installation into a workspace is an admin act: re-check it NOW, not only when the link was minted.
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, verified.workspaceId), eq(memberships.userId, verified.userId), eq(memberships.status, 'active')),
+    });
+    if (!membership || membership.role !== 'admin') throw new ForbiddenException('Only a workspace admin can connect GitHub');
+
+    // #1037 — single use: the first completion consumes the nonce, a replay (same URL again) finds it gone. The row id is the primary
+    // key, so two concurrent callbacks cannot both win.
+    const consumed = await this.db
+      .insert(verification)
+      .values({ id: `github-state:${verified.nonce}`, identifier: 'github-connect-state', value: verified.workspaceId, expiresAt: new Date(verified.expiresAt) })
+      .onConflictDoNothing()
+      .returning({ id: verification.id });
+    if (consumed.length === 0) throw new BadRequestException('This GitHub connect link was already used; start the connection again');
+
+    // The installation comes from GitHub, for the person who authorized: exchange the code, list THEIR installations of this App.
+    // Without a code there is nothing to verify, so there is nothing to link.
+    if (!code) throw new BadRequestException('GitHub did not return an authorization code; start the connection again');
+    const mine = await this.githubApp.installationsForCode(code).catch(() => [] as number[]);
+    if (mine.length === 0) {
+      throw new BadRequestException(
+        'Connected, but the StoryOS GitHub App is not installed on any account you can access yet. ' +
+          'Install it on your repositories, then click Connect again.',
+      );
+    }
+    let installationId = mine[0]!;
+    const claimed = Number(claimedInstallationId);
+    if (claimedInstallationId !== undefined && claimedInstallationId !== '') {
+      // A claimed id is honoured only if it is one of the person's own installations (they may have several); anything else is refused.
+      if (!Number.isInteger(claimed) || !mine.includes(claimed)) {
+        throw new ForbiddenException('That GitHub installation is not one your GitHub account can access');
       }
-      instId = resolved;
+      installationId = claimed;
     }
 
-    await this.github.saveInstallationId(verified.workspaceId, instId);
+    await this.github.saveInstallationId(verified.workspaceId, installationId);
     redirect(
       reply,
       `${env().WEB_URL}/w/${verified.workspaceId}/settings/integrations/github?connected=1`,

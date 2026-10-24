@@ -158,8 +158,9 @@ describe('GithubAppService (unit)', () => {
   describe('OAuth CSRF state', () => {
     it('round-trips a workspace id through a signed state', () => {
       const svc = new GithubAppService();
-      const state = svc.signState('ws-abc');
-      expect(svc.verifyState(state)).toEqual({ workspaceId: 'ws-abc' });
+      const state = svc.signState('ws-abc', 'user-1');
+      expect(svc.verifyState(state)).toMatchObject({ workspaceId: 'ws-abc', userId: 'user-1', nonce: expect.any(String) });
+      expect(svc.verifyState(svc.signState('ws-abc'))!.userId, 'a state with no starter has no userId (the callback refuses it, #1037)').toBeUndefined();
     });
 
     it('rejects a tampered state', () => {
@@ -288,7 +289,11 @@ describe('GitHub App connect (integration)', () => {
   // A shim standing in for api.github.com — counts App calls; hits nothing real.
   const calls = { token: 0, postComment: 0, patchComment: 0 };
   let commentResponder: () => ReturnType<typeof okResponse> = () => okResponse({ id: 555 });
+  /** #1037 — what GitHub says the authorizing person can reach (`GET /user/installations`). */
+  let userInstallations: number[] = [];
   const appShim: GithubAppFetcher = async (url, init) => {
+    if (url.includes('/login/oauth/access_token')) return okResponse({ access_token: 'ghu_user_token' });
+    if (url.includes('/user/installations')) return okResponse({ installations: userInstallations.map((id) => ({ id })) });
     if (url.includes('/access_tokens')) {
       calls.token += 1;
       return okResponse({ token: 'ghs_installation', expires_at: new Date(Date.now() + 3_600_000).toISOString() });
@@ -356,18 +361,108 @@ describe('GitHub App connect (integration)', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  const meId = async (token = admin.token) => (await app.inject({ method: 'GET', url: '/api/v1/me', headers: authed(token) })).json().id as string;
+  /** The browser GitHub sends back: the signed-in person's cookie/session, a state, and whatever the URL claims. */
+  const callbackAs = (token: string | null, state: string, query = '') =>
+    app.inject({ method: 'GET', url: `/api/v1/integrations/github/oauth/callback?state=${encodeURIComponent(state)}${query}`, headers: token ? authed(token) : {} });
+  const savedInstallation = async (ws = wsId) => (await as('GET', `/workspaces/${ws}/integrations/github`)).json().installation_id as number | null | undefined;
+
   it('callback with a good state captures + persists the installation id', async () => {
-    const goodState = app.get(GithubAppService).signState(wsId);
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/integrations/github/oauth/callback?state=${encodeURIComponent(goodState)}&installation_id=13572468`,
-    });
-    expect(res.statusCode).toBe(302);
+    userInstallations = [13572468];
+    const goodState = app.get(GithubAppService).signState(wsId, await meId());
+    const res = await callbackAs(admin.token, goodState, '&code=good-code&installation_id=13572468');
+    expect(res.statusCode, res.body).toBe(302);
     expect(String(res.headers.location)).toContain(`/w/${wsId}/settings/integrations/github`);
 
     const cfg = (await as('GET', `/workspaces/${wsId}/integrations/github`)).json();
     expect(cfg.connected).toBe(true);
     expect(cfg.installation_id).toBe(13572468);
+  });
+
+  /**
+   * #1037 — the callback used to store `installation_id` straight from the URL whenever the state verified, so an admin of their OWN
+   * workspace could link another organisation's installation (an integer visible in GitHub settings URLs) and read its private repos.
+   * Each test is that attack, or a replay of the flow, followed by looking at what got stored.
+   */
+  describe('#1037 installation hijack', () => {
+    const VICTIM_INSTALLATION = 777_000_001;
+    let atkWs: string;
+    beforeAll(async () => { atkWs = (await as('POST', '/workspaces', { name: 'Attacker Own WS' })).json().id; });
+    const stateFor = async (ws = atkWs, token = admin.token) => app.get(GithubAppService).signState(ws, await meId(token));
+
+    it('THE ATTACK: a valid state plus someone else\'s installation_id in the URL is refused, and nothing is stored', async () => {
+      userInstallations = [111]; // the attacker's GitHub account can only reach its own installation
+      const res = await callbackAs(admin.token, await stateFor(), `&code=attacker-code&installation_id=${VICTIM_INSTALLATION}`);
+      expect(res.statusCode, res.body).toBe(403);
+      expect(await savedInstallation(atkWs), 'the victim installation was not linked').toBeFalsy();
+      expect((await as('GET', `/workspaces/${atkWs}/integrations/github/repos`)).statusCode, 'so no private repo list').not.toBe(200);
+    });
+
+    it('with NO code there is nothing to verify, so nothing is linked even with a plausible id', async () => {
+      userInstallations = [VICTIM_INSTALLATION];
+      const res = await callbackAs(admin.token, await stateFor(), `&installation_id=${VICTIM_INSTALLATION}`);
+      expect(res.statusCode, res.body).toBe(400);
+      expect(await savedInstallation(atkWs)).toBeFalsy();
+    });
+
+    it('the URL id is not what is stored: with a code and no claim, the person\'s own (first) installation is; with a claim among their own, that one', async () => {
+      userInstallations = [222, 333];
+      expect((await callbackAs(admin.token, await stateFor(), '&code=c1')).statusCode).toBe(302);
+      expect(await savedInstallation(atkWs)).toBe(222);
+      expect((await callbackAs(admin.token, await stateFor(), '&code=c2&installation_id=333')).statusCode).toBe(302);
+      expect(await savedInstallation(atkWs), 'a claimed id that IS theirs is honoured').toBe(333);
+      expect((await callbackAs(admin.token, await stateFor(), '&code=c3&installation_id=999')).statusCode, 'one that is not theirs is not').toBe(403);
+      expect(await savedInstallation(atkWs)).toBe(333);
+    });
+
+    it('a malformed claim is refused too', async () => {
+      userInstallations = [222];
+      for (const bad of ['abc', '-5', '1.5', '0']) {
+        expect((await callbackAs(admin.token, await stateFor(), `&code=c&installation_id=${bad}`)).statusCode, bad).toBe(403);
+      }
+    });
+
+    it('the code exchanging to nothing (or the person having no installation) links nothing', async () => {
+      userInstallations = [];
+      const res = await callbackAs(admin.token, await stateFor(), '&code=c&installation_id=222');
+      expect(res.statusCode, res.body).toBe(400);
+    });
+
+    it('SINGLE USE: the same callback URL cannot be replayed', async () => {
+      userInstallations = [222];
+      const state = await stateFor();
+      expect((await callbackAs(admin.token, state, '&code=once')).statusCode).toBe(302);
+      const replay = await callbackAs(admin.token, state, '&code=once');
+      expect(replay.statusCode, replay.body).toBe(400);
+      expect(replay.body).toContain('already used');
+    });
+
+    it('SINGLE USE under concurrency: two simultaneous callbacks with one state, exactly one wins', async () => {
+      userInstallations = [222];
+      const state = await stateFor();
+      const [a, b] = await Promise.all([callbackAs(admin.token, state, '&code=x'), callbackAs(admin.token, state, '&code=x')]);
+      expect([a.statusCode, b.statusCode].sort()).toEqual([302, 400]);
+    });
+
+    it('SESSION-BOUND: the state carried to another person\'s browser, or to no session at all, is refused', async () => {
+      userInstallations = [222];
+      const other = (await signUpUser(app, 'Someone Else')).token;
+      const state = await stateFor();
+      expect((await callbackAs(other, state, '&code=c')).statusCode, 'another signed-in person').toBe(403);
+      expect((await callbackAs(null, state, '&code=c')).statusCode, 'no session').toBe(403);
+      // and the refusals did not burn it: the real person can still finish
+      expect((await callbackAs(admin.token, state, '&code=c')).statusCode).toBe(302);
+    });
+
+    it('an old-format state (no starter) is refused, and a person who is no longer an ADMIN of the workspace cannot complete it', async () => {
+      userInstallations = [222];
+      expect((await callbackAs(admin.token, app.get(GithubAppService).signState(atkWs), '&code=c')).statusCode).toBe(400);
+      const member = await signUpUser(app, 'Plain Member');
+      const invite = await as('POST', `/workspaces/${atkWs}/invites`, { email: (member as { email: string }).email, role: 'member' });
+      await app.inject({ method: 'POST', url: '/api/v1/invites/accept', headers: authed(member.token), payload: { token: new URL(invite.json().accept_url).searchParams.get('token')! } });
+      const res = await callbackAs(member.token, app.get(GithubAppService).signState(atkWs, await meId(member.token)), '&code=c');
+      expect(res.statusCode, res.body).toBe(403);
+    });
   });
 
   it('lists the installation repos and stores a chosen subset', async () => {
