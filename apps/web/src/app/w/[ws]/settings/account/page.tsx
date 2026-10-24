@@ -3,11 +3,13 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { API_URL } from '@/lib/api';
+import { API_URL, api, apiErrorMessage } from '@/lib/api';
 import { authClient, useSession } from '@/lib/auth-client';
 import { useDateFormat } from '@/lib/preferences';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { DELETE_ACCOUNT_BLOCKER, DELETE_ACCOUNT_CONSEQUENCES, ERASE_ME_BODY, emailConfirmMatches } from '@/lib/erase-account';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -44,6 +46,7 @@ export default function AccountPage() {
         <EmailSection email={session.user.email} verified={session.user.emailVerified} />
         <PasswordSection />
         <SessionsSection currentToken={session.session.token} />
+        <DeleteAccountSection email={session.user.email} />
       </div>
     </div>
   );
@@ -310,4 +313,105 @@ function describeAgent(ua?: string | null): string {
           : 'Browser';
   const os = /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : '';
   return os ? `${browser} on ${os}` : browser;
+}
+
+/**
+ * #1039 — erase YOUR OWN account everywhere. Self-service and session-only (the API refuses a token), irreversible, and blocked
+ * while you are the only admin of a workspace (409, whose own sentence is shown). A workspace admin can only remove a person from
+ * THEIR workspace; this is the one way to delete the account itself.
+ */
+function DeleteAccountSection({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [blocked, setBlocked] = useState<string | null>(null);
+
+  const erase = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST('/api/v1/me/gdpr/erase', { body: ERASE_ME_BODY } as never);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      // The server has destroyed the session; clear what is left in this browser and start from the sign-in page.
+      try {
+        await authClient.signOut();
+      } catch {
+        // already signed out by the erase itself
+      }
+      window.location.assign('/login');
+    },
+    onError: (error) => setBlocked(apiErrorMessage(error, 'Could not delete your account. Nothing was changed.')),
+  });
+
+  return (
+    <Section
+      title="Delete my account"
+      description="Erase your account and leave every workspace. This is separate from a workspace admin removing you from one workspace."
+    >
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) {
+            setTyped('');
+            setBlocked(null);
+          }
+        }}
+      >
+        <DialogTrigger asChild>
+          <Button variant="destructive" size="sm">
+            Delete my account…
+          </Button>
+        </DialogTrigger>
+        <DialogContent title="Delete your account?">
+          <div className="flex flex-col gap-4">
+            <ul className="flex list-disc flex-col gap-1.5 pl-5 text-body text-ink-secondary">
+              {DELETE_ACCOUNT_CONSEQUENCES.map((line) => (
+                <li key={line} className={line.startsWith('This cannot') ? 'font-medium text-ink' : undefined}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+            <p className="rounded-[var(--radius-control)] bg-hover px-3 py-2 text-label text-ink-secondary">{DELETE_ACCOUNT_BLOCKER}</p>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="delete-account-confirm">
+                Type <span className="font-mono text-ink">{email}</span> to confirm
+              </Label>
+              <Input
+                id="delete-account-confirm"
+                autoComplete="off"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+              />
+              {typed.trim().length > 0 && !emailConfirmMatches(typed, email) && (
+                <p className="text-label text-error">Doesn&rsquo;t match your email — check the spelling.</p>
+              )}
+            </div>
+            {blocked && (
+              <p role="alert" className="rounded-[var(--radius-control)] border border-error px-3 py-2 text-body text-error">
+                {blocked}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 max-md:flex-col-reverse">
+              <DialogClose asChild>
+                <Button type="button" variant="secondary" disabled={erase.isPending}>
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!emailConfirmMatches(typed, email) || erase.isPending}
+                onClick={() => {
+                  setBlocked(null);
+                  erase.mutate();
+                }}
+              >
+                {erase.isPending ? 'Deleting…' : 'Delete my account permanently'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Section>
+  );
 }
