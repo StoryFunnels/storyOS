@@ -273,6 +273,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/databases/:db/import': scoped('assertAccess', 'import/import.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/records': scoped('assertAccess + visibleRecordIds + effectiveForRecord', 'records/records.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/records/:rec/attachments': scoped('assertAccess', 'attachments/attachments.controller.ts'),
+  'POST /api/v1/workspaces/:ws/databases/:db/records/:rec/attachments/from-url': scoped('assertAccess', 'attachments/attachments.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/records/:rec/buttons/:field/press': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/buttons.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/records/:rec/comments': scoped('assertAccess', 'comments/comments.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/records/:rec/document/versions/:version/restore': scoped('assertSpace + assertAccess', 'documents/documents.controller.ts'),

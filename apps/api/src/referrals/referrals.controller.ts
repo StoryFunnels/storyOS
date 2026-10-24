@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -29,6 +30,7 @@ export class ReferralsController {
     private readonly stripe: StripeService,
   ) {}
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Get('me')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
@@ -41,6 +43,7 @@ export class ReferralsController {
     return { enabled: true, ...summary, terms: REFERRAL_TERMS };
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post('attribute')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
