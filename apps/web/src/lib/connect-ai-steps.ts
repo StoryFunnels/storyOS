@@ -23,6 +23,17 @@ export interface ConnectStep {
 /** The connector name a person types into their AI client. Ievgen asked for it directly (ticket #1003). */
 export const CONNECTOR_NAME = 'StoryOS';
 
+/**
+ * #1057 — the "Try asking it" examples on the connected card. They are what a CUSTOMER would say, and they must work on
+ * ANY workspace: none names a database, a person, a customer or a ticket (the page once shipped the team's own dogfooding
+ * prompt). Prefer ones that read the person's own data, so the first answer is theirs.
+ */
+export const TRY_ASKING: readonly string[] = [
+  'What’s waiting for me in StoryOS?',
+  'Show me what’s overdue this week',
+  'Create a task for the kickoff meeting and assign it to me',
+];
+
 const t = (text: string): Run => ({ text });
 const b = (text: string): Run => ({ text, bold: true });
 const m = (text: string): Run => ({ text, muted: true });

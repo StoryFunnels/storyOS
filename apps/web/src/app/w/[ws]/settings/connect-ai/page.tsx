@@ -16,6 +16,7 @@ import { useAiConnected } from '@/lib/sidebar-ai';
 import {
   CONNECTOR_NAME,
   CONNECT_CLIENTS,
+  TRY_ASKING,
   type ConnectClient,
   type ConnectStep,
 } from '@/lib/connect-ai-steps';
@@ -108,11 +109,7 @@ function ConnectedCard({ onAnother }: { onAnother: () => void }) {
           connector settings.
         </p>
         <p className="mb-1 text-label font-semibold uppercase tracking-[0.06em] text-muted">Try asking it</p>
-        {[
-          'What’s waiting for me in StoryOS?',
-          'Summarise the open bugs on Issues by priority',
-          'Draft a ticket for: the sidebar caret is too small on phones',
-        ].map((q) => (
+        {TRY_ASKING.map((q) => (
           <div key={q} className="mb-1.5 rounded-[var(--radius-control)] bg-hover px-[11px] py-2 text-body text-ink">
             “{q}”
           </div>
