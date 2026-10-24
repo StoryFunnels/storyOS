@@ -15,7 +15,8 @@ import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { ShareDialog } from '@/components/share-dialog';
+import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
+import { canManageAccess } from '@/lib/access-model';
 import { SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
@@ -264,7 +265,7 @@ export default function SpacePage() {
               button that opens a dialog doomed to 403 is worse than no button.
               This mirrors the sidebar's own `canEdit &&` gate on the identical
               menu item (sidebar.tsx), not a new rule invented for this page. */}
-          {canSeeAccessList && (
+          {canManageAccess(workspace.data?.role) && (
             <Button type="button" variant="secondary" size="sm" onClick={() => setSharing(true)}>
               Manage access
             </Button>
@@ -366,7 +367,7 @@ export default function SpacePage() {
       </Dialog>
 
       <Dialog open={sharing} onOpenChange={setSharing}>
-        {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
+        {sharing && <ManageAccessDialog ws={ws} scope={{ space_id: space.id }} />}
       </Dialog>
     </div>
   );
