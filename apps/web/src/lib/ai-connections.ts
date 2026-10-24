@@ -16,7 +16,10 @@ export interface AiConnection {
   connected_at: string | null;
   /** Tokens record it; OAuth does not, so null means "not recorded" for OAuth and "never used" for a token. */
   last_used_at: string | null;
-  reaches: 'all_your_workspaces' | 'this_workspace';
+  /** `one_workspace`: bound to `workspace` at level `access` (#1030). `reconnect_needed`: no usable approval, the server refuses it. */
+  reaches: 'one_workspace' | 'reconnect_needed' | 'this_workspace';
+  workspace: { id: string; name: string } | null;
+  access: 'read' | 'write' | null;
 }
 
 export const aiConnectionsKey = (ws: string) => ['ai-connections', ws] as const;
@@ -56,22 +59,35 @@ export interface ConnectionWords {
   confirmMessage: string;
 }
 
+const ACCESS_LABEL = { read: 'Read only', write: 'Read and write' } as const;
+
 /** The words for one connection, in one place so the row and its confirmation can never describe different things. */
-export function connectionWords(c: Pick<AiConnection, 'kind' | 'client_name' | 'reaches'>): ConnectionWords {
-  const reaches = c.reaches === 'all_your_workspaces' ? 'All your workspaces' : 'This workspace only';
-  if (c.kind === 'oauth') {
+export function connectionWords(c: Pick<AiConnection, 'kind' | 'client_name' | 'reaches' | 'workspace' | 'access'>): ConnectionWords {
+  const confirmTitle = `Disconnect ${c.client_name}?`;
+  if (c.kind === 'token') {
     return {
-      how: 'Connected by signing in',
-      reaches,
-      confirmTitle: `Disconnect ${c.client_name}?`,
-      confirmMessage: `${c.client_name} loses access to every workspace you are in, right away. It can ask to connect again, and you will be asked to allow it.`,
+      how: 'Personal access token',
+      reaches: 'This workspace only',
+      confirmTitle,
+      confirmMessage: 'This token stops working right away. Anything still using it will start failing.',
     };
   }
+  if (c.reaches === 'one_workspace' && c.workspace) {
+    const level = c.access ? ACCESS_LABEL[c.access] : null;
+    return {
+      how: 'Connected by signing in',
+      reaches: `${c.workspace.name} only${level ? ` · ${level}` : ''}`,
+      confirmTitle,
+      confirmMessage: `${c.client_name} loses access to ${c.workspace.name} right away. It can ask to connect again, and you will be asked to allow it.`,
+    };
+  }
+  // No usable approval: it was connected before a workspace and level were chosen, or its workspace is one you are not in.
+  // StoryOS refuses it, so it is shown as what it is, never as access it does not have.
   return {
-    how: 'Personal access token',
-    reaches,
-    confirmTitle: `Disconnect ${c.client_name}?`,
-    confirmMessage: 'This token stops working right away. Anything still using it will start failing.',
+    how: 'Connected by signing in',
+    reaches: 'Reconnect needed',
+    confirmTitle,
+    confirmMessage: `${c.client_name} no longer works: it has no approved workspace. Disconnecting removes it, and you can connect it again to choose a workspace.`,
   };
 }
 

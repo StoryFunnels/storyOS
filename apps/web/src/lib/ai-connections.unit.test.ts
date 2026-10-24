@@ -4,16 +4,31 @@ import { connectionWords, lastUsedText } from './ai-connections';
 const date = (v: unknown) => `<${String(v).slice(0, 10)}>`;
 
 describe('the words for a connection (#1030)', () => {
-  it('an OAuth client reaches every workspace and says so, in the row and in the confirmation', () => {
-    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'all_your_workspaces' });
-    expect(w.reaches).toBe('All your workspaces');
+  const bound = { id: 'w1', name: 'Acme' };
+
+  it('an OAuth client bound to one workspace names it and the level, in the row and in the confirmation', () => {
+    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', workspace: bound, access: 'write' });
+    expect(w.reaches).toBe('Acme only · Read and write');
     expect(w.confirmTitle).toBe('Disconnect Claude?');
-    expect(w.confirmMessage).toContain('every workspace you are in');
+    expect(w.confirmMessage).toContain('loses access to Acme');
     expect(w.confirmMessage).toContain('ask to connect again');
+    expect(connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', workspace: bound, access: 'read' }).reaches).toBe('Acme only · Read only');
+  });
+
+  // Legacy connections are refused by the server; calling them "all workspaces" would claim access they do not have.
+  it('an OAuth connection with no usable approval says "Reconnect needed", never a workspace', () => {
+    const w = connectionWords({ kind: 'oauth', client_name: 'Cursor', reaches: 'reconnect_needed', workspace: null, access: null });
+    expect(w.reaches).toBe('Reconnect needed');
+    expect(w.reaches).not.toMatch(/all|workspaces/i);
+    expect(w.confirmMessage).toContain('no longer works');
+  });
+
+  it('a "one_workspace" answer with no workspace attached is not trusted: it reads as reconnect needed', () => {
+    expect(connectionWords({ kind: 'oauth', client_name: 'X', reaches: 'one_workspace', workspace: null, access: 'read' }).reaches).toBe('Reconnect needed');
   });
 
   it('a token is one workspace, and its confirmation says it stops working', () => {
-    const w = connectionWords({ kind: 'token', client_name: 'Cursor key', reaches: 'this_workspace' });
+    const w = connectionWords({ kind: 'token', client_name: 'Cursor key', reaches: 'this_workspace', workspace: null, access: null });
     expect(w.reaches).toBe('This workspace only');
     expect(w.how).toBe('Personal access token');
     expect(w.confirmMessage).toContain('stops working');

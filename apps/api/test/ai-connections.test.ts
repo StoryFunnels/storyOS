@@ -25,7 +25,7 @@ let db: Db;
 let activation: ActivationService;
 let tokens: TokensService;
 const as = (t: string, method: string, url: string, payload?: unknown) => call(app, t, method, url, payload);
-const list = async (t: string, ws: string) => (await as(t, 'GET', `/me/ai-connections?workspace_id=${ws}`)).json().data as Array<{ id: string; kind: string; client_name: string; connected_at: string | null; last_used_at: string | null; reaches: string }>;
+const list = async (t: string, ws: string) => (await as(t, 'GET', `/me/ai-connections?workspace_id=${ws}`)).json().data as Array<{ id: string; kind: string; client_name: string; connected_at: string | null; last_used_at: string | null; reaches: string; workspace: { id: string; name: string } | null; access: string | null }>;
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -55,25 +55,57 @@ describe('#1008 the list of connected AI clients', () => {
     const pat = await mintPat(p, 'my-laptop-cli');
     const rows = await list(p.token, p.ws);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: `token:${pat.id}`, kind: 'token', client_name: 'my-laptop-cli', reaches: 'this_workspace', last_used_at: null });
+    expect(rows[0]).toMatchObject({ id: `token:${pat.id}`, kind: 'token', client_name: 'my-laptop-cli', reaches: 'this_workspace', last_used_at: null, workspace: null, access: null });
     expect(Date.parse(rows[0]!.connected_at!)).not.toBeNaN();
     expect(await activation.aiConnected(p.ws)).toBe(true);
     await as(pat.token, 'GET', '/me');
     expect((await list(p.token, p.ws))[0]!.last_used_at, 'using the token is recorded').not.toBeNull();
   });
 
-  it('an OAuth connection: kind oauth, the client\'s registered name, reaches every workspace', async () => {
+  it('an OAuth connection: kind oauth, the client\'s registered name, bound to the ONE workspace and level the person approved', async () => {
     const p = await person('AIC OAuth');
     await connectMcpClient(app, p.token);
     const rows = await list(p.token, p.ws);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: 'oauth', client_name: 'test-connector', reaches: 'all_your_workspaces', last_used_at: null });
+    expect(rows[0]).toMatchObject({
+      kind: 'oauth', client_name: 'test-connector', reaches: 'one_workspace', last_used_at: null,
+      workspace: { id: p.ws, name: 'AIC OAuth' }, access: 'write',
+    });
     expect(rows[0]!.id).toMatch(/^oauth:/);
     expect(Date.parse(rows[0]!.connected_at!)).not.toBeNaN();
     expect(await activation.aiConnected(p.ws)).toBe(true);
-    // the same connection shows from the person's OTHER workspace
+    // the same connection shows from the person's OTHER workspace, still naming the workspace it is bound to
     const ws2 = (await as(p.token, 'POST', '/workspaces', { name: 'AIC OAuth 2' })).json().id as string;
-    expect((await list(p.token, ws2)).map((r) => r.kind)).toEqual(['oauth']);
+    const from2 = await list(p.token, ws2);
+    expect(from2.map((r) => r.kind)).toEqual(['oauth']);
+    expect(from2[0]!.workspace).toEqual({ id: p.ws, name: 'AIC OAuth' });
+  });
+
+  it('an OAuth connection with no usable approval is "reconnect_needed", never access it does not have', async () => {
+    const legacy = await person('AIC Legacy');
+    await connectMcpClient(app, legacy.token);
+    // a connection made before #1030: the consent row carries no workspace or level, so the AuthGuard refuses it
+    await db.update(oauthConsent).set({ scopes: 'openid offline_access' }).where(eq(oauthConsent.userId, legacy.userId));
+    expect((await list(legacy.token, legacy.ws))[0]).toMatchObject({ kind: 'oauth', reaches: 'reconnect_needed', workspace: null, access: null });
+
+    // bound to a workspace the person is not in (they left it, or it is someone else's): also refused
+    const stranger = await person('AIC Stranger');
+    const other = await person('AIC Other');
+    await connectMcpClient(app, stranger.token);
+    await db.update(oauthConsent).set({ scopes: `openid ws:${other.ws} access:read` }).where(eq(oauthConsent.userId, stranger.userId));
+    expect((await list(stranger.token, stranger.ws))[0]).toMatchObject({ reaches: 'reconnect_needed', workspace: null, access: null });
+  });
+
+  it('the NEWEST given consent is the approval, as the AuthGuard reads it; a declined consent never is', async () => {
+    const p = await person('AIC Newest');
+    await connectMcpClient(app, p.token);
+    const [row] = await db.select().from(oauthConsent).where(eq(oauthConsent.userId, p.userId));
+    // a later approval for the same client, read-only
+    await db.insert(oauthConsent).values({ ...row!, id: randomUUID(), createdAt: new Date(Date.now() + 1000), scopes: `openid ws:${p.ws} access:read` });
+    expect((await list(p.token, p.ws))[0]).toMatchObject({ reaches: 'one_workspace', access: 'read' });
+    // a still-later consent that was NOT given must not override it
+    await db.insert(oauthConsent).values({ ...row!, id: randomUUID(), createdAt: new Date(Date.now() + 2000), consentGiven: false, scopes: 'openid' });
+    expect((await list(p.token, p.ws))[0]).toMatchObject({ reaches: 'one_workspace', access: 'read' });
   });
 
   it('both, and two clients: one row per client however many tokens it has cycled through, oldest first', async () => {

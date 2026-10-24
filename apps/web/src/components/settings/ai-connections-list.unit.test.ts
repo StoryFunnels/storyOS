@@ -11,7 +11,9 @@ const oauth: AiConnection = {
   client_name: 'Claude',
   connected_at: '2026-10-01T09:00:00Z',
   last_used_at: null,
-  reaches: 'all_your_workspaces',
+  reaches: 'one_workspace',
+  workspace: { id: 'w1', name: 'Acme' },
+  access: 'write',
 };
 const token: AiConnection = {
   id: 'token:1f0c0f6e-0000-4000-8000-000000000001',
@@ -20,7 +22,10 @@ const token: AiConnection = {
   connected_at: '2026-10-05T09:00:00Z',
   last_used_at: '2026-10-20T10:00:00Z',
   reaches: 'this_workspace',
+  workspace: null,
+  access: null,
 };
+const legacy: AiConnection = { ...oauth, id: 'oauth:old', client_name: 'Cursor', reaches: 'reconnect_needed', workspace: null, access: null };
 const html = (view: AiConnectionsView) =>
   renderToStaticMarkup(createElement(AiConnectionsList, { view, date: (v: unknown) => `<${String(v).slice(0, 10)}>`, onDisconnect: () => {} }));
 
@@ -28,7 +33,7 @@ describe('the connected AI clients list (#1030)', () => {
   it('shows each client with how it connected, what it reaches, since when and last used, and a Disconnect for each', () => {
     const out = html({ kind: 'ready', items: [oauth, token], busyId: null });
     expect(out).toContain('Claude');
-    expect(out).toContain('Connected by signing in · All your workspaces');
+    expect(out).toContain('Connected by signing in · Acme only · Read and write');
     expect(out).toContain('Connected &lt;2026-10-01&gt;');
     expect(out).toContain('Last use not recorded');
     expect(out).toContain('Cursor key');
@@ -36,6 +41,13 @@ describe('the connected AI clients list (#1030)', () => {
     expect(out).toContain('Last used &lt;2026-10-20&gt;');
     expect(out.match(/>Disconnect</g)).toHaveLength(2);
     expect(out).toContain('aria-label="Disconnect Claude"');
+  });
+
+  it('a legacy connection says Reconnect needed and still has its Disconnect', () => {
+    const out = html({ kind: 'ready', items: [legacy], busyId: null });
+    expect(out).toContain('Reconnect needed');
+    expect(out).not.toContain('All your workspaces');
+    expect(out).toContain('aria-label="Disconnect Cursor"');
   });
 
   it('a row being disconnected says so, and every button is disabled meanwhile', () => {
