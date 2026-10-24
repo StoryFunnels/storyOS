@@ -6,6 +6,7 @@ import type { Db } from '../db/client';
 import { fields } from '../db/schema';
 import { ConnectionsService } from '../connections/connections.service';
 import type { HttpConnectionAuth } from '../connections/providers';
+import { urlWithinBase } from '../connections/providers';
 import { RecordsService } from '../records/records.service';
 import { getJsonPath } from '../common/json-path';
 import { redactLiteralValues, redactSecrets } from '../common/redact-secrets';
@@ -58,6 +59,28 @@ function secretLiteralsFromAuth(auth: HttpConnectionAuth | undefined): string[] 
     values.push(Buffer.from(`${auth.username}:${auth.password}`).toString('base64'));
   }
   return values.filter((v): v is string => typeof v === 'string' && v.length > 0);
+}
+
+/**
+ * #1035 — a connection's credential is only ever sent to the base URL an admin set on it. The request URL is the rule author's
+ * (any member's) to choose, so this is the check that stops a member pointing a shared connection at their own server. Fails
+ * CLOSED: a connection with no base URL (made before this existed) sends nothing until an admin sets one.
+ */
+export function assertUrlAllowedForConnection(auth: HttpConnectionAuth | undefined, url: string): string | null {
+  if (!auth) return null;
+  if (!auth.base_url) {
+    return 'This connection has no allowed base URL yet, so its credential is not sent anywhere. An admin must set one on the connection.';
+  }
+  if (!urlWithinBase(url, auth.base_url)) {
+    return "The request URL is outside this connection's allowed base URL, so the credential was not sent.";
+  }
+  return null;
+}
+
+/** The header NAMES a connection's auth sets, so a redirect to another origin can have exactly those removed (#1035). */
+function authHeaderNames(auth: HttpConnectionAuth | undefined): string[] {
+  if (!auth) return [];
+  return ['authorization', ...(auth.auth_style === 'headers' && auth.headers ? Object.keys(auth.headers) : [])];
 }
 
 /** Merges connection auth into the outgoing headers — SEND TIME ONLY. The merged
@@ -152,6 +175,8 @@ export class HttpRequestActionService implements OnModuleInit {
       auth = decrypted.auth as HttpConnectionAuth;
     }
     const secrets = secretLiteralsFromAuth(auth);
+    const outside = assertUrlAllowedForConnection(auth, action.url);
+    if (outside) throw new ProviderError(outside, { retryable: false }); // a configuration refusal never succeeds on retry
     const headers = mergeAuthHeaders({ ...(action.headers ?? {}) }, auth);
 
     let body: string | undefined;
@@ -169,7 +194,7 @@ export class HttpRequestActionService implements OnModuleInit {
         helpers.fetcher,
         action.url,
         { method: action.method, headers, body, signal: helpers.signal },
-        { allowPrivateCidrs: allowPrivateCidrsFromEnv(), maxBodyBytes: MAX_BODY_BYTES },
+        { allowPrivateCidrs: allowPrivateCidrsFromEnv(), maxBodyBytes: MAX_BODY_BYTES, stripOnCrossOrigin: authHeaderNames(auth) },
       );
     } catch (error) {
       // SsrfBlockedError is a refusal, not a transient network blip — retrying
@@ -276,6 +301,8 @@ export class HttpRequestActionService implements OnModuleInit {
       auth = decrypted.auth as HttpConnectionAuth;
     }
     const secrets = secretLiteralsFromAuth(auth);
+    const outside = assertUrlAllowedForConnection(auth, action.url);
+    if (outside) throw new UnprocessableEntityException(outside);
     const headers = mergeAuthHeaders({ ...(action.headers ?? {}) }, auth);
     let body: string | undefined;
     if (action.body_template && action.method !== 'GET') {
@@ -293,7 +320,7 @@ export class HttpRequestActionService implements OnModuleInit {
           fetch,
           action.url,
           { method: action.method, headers, body, signal: controller.signal },
-          { allowPrivateCidrs: allowPrivateCidrsFromEnv(), maxBodyBytes: MAX_BODY_BYTES },
+          { allowPrivateCidrs: allowPrivateCidrsFromEnv(), maxBodyBytes: MAX_BODY_BYTES, stripOnCrossOrigin: authHeaderNames(auth) },
         );
       } catch (error) {
         // MN-263: an SSRF refusal or network failure here is a 4xx the editor
