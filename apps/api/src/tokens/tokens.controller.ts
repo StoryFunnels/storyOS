@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -44,6 +45,7 @@ function assertSession(req: AuthedRequest, action: string): void {
 export class TokensController {
   constructor(private readonly tokens: TokensService) {}
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Get()
   @ApiOperation({ summary: 'My personal access tokens (prefix only — plaintext is never stored)' })
   list(@Req() req: AuthedRequest) {

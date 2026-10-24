@@ -8,7 +8,10 @@ import {
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { oauthConsent } from '../db/auth-schema';
+import { parseGrantScopes } from './oauth-grant';
+import type { OauthGrant } from './oauth-grant';
 import { scopeSatisfies, type ResourceScope, type TokenScope } from '@storyos/schemas';
 import { RESOURCE_SCOPABLE_KEY } from '../access/resource-scope';
 import type { ChangeSource } from '../db/schema';
@@ -18,8 +21,24 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
-import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
+import { RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
+import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+
+/**
+ * The scope a token needs for a route. An explicit `@RequiresScope` wins. Otherwise a route that needs the ADMIN ROLE
+ * (`@MinRole('admin')`, on the handler or the controller) needs an ADMIN-scoped token for every method, GET included (#1049):
+ * the role check only asks whether the token's OWNER is an admin, so before this a "write, no schema changes" token of an
+ * admin could invite an attacker as admin, add grants or create an exfiltrating webhook, and a READ token of an admin could
+ * read the audit log. Everything else: GET reads, other methods write. Exported so a test can enumerate every route.
+ */
+export type ReflectTargets = Parameters<Reflector['getAllAndOverride']>[1];
+export function requiredTokenScope(reflector: Reflector, targets: ReflectTargets, method: string): TokenScope {
+  const explicit = reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, targets);
+  if (explicit) return explicit;
+  if (reflector.getAllAndOverride<string>(MIN_ROLE_KEY, targets) === 'admin') return 'admin';
+  return method === 'GET' ? 'read' : 'write';
+}
 
 export interface AuthedUser {
   id: string;
@@ -35,7 +54,7 @@ export interface AuthedUser {
  */
 export interface AuthContext {
   via: 'session' | 'token' | 'oauth';
-  /** Only set for `via: 'token'` — the workspace the PAT was minted for. */
+  /** Only set for `via: 'token'` (the workspace the PAT was minted for) and `via: 'oauth'` (the workspace the person approved, #1030). */
   workspaceId?: string;
   /** Only set for `via: 'token'` — the token's power ceiling (MN-134). */
   tokenScope?: TokenScope;
@@ -107,11 +126,11 @@ export class AuthGuard implements CanActivate {
     },
   ): void {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    const explicit = this.reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    const required: TokenScope = explicit ?? (request.method === 'GET' ? 'read' : 'write');
+    // #1049 — account-level routes with no :ws (create a workspace, accept an invite, edit the profile) are a person's alone.
+    if (this.reflector.getAllAndOverride<boolean>(SESSION_ONLY_KEY, [context.getHandler(), context.getClass()])) {
+      throw new ForbiddenException('This needs a signed-in session: an API token or an AI connection cannot do it.');
+    }
+    const required = requiredTokenScope(this.reflector, [context.getHandler(), context.getClass()], request.method);
     if (!scopeSatisfies(resolved.scope, required)) {
       throw new ForbiddenException(
         `This token is ${resolved.scope}-scoped; ${required} access is required here.`,
@@ -124,6 +143,17 @@ export class AuthGuard implements CanActivate {
     if (isRunButton && !resolved.allowRunButton) {
       throw new ForbiddenException('This token is not allowed to run buttons.');
     }
+  }
+
+  /** #1030 — the newest grant a person gave this OAuth client, or null. The consent row is the only record of it. */
+  private async oauthGrant(userId: string, clientId: string): Promise<OauthGrant | null> {
+    const rows = await this.db
+      .select({ scopes: oauthConsent.scopes })
+      .from(oauthConsent)
+      .where(and(eq(oauthConsent.userId, userId), eq(oauthConsent.clientId, clientId), eq(oauthConsent.consentGiven, true)))
+      .orderBy(desc(oauthConsent.createdAt))
+      .limit(1);
+    return parseGrantScopes(rows[0]?.scopes);
   }
 
   /**
@@ -229,6 +259,7 @@ export class AuthGuard implements CanActivate {
       this.auth.api as {
         getMcpSession?: (opts: { headers: Headers }) => Promise<{
           userId?: string;
+          clientId?: string;
           scopes?: string | string[];
         } | null>;
       }
@@ -247,8 +278,22 @@ export class AuthGuard implements CanActivate {
       // sessions (cookies) and PATs, and nothing else consumes its tokens — so every
       // token it mints is, by construction, an MCP token for the resolved user.
       if (mcpToken?.userId) {
+        // #1030 — a token is only as powerful as what its owner APPROVED for this client: one workspace and read or write.
+        // better-auth mints the token without either, so the grant is looked up (user + client) on every request. No grant
+        // means a flow nobody consented to (or a connection made before consent existed): refused, not defaulted to "all".
+        const grant = mcpToken.clientId ? await this.oauthGrant(mcpToken.userId, mcpToken.clientId) : null;
+        if (!grant) {
+          throw new UnauthorizedException('This AI connection has not been approved. Reconnect the client and approve it when asked.');
+        }
         const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
         if (account) {
+          // The same ceiling a PAT has (MN-122): 404, not 403, so a connection cannot probe which other workspaces exist. Checked
+          // BEFORE the power ceiling, so a read-only connection gets the same 404 for another workspace as a write one does.
+          const params = request.params as { ws?: string } | undefined;
+          if (params?.ws && params.ws.toLowerCase() !== grant.workspaceId) {
+            throw new NotFoundException('Workspace not found');
+          }
+          this.enforceTokenScope(context, { scope: grant.access, allowRunButton: true });
           (request as AuthedRequest).user = {
             id: account.id,
             email: account.email,
@@ -261,7 +306,13 @@ export class AuthGuard implements CanActivate {
           // AI connected through claude.ai skipped every gate meant for agents (ADR-0010's
           // publish rule, action gates, ungating an approval) and was badged as a person. A PAT
           // is `mcp`; this is the same kind of caller. Pinned by test/oauth-source.test.ts.
-          (request as AuthedRequest).auth = { via: 'oauth', source: 'mcp' };
+          (request as AuthedRequest).auth = {
+            via: 'oauth',
+            source: 'mcp',
+            workspaceId: grant.workspaceId,
+            tokenScope: grant.access,
+            allowRunButton: true,
+          };
           return true;
         }
       }

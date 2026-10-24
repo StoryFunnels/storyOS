@@ -15,7 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from './workspace-access.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { RequiresScope, SessionOnly } from '../auth/token-scope.guard';
 import type { WorkspaceRequest } from './workspace-access.guard';
 import {
   AcceptInviteDto,
@@ -51,10 +51,12 @@ export class WorkspacesController {
     // full session/oauth credential (no `workspaceId`) still sees every
     // membership. Clamping here mirrors the per-request ceiling AuthGuard
     // already enforces for `:ws` routes.
-    const scope = req.auth.via === 'token' ? req.auth.workspaceId : undefined;
+    // #1030: an OAuth connection is approved for ONE workspace, so discovery clamps for it exactly as for a PAT.
+    const scope = req.auth.via === 'token' || req.auth.via === 'oauth' ? req.auth.workspaceId : undefined;
     return this.workspaces.listForUser(req.user.id, scope);
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post()
   @ApiOperation({ summary: 'Create a workspace (creator becomes admin)' })
   create(@Req() req: AuthedRequest, @Body() body: CreateWorkspaceDto) {
@@ -253,6 +255,7 @@ export class WorkspaceController {
 export class InviteAcceptController {
   constructor(private readonly invites: InvitesService) {}
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post('accept')
   @ApiOperation({ summary: 'Accept an invite by token (must match your email)' })
   accept(@Req() req: AuthedRequest, @Body() body: AcceptInviteDto) {

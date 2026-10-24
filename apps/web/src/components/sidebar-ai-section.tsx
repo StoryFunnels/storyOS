@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Activity, Library, Package, Plug } from 'lucide-react';
+import { Activity, Bot, ChevronRight, Library, Package, Plug } from 'lucide-react';
 import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
+import { CARET_HIT_AREA } from '@/components/sidebar-row-style';
 import {
   CONNECT_AI_MOVED_HINT,
   CONNECT_AI_MOVED_TOAST,
@@ -18,6 +19,9 @@ import {
   usePendingApprovalCount,
 } from '@/lib/sidebar-ai';
 import { useDismissedHints } from '@/lib/dismissed-hints';
+import { useDatabases } from '@/lib/queries';
+import { AGENT_SYSTEM_LABELS, agentSystemDatabases } from '@/lib/system-databases';
+import { cn } from '@/lib/utils';
 
 /**
  * #967 — the AI layer's own home, in gold (#831: gold means agency). "Collections" is gone.
@@ -26,6 +30,10 @@ import { useDismissedHints } from '@/lib/dismissed-hints';
  * is findable without shouting. The gold is `--accent-text`, not `--accent`: `--accent` measures
  * 2.07:1 on the sidebar in light mode, below both the 4.5:1 text bar and the 3:1 bar for a glyph
  * (#706), so the same hue is used one step darker where it carries text or a glyph.
+ *
+ * #1058 — Skills · Agents ▸ (Agent runs, Triggers) · Automation runs · Connect your AI (until connected) · Business Packs.
+ * The three Agentic OS system databases are reached from HERE and no longer sit in the Spaces list; "Agents" opens the Agents
+ * database and its two children each keep their own URL. A child (or the group) is absent until its database exists.
  *
  * Rows: Skills · Automation runs (gold count = actions waiting for approval) · Business Packs (gold
  * count = installed packs with an update). "Connect your AI" is NOT here yet: whether the
@@ -50,6 +58,22 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
     }
     if (now !== undefined) previous.current = now;
   }, [aiConnected.data, hints.dismissed, canConnectAi]);
+
+  const databases = useDatabases(ws);
+  const agentDbs = agentSystemDatabases(databases.data ?? []);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const dbHref = (id: string) => `/w/${ws}/d/${id}`;
+  const agentChildren = [
+    { key: 'runs' as const, db: agentDbs.runs },
+    { key: 'agent triggers' as const, db: agentDbs['agent triggers'] },
+  ].flatMap((c) => (c.db ? [{ label: AGENT_SYSTEM_LABELS[c.key], href: dbHref(c.db.id) }] : []));
+  const agentsHref = agentDbs.agents ? dbHref(agentDbs.agents.id) : null;
+  const onAgents = (href: string | null) => href !== null && (pathname === href || !!pathname?.startsWith(`${href}/`));
+  // Open on arrival at one of the group's pages, so the active row is never hidden inside a closed group.
+  const inGroup = onAgents(agentsHref) || agentChildren.some((c) => onAgents(c.href));
+  useEffect(() => {
+    if (inGroup) setAgentsOpen(true);
+  }, [inGroup]);
 
   const rows = [
     {
@@ -91,33 +115,80 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
     },
   ].map((r) => ({ tint: false, ...r }));
 
+  const renderRow = ({ href, label, Icon, active, count, countHint, tint }: (typeof rows)[number]) => (
+    <SidebarRow key={href} depth={0} active={active} className={tint ? 'bg-accent-soft' : undefined}>
+      <Link
+        href={href}
+        aria-current={active ? 'page' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2 text-body"
+      >
+        <GlyphSlot>
+          <Icon className="h-3.5 w-3.5 text-accent-text" />
+        </GlyphSlot>
+        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{label}</span>
+        {count && (
+          <span
+            title={countHint}
+            aria-label={countHint ? `${count}: ${countHint}` : count}
+            className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent"
+          >
+            {count}
+          </span>
+        )}
+      </Link>
+    </SidebarRow>
+  );
+
   return (
     <div data-testid="sidebar-ai-section">
       {/* #805 — the quiet tier label (10px, wide tracking); gold, and a notch heavier so it reads as a mark. */}
       <p className="mb-0.5 mt-1 px-3 text-micro font-semibold uppercase tracking-[0.16em] text-accent-text">AI</p>
-      {rows.map(({ href, label, Icon, active, count, countHint, tint }) => (
-        <SidebarRow key={href} depth={0} active={active} className={tint ? 'bg-accent-soft' : undefined}>
-          <Link
-            href={href}
-            aria-current={active ? 'page' : undefined}
-            className="flex min-w-0 flex-1 items-center gap-2 text-body"
+      {rows.slice(0, 1).map(renderRow)}
+      {agentsHref && (
+        <>
+          <SidebarRow
+            depth={0}
+            active={onAgents(agentsHref)}
+            caret={
+              agentChildren.length > 0 ? (
+                <button
+                  type="button"
+                  aria-label={agentsOpen ? 'Collapse Agents' : 'Expand Agents'}
+                  aria-expanded={agentsOpen}
+                  onClick={() => setAgentsOpen((v) => !v)}
+                  className={cn('rounded text-faint hover:text-ink', CARET_HIT_AREA)}
+                >
+                  <ChevronRight className={cn('h-3 w-3 transition-transform', agentsOpen && 'rotate-90')} />
+                </button>
+              ) : undefined
+            }
           >
-            <GlyphSlot>
-              <Icon className="h-3.5 w-3.5 text-accent-text" />
-            </GlyphSlot>
-            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{label}</span>
-            {count && (
-              <span
-                title={countHint}
-                aria-label={countHint ? `${count}: ${countHint}` : count}
-                className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent"
-              >
-                {count}
-              </span>
-            )}
-          </Link>
-        </SidebarRow>
-      ))}
+            <Link
+              href={agentsHref}
+              aria-current={onAgents(agentsHref) ? 'page' : undefined}
+              className="flex min-w-0 flex-1 items-center gap-2 text-body"
+            >
+              <GlyphSlot>
+                <Bot className="h-3.5 w-3.5 text-accent-text" />
+              </GlyphSlot>
+              <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{AGENT_SYSTEM_LABELS.agents}</span>
+            </Link>
+          </SidebarRow>
+          {agentsOpen &&
+            agentChildren.map((c) => (
+              <SidebarRow key={c.href} depth={1} lens active={onAgents(c.href)}>
+                <Link
+                  href={c.href}
+                  aria-current={onAgents(c.href) ? 'page' : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-body"
+                >
+                  <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{c.label}</span>
+                </Link>
+              </SidebarRow>
+            ))}
+        </>
+      )}
+      {rows.slice(1).map(renderRow)}
     </div>
   );
 }

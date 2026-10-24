@@ -113,6 +113,9 @@ export function createAuth(
               loginPage: `${e.WEB_URL}/login`,
               oidcConfig: {
                 loginPage: `${e.WEB_URL}/login`,
+                // #1030 — every authorization stops here until the person decides. better-auth only honours this for a request
+                // carrying prompt=consent, which a client controls, so app.setup forces that parameter on every authorize call.
+                consentPage: `${e.WEB_URL}/oauth/consent`,
                 requirePKCE: true,
                 allowDynamicClientRegistration: true,
                 // `offline_access` gives Claude/ChatGPT refresh tokens. The

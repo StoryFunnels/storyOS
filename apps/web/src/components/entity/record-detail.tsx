@@ -1,5 +1,6 @@
 'use client';
 
+import { databaseDisplayName } from '@/lib/system-databases';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { backOrParent } from '@/lib/nav-trail';
@@ -609,7 +610,7 @@ export function RecordDetail({
             className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-hover hover:text-ink"
           >
             <DbMarker icon={database.data?.icon} color={database.data?.color} id={database.data?.id} />
-            <span className="truncate">{database.data?.name}</span>
+            <span className="truncate">{databaseDisplayName(database.data)}</span>
           </Link>
           {record.data.number !== null && (
             <>
@@ -1173,7 +1174,7 @@ export function RecordDetail({
                 db={db}
                 rec={recordId}
                 members={memberList}
-                databaseName={database.data?.name ?? ''}
+                databaseName={databaseDisplayName(database.data)}
                 spaceName={spaceName}
                 recordNumber={record.data.number}
                 createdAt={record.data.created_at}

@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { approveAuthorize } from './helpers/oauth-consent';
 
 /**
  * #858 — an AI connected through the hosted-MCP OAuth connector is `mcp`, exactly as a PAT is.
@@ -84,7 +85,9 @@ async function runOAuthFlow(
     headers: { authorization: `Bearer ${sessionToken}` },
   });
   expect(authRes.statusCode).toBe(302);
-  const location = String(authRes.headers.location);
+  const authorizeLocation = String(authRes.headers.location);
+  // #1030: authorize now sends the person to the consent page; this is them pressing Allow.
+  const location = authorizeLocation.includes('consent_code=') ? await approveAuthorize(app, sessionToken, authorizeLocation) : authorizeLocation;
   const code = new URL(location).searchParams.get('code');
   if (!code) return { authorizeLocation: location };
 
