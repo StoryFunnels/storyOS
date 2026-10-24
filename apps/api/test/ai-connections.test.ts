@@ -62,18 +62,26 @@ describe('#1008 the list of connected AI clients', () => {
     expect((await list(p.token, p.ws))[0]!.last_used_at, 'using the token is recorded').not.toBeNull();
   });
 
-  it('an OAuth connection: kind oauth, the client\'s registered name, reaches every workspace', async () => {
+  it('an OAuth connection: kind oauth, the client\'s registered name, reaches ONLY the workspace the person approved (#1030)', async () => {
     const p = await person('AIC OAuth');
     await connectMcpClient(app, p.token);
     const rows = await list(p.token, p.ws);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: 'oauth', client_name: 'test-connector', reaches: 'all_your_workspaces', last_used_at: null });
+    expect(rows[0]).toMatchObject({ kind: 'oauth', client_name: 'test-connector', reaches: 'one_workspace', last_used_at: null, approved: { workspace_name: expect.any(String), access: 'write' } });
     expect(rows[0]!.id).toMatch(/^oauth:/);
     expect(Date.parse(rows[0]!.connected_at!)).not.toBeNaN();
     expect(await activation.aiConnected(p.ws)).toBe(true);
     // the same connection shows from the person's OTHER workspace
     const ws2 = (await as(p.token, 'POST', '/workspaces', { name: 'AIC OAuth 2' })).json().id as string;
     expect((await list(p.token, ws2)).map((r) => r.kind)).toEqual(['oauth']);
+  });
+
+  it('#1030: a connection with NO approval (made before consent existed) is listed as needing a reconnect, reaching nothing', async () => {
+    const p = await person('AIC No Grant');
+    await connectMcpClient(app, p.token);
+    await db.delete(oauthConsent);
+    const rows = await list(p.token, p.ws);
+    expect(rows[0]).toMatchObject({ kind: 'oauth', reaches: 'needs_reconnect', approved: null });
   });
 
   it('both, and two clients: one row per client however many tokens it has cycled through, oldest first', async () => {
