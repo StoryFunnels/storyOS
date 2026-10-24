@@ -531,6 +531,51 @@ describe('record url field (#268): get_record / query_records / create_record / 
     expect('sorts' in board).toBe(false);
   });
 
+describe('describe_database flags the runtime-owned Agent Runs fields read-only (#1062)', () => {
+  const runsDetail = (name: string, isSystem: boolean) => ({
+    id: 'db-runs',
+    name,
+    isSystem,
+    my_access: 'admin',
+    fields: [
+      { id: 'f1', apiName: 'name', displayName: 'Name', type: 'title' },
+      { id: 'f2', apiName: 'pending_action', displayName: 'Pending action', type: 'text' },
+      { id: 'f3', apiName: 'run_class', displayName: 'Run class', type: 'select' },
+      { id: 'f4', apiName: 'cost', displayName: 'Cost', type: 'number' },
+      { id: 'f5', apiName: 'commit_or_image', displayName: 'Commit or image', type: 'text' },
+    ],
+    views: [],
+  });
+  async function describeOf(detail: ReturnType<typeof runsDetail>) {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }> }>>();
+    const server = { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never;
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [detail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: detail };
+        throw new Error(`unexpected GET ${path}`);
+      },
+    };
+    registerTools(server, { client: client as never, baseUrl: 'http://test', token: 'tok' });
+    const res = await handlers.get('describe_database')!({ workspace: 'Eng', database: detail.name });
+    return (JSON.parse(res.content[0]!.text) as { fields: Array<{ api_name: string; read_only?: boolean }> }).fields;
+  }
+
+  it('marks pending_action, run_class and cost read-only on the pack Runs database, and nothing else', async () => {
+    const f = new Map((await describeOf(runsDetail('Runs', true))).map((x) => [x.api_name, x]));
+    for (const k of ['pending_action', 'run_class', 'cost']) expect(f.get(k)!.read_only, k).toBe(true);
+    expect(f.get('commit_or_image')!.read_only).toBeUndefined();
+    expect(f.get('name')!.read_only).toBeUndefined();
+  });
+
+  it("does not touch a user's own database that happens to be called Runs or have a field named cost", async () => {
+    const f = new Map((await describeOf(runsDetail('Runs', false))).map((x) => [x.api_name, x]));
+    expect(f.get('cost')!.read_only).toBeUndefined();
+    expect(f.get('pending_action')!.read_only).toBeUndefined();
+  });
+});
+
 describe('get_links (#268)', () => {
   it('resolves the database link on its own', async () => {
     const result = await callTool(buildHandlers(), 'get_links', { workspace: 'Acme Co', database: 'Issues' });
