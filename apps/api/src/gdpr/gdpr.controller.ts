@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -71,6 +72,7 @@ export class GdprSelfController {
   constructor(private readonly gdpr: GdprService) {}
 
   @Post('erase')
+  @SessionOnly() // #1049: the central guard refuses a token; the check below stays as the second lock
   @HttpCode(200)
   @ApiOperation({ summary: 'Erase my own account everywhere (irreversible; body {"confirm": true}); session only' })
   erase(@Req() req: AuthedRequest, @Body() _body: EraseMyIdentityDto) {
