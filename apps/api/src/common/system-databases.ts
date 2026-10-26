@@ -15,8 +15,11 @@
  * - Agentic OS pack (`AgentsService.ensurePack`): Agents, Runs, Agent Triggers.
  * - Members (#128, `MembersDbService`): the membership projection.
  *
- * The names below are ONLY for provisioning (what to call a database when
- * creating it) and for the migration's backfill. Never resolve an existing
- * database by them — that is the bug this module exists to have fixed.
+ * #1063 — identity is the pair `is_system` + a fixed `system_key` (`agents` | `agent_triggers` | `agent_runs` | `members`), never the
+ * display name. The flag alone said "some system database"; the key says WHICH, so a system database can be renamed or relabelled
+ * ("Agent runs", "Triggers") without breaking the agent runtime, and a person's own database called "Runs" can never be mistaken for
+ * one. Like the flag, the key cannot be set over HTTP. A database has at most one key and a workspace at most one database per key
+ * (partial unique index). Names are ONLY what a database is called when it is created; never resolve an existing one by them.
  */
-export const SYSTEM_DATABASE_NAMES = ['agents', 'runs', 'agent triggers', 'members'] as const;
+export const SYSTEM_DATABASE_KEYS = ['agents', 'agent_triggers', 'agent_runs', 'members'] as const;
+export type SystemDatabaseKey = (typeof SYSTEM_DATABASE_KEYS)[number];

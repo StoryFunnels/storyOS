@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { assertDatabaseInWorkspace } from '../records/database-scope';
-import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -254,14 +254,15 @@ export class AgentsService implements OnModuleInit {
     // which would then write run records into it and mutate its schema.
     // Deterministic order so a duplicated flag can't make the pack move between
     // calls.
+    // #1063: found by the fixed KEY, not the display name, so a system database can be renamed or relabelled safely.
     const all = await this.db.query.databases.findMany({
-      where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.isSystem, true)),
+      where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.isSystem, true), inArray(databasesTable.systemKey, ['agents', 'agent_runs', 'agent_triggers'])),
       orderBy: [asc(databasesTable.createdAt), asc(databasesTable.id)],
     });
     return {
-      agentsDb: all.find((d) => d.name === 'Agents'),
-      runsDb: all.find((d) => d.name === 'Runs'),
-      triggersDb: all.find((d) => d.name === 'Agent Triggers'),
+      agentsDb: all.find((d) => d.systemKey === 'agents'),
+      runsDb: all.find((d) => d.systemKey === 'agent_runs'),
+      triggersDb: all.find((d) => d.systemKey === 'agent_triggers'),
     };
   }
 
@@ -398,8 +399,9 @@ export class AgentsService implements OnModuleInit {
       agentsDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Agents',
-        // #318: flagged at creation — this is how findPackDbs locates it.
+        // #318/#1063: flagged and keyed at creation — this is how findPackDbs locates it.
         is_system: true,
+        system_key: 'agents',
         icon: '🤖',
       })) as Database;
 
@@ -490,8 +492,9 @@ export class AgentsService implements OnModuleInit {
       runsDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Runs',
-        // #318: flagged at creation — this is how findPackDbs locates it.
+        // #318/#1063: flagged and keyed at creation — this is how findPackDbs locates it.
         is_system: true,
+        system_key: 'agent_runs',
         icon: '▶️',
       })) as Database;
 
@@ -656,8 +659,9 @@ export class AgentsService implements OnModuleInit {
       triggersDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Agent Triggers',
-        // #318: flagged at creation — this is how findPackDbs locates it.
+        // #318/#1063: flagged and keyed at creation — this is how findPackDbs locates it.
         is_system: true,
+        system_key: 'agent_triggers',
         icon: '⚡',
       })) as Database;
 

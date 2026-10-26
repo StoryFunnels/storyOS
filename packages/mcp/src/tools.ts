@@ -202,8 +202,9 @@ interface DatabaseDetail {
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   my_access?: string;
-  /** #1062 — set on the agent pack's databases; describeFields uses it to flag the runtime-owned Runs fields. */
+  /** #1062/#1063 — set on system databases; describeFields uses isSystem + systemKey to flag the runtime-owned Runs fields. */
   isSystem?: boolean;
+  systemKey?: string | null;
   fields: FieldDef[];
   // #191: the detail endpoint returns each view's cleaned `config` too — needed so
   // update_view can merge a partial change onto the existing config (a true patch).
@@ -348,7 +349,7 @@ function describeFields(db: DatabaseDetail) {
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
       // #1062 — set by the agent runtime; a write is refused with a 422, so say so up front rather than let an agent learn it by failing.
-      if (db.isSystem && db.name === 'Runs' && RUNTIME_OWNED_RUN_FIELDS.includes(f.apiName)) out.read_only = true;
+      if (db.isSystem && db.systemKey === 'agent_runs' && RUNTIME_OWNED_RUN_FIELDS.includes(f.apiName)) out.read_only = true;
       /*
        * #558 — system fields already carried `ops` (below); a user-defined
        * field never did, so the schema advertised the OPTIONS you'd filter
