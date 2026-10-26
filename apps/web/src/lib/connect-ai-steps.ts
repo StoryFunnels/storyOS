@@ -79,8 +79,12 @@ export const CONNECT_CLIENTS: Record<
       },
       {
         runs: [
-          t('Claude opens StoryOS — sign in and pick '),
+          t('Claude opens StoryOS — sign in, then click '),
+          b('Allow'),
+          t(': it reaches all your workspaces, including '),
           b(ws),
+          t(', unless you choose '),
+          b('One workspace'),
           t('. Then in a chat, click '),
           b('+ → Connectors'),
           t(' and switch StoryOS on.'),
@@ -120,8 +124,12 @@ export const CONNECT_CLIENTS: Record<
       },
       {
         runs: [
-          t('Sign in to StoryOS when ChatGPT asks, and pick '),
+          t('Sign in to StoryOS when ChatGPT asks, then click '),
+          b('Allow'),
+          t(': it reaches all your workspaces, including '),
           b(ws),
+          t(', unless you choose '),
+          b('One workspace'),
           t('. Then enable StoryOS in a new chat.'),
         ],
       },
@@ -146,10 +154,10 @@ export const CONNECT_CLIENTS: Record<
         runs: [
           t('If it asks how to sign in, choose '),
           b('OAuth'),
-          t(' (recommended). StoryOS opens a page asking you to allow it: choose the workspace it may reach and whether it can '),
-          b('read only'),
-          t(' or '),
-          b('read and write'),
+          t(' (recommended). StoryOS opens a page asking you to allow it: it reaches '),
+          b('all your workspaces'),
+          t(' unless you choose '),
+          b('One workspace'),
           t(', then click '),
           b('Allow'),
           t('.'),
@@ -167,9 +175,9 @@ export const CONNECT_CLIENTS: Record<
       },
       {
         runs: [
-          t('That’s it. It can reach only the workspace you chose on the Allow page ('),
+          t('That’s it. It reaches the workspaces you allowed: all of them, including '),
           b(ws),
-          t(' here). To check, ask it: “What’s waiting for me in StoryOS?”'),
+          t(', unless you chose one on the Allow page. To check, ask it: “What’s waiting for me in StoryOS?”'),
         ],
       },
     ],

@@ -33,9 +33,7 @@ describe('Connect your AI steps (#1003)', () => {
       const token = steps.findIndex((s) => /token/i.test(s));
       expect(oauth).toBeGreaterThan(-1);
       expect(token).toBeGreaterThan(oauth);
-      expect(steps[oauth]).toMatch(/choose the workspace it may reach/);
-      expect(steps[oauth]).toMatch(/read only/);
-      expect(steps[oauth]).toMatch(/read and write/);
+      expect(steps[oauth]).toMatch(/it reaches all your workspaces unless you choose One workspace/);
       expect(steps[oauth]).toMatch(/Allow/);
     });
     it('the token way names where to make one, that it is shown once, and never to paste it into a sign-in page', () => {
@@ -67,5 +65,15 @@ describe('the "Try asking it" examples are a customer\'s, not ours (#1057)', () 
 
   it.each(TRY_ASKING)('%s names no database, person, customer or ticket of ours', (q) => {
     expect(q).not.toMatch(/\b(Issues|ticket|caret|sidebar|bugs?|Acme|Iris|Marek|Vera|Otto|Dara|Illia)\b/i);
+  });
+});
+
+// #1079 — Ievgen's decision: no access level, and every connection reaches all the person's workspaces unless they pick one.
+describe('no guide mentions an access level, and none tells the person to pick a workspace (#1079)', () => {
+  it.each(clients)('%s', (c) => {
+    const text = CONNECT_CLIENTS[c].steps('JCM Agency').map(stepText).join(' ');
+    expect(text).not.toMatch(/read only|read and write|read-only|access level/i);
+    expect(text).not.toMatch(/\bpick JCM Agency\b/);
+    expect(text).toMatch(/all your workspaces/i);
   });
 });
