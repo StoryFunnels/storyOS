@@ -386,7 +386,9 @@ export class GithubWebhookService {
         const record = await this.recordsService.get(databaseId, rec).catch(() => null);
         return record ? { databaseId, recordId: record.id } : null;
       }
-      const trailing = rec.match(/(\d+)$/);
+      // #1067 — anchored to the start of a digit run: `rec` comes from a PR body with no length cap, and a bare
+      // `(\d+)$` retried from every digit of a long run followed by a letter.
+      const trailing = rec.match(/(?<!\d)(\d+)$/);
       if (trailing) return this.byNumber(workspaceId, databaseId, Number(trailing[1]));
     }
     return null;
