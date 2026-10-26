@@ -15,6 +15,7 @@ let token: string;
 let wsId: string;
 let ownerId: string;
 let ownerName: string;
+let ownerEmail: string;
 let leadsDb: string;
 let companiesDb: string;
 let nameFieldId: string;
@@ -37,6 +38,7 @@ beforeAll(async () => {
   app = await createTestApp();
   const signup = await signUpUser(app, 'FormRelUser');
   token = signup.token;
+  ownerEmail = signup.email;
   wsId = (await as('POST', '/workspaces', { name: 'Rel Forms WS' })).json().id;
   const me = await as('GET', '/me');
   ownerId = me.json().id;
@@ -116,6 +118,25 @@ describe('public form relation + user inputs (#224)', () => {
       values: { name: 'Bad Owner Shape', owner: [ownerId] },
     });
     expect(res.statusCode, res.body).toBe(422);
+  });
+
+  it('#1069: an unresolvable person on an anonymous submit is a 422 that names no member', async () => {
+    const res = await pub('POST', `/public/forms/${formToken}`, {
+      values: { name: 'Roster Probe', owner: 'Nobody At All' },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.body).toContain('no member');
+    expect(res.body).not.toContain(ownerEmail);
+    expect(res.body).not.toContain(ownerName);
+    expect(res.body).not.toContain('@');
+  });
+
+  it('#1069: a signed-in caller still gets the candidate list (what the fix must KEEP)', async () => {
+    const res = await as('POST', `/workspaces/${wsId}/databases/${leadsDb}/records`, {
+      values: { name: 'Member Probe', owner: 'Nobody At All' },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.body).toContain(ownerEmail);
   });
 
   it('a guest can search candidate records for the relation field, scoped to the target database', async () => {

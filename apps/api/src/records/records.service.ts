@@ -2141,11 +2141,17 @@ export class RecordsService {
    * So a person may be written by id, email or display name, and anything that
    * doesn't resolve to exactly one active member throws — the raw string is never
    * stored. Runs before validation, so the validator still only ever sees ids.
+   *
+   * #1069 — the candidate list in the error is for a signed-in caller (an agent's next turn fixes itself from it).
+   * An anonymous write (`actorId` null: a public form submit, its inline create, a portal recipient's edit) gets
+   * the error without it — otherwise any visitor read every member's name and email out of one bad submit, where
+   * the form definition deliberately hands out id + name only.
    */
   private async resolveUserInputs(
     workspaceId: string,
     defs: FieldDef[],
     input: Record<string, unknown>,
+    actorId: string | null,
   ): Promise<Record<string, unknown>> {
     const userKeys = Object.keys(input).filter(
       (k) => defs.find((d) => d.api_name === k)?.type === 'user',
@@ -2176,8 +2182,9 @@ export class RecordsService {
       const named = byName.get(value.toLowerCase()) ?? [];
       if (named.length === 1) return named[0]!.id;
 
-      // Name the candidates: the agent's next turn should be able to fix itself.
-      const who = directory.map((u) => `${u.name} <${u.email}>`).join(', ');
+      // Name the candidates: the agent's next turn should be able to fix itself. Never to an anonymous caller (#1069).
+      const who =
+        actorId === null ? '' : ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}`;
       throw new UnprocessableEntityException({
         message: 'Record values validation failed',
         details: [
@@ -2185,8 +2192,8 @@ export class RecordsService {
             path: `values.${apiName}`,
             message:
               named.length > 1
-                ? `"${value}" matches ${named.length} people — use their email or id. Members: ${who}`
-                : `no member "${value}" — use a user id, email, or exact name. Members: ${who}`,
+                ? `"${value}" matches ${named.length} people — use their email or id.${who}`
+                : `no member "${value}" — use a user id, email, or exact name.${who}`,
           },
         ],
       });
@@ -2836,7 +2843,7 @@ export class RecordsService {
     // MN-118: people resolve to real ids before validation, so a name can never be
     // stored verbatim and reported as success.
     const resolved = await Promise.all(
-      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
+      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // #229 — before any record is inserted, same "resolve everything up front" shape as linkPlans below.
@@ -3153,7 +3160,7 @@ export class RecordsService {
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(workspaceId, defs, input),
+      await this.resolveUserInputs(workspaceId, defs, input, actorId),
     );
     /*
      * #391 — an attachment value may only point at files already on THIS record
