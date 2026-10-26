@@ -4631,8 +4631,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Erase/anonymize this member: wipe identity to a tombstone, destroy credentials, and remove workspace access. Comments and history are kept. */
+        /** Erase this member FROM THIS WORKSPACE: remove their membership, access and per-person state here and the tokens minted for it. Their global identity and every other workspace are untouched (#1039); that is /me/gdpr/erase, self-service. Comments and history are kept. */
         post: operations["GdprController_anonymize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/gdpr/erase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Erase my own account everywhere (irreversible; body {"confirm": true}); session only */
+        post: operations["GdprSelfController_erase"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6900,6 +6917,10 @@ export interface components {
         };
         CreateRelationTargetDto: {
             title: string;
+        };
+        EraseMyIdentityDto: {
+            /** @enum {boolean} */
+            confirm: true;
         };
         ReviewSubmissionDto: {
             /** @enum {string} */
@@ -14051,6 +14072,27 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GdprSelfController_erase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EraseMyIdentityDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

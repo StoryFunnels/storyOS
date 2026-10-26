@@ -11096,7 +11096,37 @@
             "bearer": []
           }
         ],
-        "summary": "Erase/anonymize this member: wipe identity to a tombstone, destroy credentials, and remove workspace access. Comments and history are kept.",
+        "summary": "Erase this member FROM THIS WORKSPACE: remove their membership, access and per-person state here and the tokens minted for it. Their global identity and every other workspace are untouched (#1039); that is /me/gdpr/erase, self-service. Comments and history are kept.",
+        "tags": [
+          "gdpr"
+        ]
+      }
+    },
+    "/api/v1/me/gdpr/erase": {
+      "post": {
+        "operationId": "GdprSelfController_erase",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EraseMyIdentityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Erase my own account everywhere (irreversible; body {\"confirm\": true}); session only",
         "tags": [
           "gdpr"
         ]
@@ -19498,6 +19528,20 @@
         },
         "required": [
           "title"
+        ]
+      },
+      "EraseMyIdentityDto": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "confirm"
         ]
       },
       "ReviewSubmissionDto": {

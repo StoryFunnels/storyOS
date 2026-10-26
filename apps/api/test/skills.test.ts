@@ -582,9 +582,9 @@ describe('#841 — members, public and version', () => {
     const skillId = made.json().id;
     expect(made.json().owner_id).toBe(authorId);
 
-    const members = (await inject('GET', `/workspaces/${wsId}/members`)).json();
-    const membership = (members.data ?? members).find((m: { user_id?: string; userId?: string }) => (m.user_id ?? m.userId) === authorId);
-    const erased = await inject('POST', `/workspaces/${wsId}/members/${membership.id}/gdpr/anonymize`);
+    // #1039: a workspace admin's erasure only removes the person from THIS workspace; the identity itself is the person's to erase,
+    // so the policy this test pins (the owner id resolves to a tombstone) is reached by the author erasing THEIR OWN account.
+    const erased = await inject('POST', '/me/gdpr/erase', { confirm: true }, author.token);
     expect(erased.statusCode, erased.body).toBeLessThan(300);
 
     // A skill is the workspace's process, not the author's personal data: it is NOT deleted.
