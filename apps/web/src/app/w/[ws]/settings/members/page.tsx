@@ -5,7 +5,7 @@ import { Suspense, useState } from 'react';
 import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { useSpaces, useWorkspace } from '@/lib/queries';
 import { GRANT_ROLES } from '@/lib/access';
@@ -320,12 +320,12 @@ function EraseMemberDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success('Member erased and anonymized');
+      toast.success(`${member.user.name} was erased from this workspace`);
       setOpen(false);
       setConfirm('');
       onDone();
     },
-    onError: () => toast.error('Could not erase (last admin?)'),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not erase this person. Nothing changed.')),
   });
 
   return (
@@ -340,20 +340,23 @@ function EraseMemberDialog({
         <Button
           variant="destructive"
           size="sm"
-          title="Erase: permanently delete & anonymize this member for GDPR. Irreversible — requires typed confirmation."
+          title="Erase from this workspace (GDPR): removes this person and their data from THIS workspace only; their account is untouched. Irreversible here — requires typed confirmation."
         >
           Erase
         </Button>
       </DialogTrigger>
-      <DialogContent title="Erase this member (GDPR)">
+      <DialogContent title="Erase this person from this workspace (GDPR)">
         <div className="flex flex-col gap-4">
           <p className="text-body text-ink-secondary">
-            This fulfils a data-subject erasure. It permanently wipes{' '}
-            <span className="font-medium text-ink">{member.user.name}</span>&rsquo;s
-            identity to an anonymous tombstone, destroys their sessions, sign-in
-            credentials, and API tokens, and removes their access to this
-            workspace. Their comments and history stay in place but are no longer
-            attributed to a real person. <span className="font-medium">This cannot be undone.</span>
+            This removes <span className="font-medium text-ink">{member.user.name}</span> and their data from{' '}
+            <span className="font-medium text-ink">this workspace only</span>: their membership and access here, their
+            per-person settings, and the API tokens minted for this workspace.
+          </p>
+          <p className="text-body text-ink-secondary">
+            Their <span className="font-medium text-ink">account stays untouched</span>: their sign-in and every other
+            workspace keep working. Their comments and history here stay in place under their name. Deleting a whole
+            account is the person&rsquo;s own choice, under <span className="font-medium text-ink">Settings → Account</span>.{' '}
+            <span className="font-medium">This cannot be undone here</span>: to give them access again, invite them again.
           </p>
           <div className="flex flex-col gap-1.5">
             <TypedConfirmName name={target} />
@@ -382,7 +385,7 @@ function EraseMemberDialog({
               disabled={confirm.trim() !== target.trim() || erase.isPending}
               onClick={() => erase.mutate()}
             >
-              Erase permanently
+              Erase from this workspace
             </Button>
           </div>
         </div>
