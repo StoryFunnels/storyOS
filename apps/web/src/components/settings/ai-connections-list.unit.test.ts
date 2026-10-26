@@ -42,6 +42,12 @@ describe('the connected AI clients list (#1030)', () => {
     expect(out).toContain('aria-label="Disconnect Claude"');
   });
 
+  it('a connection limited to one workspace names it, with no access wording', () => {
+    const out = html({ kind: 'ready', items: [bound], busyId: null });
+    expect(out).toContain('Connected by signing in · Acme only');
+    expect(out).not.toMatch(/Read only|Read and write/);
+  });
+
   it('a connection that needs reconnecting says so and still has its Disconnect', () => {
     const out = html({ kind: 'ready', items: [legacy], busyId: null });
     expect(out).toContain('Reconnect needed');
