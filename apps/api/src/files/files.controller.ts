@@ -74,6 +74,9 @@ export class FilesController {
       file?: () => Promise<{ filename: string; mimetype: string; toBuffer: () => Promise<Buffer> } | undefined>;
     };
     if (typeof raw.file !== 'function') throw new BadRequestException('multipart body expected');
+    // #1064 (found by the malformed-id sweep): `file()` THROWS on a body that is not multipart, which surfaced as a 500.
+    const multipart = (raw as unknown as { isMultipart?: () => boolean }).isMultipart;
+    if (typeof multipart === 'function' && !multipart.call(raw)) throw new BadRequestException('multipart body expected');
     const file = await raw.file();
     if (!file) throw new BadRequestException('multipart field "file" is required');
     let data: Buffer;

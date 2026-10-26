@@ -31,6 +31,20 @@ const CODE_BY_STATUS: Record<number, string> = {
   429: 'rate_limited',
 };
 
+/**
+ * #1064 — Postgres refusing to CAST a value to uuid/integer ("invalid input syntax for type uuid: \"not-a-uuid\"", SQLSTATE 22P02).
+ * That is a malformed identifier from the caller, never a server fault: it can name nothing. Drizzle wraps the driver error, so the
+ * cause chain is walked. Only uuid/integer casts: a 22P02 from an enum or a number the SERVER built would be a real bug and stays 5xx.
+ */
+const MALFORMED_ID = /invalid input syntax for type (uuid|integer|bigint|smallint)/i;
+function isMalformedIdError(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && depth < 6; e = (e as { cause?: unknown }).cause, depth++) {
+    const err = e as { code?: unknown; message?: unknown };
+    if (err.code === '22P02' && typeof err.message === 'string' && MALFORMED_ID.test(err.message)) return true;
+  }
+  return false;
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -79,6 +93,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
         if (typeof bodyObj.code === 'string' && SPECIFIC_CODE.test(bodyObj.code)) code = bodyObj.code;
         if (isPlainObject(bodyObj.meta)) meta = bodyObj.meta;
       }
+    } else if (isMalformedIdError(exception)) {
+      // A malformed id in the PATH names nothing, so it is "not found", exactly like a well-formed id that does not exist (the
+      // no-leak convention: it must not be distinguishable). In a body or query string it is the caller's bad input instead.
+      const inPath = Object.keys((request.params as Record<string, unknown> | undefined) ?? {}).length > 0;
+      status = inPath ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
+      code = inPath ? 'not_found' : 'bad_request';
+      message = inPath ? 'Not found' : 'A value is not a valid identifier';
     } else {
       this.logger.error(
         { requestId, err: exception instanceof Error ? exception.stack : exception },
