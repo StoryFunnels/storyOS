@@ -202,6 +202,8 @@ interface DatabaseDetail {
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   my_access?: string;
+  /** #1062 — set on the agent pack's databases; describeFields uses it to flag the runtime-owned Runs fields. */
+  isSystem?: boolean;
   fields: FieldDef[];
   // #191: the detail endpoint returns each view's cleaned `config` too — needed so
   // update_view can merge a partial change onto the existing config (a true patch).
@@ -320,6 +322,9 @@ export const FILTER_GUIDE = [
   'Example (system):   { "field": "number", "op": "gte", "value": 320 }  + sorts:[{ "field": "created_at", "direction": "desc" }]',
 ].join('\n');
 
+/** #1062 — mirrors RUNTIME_OWNED_RUN_FIELDS in apps/api/src/records/runtime-owned-fields.ts; the API refuses a write to these on an agent run. */
+const RUNTIME_OWNED_RUN_FIELDS = ['pending_action', 'run_class', 'cost'];
+
 function describeFields(db: DatabaseDetail) {
   // Non-system stored fields (title + user-defined) as-is. System columns come
   // from the ONE canonical registry below rather than the per-database stored
@@ -342,6 +347,8 @@ function describeFields(db: DatabaseDetail) {
           ...(o.category ? { category: o.category } : {}),
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
+      // #1062 — set by the agent runtime; a write is refused with a 422, so say so up front rather than let an agent learn it by failing.
+      if (db.isSystem && db.name === 'Runs' && RUNTIME_OWNED_RUN_FIELDS.includes(f.apiName)) out.read_only = true;
       /*
        * #558 — system fields already carried `ops` (below); a user-defined
        * field never did, so the schema advertised the OPTIONS you'd filter
@@ -1631,7 +1638,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Returns the created record.',
+        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1719,7 +1726,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_record',
     {
       title: 'Update record',
-      description: 'Merge-update a record (null clears a field). values by api_name; record is a uuid or public number. Returns the updated record.',
+      description: 'Merge-update a record (null clears a field). values by api_name; record is a uuid or public number. Fields marked read_only in describe_database (system columns, and on an agent run its pending_action, run_class and cost, which the agent runtime owns) cannot be written and are refused. Returns the updated record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2752,21 +2759,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   };
   const guessMime = (name: string): string | undefined => MIME_BY_EXT[name.split('.').pop()?.toLowerCase() ?? ''];
-  const nameFromUrl = (u: string): string => {
-    try {
-      const last = new URL(u).pathname.split('/').filter(Boolean).pop();
-      return last ? decodeURIComponent(last) : 'file';
-    } catch {
-      return 'file';
-    }
-  };
-
   reg(
     'attach_file',
     {
       title: 'Attach file',
       description:
-        'Attach a file to a record — either from a public `url` (fetched server-side) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
+        'Attach a file to a record — either from a public `url` (fetched by the StoryOS server, which refuses private/internal addresses and caps the size) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2791,27 +2789,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const db = await resolveDatabase(client, ws.id, database);
         const rec = await resolveRecordId(ws.id, db.id, record);
 
-        let data: Uint8Array;
-        let name = filename;
-        let type = mime;
-        if (url) {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`Could not fetch ${url} (HTTP ${res.status}).`);
-          data = new Uint8Array(await res.arrayBuffer());
-          name = name ?? nameFromUrl(url);
-          type = type ?? res.headers.get('content-type')?.split(';')[0]?.trim() ?? guessMime(name);
-        } else {
-          if (!filename) throw new Error('`filename` is required when attaching content_base64.');
-          data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
-          name = filename;
-          type = type ?? guessMime(filename);
-        }
-
         /*
          * #391 — resolve the field by NAME as well as id, like every other tool
-         * here. An agent has the schema from describe_database, where a field is
-         * "Cover", not a uuid; making it paste an id would be the kind of
-         * papercut that sends a session looking for a lookup tool.
+         * here. (Moved above the url branch by #1033: the server needs the id for either path.)
          */
         let fieldId: string | undefined;
         if (field) {
@@ -2831,7 +2811,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           fieldId = match.id;
         }
 
-        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data }, fieldId);
+        if (url) {
+          /*
+           * #1033 — the API fetches the URL, not this process. A bare `fetch(url)` here followed redirects and read the whole body
+           * with no cap from INSIDE the compose network (api:3001, the metadata service, ...) and handed the response back as a
+           * downloadable attachment. The API's endpoint refuses private/metadata addresses (checked on the address dialed, every
+           * redirect re-checked), times out, and caps the body while streaming.
+           */
+          const attachment = await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url', {
+              params: { path: { ws: ws.id, db: db.id, rec }, query: fieldId ? { field: fieldId } : {} } as never,
+              body: { url, ...(filename ? { filename } : {}), ...(mime ? { mime } : {}) } as never,
+            }),
+          );
+          return text(attachment);
+        }
+
+        if (!filename) throw new Error('`filename` is required when attaching content_base64.');
+        const data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
+        const name = filename;
+        const type = mime ?? guessMime(filename);
+
+        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name, mime: type, data }, fieldId);
         return text(attachment);
       },
     ),
@@ -7097,11 +7098,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Workspace-wide audit log',
       description:
-        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). KNOWN GAP: structural deletions of a database, view or space are NOT captured here yet — only record-level create/update/delete/restore. Read-only.',
+        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). #1059 — also records structural events on a space, database or view: deleted, restored, restricted, unrestricted (type e.g. "database.deleted"; rows carry `object` {kind,id,name}). Deleting a space names the databases that went with it. Personal-space content is private and never appears. There is no purge — deletion is soft and restorable. Read-only.',
       inputSchema: {
         workspace: z.string(),
         actor: z.string().optional().describe('Narrow to one user id (from list_members).'),
-        entity: z.string().optional().describe('Narrow to one record id.'),
+        entity: z.string().optional().describe('Narrow to one record, space, database or view id.'),
+        type: z.string().optional().describe('#1059 — narrow to event types, comma-separated, e.g. "space.deleted,database.deleted,view.deleted,database.restricted". Omit for everything.'),
         from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
         to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
         source: z
@@ -7110,12 +7112,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('#934 — narrow to actions by these kinds of actor, comma-separated: human, agent, automation, mcp (e.g. "agent,mcp" for what agents did). Each event row also carries credential_id (which token did it) and agent_id/agent_name.'),
       },
     },
-    handle<{ workspace: string; actor?: string; entity?: string; source?: string; from?: string; to?: string }>(
-      async ({ workspace, actor, entity, source, from, to }) => {
+    handle<{ workspace: string; actor?: string; entity?: string; type?: string; source?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, type, source, from, to }) => {
         const ws = await resolveWorkspace(client, workspace);
         const query: Record<string, string> = {};
         if (actor) query.actor = actor;
         if (entity) query.entity = entity;
+        if (type) query.type = type;
         if (source) query.source = source;
         if (from) query.from = from;
         if (to) query.to = to;

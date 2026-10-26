@@ -61,7 +61,9 @@ function todayStartUtc(): Date {
 export function markdownToHtml(markdown: string): string {
   const blocks = markdown.split(/\n{2,}/).map((block) => {
     let html = escapeHtml(block.trim()).replace(/\n/g, '<br>');
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+    // #1067 — neither the text nor the URL may contain `[`: with it allowed, every `[` in a long unclosed run
+    // rescanned to the end of the block (quadratic, and the block is record text). A link starts at its last `[`.
+    html = html.replace(/\[([^\][]+)\]\((https?:\/\/[^\s)[]+)\)/g, '<a href="$2">$1</a>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');

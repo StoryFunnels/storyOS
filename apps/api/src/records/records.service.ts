@@ -68,6 +68,7 @@ import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { memoizeForRequest } from '../access/request-memo';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
+import { RUNTIME_OWNED_RUN_FIELDS, isAgentRuntimeWrite } from './runtime-owned-fields';
 import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -2141,11 +2142,17 @@ export class RecordsService {
    * So a person may be written by id, email or display name, and anything that
    * doesn't resolve to exactly one active member throws — the raw string is never
    * stored. Runs before validation, so the validator still only ever sees ids.
+   *
+   * #1069 — the candidate list in the error is for a signed-in caller (an agent's next turn fixes itself from it).
+   * An anonymous write (`actorId` null: a public form submit, its inline create, a portal recipient's edit) gets
+   * the error without it — otherwise any visitor read every member's name and email out of one bad submit, where
+   * the form definition deliberately hands out id + name only.
    */
   private async resolveUserInputs(
     workspaceId: string,
     defs: FieldDef[],
     input: Record<string, unknown>,
+    actorId: string | null,
   ): Promise<Record<string, unknown>> {
     const userKeys = Object.keys(input).filter(
       (k) => defs.find((d) => d.api_name === k)?.type === 'user',
@@ -2176,8 +2183,9 @@ export class RecordsService {
       const named = byName.get(value.toLowerCase()) ?? [];
       if (named.length === 1) return named[0]!.id;
 
-      // Name the candidates: the agent's next turn should be able to fix itself.
-      const who = directory.map((u) => `${u.name} <${u.email}>`).join(', ');
+      // Name the candidates: the agent's next turn should be able to fix itself. Never to an anonymous caller (#1069).
+      const who =
+        actorId === null ? '' : ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}`;
       throw new UnprocessableEntityException({
         message: 'Record values validation failed',
         details: [
@@ -2185,8 +2193,8 @@ export class RecordsService {
             path: `values.${apiName}`,
             message:
               named.length > 1
-                ? `"${value}" matches ${named.length} people — use their email or id. Members: ${who}`
-                : `no member "${value}" — use a user id, email, or exact name. Members: ${who}`,
+                ? `"${value}" matches ${named.length} people — use their email or id.${who}`
+                : `no member "${value}" — use a user id, email, or exact name.${who}`,
           },
         ],
       });
@@ -2798,6 +2806,27 @@ export class RecordsService {
     return this.get(databaseId, created.id);
   }
 
+  /**
+   * #1062 — a member (REST, MCP, batch, undo) may not write the Agent Runs fields the runtime owns. The check is in-memory
+   * first, so a write that names none of those keys never costs a query. Identity is the is_system FLAG plus the pack name
+   * (findPackDbs' rule, #318); #1063 moves this to a fixed system key.
+   */
+  private async assertNotRuntimeOwned(databaseId: string, keys: string[]): Promise<void> {
+    if (isAgentRuntimeWrite()) return;
+    const hits = keys.filter((k) => RUNTIME_OWNED_RUN_FIELDS.includes(k));
+    if (hits.length === 0) return;
+    const [db] = await this.db
+      .select({ isSystem: databases.isSystem, name: databases.name })
+      .from(databases)
+      .where(eq(databases.id, databaseId))
+      .limit(1);
+    if (db?.isSystem && db.name === 'Runs') {
+      throw new UnprocessableEntityException(
+        `${hits.map((k) => `"${k}"`).join(', ')} on an agent run ${hits.length === 1 ? 'is' : 'are'} set by the agent runtime and cannot be written directly.`,
+      );
+    }
+  }
+
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
   async createBatch(
     workspaceId: string,
@@ -2821,6 +2850,7 @@ export class RecordsService {
     const source: ChangeSource = options.source ?? 'human';
     const agentId = options.agentId;
     const agentName = options.agentName;
+    for (const input of inputs) await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -2836,7 +2866,7 @@ export class RecordsService {
     // MN-118: people resolve to real ids before validation, so a name can never be
     // stored verbatim and reported as success.
     const resolved = await Promise.all(
-      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
+      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // #229 — before any record is inserted, same "resolve everything up front" shape as linkPlans below.
@@ -3149,11 +3179,12 @@ export class RecordsService {
     agentName?: string,
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
+    await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(workspaceId, defs, input),
+      await this.resolveUserInputs(workspaceId, defs, input, actorId),
     );
     /*
      * #391 — an attachment value may only point at files already on THIS record

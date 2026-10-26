@@ -63,6 +63,12 @@ export const createConnectionSchema = z.object({
 });
 export type CreateConnectionInput = z.infer<typeof createConnectionSchema>;
 
+/** PATCH body: set (or change) the one URL prefix an HTTP connection's credential may be sent to (#1035). */
+export const updateConnectionSchema = z.object({
+  base_url: z.string().url().max(500),
+});
+export type UpdateConnectionInput = z.infer<typeof updateConnectionSchema>;
+
 /** The client-safe read shape — never the sealed auth material (MN-252 AC). */
 export const connectionSummarySchema = z.object({
   id: z.uuid(),
@@ -72,6 +78,12 @@ export const connectionSummarySchema = z.object({
   scopes: z.array(z.string()),
   last_ok_at: z.string().nullable(),
   created_at: z.string(),
+  /**
+   * #1035 — HTTP connections only: the one URL prefix the credential may be sent to. `null` + `needs_base_url: true` = a connection made
+   * before this existed, which sends NOTHING until an admin sets one.
+   */
+  base_url: z.string().nullable().optional(),
+  needs_base_url: z.boolean().optional(),
 });
 export type ConnectionSummary = z.infer<typeof connectionSummarySchema>;
 

@@ -22,7 +22,7 @@ export type { GoogleAuth } from './google';
 export { googleCalendarProvider } from './google-calendar';
 export { smtpProvider } from './smtp';
 export type { SmtpConnectionAuth } from './smtp';
-export { httpProvider } from './http';
+export { httpProvider, httpBaseUrlProblem, urlWithinBase } from './http';
 export type { HttpConnectionAuth } from './http';
 export { shopifyProvider, normalizeShopDomain, shopifyGraphql, shopifyGraphqlUrl, shopifyAuthHeaders, SHOPIFY_API_VERSION } from './shopify';
 export type { ShopifyAuth } from './shopify';

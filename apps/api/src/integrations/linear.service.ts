@@ -768,6 +768,28 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * consumers of `.teams` keep working unchanged.
    */
   async dryRun(membership: Membership) {
+    // #1028 — a Preview reads EVERYTHING from Linear (every issue and comment, to count them against Linear's own totals), exactly
+    // like a sync, and a sync on a large workspace takes ~20 minutes. Run together they fight for the same API budget and the person
+    // watches "Checking…" for as long as the sync lasts. So a running sync is answered at once, in words, instead of being queued behind.
+    const running = (await this.readLinear(membership.workspaceId)).sync_status?.running_since;
+    if (running && Date.now() - new Date(running).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000) {
+      throw new ConflictException('A Linear sync is running for this workspace, so a preview would only compete with it. Try again when it finishes (the Health section shows when).');
+    }
+    if (this.previewsInFlight.has(membership.workspaceId)) {
+      throw new ConflictException('A preview is already running for this workspace. Wait for it to finish.');
+    }
+    this.previewsInFlight.add(membership.workspaceId);
+    try {
+      return await this.dryRunUnlocked(membership);
+    } finally {
+      this.previewsInFlight.delete(membership.workspaceId);
+    }
+  }
+
+  /** Workspaces with a preview in flight in THIS process (a second one would double the reads for no new information). */
+  private readonly previewsInFlight = new Set<string>();
+
+  private async dryRunUnlocked(membership: Membership) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
     const summary = {
       dry_run: true,

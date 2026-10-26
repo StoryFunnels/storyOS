@@ -531,6 +531,51 @@ describe('record url field (#268): get_record / query_records / create_record / 
     expect('sorts' in board).toBe(false);
   });
 
+describe('describe_database flags the runtime-owned Agent Runs fields read-only (#1062)', () => {
+  const runsDetail = (name: string, isSystem: boolean) => ({
+    id: 'db-runs',
+    name,
+    isSystem,
+    my_access: 'admin',
+    fields: [
+      { id: 'f1', apiName: 'name', displayName: 'Name', type: 'title' },
+      { id: 'f2', apiName: 'pending_action', displayName: 'Pending action', type: 'text' },
+      { id: 'f3', apiName: 'run_class', displayName: 'Run class', type: 'select' },
+      { id: 'f4', apiName: 'cost', displayName: 'Cost', type: 'number' },
+      { id: 'f5', apiName: 'commit_or_image', displayName: 'Commit or image', type: 'text' },
+    ],
+    views: [],
+  });
+  async function describeOf(detail: ReturnType<typeof runsDetail>) {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }> }>>();
+    const server = { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never;
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [detail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: detail };
+        throw new Error(`unexpected GET ${path}`);
+      },
+    };
+    registerTools(server, { client: client as never, baseUrl: 'http://test', token: 'tok' });
+    const res = await handlers.get('describe_database')!({ workspace: 'Eng', database: detail.name });
+    return (JSON.parse(res.content[0]!.text) as { fields: Array<{ api_name: string; read_only?: boolean }> }).fields;
+  }
+
+  it('marks pending_action, run_class and cost read-only on the pack Runs database, and nothing else', async () => {
+    const f = new Map((await describeOf(runsDetail('Runs', true))).map((x) => [x.api_name, x]));
+    for (const k of ['pending_action', 'run_class', 'cost']) expect(f.get(k)!.read_only, k).toBe(true);
+    expect(f.get('commit_or_image')!.read_only).toBeUndefined();
+    expect(f.get('name')!.read_only).toBeUndefined();
+  });
+
+  it("does not touch a user's own database that happens to be called Runs or have a field named cost", async () => {
+    const f = new Map((await describeOf(runsDetail('Runs', false))).map((x) => [x.api_name, x]));
+    expect(f.get('cost')!.read_only).toBeUndefined();
+    expect(f.get('pending_action')!.read_only).toBeUndefined();
+  });
+});
+
 describe('get_links (#268)', () => {
   it('resolves the database link on its own', async () => {
     const result = await callTool(buildHandlers(), 'get_links', { workspace: 'Acme Co', database: 'Issues' });
@@ -5355,5 +5400,55 @@ describe('get_workspace (#683)', () => {
     const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
     registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
     expect(handlers.has('get_workspace')).toBe(true);
+  });
+});
+
+
+/**
+ * #1033 — attach_file used to `fetch(url)` INSIDE the MCP process: redirects followed, body read whole with no cap, from within the
+ * compose network (api:3001, the metadata service). It must hand the URL to the API and never touch the network itself.
+ */
+describe('attach_file never fetches the URL itself (#1033)', () => {
+  const calls: Array<{ method: string; path: string; init: Record<string, unknown> | undefined }> = [];
+  const makeCtx = (): Ctx => {
+    const record = (method: string) => async (path: string, init?: Record<string, unknown>) => {
+      calls.push({ method, path, init });
+      if (method === 'GET' && path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (method === 'GET' && path === '/api/v1/workspaces/{ws}/databases') return { data: [{ id: 'db-1', name: 'Issues', qualifiedSlug: 'eng/issues' }] };
+      if (method === 'GET' && path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: { id: 'db-1', name: 'Issues', fields: [{ id: 'f-cover', apiName: 'cover', displayName: 'Cover', type: 'attachment' }, { id: 'f-t', apiName: 'name', displayName: 'Name', type: 'text' }] } };
+      if (method === 'GET' && path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: { id: 'rec-uuid-1', number: 7 } };
+      if (method === 'POST' && path.endsWith('/attachments/from-url')) return { data: { id: 'att-1', filename: 'x.png' } };
+      throw new Error(`unexpected ${method} ${path}`);
+    };
+    return { client: { GET: record('GET'), POST: record('POST'), PATCH: record('PATCH'), PUT: record('PUT'), DELETE: record('DELETE') } as never, baseUrl: 'http://test', token: 'tok' };
+  };
+  async function attach(args: Record<string, unknown>) {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, makeCtx());
+    return handlers.get('attach_file')!(args);
+  }
+
+  it('sends the URL to the API endpoint, with the field resolved, and performs NO fetch of its own', async () => {
+    calls.length = 0;
+    const realFetch = globalThis.fetch;
+    const fetched: unknown[] = [];
+    globalThis.fetch = (async (...a: unknown[]) => { fetched.push(a); throw new Error('the MCP process must not fetch'); }) as never;
+    try {
+      const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', url: 'http://169.254.169.254/hetzner/v1/userdata', field: 'Cover', filename: 'x.png' });
+      expect(res.isError, res.content[0]!.text).toBeFalsy();
+      expect(fetched, 'no fetch from the MCP process').toEqual([]);
+      const post = calls.find((c) => c.method === 'POST')!;
+      expect(post.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url');
+      expect((post.init as { body: unknown }).body).toEqual({ url: 'http://169.254.169.254/hetzner/v1/userdata', filename: 'x.png' });
+      expect(((post.init as { params: { query: unknown } }).params).query).toEqual({ field: 'f-cover' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('still takes inline content_base64 (that path has no URL to fetch)', async () => {
+    const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', content_base64: Buffer.from('hi').toString('base64') });
+    expect(res.isError).toBe(true); // filename is required with content_base64: the old rule is intact
+    expect(res.content[0]!.text).toContain('filename');
   });
 });

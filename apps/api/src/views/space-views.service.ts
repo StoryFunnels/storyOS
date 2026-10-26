@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { recordStructuralEvent } from '../activity/structural-events';
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -393,6 +394,13 @@ export class SpaceViewsService {
     });
 
     await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
+    // #1059 — a shared space-level view (dashboard) deleted. A personal one is private from admins too, so it is never logged.
+    if (!view.ownerUserId) {
+      const space = await this.db.query.spaces.findFirst({ where: eq(spaces.id, view.spaceId), columns: { name: true, personal: true } });
+      if (space && !space.personal) {
+        await recordStructuralEvent(this.db, { workspaceId: membership.workspaceId, kind: 'view', action: 'deleted', id: view.id, name: view.name, extra: { space_id: view.spaceId, space_name: space.name, view_type: view.type } });
+      }
+    }
     return { deleted: viewId };
   }
 

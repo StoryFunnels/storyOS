@@ -401,15 +401,92 @@ export class GdprService {
   }
 
   /**
-   * Erase/anonymize the user. Tombstones the global `user` row (PII wiped),
-   * destroys all credentials/sessions/tokens so they can never sign in again,
-   * and removes their access in THIS workspace. Authored content is retained
-   * (keyed by the now-tombstoned id) so threads and history stay intact.
+   * The part of an erasure that belongs to ONE workspace: the membership, the access grants, skill shares, favorites, per-viewer
+   * state, watched records, notifications and `user`-field references in that workspace, and the API tokens minted for it (anonymised,
+   * not deleted: a bound token's scope row is the attestation of what that credential could reach, #543, see `anonymiseTokens`).
+   * Everything in here is keyed by the workspace id, so it can never reach another workspace.
+   */
+  private async removeWorkspaceFootprint(
+    tx: Tx,
+    workspaceId: string,
+    membershipId: string,
+    userId: string,
+    userFieldRefs: Awaited<ReturnType<GdprService['userFieldReferences']>>,
+  ) {
+    await tx.delete(memberships).where(eq(memberships.id, membershipId));
+    const grants = (await tx.delete(accessGrants).where(and(eq(accessGrants.workspaceId, workspaceId), eq(accessGrants.userId, userId))).returning()).length;
+    // #841 — skill shares naming this person, scoped to THIS workspace's skills.
+    const skillSharesRemoved = (
+      await tx
+        .delete(skillMembers)
+        .where(and(eq(skillMembers.userId, userId), inArray(skillMembers.skillId, tx.select({ id: skills.id }).from(skills).where(eq(skills.workspaceId, workspaceId)))))
+        .returning()
+    ).length;
+    const favs = (await tx.delete(favorites).where(and(eq(favorites.workspaceId, workspaceId), eq(favorites.userId, userId))).returning()).length;
+    // #973 / ADR-0019 — the rest of this person's per-viewer state IN THIS workspace: their overrides and the records they watch.
+    const viewerStateRows = (await tx.delete(viewerState).where(and(eq(viewerState.workspaceId, workspaceId), eq(viewerState.userId, userId))).returning({ k: viewerState.kind })).length;
+    const watching = (await tx.delete(recordWatchers).where(and(eq(recordWatchers.workspaceId, workspaceId), eq(recordWatchers.userId, userId))).returning({ id: recordWatchers.id })).length;
+    const notifs = (await tx.delete(notifications).where(and(eq(notifications.workspaceId, workspaceId), eq(notifications.userId, userId))).returning()).length;
+    const userFieldsCleared = await this.clearUserFieldReferences(tx, userFieldRefs, userId);
+    const tokens = await this.anonymiseTokens(tx, and(eq(apiTokens.userId, userId), eq(apiTokens.workspaceId, workspaceId)));
+    return {
+      removed: {
+        memberships: 1,
+        access_grants: grants,
+        skill_shares: skillSharesRemoved,
+        favorites: favs,
+        viewer_state: viewerStateRows,
+        record_watchers: watching,
+        notifications: notifs,
+        user_field_references: userFieldsCleared,
+      },
+      tokens,
+    };
+  }
+
+  /**
+   * #543 — ANONYMISE, do not delete. A bound token's scope row is the only record of what that credential could reach, and the
+   * attestation ("this token could reach database Y between A and B") is a statement about blast radius that needs no name on it.
+   * Erasure must not void it, so the row stays and everything about a PERSON goes. Every column, decided (the schema comment on
+   * `apiTokens` points back here):
+   *   user_id      -> `erased:<token id>`   a person (no FK; nothing resolves it)
+   *   name         -> 'Erased token'        free text; people write "Daria's laptop" in it
+   *   token_hash   -> fresh random digest   a credential; the row can never authenticate again
+   *   token_prefix -> 'erased'              first/last characters of the credential
+   *   last_used_at -> NULL                  one person's behavioural timing, not needed for scope
+   *   revoked_at   -> now() if still live   closes the window the attestation reports
+   *   KEPT: id, workspace_id, scope, allow_run_button, origin, agent_id (an Agent record, not a person), resource_scope, created_at
+   *   (opens the window); updated_at is stamped.
+   * Whether this satisfies an erasure request is a legal question, not decided here.
+   */
+  private async anonymiseTokens(tx: Tx, where: ReturnType<typeof and>): Promise<number> {
+    const tokenRows = await tx.select({ id: apiTokens.id, revokedAt: apiTokens.revokedAt }).from(apiTokens).where(where);
+    for (const t of tokenRows) {
+      await tx
+        .update(apiTokens)
+        .set({
+          userId: `erased:${t.id}`,
+          name: 'Erased token',
+          tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+          tokenPrefix: 'erased',
+          lastUsedAt: null,
+          revokedAt: t.revokedAt ?? new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(apiTokens.id, t.id));
+    }
+    return tokenRows.length;
+  }
+
+  /**
+   * #1039 — erase a member FROM THIS WORKSPACE. This is what a workspace admin may do, and it is deliberately only that: their
+   * membership, access and per-person state here, and the tokens minted for this workspace. The person's GLOBAL identity (the
+   * `user` row, their sign-in, their sessions, their tokens and OAuth connections in every other workspace) is NOT touched: one
+   * workspace's admin does not own it. Before this, an admin of any workspace (anyone, on hosted) could run it on any member or
+   * guest and lock that person out of every other workspace, with no way to even reset their password.
    *
-   * Anonymizing the `user` row is inherently global (one row per person); the
-   * caller is a workspace admin, so we only strip *access* within their
-   * workspace. Other workspaces keep the membership but see a "(deactivated)"
-   * identity that can no longer authenticate.
+   * Authored content is retained, keyed by the user id, so threads and history stay intact. The person's global erasure is
+   * `eraseGlobalIdentity`, which only they can ask for.
    */
   async anonymize(
     workspaceId: string,
@@ -418,6 +495,8 @@ export class GdprService {
     anonymized: boolean;
     already_anonymized: boolean;
     user_id: string;
+    scope: 'workspace';
+    identity_erased: false;
     removed: Record<string, number>;
   }> {
     const member = await this.resolveMember(workspaceId, membershipId);
@@ -425,222 +504,85 @@ export class GdprService {
     if (member.role === 'admin') {
       await this.assertNotLastAdmin(workspaceId, membershipId);
     }
-
-    /*
-     * #418 — every workspace this person belongs to, captured BEFORE the
-     * transaction removes one of them.
-     *
-     * `anonymize` wipes the GLOBAL `user` row, so a Members row in any OTHER
-     * workspace is left holding a real name and email whose only source has just
-     * been destroyed. Erasing only the requesting workspace would satisfy the
-     * letter of the report and leave the same data sitting two clicks away.
-     */
-    const allMemberships = await this.db.query.memberships.findMany({
-      where: eq(memberships.userId, userId),
-      columns: { workspaceId: true },
-    });
-
-    // #493 — fetched before the transaction, same pattern as `allMemberships`
-    // above; the actual clearing happens inside it, alongside everything else
-    // this erasure touches.
+    // #493 — fetched before the transaction, same pattern as before; the actual clearing happens inside it.
     const userFieldRefs = await this.userFieldReferences(workspaceId, userId);
 
     const result = await this.db.transaction(async (tx) => {
-      const existing = await tx.query.user.findFirst({
-        where: eq(user.id, userId),
-      });
-      const tombstoneEmail = `deleted-${userId}@anonymized.invalid`;
-      const alreadyAnon = existing?.email === tombstoneEmail;
-
-      if (existing && !alreadyAnon) {
-        await tx
-          .update(user)
-          .set({
-            name: 'Deleted user',
-            email: tombstoneEmail,
-            emailVerified: false,
-            image: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(user.id, userId));
-      }
-
-      // Destroy every credential/session so the account can never authenticate.
-      const sessions = (
-        await tx.delete(session).where(eq(session.userId, userId)).returning()
-      ).length;
-      const accounts = (
-        await tx.delete(account).where(eq(account.userId, userId)).returning()
-      ).length;
-      const oauthTokens = (
-        await tx
-          .delete(oauthAccessToken)
-          .where(eq(oauthAccessToken.userId, userId))
-          .returning()
-      ).length;
-      const oauthConsents = (
-        await tx
-          .delete(oauthConsent)
-          .where(eq(oauthConsent.userId, userId))
-          .returning()
-      ).length;
-      const oauthApps = (
-        await tx
-          .delete(oauthApplication)
-          .where(eq(oauthApplication.userId, userId))
-          .returning()
-      ).length;
-      /*
-       * #543 — ANONYMISE, do not delete. A bound token's scope row is the only record of what
-       * that credential could reach, and the attestation ("this token could reach database Y
-       * between A and B") is a statement about blast radius that needs no name on it. Erasure
-       * must not void it, so the row stays and everything about a PERSON goes. Every column,
-       * decided (the schema comment on `apiTokens` points back here):
-       *   user_id      -> `erased:<token id>`   a person (no FK; nothing resolves it)
-       *   name         -> 'Erased token'        free text; people write "Daria's laptop" in it
-       *   token_hash   -> fresh random digest   a credential; the row can never authenticate again
-       *   token_prefix -> 'erased'              first/last characters of the credential
-       *   last_used_at -> NULL                  one person's behavioural timing, not needed for scope
-       *   revoked_at   -> now() if still live   closes the window the attestation reports
-       *   KEPT: id, workspace_id, scope, allow_run_button, origin, agent_id (an Agent record, not
-       *   a person), resource_scope, created_at (opens the window); updated_at is stamped.
-       * Whether this satisfies an erasure request is a legal question, not decided here.
-       */
-      const tokenRows = await tx
-        .select({ id: apiTokens.id, revokedAt: apiTokens.revokedAt })
-        .from(apiTokens)
-        .where(eq(apiTokens.userId, userId));
-      for (const t of tokenRows) {
-        await tx
-          .update(apiTokens)
-          .set({
-            userId: `erased:${t.id}`,
-            name: 'Erased token',
-            tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
-            tokenPrefix: 'erased',
-            lastUsedAt: null,
-            revokedAt: t.revokedAt ?? new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(apiTokens.id, t.id));
-      }
-      const tokens = tokenRows.length;
-      const prefs = (
-        await tx
-          .delete(userPreferences)
-          .where(eq(userPreferences.userId, userId))
-          .returning()
-      ).length;
-
-      // Strip access in this workspace.
-      await tx.delete(memberships).where(eq(memberships.id, membershipId));
-      const grants = (
-        await tx
-          .delete(accessGrants)
-          .where(
-            and(
-              eq(accessGrants.workspaceId, workspaceId),
-              eq(accessGrants.userId, userId),
-            ),
-          )
-          .returning()
-      ).length;
-      // #841 — skill shares naming this person, scoped to THIS workspace's skills.
-      const skillSharesRemoved = (
-        await tx
-          .delete(skillMembers)
-          .where(
-            and(
-              eq(skillMembers.userId, userId),
-              inArray(
-                skillMembers.skillId,
-                tx.select({ id: skills.id }).from(skills).where(eq(skills.workspaceId, workspaceId)),
-              ),
-            ),
-          )
-          .returning()
-      ).length;
-      const favs = (
-        await tx
-          .delete(favorites)
-          .where(
-            and(
-              eq(favorites.workspaceId, workspaceId),
-              eq(favorites.userId, userId),
-            ),
-          )
-          .returning()
-      ).length;
-      // #973 / ADR-0019 — the rest of this person's per-viewer state IN THIS workspace: their overrides (personal filters, collection
-      // views, pinned tabs) and the records they watch. Watchers survived erasure before (they were in neither path).
-      const viewerStateRows = (
-        await tx.delete(viewerState).where(and(eq(viewerState.workspaceId, workspaceId), eq(viewerState.userId, userId))).returning({ k: viewerState.kind })
-      ).length;
-      const watching = (
-        await tx.delete(recordWatchers).where(and(eq(recordWatchers.workspaceId, workspaceId), eq(recordWatchers.userId, userId))).returning({ id: recordWatchers.id })
-      ).length;
-      const notifs = (
-        await tx
-          .delete(notifications)
-          .where(
-            and(
-              eq(notifications.workspaceId, workspaceId),
-              eq(notifications.userId, userId),
-            ),
-          )
-          .returning()
-      ).length;
-
-      const userFieldsCleared = await this.clearUserFieldReferences(tx, userFieldRefs, userId);
-
+      const existing = await tx.query.user.findFirst({ where: eq(user.id, userId) });
+      const footprint = await this.removeWorkspaceFootprint(tx, workspaceId, membershipId, userId, userFieldRefs);
       return {
         anonymized: true,
-        already_anonymized: alreadyAnon,
+        already_anonymized: existing?.email === `deleted-${userId}@anonymized.invalid`,
         user_id: userId,
-        // #543 — kept with identity stripped (see the comment above), so NOT in `removed`.
-        retained_anonymized: { api_tokens: tokens },
-        removed: {
-          sessions,
-          accounts,
-          oauth_access_tokens: oauthTokens,
-          oauth_consents: oauthConsents,
-          oauth_applications: oauthApps,
-          user_preferences: prefs,
-          memberships: 1,
-          access_grants: grants,
-          skill_shares: skillSharesRemoved,
-          favorites: favs,
-          viewer_state: viewerStateRows,
-          record_watchers: watching,
-          notifications: notifs,
-          user_field_references: userFieldsCleared,
-        },
+        scope: 'workspace' as const,
+        identity_erased: false as const,
+        // #543 — kept with identity stripped (see anonymiseTokens), so NOT in `removed`.
+        retained_anonymized: { api_tokens: footprint.tokens },
+        removed: footprint.removed,
       };
     });
 
     /*
-     * #418 — emitted AFTER commit, and never allowed to fail the erasure.
-     *
-     * Same contract every other membership emit follows: the projection is a
-     * cache with a backfill, not a transactional invariant, and a projection
-     * hiccup must not turn a completed GDPR erasure into a reported failure. The
-     * data is already gone from the source of truth at this point.
-     *
-     * `tombstone` is true only for the workspace the request was made in, where
-     * the membership really was deleted. Elsewhere the person is still a member
-     * and only the PII goes.
+     * #418 — emitted AFTER commit, and never allowed to fail the erasure: the Members projection is a cache with a backfill. Only THIS
+     * workspace's membership was deleted, so only its Members row is tombstoned; the person's real identity is intact elsewhere.
      */
-    const tombstoneEmail = `deleted-${userId}@anonymized.invalid`;
-    for (const m of allMemberships) {
-      this.membershipEvents.emit({
-        type: 'membership_erased',
-        workspaceId: m.workspaceId,
-        userId,
-        anonymisedEmail: tombstoneEmail,
-        tombstone: m.workspaceId === workspaceId,
-      });
-    }
-
+    this.membershipEvents.emit({
+      type: 'membership_erased',
+      workspaceId,
+      userId,
+      anonymisedEmail: `deleted-${userId}@anonymized.invalid`,
+      tombstone: true,
+    });
     return result;
+  }
+
+  /**
+   * #1039 — erase a person's GLOBAL identity: the `user` row becomes a tombstone (PII wiped), every credential, session, token and
+   * OAuth connection is destroyed so the account can never sign in again, and they leave EVERY workspace (each one's footprint is
+   * removed too). Self-service only (the controller's session check): it is the person's own identity, not a workspace admin's to
+   * destroy. Refuses while they are the LAST admin of any workspace (it would orphan it): promote someone or delete the workspace first.
+   */
+  async eraseGlobalIdentity(userId: string): Promise<{ anonymized: true; user_id: string; scope: 'global'; identity_erased: true; workspaces_left: number; removed: Record<string, number> }> {
+    const mine = await this.db.query.memberships.findMany({ where: eq(memberships.userId, userId) });
+    const orphaning: string[] = [];
+    for (const m of mine) {
+      if (m.role !== 'admin' || m.status !== 'active') continue;
+      try {
+        await this.assertNotLastAdmin(m.workspaceId, m.id);
+      } catch {
+        orphaning.push(m.workspaceId);
+      }
+    }
+    if (orphaning.length > 0) {
+      throw new ConflictException(`You are the only admin of ${orphaning.length} workspace${orphaning.length === 1 ? '' : 's'}. Promote another admin or delete ${orphaning.length === 1 ? 'it' : 'them'} first, so nothing is left without an admin.`);
+    }
+    const refsByWorkspace = new Map<string, Awaited<ReturnType<GdprService['userFieldReferences']>>>();
+    for (const m of mine) refsByWorkspace.set(m.workspaceId, await this.userFieldReferences(m.workspaceId, userId));
+
+    const result = await this.db.transaction(async (tx) => {
+      const totals: Record<string, number> = {};
+      const add = (k: string, n: number) => { totals[k] = (totals[k] ?? 0) + n; };
+      for (const m of mine) {
+        const footprint = await this.removeWorkspaceFootprint(tx, m.workspaceId, m.id, userId, refsByWorkspace.get(m.workspaceId)!);
+        for (const [k, n] of Object.entries(footprint.removed)) add(k, n);
+      }
+      await tx
+        .update(user)
+        .set({ name: 'Deleted user', email: `deleted-${userId}@anonymized.invalid`, emailVerified: false, image: null, updatedAt: new Date() })
+        .where(eq(user.id, userId));
+      add('sessions', (await tx.delete(session).where(eq(session.userId, userId)).returning()).length);
+      add('accounts', (await tx.delete(account).where(eq(account.userId, userId)).returning()).length);
+      add('oauth_access_tokens', (await tx.delete(oauthAccessToken).where(eq(oauthAccessToken.userId, userId)).returning()).length);
+      add('oauth_consents', (await tx.delete(oauthConsent).where(eq(oauthConsent.userId, userId)).returning()).length);
+      add('oauth_applications', (await tx.delete(oauthApplication).where(eq(oauthApplication.userId, userId)).returning()).length);
+      add('api_tokens_anonymized', await this.anonymiseTokens(tx, eq(apiTokens.userId, userId)));
+      add('user_preferences', (await tx.delete(userPreferences).where(eq(userPreferences.userId, userId)).returning()).length);
+      return totals;
+    });
+
+    for (const m of mine) {
+      this.membershipEvents.emit({ type: 'membership_erased', workspaceId: m.workspaceId, userId, anonymisedEmail: `deleted-${userId}@anonymized.invalid`, tombstone: true });
+    }
+    return { anonymized: true, user_id: userId, scope: 'global', identity_erased: true, workspaces_left: mine.length, removed: result };
   }
 }

@@ -9,7 +9,14 @@ import { AuditLogService } from './audit-log.service';
 
 const auditLogQuerySchema = z.object({
   actor: z.string().optional(),
+  /** A record id, or (#1059) the id of a space, database or view named in a structural event. */
   entity: z.uuid().optional(),
+  /** #1059 — a comma list of event types, e.g. `database.deleted,space.deleted`. */
+  type: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined))
+    .pipe(z.array(z.string().max(60)).max(30).optional()),
   /** #934 — narrow to actions made by these kinds of actor: a comma list of human | agent | automation | mcp. */
   source: z
     .string()

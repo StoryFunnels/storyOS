@@ -12,6 +12,7 @@ import {
   UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
+import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -26,6 +27,12 @@ import { getStorage } from '../attachments/storage';
 
 const AVATAR_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const AVATAR_MAX_BYTES = 1024 * 1024; // client resizes to 256px; 1MB is generous
+/**
+ * #1076 — `:id` becomes a storage key, and the router decodes `%2F`, so `..%2F..%2F<key>` walked out of `avatars/`
+ * into any object in attachment storage (the disk driver only keeps reads inside the storage ROOT). A user id is a
+ * better-auth id: letters, digits, `_` and `-`, nothing that can name another directory.
+ */
+const USER_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** Content-Type from magic bytes — the storage driver keeps no metadata. */
 function sniffMime(data: Buffer): string {
@@ -46,6 +53,7 @@ export class UsersController {
     private readonly membershipEvents: MembershipEventsService,
   ) {}
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post('me/avatar')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Set my avatar (multipart field "file", png/jpeg/webp ≤1MB)' })
@@ -72,6 +80,7 @@ export class UsersController {
     return { image: url };
   }
 
+  @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Delete('me/avatar')
   @ApiOperation({ summary: 'Remove my avatar (falls back to initials)' })
   async remove(@Req() req: AuthedRequest) {
@@ -114,6 +123,8 @@ export class UsersController {
   @Get(':id/avatar')
   @ApiOperation({ summary: 'Serve a user avatar (session required)' })
   async serve(@Param('id') id: string, @Res() reply: FastifyReply) {
+    // Same 404 as a missing avatar: a malformed id is not worth telling apart.
+    if (!USER_ID_RE.test(id)) throw new NotFoundException('No avatar');
     try {
       const stream = await getStorage().getStream(`avatars/${id}`);
       const chunks: Buffer[] = [];

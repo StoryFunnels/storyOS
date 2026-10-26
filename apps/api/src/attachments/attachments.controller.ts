@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
@@ -13,11 +14,20 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { RecordsService } from '../records/records.service';
 import { AttachmentsService } from './attachments.service';
+
+const attachFromUrlSchema = z.object({
+  url: z.string().url().max(2000),
+  filename: z.string().min(1).max(255).optional(),
+  mime: z.string().min(1).max(200).optional(),
+});
+class AttachFromUrlDto extends createZodDto(attachFromUrlSchema) {}
 
 @ApiTags('attachments')
 @ApiBearerAuth()
@@ -93,6 +103,34 @@ export class AttachmentsController {
       req.membership.workspaceId,
       recordId,
       { filename: file.filename, mime: file.mimetype, data },
+      req.user.id,
+      fieldId,
+      req.auth?.source ?? 'human',
+    );
+  }
+
+  /**
+   * #1033 — attach a file the SERVER fetches from a URL. This used to happen inside the MCP process, with a bare `fetch` and no size cap:
+   * an internal address (`http://api:3001/...`, the cloud metadata service, or a public URL that 302s to either) was fetched from inside
+   * our network and the response handed back as a downloadable attachment. It now goes through the address-pinned guard, with every
+   * redirect re-checked, a timeout, and the body capped while streaming at ATTACHMENT_MAX_BYTES.
+   */
+  @Post('from-url')
+  @ApiOperation({
+    summary: 'Attach a file the server fetches from a public URL (guarded: no private/metadata addresses, redirects re-checked, size-capped). `?field=<id>` as for upload',
+  })
+  async fromUrl(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Body() body: AttachFromUrlDto,
+    @Query('field') fieldId?: string,
+  ) {
+    await this.assertRecord(req, databaseId, recordId, 'editor');
+    return this.attachmentsService.uploadFromUrl(
+      req.membership.workspaceId,
+      recordId,
+      body,
       req.user.id,
       fieldId,
       req.auth?.source ?? 'human',

@@ -1,5 +1,8 @@
 import { lookup } from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { isIP } from 'node:net';
+import { Readable } from 'node:stream';
 
 /**
  * MN-263 — the SSRF guard every outbound-HTTP path in the API shares.
@@ -32,28 +35,52 @@ export type WebhookFetcher = (
   init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<{ status: number }>;
 
-export const defaultWebhookFetcher: WebhookFetcher = (url, init) =>
-  fetch(url, init) as unknown as Promise<{ status: number }>;
+/**
+ * #1036 — outgoing webhooks go through the same guarded, address-pinned transport as the http_request action, and a redirect is NEVER
+ * followed: it used to be plain `fetch`, which follows them (a 307/308 replays the signed POST at the new target, and the status code
+ * a person sees is an oracle for what answers on an internal port). A 3xx is simply a failed delivery.
+ */
+export const defaultWebhookFetcher: WebhookFetcher = async (url, init) => {
+  const res = await guardedFetch(undefined, url, init, { followRedirects: false, maxBodyBytes: 1024 });
+  return { status: res.status };
+};
 
-/** True for loopback, private, link-local and unique-local addresses. */
+/**
+ * True for every address a server must never be made to call on a stranger's behalf: loopback, private, link-local, unique-local, shared
+ * address space (CGNAT / Tailscale), benchmarking, multicast and reserved ranges, NAT64, and IPv6 forms that EMBED an IPv4 address
+ * (IPv4-mapped in either spelling, 6to4), which are judged by the IPv4 address they carry.
+ */
 export function isPrivateAddress(address: string): boolean {
-  const v = isIP(address);
+  const v = isIP(address.replace(/^\[|\]$/g, ''));
   if (v === 4) {
     const [a, b] = address.split('.').map(Number) as [number, number];
     return (
       a === 127 || a === 10 || a === 0 || (a === 192 && b === 168) || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31)
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 shared address space: CGNAT, Tailscale
+      (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmarking
+      (a === 192 && b === 0) || // 192.0.0.0/24 IETF protocol assignments and 192.0.2.0/24 documentation
+      a >= 224 // 224.0.0.0/4 multicast and 240.0.0.0/4 reserved (incl. 255.255.255.255)
     );
   }
   const host = address.toLowerCase().replace(/^\[|\]$/g, '');
+  if (isIP(host) !== 6) return false;
+  const parts = ipv6ToParts(host);
+  if (!parts) return true; // an IPv6 literal we cannot parse is not one we will call
+  const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  // ::/96 (unspecified, loopback, the deprecated IPv4-compatible form) and ::ffff:0:0/96 (IPv4-mapped): the embedded IPv4 decides, and
+  // everything in ::/96 is refused outright.
+  if (parts.slice(0, 5).every((x) => x === 0)) {
+    if (parts[5] === 0) return true;
+    if (parts[5] === 0xffff) return isPrivateAddress(v4(parts[6]!, parts[7]!));
+  }
   return (
-    host === '::1' ||
-    host === '::' ||
-    host.startsWith('fe80:') ||
-    host.startsWith('fc') ||
-    host.startsWith('fd') ||
-    // ::ffff:10.0.0.1 — an IPv4 address wearing an IPv6 hat
-    (host.startsWith('::ffff:') && isPrivateAddress(host.slice(7)))
+    (parts[0]! & 0xffc0) === 0xfe80 || // fe80::/10 link-local
+    (parts[0]! & 0xffc0) === 0xfec0 || // fec0::/10 site-local (deprecated, still routed by some stacks)
+    (parts[0]! & 0xfe00) === 0xfc00 || // fc00::/7 unique-local
+    (parts[0]! & 0xff00) === 0xff00 || // ff00::/8 multicast
+    (parts[0] === 0x0064 && parts[1] === 0xff9b && parts.slice(2, 6).every((x) => x === 0)) || // 64:ff9b::/96 NAT64 (reaches the IPv4 it embeds)
+    (parts[0] === 0x2002 && isPrivateAddress(v4(parts[1]!, parts[2]!))) // 2002::/16 6to4: judged by the IPv4 it wraps
   );
 }
 
@@ -209,35 +236,31 @@ export class SsrfBlockedError extends Error {
   }
 }
 
+/** Throws SsrfBlockedError unless `address` may be called. The blocklists always win; the self-host allowlist only widens what is "private". */
+function checkAddress(address: string, via: string | null, allow: string[]): void {
+  const blocked = [...METADATA_BLOCKLIST, ...envCidrList('BLOCKED_CIDRS')];
+  const from = via ? `${via} — it resolves to ` : '';
+  if (blocked.some((c) => ipInCidr(address, c))) {
+    throw new SsrfBlockedError(`refusing to call ${from}blocked address ${address}`);
+  }
+  if (allow.some((c) => ipInCidr(address, c))) return; // explicit self-host opt-in
+  if (isPrivateAddress(address)) {
+    throw new SsrfBlockedError(`refusing to call ${from}private address ${address}`);
+  }
+}
+
 export async function assertPublicHost(
   hostname: string,
   opts?: { allowPrivateCidrs?: string[] },
 ): Promise<void> {
   const allow = opts?.allowPrivateCidrs ?? [];
-  const blocked = [...METADATA_BLOCKLIST, ...envCidrList('BLOCKED_CIDRS')];
-  const check = (address: string) => {
-    if (blocked.some((c) => ipInCidr(address, c))) {
-      throw new SsrfBlockedError(`refusing to call blocked address ${address}`);
-    }
-    if (allow.some((c) => ipInCidr(address, c))) return; // explicit self-host opt-in
-    if (isPrivateAddress(address)) {
-      throw new SsrfBlockedError(`refusing to call private address ${address}`);
-    }
-  };
-  if (isIP(hostname)) {
-    check(hostname);
+  const bare = hostname.replace(/^\[|\]$/g, '');
+  if (isIP(bare)) {
+    checkAddress(bare, null, allow);
     return;
   }
   const results = await lookup(hostname, { all: true });
-  for (const { address } of results) {
-    if (blocked.some((c) => ipInCidr(address, c))) {
-      throw new SsrfBlockedError(`refusing to call ${hostname} — it resolves to blocked address ${address}`);
-    }
-    if (allow.some((c) => ipInCidr(address, c))) continue;
-    if (isPrivateAddress(address)) {
-      throw new SsrfBlockedError(`refusing to call ${hostname} — it resolves to private address ${address}`);
-    }
-  }
+  for (const { address } of results) checkAddress(address, hostname, allow);
 }
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
@@ -277,6 +300,61 @@ export async function readBodyCapped(
   return { text: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8'), truncated };
 }
 
+/**
+ * #1036 — the transport that closes the DNS-rebinding window. The old flow resolved the name to CHECK it, then handed the URL to
+ * `fetch`, which resolved it AGAIN to connect: a name that answers public the first time and 169.254.169.254 (or a Docker address)
+ * the second walked straight past the check. Here the connection's own `lookup` is the check: the name is resolved ONCE, every address
+ * it returned is judged, and the socket is opened to one of those exact addresses (the Host header and TLS name stay the original
+ * hostname). There is no second resolution to poison. Used for every hop of every redirect, because every hop is a new connection.
+ */
+export function pinnedFetch(opts: { allowPrivateCidrs?: string[] } = {}): typeof fetch {
+  const allow = opts.allowPrivateCidrs ?? [];
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    if (!ALLOWED_SCHEMES.has(url.protocol)) throw new SsrfBlockedError(`unsupported scheme "${url.protocol}" — only http/https are allowed`);
+    // An IP literal never reaches `lookup` (nothing to resolve), so it is judged here.
+    const literal = url.hostname.replace(/^\[|\]$/g, '');
+    if (isIP(literal)) checkAddress(literal, null, allow);
+
+    const guardedLookup = (
+      hostname: string,
+      options: { all?: boolean } | number | undefined,
+      cb: (err: Error | null, address?: string | Array<{ address: string; family: number }>, family?: number) => void,
+    ) => {
+      lookup(hostname, { all: true })
+        .then((results) => {
+          if (results.length === 0) throw new SsrfBlockedError(`${hostname} did not resolve`);
+          for (const { address } of results) checkAddress(address, hostname, allow);
+          const wantAll = typeof options === 'object' && options?.all;
+          if (wantAll) cb(null, results.map((r) => ({ address: r.address, family: r.family })));
+          else cb(null, results[0]!.address, results[0]!.family);
+        })
+        .catch((e: unknown) => cb(e instanceof Error ? e : new Error(String(e))));
+    };
+
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers as HeadersInit | undefined).forEach((v, k) => { headers[k] = v; });
+    const body = init?.body == null ? undefined : typeof init.body === 'string' ? init.body : String(init.body);
+    return await new Promise<Response>((resolve, reject) => {
+      const lib = url.protocol === 'https:' ? https : http;
+      const req = lib.request(
+        url,
+        { method: init?.method ?? 'GET', headers, lookup: guardedLookup as never, agent: false, signal: init?.signal ?? undefined },
+        (res) => {
+          const out = new Headers();
+          for (let i = 0; i < res.rawHeaders.length; i += 2) out.append(res.rawHeaders[i]!, res.rawHeaders[i + 1]!);
+          const status = res.statusCode ?? 0;
+          const noBody = status === 204 || status === 205 || status === 304 || (status >= 100 && status < 200);
+          resolve(new Response(noBody ? null : (Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>), { status, statusText: res.statusMessage ?? '', headers: out }));
+        },
+      );
+      req.on('error', reject);
+      if (body !== undefined) req.write(body);
+      req.end();
+    });
+  }) as typeof fetch;
+}
+
 export interface GuardedFetchInit {
   method: string;
   headers: Record<string, string>;
@@ -290,6 +368,35 @@ export interface GuardedFetchResult {
   finalUrl: string;
   text: string;
   truncated: boolean;
+  /** Only with `opts.binary`: the body as raw bytes (`text` is then empty). `truncated` says the cap was hit. */
+  bytes?: Buffer;
+}
+
+/** Like readBodyCapped but keeps the raw bytes (a file, not text) and stops reading the moment the cap is exceeded. */
+export async function readBytesCapped(
+  res: { body: ReadableStream<Uint8Array> | null; arrayBuffer(): Promise<ArrayBuffer> },
+  maxBytes: number,
+): Promise<{ bytes: Buffer; truncated: boolean }> {
+  if (!res.body) {
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > maxBytes ? { bytes: buf.subarray(0, maxBytes), truncated: true } : { bytes: buf, truncated: false };
+  }
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.length;
+    if (total > maxBytes) {
+      chunks.push(Buffer.from(value.subarray(0, value.length - (total - maxBytes))));
+      try { await reader.cancel(); } catch { /* the response is being discarded */ }
+      return { bytes: Buffer.concat(chunks), truncated: true };
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return { bytes: Buffer.concat(chunks), truncated: false };
 }
 
 /**
@@ -300,14 +407,27 @@ export interface GuardedFetchResult {
  * redirects at `maxRedirects` and the response body at `maxBodyBytes`.
  */
 export async function guardedFetch(
-  fetcher: typeof fetch,
+  fetcherArg: typeof fetch | undefined,
   initialUrl: string,
   init: GuardedFetchInit,
-  opts: { allowPrivateCidrs?: string[]; maxRedirects?: number; maxBodyBytes?: number } = {},
+  opts: {
+    allowPrivateCidrs?: string[];
+    maxRedirects?: number;
+    maxBodyBytes?: number;
+    followRedirects?: boolean;
+    binary?: boolean;
+    /** Header names (case-insensitive) to drop when a redirect leaves the origin the request started on. `Authorization`, `Cookie` and `Proxy-Authorization` are ALWAYS dropped there. */
+    stripOnCrossOrigin?: string[];
+  } = {},
 ): Promise<GuardedFetchResult> {
+  // #1036: the real network transport is ALWAYS the address-pinned one. A caller that passes the global `fetch` (every production
+  // caller does) gets it here, so no caller has to remember to opt in; only a test's stub is used as given.
+  const fetcher = fetcherArg && fetcherArg !== globalThis.fetch ? fetcherArg : pinnedFetch({ allowPrivateCidrs: opts.allowPrivateCidrs });
   const maxRedirects = opts.maxRedirects ?? 3;
   const maxBodyBytes = opts.maxBodyBytes ?? 1_000_000;
   let url = initialUrl;
+  let headers = init.headers;
+  const dropOnLeave = new Set(['authorization', 'proxy-authorization', 'cookie', ...(opts.stripOnCrossOrigin ?? []).map((h) => h.toLowerCase())]);
   for (let hop = 0; hop <= maxRedirects; hop++) {
     let parsed: URL;
     try {
@@ -321,22 +441,31 @@ export async function guardedFetch(
     await assertPublicHost(parsed.hostname, { allowPrivateCidrs: opts.allowPrivateCidrs });
     const res = await fetcher(url, {
       method: init.method,
-      headers: init.headers,
+      headers,
       body: init.body,
       redirect: 'manual',
       signal: init.signal,
     });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get('location');
-      if (!location) {
+      if (!location || opts.followRedirects === false) {
         const { text, truncated } = await readBodyCapped(res, maxBodyBytes);
         return { status: res.status, headers: res.headers, finalUrl: url, text, truncated };
       }
       if (hop === maxRedirects) {
         throw new SsrfBlockedError(`too many redirects (> ${maxRedirects})`);
       }
-      url = new URL(location, url).toString();
+      const next = new URL(location, url);
+      // #1035 — credentials follow a redirect only within the origin they were sent to: a 302 to another host must not carry them.
+      if (next.origin !== new URL(url).origin) {
+        headers = Object.fromEntries(Object.entries(headers).filter(([k]) => !dropOnLeave.has(k.toLowerCase())));
+      }
+      url = next.toString();
       continue;
+    }
+    if (opts.binary) {
+      const { bytes, truncated } = await readBytesCapped(res, maxBodyBytes);
+      return { status: res.status, headers: res.headers, finalUrl: url, text: '', truncated, bytes };
     }
     const { text, truncated } = await readBodyCapped(res, maxBodyBytes);
     return { status: res.status, headers: res.headers, finalUrl: url, text, truncated };

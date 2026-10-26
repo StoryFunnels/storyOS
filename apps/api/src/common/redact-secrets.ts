@@ -99,7 +99,9 @@ export function isSecretKey(key: string): boolean {
   if (SECRET_TAILS.has(last)) return true;
   if (parts.length >= 2 && SECRET_TAIL_PAIRS.has(`${parts[parts.length - 2]!} ${last}`)) return true;
   // `password2`, `token_1` — a trailing counter shouldn't buy an escape hatch.
-  const stripped = last.replace(/\d+$/, '');
+  // #1067 — `(?<!\d)` starts the match only where a digit run begins; a bare `\d+$` retried from every digit of
+  // a long run that isn't at the end (a hook payload's key is attacker-chosen), which is quadratic.
+  const stripped = last.replace(/(?<!\d)\d+$/, '');
   return stripped !== last && SECRET_TAILS.has(stripped);
 }
 
@@ -111,7 +113,9 @@ export function isSecretKey(key: string): boolean {
  */
 function redactUrlUserinfo(value: string): string {
   return value.replace(
-    /\b([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^/\s@]+)@/g,
+    // #1067 — the scheme is bounded: unbounded, `a-a-a-…` (a word boundary at every letter) rescanned the rest of
+    // the value from each one. No real scheme is longer than 32 characters.
+    /\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/)([^/\s@]+)@/g,
     (_m, scheme: string) => `${scheme}${REDACTED}@`,
   );
 }

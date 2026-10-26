@@ -53,7 +53,15 @@ export interface ValidateOptions {
   relations?: 'reject' | 'collect';
 }
 
-const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * #1067 — accepts exactly what `^[^\s@]+@[^\s@]+\.[^\s@]+$` accepted (a domain part with a dot that is neither its
+ * first nor its last character), but in linear time. That form's two `[^\s@]+` both eat `.`, so a failing
+ * `a@.....@` backtracked quadratically: one ~3 MB value on an anonymous public form held the event loop for hours.
+ * Here the first dot after the domain's first character is the split point, so there is only ever one way to try.
+ * Exported so the CSV importer's type inference uses this one and cannot drift back.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/;
+const emailRe = EMAIL_RE;
 const urlRe = /^https?:\/\/\S+$/i;
 const dateOnlyRe = /^\d{4}-\d{2}-\d{2}$/;
 /** #RGB or #RRGGBB, normalized to lowercase #RRGGBB on write (MN-89). */

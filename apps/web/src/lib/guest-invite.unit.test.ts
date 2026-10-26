@@ -49,7 +49,8 @@ describe('no surface hand-builds a guest-invite URL (#327)', () => {
   const CALLERS = [
     'app/new-workspace/page.tsx',
     'components/template-gallery.tsx',
-    'components/share-dialog.tsx',
+    // `components/share-dialog.tsx` was the third caller until #924 replaced it with the Manage access dialog, which links
+    // nowhere: its empty search says "Invite them from Settings → Members first" in plain words.
   ];
 
   /**

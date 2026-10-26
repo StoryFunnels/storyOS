@@ -1494,6 +1494,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attach a file the server fetches from a public URL (guarded: no private/metadata addresses, redirects re-checked, size-capped). `?field=<id>` as for upload */
+        post: operations["AttachmentsController_fromUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
         parameters: {
             query?: never;
@@ -2402,7 +2419,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GitHub App OAuth callback — verifies state, captures installation id */
+        /** GitHub App OAuth callback — verifies state and the signed-in person, resolves the installation from the OAuth code */
         get: operations["GithubOAuthController_callback"];
         put?: never;
         post?: never;
@@ -2790,7 +2807,8 @@ export interface paths {
         delete: operations["ConnectionsController_remove"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Set the one URL prefix an HTTP connection's credential may be sent to (#1035) */
+        patch: operations["ConnectionsController_update"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/connections/{id}/test": {
@@ -4613,8 +4631,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Erase/anonymize this member: wipe identity to a tombstone, destroy credentials, and remove workspace access. Comments and history are kept. */
+        /** Erase this member FROM THIS WORKSPACE: remove their membership, access and per-person state here and the tokens minted for it. Their global identity and every other workspace are untouched (#1039); that is /me/gdpr/erase, self-service. Comments and history are kept. */
         post: operations["GdprController_anonymize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/gdpr/erase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Erase my own account everywhere (irreversible; body {"confirm": true}); session only */
+        post: operations["GdprSelfController_erase"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5308,6 +5343,12 @@ export interface components {
             add?: string[];
             remove?: string[];
         };
+        AttachFromUrlDto: {
+            /** Format: uri */
+            url: string;
+            filename?: string;
+            mime?: string;
+        };
         CreateRelationDto: {
             /** Format: uuid */
             database_a_id: string;
@@ -5918,6 +5959,10 @@ export interface components {
             auth: {
                 [key: string]: unknown;
             };
+        };
+        UpdateConnectionDto: {
+            /** Format: uri */
+            base_url: string;
         };
         DiscoverSourceDto: {
             /** Format: uuid */
@@ -6872,6 +6917,10 @@ export interface components {
         };
         CreateRelationTargetDto: {
             title: string;
+        };
+        EraseMyIdentityDto: {
+            /** @enum {boolean} */
+            confirm: true;
         };
         ReviewSubmissionDto: {
             /** @enum {string} */
@@ -9263,6 +9312,32 @@ export interface operations {
             };
         };
     };
+    AttachmentsController_fromUrl: {
+        parameters: {
+            query: {
+                field: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachFromUrlDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     AttachmentsController_download: {
         parameters: {
             query?: never;
@@ -10351,6 +10426,7 @@ export interface operations {
             query?: {
                 actor?: string;
                 entity?: string;
+                type?: string;
                 source?: string;
                 from?: string;
                 to?: string;
@@ -11318,6 +11394,29 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ConnectionsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConnectionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -13973,6 +14072,27 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GdprSelfController_erase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EraseMyIdentityDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

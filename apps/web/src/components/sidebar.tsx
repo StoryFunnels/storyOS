@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, Lock, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -28,7 +28,8 @@ import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { AccountMenu as AvatarMenu } from '@/components/account-menu';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
 import { agentSystemKey, isSystemOnlySpace } from '@/lib/system-databases';
-import { ShareDialog } from '@/components/share-dialog';
+import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
+import { canManageAccess, showsLock } from '@/lib/access-model';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
@@ -1794,6 +1795,15 @@ function SpaceSection({
             {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
             <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
+              {showsLock(space) && (
+                <Lock
+                  className="h-[11px] w-[11px] shrink-0 text-faint"
+                  aria-label="Restricted"
+                  role="img"
+                >
+                  <title>Restricted — only the people added can see it</title>
+                </Lock>
+              )}
           </Link>
         )}
         {/* #805 AC6 — the artifact's database count on the space header, shown
@@ -1882,7 +1892,7 @@ function SpaceSection({
                   {space.description ? 'Edit description' : 'Add description'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
-                {isAdmin && (
+                {canManageAccess(isAdmin ? 'admin' : undefined) && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
                 )}
                 {/* #742 finding 04 — presentational only: reassigning a space's
@@ -1979,7 +1989,7 @@ function SpaceSection({
         )}
       </SidebarRow>
       <Dialog open={sharing} onOpenChange={setSharing}>
-        {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
+        {sharing && <ManageAccessDialog ws={ws} scope={{ space_id: space.id }} />}
       </Dialog>
       <Dialog open={describing} onOpenChange={setDescribing}>
         {describing && (
@@ -2869,6 +2879,15 @@ function DatabaseRow({
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
+          {showsLock(db) && (
+                <Lock
+                  className="h-[11px] w-[11px] shrink-0 text-faint"
+                  aria-label="Restricted"
+                  role="img"
+                >
+                  <title>Restricted — only the people added can see it</title>
+                </Lock>
+              )}
         </Link>
         </>
       )}
@@ -2957,7 +2976,7 @@ function DatabaseRow({
             // `hidden` rather than a conditional spread — see the note on
             // SidebarMenuAction. The item is declared in place and simply not
             // rendered, so it cannot be lost to a misplaced spread.
-            { label: 'Manage access', onSelect: () => setSharing(true), hidden: !isAdmin },
+            { label: 'Manage access', onSelect: () => setSharing(true), hidden: !canManageAccess(isAdmin ? 'admin' : undefined) },
             // "Move to" — the section header rides on the FIRST target, so the
             // heading cannot outlive the group it labels. Same `creator`
             // requirement as Rename etc. — a move is the same PATCH with a
@@ -3006,7 +3025,7 @@ function DatabaseRow({
         />
       )}
       <Dialog open={sharing} onOpenChange={setSharing}>
-        {sharing && <ShareDialog ws={ws} scope={{ database_id: db.id }} scopeName={db.name} />}
+        {sharing && <ManageAccessDialog ws={ws} scope={{ database_id: db.id }} />}
       </Dialog>
       <Dialog open={describing} onOpenChange={setDescribing}>
         {describing && (

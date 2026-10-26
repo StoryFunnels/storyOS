@@ -18,6 +18,8 @@ export interface Space {
    *  "move to shared space" destination picker without a second round-trip. */
   personal?: boolean;
   ownerUserId?: string | null;
+  /** #924 / ADR-0018 — closed to members and guests without a grant; only people who can see it ever receive this row. */
+  restricted?: boolean;
   /** #742 finding 04 — presentational sidebar group; null/absent = ungrouped. */
   groupId?: string | null;
 }
@@ -41,6 +43,8 @@ export interface DatabaseSummary {
   /** #1058 — the API marks the databases it provisions itself (Agents, Runs, Agent Triggers, Members). On the list payload
    *  already (the row is spread); never set over HTTP. */
   isSystem?: boolean;
+  /** #924 / ADR-0018 — closed to members and guests without a grant. */
+  restricted?: boolean;
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   /** #400 — the one-line purpose. Null/absent is the normal state. */

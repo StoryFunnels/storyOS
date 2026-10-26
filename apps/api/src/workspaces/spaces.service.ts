@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { recordStructuralEvent } from '../activity/structural-events';
 import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
@@ -139,12 +140,16 @@ export class SpacesService {
       restricted?: boolean;
     },
   ) {
+    let wasRestricted: boolean | undefined;
+    let spaceName = '';
     if (patch.restricted !== undefined) {
       const current = await this.db.query.spaces.findFirst({
         where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
-        columns: { personal: true },
+        columns: { personal: true, restricted: true, name: true },
       });
       if (!current) throw new NotFoundException('Space not found');
+      wasRestricted = current.restricted;
+      spaceName = patch.name ?? current.name;
       // A personal space is private to its owner already, from admins too; "restricted" has no meaning there (ADR-0018 §3).
       if (current.personal) throw new UnprocessableEntityException('A personal space is already private; it cannot be restricted');
     }
@@ -178,7 +183,13 @@ export class SpacesService {
       .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
       .returning();
     if (!space) throw new NotFoundException('Space not found');
-    if (patch.restricted !== undefined) this.access.forgetClosed();
+    if (patch.restricted !== undefined) {
+      this.access.forgetClosed();
+      // #1059 / ADR-0018 — who closed or reopened a space's door. Only a CHANGE is an event (saving the same value is not).
+      if (wasRestricted !== undefined && wasRestricted !== patch.restricted) {
+        await recordStructuralEvent(this.db, { workspaceId, kind: 'space', action: patch.restricted ? 'restricted' : 'unrestricted', id: spaceId, name: spaceName });
+      }
+    }
     return space;
   }
 
@@ -210,7 +221,7 @@ export class SpacesService {
   ) {
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
-      columns: { id: true, name: true },
+      columns: { id: true, name: true, personal: true },
     });
     if (!space) throw new NotFoundException('Space not found');
 
@@ -273,6 +284,11 @@ export class SpacesService {
         .set({ deletedAt: now })
         .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
         .returning();
+      // #1059 — who deleted the space, and what went with it. A PERSONAL space is private from admins too (personal-space.md): it is
+      // never put in a workspace-wide log, so its deletion is not an audit event.
+      if (row && !space.personal) {
+        await recordStructuralEvent(tx, { workspaceId, kind: 'space', action: 'deleted', id: spaceId, name: space.name, extra: { databases_deleted: contained.map((d) => ({ id: d.id, name: d.name })) } });
+      }
       return row;
     });
     if (!gone) throw new NotFoundException('Space not found');
@@ -312,6 +328,9 @@ export class SpacesService {
 
     await this.db.transaction(async (tx) => {
       await tx.update(spaces).set({ deletedAt: null }).where(eq(spaces.id, spaceId));
+      if (!space.personal) {
+        await recordStructuralEvent(tx, { workspaceId, kind: 'space', action: 'restored', id: spaceId, name: space.name, extra: { databases_restored: containedDatabases.length } });
+      }
       for (const db of containedDatabases) {
         await restoreDatabaseCascade(tx, db.id, deletedAt);
       }

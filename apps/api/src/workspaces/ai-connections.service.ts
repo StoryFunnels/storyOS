@@ -1,8 +1,10 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { apiTokens, memberships } from '../db/schema';
+import { apiTokens, memberships, workspaces } from '../db/schema';
+import { parseGrantScopes } from '../auth/oauth-grant';
+import type { OauthGrant } from '../auth/oauth-grant';
 import { oauthAccessToken, oauthApplication, oauthConsent } from '../db/auth-schema';
 import { liveAiTokenCondition, liveOauthTokenCondition } from './ai-connection-predicates';
 
@@ -15,8 +17,14 @@ export interface AiConnection {
   connected_at: string | null;
   /** Tokens record it; OAuth does not (null, not "never"). */
   last_used_at: string | null;
-  /** An OAuth connection belongs to the PERSON and reaches every workspace they are in; a token belongs to one workspace. */
-  reaches: 'all_your_workspaces' | 'this_workspace';
+  /**
+   * #1030 — a token belongs to one workspace (`this_workspace`). An OAuth connection reaches exactly the ONE workspace the person
+   * approved on the consent page (`one_workspace`, named below), or NOTHING if it predates consent and was never approved
+   * (`needs_reconnect`: the guard refuses it until the client is reconnected).
+   */
+  reaches: 'one_workspace' | 'this_workspace' | 'needs_reconnect';
+  /** OAuth only: the approved workspace and the level approved (null when `needs_reconnect`). */
+  approved?: { workspace_id: string; workspace_name: string | null; access: 'read' | 'write' } | null;
 }
 
 const OAUTH = 'oauth:';
@@ -50,9 +58,22 @@ export class AiConnectionsService {
       .where(and(eq(oauthAccessToken.userId, userId), liveOauthTokenCondition()))
       .orderBy(asc(oauthAccessToken.createdAt));
     const consents = await this.db
-      .select({ clientId: oauthConsent.clientId, createdAt: oauthConsent.createdAt })
+      .select({ clientId: oauthConsent.clientId, createdAt: oauthConsent.createdAt, scopes: oauthConsent.scopes })
       .from(oauthConsent)
-      .where(eq(oauthConsent.userId, userId));
+      .where(and(eq(oauthConsent.userId, userId), eq(oauthConsent.consentGiven, true)))
+      .orderBy(desc(oauthConsent.createdAt));
+    // The newest grant per client is the live one (the guard reads it the same way).
+    const grantOf = new Map<string, OauthGrant>();
+    for (const c of consents) {
+      if (c.clientId && !grantOf.has(c.clientId)) {
+        const g = parseGrantScopes(c.scopes);
+        if (g) grantOf.set(c.clientId, g);
+      }
+    }
+    const grantedWs = grantOf.size
+      ? await this.db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(inArray(workspaces.id, [...new Set([...grantOf.values()].map((g) => g.workspaceId))]))
+      : [];
+    const wsName = new Map(grantedWs.map((w) => [w.id, w.name]));
 
     // One connection per CLIENT, however many access/refresh tokens it has cycled through. It started at the earliest token or consent.
     const byClient = new Map<string, { name: string; since: Date | null }>();
@@ -73,7 +94,10 @@ export class AiConnectionsService {
       client_name: c.name,
       connected_at: c.since?.toISOString() ?? null,
       last_used_at: null,
-      reaches: 'all_your_workspaces',
+      reaches: grantOf.has(clientId) ? 'one_workspace' : 'needs_reconnect',
+      approved: grantOf.has(clientId)
+        ? { workspace_id: grantOf.get(clientId)!.workspaceId, workspace_name: wsName.get(grantOf.get(clientId)!.workspaceId) ?? null, access: grantOf.get(clientId)!.access }
+        : null,
     }));
 
     const tokenRows = await this.db.query.apiTokens.findMany({

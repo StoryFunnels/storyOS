@@ -1,13 +1,15 @@
 import { markdownToBlocks } from '@storyos/schemas/markdown';
 import {
   coerceFieldValue,
+  EMAIL_RE,
   IMPORTABLE_FIELD_TYPES,
   type CreatableFieldType,
   type FieldDef,
 } from '@storyos/schemas';
 
 const BOOLS = new Set(['true', 'false', 'yes', 'no', '1', '0']);
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// #1067 — the shared, linear-time form; this file's own copy backtracked quadratically on an uploaded CSV cell.
+const EMAIL = EMAIL_RE;
 const URL_RE = /^https?:\/\/\S+$/i;
 const INFERABLE_DATE = /^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})/;
 

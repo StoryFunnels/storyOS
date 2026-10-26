@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
 import { useDateFormat } from '@/lib/preferences';
 import { useMembers } from '@/components/table-view/use-table-data';
+import { Select } from '@/components/ui/select';
+import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
 
 interface AuditLogEntry {
   kind: 'event' | 'field_change';
@@ -52,6 +54,7 @@ export default function AuditLogPage() {
 
   const [actor, setActor] = useState('');
   const [entity, setEntity] = useState('');
+  const [type, setType] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -61,10 +64,11 @@ export default function AuditLogPage() {
     () => ({
       ...(actor ? { actor } : {}),
       ...(entity ? { entity } : {}),
+      ...(type ? { type } : {}),
       ...(from ? { from: new Date(from).toISOString() } : {}),
       ...(to ? { to: new Date(to).toISOString() } : {}),
     }),
-    [actor, entity, from, to],
+    [actor, entity, type, from, to],
   );
 
   const log = useInfiniteQuery({
@@ -97,14 +101,8 @@ export default function AuditLogPage() {
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Audit log</h1>
-      <p className="mb-2 text-body text-muted">
+      <p className="mb-6 text-body text-muted">
         Who changed or deleted what, and when — across the whole workspace.
-      </p>
-      {/* #454's own stated gap (its service doc comment): deleting a database,
-          view, or space isn't captured here yet, only record-level activity. */}
-      <p className="mb-6 text-label text-faint">
-        This does not yet capture who deleted a database, view, or space — only record creation,
-        edits, and deletion.
       </p>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -124,10 +122,20 @@ export default function AuditLogPage() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-label text-ink-secondary">
-          Record ID
+          Type
+          <Select size="sm" value={type} onChange={(e) => setType(e.target.value)}>
+            {AUDIT_TYPE_FILTERS.map((f) => (
+              <option key={f.label} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-col gap-1 text-label text-ink-secondary">
+          Record or object ID
           <input
             className="h-8 w-64 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-body text-ink"
-            placeholder="Filter to one record…"
+            placeholder="One record, space, database or view…"
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
           />
@@ -158,18 +166,31 @@ export default function AuditLogPage() {
         <p className="text-body text-muted">Nothing in this range.</p>
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
-          {entries.map((e) => (
+          {entries.map((e) => {
+            const structural = e.kind === 'event' ? describeStructuralEvent(e.type, e.payload) : null;
+            return (
             <div
               key={e.id}
-              className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0"
+              data-testid="audit-row"
+              className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-border-default px-3 py-2 last:border-b-0"
             >
-              <span className="w-36 shrink-0 text-label text-faint">{dateTime(e.created_at)}</span>
-              <span className="w-32 shrink-0 truncate text-body text-ink">
+              <span className="shrink-0 text-label text-faint sm:w-36">{dateTime(e.created_at)}</span>
+              <span className="min-w-0 flex-1 truncate text-body text-ink sm:w-32 sm:flex-none sm:shrink-0">
                 {e.actor_name ?? '(unknown)'}
               </span>
               <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-faint">{e.source}</span>
-              <span className="min-w-0 flex-1 truncate text-body text-ink-secondary" title={e.record_id ?? undefined}>
-                {e.kind === 'event' ? (
+              <span
+                className={`min-w-0 basis-full text-body text-ink-secondary sm:basis-0 sm:flex-1 ${structural ? 'break-words' : 'truncate'}`}
+                title={e.record_id ?? undefined}
+              >
+                {structural ? (
+                  <>
+                    {structural.verb} the {structural.noun}{' '}
+                    <span className="font-medium text-ink">{structural.name}</span>
+                    {structural.suffix}
+                    {structural.detail && <span className="text-muted"> · {structural.detail}</span>}
+                  </>
+                ) : e.kind === 'event' ? (
                   <>
                     {e.type} · record {e.record_id ? e.record_id.slice(0, 8) : '—'}
                   </>
@@ -182,7 +203,8 @@ export default function AuditLogPage() {
                 )}
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
