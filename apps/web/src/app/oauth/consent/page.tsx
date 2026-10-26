@@ -3,15 +3,16 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { AuthCard } from '../../(auth)/auth-card';
-import { ConsentCard, consentTitle, defaultWorkspaceId } from '@/components/oauth/consent-card';
+import { ConsentCard, applyLoaded, consentTitle } from '@/components/oauth/consent-card';
 import type { ConsentView } from '@/components/oauth/consent-card';
 import { signOut, useSession } from '@/lib/auth-client';
 import { decideConsent, loadConsent } from '@/lib/oauth-consent';
-import type { ConsentAccess, ConsentDecision } from '@/lib/oauth-consent';
+import type { ConsentScopeChoice } from '@/components/oauth/consent-card';
+import type { ConsentDecision } from '@/lib/oauth-consent';
 
 /**
  * #1030 — where an MCP client lands after it asks to connect. better-auth redirects here with `?consent_code=…`;
- * nothing is granted until the person presses Allow, and an allow binds the client to ONE workspace they choose.
+ * nothing is granted until the person presses Allow; the connection reaches all of their workspaces, or the one they choose (#1079).
  */
 function Consent({ onTitle }: { onTitle: (t: string) => void }) {
   const router = useRouter();
@@ -23,28 +24,26 @@ function Consent({ onTitle }: { onTitle: (t: string) => void }) {
 
   const here = () => `/oauth/consent?${new URLSearchParams(window.location.search).toString()}`;
 
+  // Depend on WHETHER someone is signed in, never on the session object: a session refetch (the window regaining focus) hands
+  // back a new object, and a load that re-ran for it used to replace the screen and wipe the person's workspace choice (#1079).
+  const signedIn = Boolean(session);
   useEffect(() => {
     if (isPending) return;
     if (!code) return setView({ kind: 'failed', code: 'invalid' });
-    if (!session) {
+    if (!signedIn) {
       router.replace(`/login?next=${encodeURIComponent(here())}`);
       return;
     }
     let live = true;
     void loadConsent(code).then((r) => {
-      if (!live) return;
-      setView(
-        r.kind === 'ready'
-          ? { kind: 'ready', request: r.request, workspaceId: defaultWorkspaceId(r.request), access: 'read', busy: null }
-          : r,
-      );
+      if (live) setView((v) => applyLoaded(v, r));
     });
     return () => {
       live = false;
     };
-  }, [isPending, session, code, router]);
+  }, [isPending, signedIn, code, router]);
 
-  const change = (patch: { workspaceId?: string | null; access?: ConsentAccess }) =>
+  const change = (patch: { scope?: ConsentScopeChoice; workspaceId?: string | null }) =>
     setView((v) => (v.kind === 'ready' ? { ...v, ...patch } : v));
 
   const decide = async (decision: ConsentDecision) => {
@@ -54,8 +53,8 @@ function Consent({ onTitle }: { onTitle: (t: string) => void }) {
     const outcome = await decideConsent({
       consentCode: code,
       decision,
-      workspaceId: ready.workspaceId ?? undefined,
-      access: ready.access,
+      // Omitted = all workspaces; only a person who chose "One workspace" sends one.
+      workspaceId: ready.scope === 'one' ? (ready.workspaceId ?? undefined) : undefined,
     });
     if (outcome.kind === 'failed') return setView({ kind: 'failed', code: outcome.code, message: outcome.message });
     setView({ kind: 'redirecting', decision });

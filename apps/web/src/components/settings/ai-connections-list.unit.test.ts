@@ -11,9 +11,10 @@ const oauth: AiConnection = {
   client_name: 'Claude',
   connected_at: '2026-10-01T09:00:00Z',
   last_used_at: null,
-  reaches: 'one_workspace',
-  approved: { workspace_id: 'w1', workspace_name: 'Acme', access: 'write' },
+  reaches: 'all_workspaces',
+  approved: null,
 };
+const bound: AiConnection = { ...oauth, id: 'oauth:one', client_name: 'ChatGPT', reaches: 'one_workspace', approved: { workspace_id: 'w1', workspace_name: 'Acme' } };
 const token: AiConnection = {
   id: 'token:1f0c0f6e-0000-4000-8000-000000000001',
   kind: 'token',
@@ -30,7 +31,8 @@ describe('the connected AI clients list (#1030)', () => {
   it('shows each client with how it connected, what it reaches, since when and last used, and a Disconnect for each', () => {
     const out = html({ kind: 'ready', items: [oauth, token], busyId: null });
     expect(out).toContain('Claude');
-    expect(out).toContain('Connected by signing in · Acme only · Read and write');
+    expect(out).toContain('Connected by signing in · All your workspaces');
+    expect(out).not.toMatch(/Read only|Read and write/);
     expect(out).toContain('Connected &lt;2026-10-01&gt;');
     expect(out).toContain('Last use not recorded');
     expect(out).toContain('Cursor key');
