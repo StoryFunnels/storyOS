@@ -106,10 +106,11 @@ owner's full access. PAT scoping (#543) is for delegation. Approval gates still 
 (`auth.guard.ts`); the OAuth path has neither, and that is the decision, not a gap. #860 is closed as
 intended behaviour with #879 cited. Do not build a ceiling for the connector without reopening #879.
 
-**Superseded in part, 2026-10-24 (ticket #1030).** An OAuth connection is no longer unscoped. Authorization now
-always stops on a consent page, and the approval binds the connection to **one workspace** and **read or
-read-and-write** access, enforced by the `AuthGuard` on every request; a connection with no approval is refused until it
-is reconnected (#1232, #1229). What stands: approval gates still apply, and a token (PAT) remains the way to cap an AI by
-space, database or power. The "my AI, my rules" decision above is the reason a connection still acts as its person; the
-change is that the person now chooses how far it reaches when they connect it. Recorded by the build, for the product
-owner's confirmation.
+**Superseded in part, 2026-10-24 (tickets #1030, #1079).** An OAuth connection is no longer unscoped *and
+unapproved*. Authorization now always stops on a consent page (consent always); a connection with no approval is refused
+until it is reconnected (#1232, #1229). The approval is **not** a power ceiling: every connection is **read and write**
+(there is no access level to choose), and it reaches **all the person's workspaces by default**, with **One workspace**
+as an optional narrowing (#1079). Limiting which tools an AI may use is the client's job (switch them off in the client),
+not StoryOS's. What stands: "my AI, my rules" (the connection acts as its person, with that person's role and grants),
+approval gates still apply, and a token (PAT) remains the way to cap an AI by space, database or power. Recorded by the
+build from the product owner's relayed decision, pending the product owner's confirmation.
