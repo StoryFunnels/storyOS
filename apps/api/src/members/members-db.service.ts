@@ -1,12 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { env } from '../config/env';
 import {
+  activityEvents,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
+  recordFieldChanges,
+  recordVersions,
   records as recordsTable,
   selectOptions,
   user as userTable,
@@ -441,14 +444,7 @@ export class MembersDbService {
     userId: string,
     anonymisedEmail: string,
     /**
-     * Tombstone as well as erase.
-     *
-     * TRUE only for the workspace the erasure was requested in, where the
-     * membership really was deleted. `anonymize` wipes the GLOBAL `user` row, so
-     * every OTHER workspace this person belongs to is also left holding PII with
-     * no source — those rows need the overwrite too, but they must not be marked
-     * inactive, because the person is still a member there and a GDPR request in
-     * one workspace is not a resignation from another.
+     * Tombstone as well as erase. True for the workspace the erasure was requested in, where the membership really was deleted.
      */
     alsoTombstone: boolean,
   ): Promise<void> {
@@ -456,23 +452,55 @@ export class MembersDbService {
     if (!database) return;
     const existing = await this.findMemberRow(database.id, userId);
     if (!existing) return;
-    const customFieldApiNames = await this.enumerateCustomFieldApiNames(database.id);
-    const clearCustomFields = Object.fromEntries(customFieldApiNames.map((apiName) => [apiName, null]));
-    await this.records.update(
-      workspaceId,
-      database.id,
-      existing.id,
-      {
-        name: 'Deleted user',
-        email: anonymisedEmail,
-        avatar: null,
-        ...(alsoTombstone ? { active: false } : {}),
-        ...clearCustomFields,
-      },
-      SYSTEM_ACTOR,
-      0,
-      'automation',
-    );
+    await this.overwriteRowWithoutHistory(database.id, existing.id, anonymisedEmail, alsoTombstone);
+  }
+
+  /**
+   * #1080 — erase a person's Members row in EVERY workspace that has one, including workspaces they were removed from long ago
+   * (the row survives a removal, tombstoned, still holding their real email). One query finds them all, keyed on the projection's
+   * `user_id` column, so it does not depend on the person still being a member anywhere. Returns how many rows were overwritten.
+   */
+  async eraseEverywhere(userId: string, anonymisedEmail: string): Promise<number> {
+    const found = (await this.db.execute(sql`
+      SELECT r.id AS record_id, r.database_id AS database_id
+      FROM records r
+      JOIN databases d ON d.id = r.database_id AND d.is_system = true AND d.name = ${MEMBERS_DB_NAME}
+      JOIN fields f ON f.database_id = r.database_id AND f.api_name = 'user_id'
+      WHERE r.values ->> (f.id::text) = ${userId}
+    `)) as unknown as { rows: Array<{ record_id: string; database_id: string }> };
+    for (const row of found.rows) await this.overwriteRowWithoutHistory(row.database_id, row.record_id, anonymisedEmail, true);
+    return found.rows.length;
+  }
+
+  /**
+   * #1080 — the erasure itself, written the way an erasure must be: DIRECTLY, never through `RecordsService.update`.
+   *
+   * `update` records what it changes: a field-change row, a version snapshot of the PREVIOUS values and an activity event, each
+   * carrying the old email as the "before" (and the event is also what webhooks are fed from). Erasing through it wrote the very
+   * identifier being erased into three history tables, and the audit log of a workspace the person had already left showed
+   * "Email: <old address> → deleted-…@anonymized.invalid". So this overwrites the row's own columns and then removes every history
+   * row for it: a row whose whole content is personal data has no history worth keeping, and keeping it keeps the person.
+   *
+   * What it clears is the same as before (#463): name, avatar, email, and every column an admin added by hand; `user_id` stays as
+   * the projection key (opaque once the account is gone) so assignments stay resolvable (ADR-0017 §7).
+   */
+  private async overwriteRowWithoutHistory(databaseId: string, rowId: string, anonymisedEmail: string, tombstone: boolean): Promise<void> {
+    const defs = await this.db.query.fields.findMany({ where: eq(fieldsTable.databaseId, databaseId) });
+    const custom = new Set(await this.enumerateCustomFieldApiNames(databaseId));
+    const [row] = await this.db.select().from(recordsTable).where(eq(recordsTable.id, rowId)).limit(1);
+    if (!row) return;
+    const values = { ...(row.values as Record<string, unknown>) };
+    for (const f of defs) {
+      if (f.apiName === 'avatar' || custom.has(f.apiName)) delete values[f.id];
+      else if (f.apiName === 'email') values[f.id] = anonymisedEmail;
+      else if (f.apiName === 'active' && tombstone) values[f.id] = false;
+    }
+    await this.db.transaction(async (tx) => {
+      await tx.update(recordsTable).set({ values, title: 'Deleted user', titleLocal: null, updatedBy: SYSTEM_ACTOR }).where(eq(recordsTable.id, rowId));
+      await tx.delete(recordFieldChanges).where(eq(recordFieldChanges.recordId, rowId));
+      await tx.delete(recordVersions).where(eq(recordVersions.recordId, rowId));
+      await tx.delete(activityEvents).where(eq(activityEvents.recordId, rowId));
+    });
   }
 
   /**
