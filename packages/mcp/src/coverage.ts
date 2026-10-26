@@ -46,7 +46,7 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: /(GET|POST) \/api\/v1\/oauth\/consent$/,
     reason:
-      "#1030 — this is a PERSON approving or denying an AI client's connection (what it may reach, in which workspace, read or write). An agent approving its own access is the exact thing consent exists to prevent, and the endpoint refuses anything but a signed-in person's session, so a tool could never succeed; it would only invite an agent to try. The web consent page is the one caller.",
+      "#1030 — this is a PERSON approving or denying an AI client's connection (whether it reaches all their workspaces or one). An agent approving its own access is the exact thing consent exists to prevent, and the endpoint refuses anything but a signed-in person's session, so a tool could never succeed; it would only invite an agent to try. The web consent page is the one caller.",
   },
   {
     match: 'GET /api/v1/capabilities',

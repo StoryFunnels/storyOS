@@ -3,7 +3,9 @@ import { API_URL } from './api';
 /**
  * #1030 — the MCP OAuth consent screen's ONLY door to the server (the two calls in `oauth-consent.controller.ts`):
  *   GET  /api/v1/oauth/consent?consent_code=…   -> ConsentRequest
- *   POST /api/v1/oauth/consent {consent_code, decision, workspace_id?, access?} -> { redirect_url }
+ *   POST /api/v1/oauth/consent {consent_code, decision, workspace_id?} -> { redirect_url }
+ * `workspace_id` OMITTED means ALL of the person's workspaces (resolved per request); a uuid means that one (#1079). There is no
+ * access level: every connection is read and write, and limiting which tools an AI uses is the client's job.
  * Errors are the standard `{error:{code,message}}`: 404 unknown or not yours, 410 expired or already answered,
  * 422 no workspace chosen, 403 not a signed-in person. better-auth redirects here with `consent_code`, `client_id`
  * and `scope`; only `consent_code` is needed, the rest comes back from the GET.
@@ -14,16 +16,13 @@ export interface ConsentScope {
   label: string;
 }
 
-export type ConsentAccess = 'read' | 'write';
-
 export interface ConsentRequest {
   client_name: string;
   /** Where the code goes if the person allows: the host of the client's registered redirect URI. */
   redirect_host: string;
   scopes: ConsentScope[];
-  /** The workspaces this person can bind the client to. The grant reaches exactly ONE. */
+  /** The workspaces this person is in: "All my workspaces" is the default, and one of these can be chosen instead. */
   workspaces: Array<{ id: string; name: string }>;
-  access_options: ConsentAccess[];
 }
 
 export type ConsentFailure = 'expired' | 'invalid' | 'no_workspace' | 'not_a_session' | 'unavailable';
@@ -74,9 +73,6 @@ export function readConsent(status: number, body: unknown): ConsentLoad {
   if (status >= 200 && status < 300) {
     const workspaces = Array.isArray(rec.workspaces) ? rec.workspaces.map(asRecord) : null;
     const scopes = Array.isArray(rec.scopes) ? rec.scopes.map(asRecord) : null;
-    const access = Array.isArray(rec.access_options)
-      ? rec.access_options.filter((a): a is ConsentAccess => a === 'read' || a === 'write')
-      : [];
     if (
       typeof rec.client_name === 'string' &&
       rec.client_name.trim() !== '' &&
@@ -84,8 +80,7 @@ export function readConsent(status: number, body: unknown): ConsentLoad {
       workspaces &&
       workspaces.every((w) => typeof w.id === 'string' && typeof w.name === 'string') &&
       scopes &&
-      scopes.every((s) => typeof s.id === 'string' && typeof s.label === 'string') &&
-      access.length > 0
+      scopes.every((s) => typeof s.id === 'string' && typeof s.label === 'string')
     ) {
       // Nothing to bind it to is a dead end, not a form with an empty list.
       if (workspaces.length === 0) return { kind: 'failed', code: 'no_workspace' };
@@ -96,7 +91,6 @@ export function readConsent(status: number, body: unknown): ConsentLoad {
           redirect_host: rec.redirect_host,
           scopes: scopes.map((s) => ({ id: s.id as string, label: s.label as string })),
           workspaces: workspaces.map((w) => ({ id: w.id as string, name: w.name as string })),
-          access_options: access,
         },
       };
     }
@@ -128,8 +122,8 @@ export async function loadConsent(consentCode: string): Promise<ConsentLoad> {
 export async function decideConsent(input: {
   consentCode: string;
   decision: ConsentDecision;
+  /** Omitted = all of the person's workspaces. */
   workspaceId?: string;
-  access?: ConsentAccess;
 }): Promise<ConsentOutcome> {
   try {
     const res = await fetch(consentUrl(), {
@@ -139,8 +133,8 @@ export async function decideConsent(input: {
       body: JSON.stringify({
         consent_code: input.consentCode,
         decision: input.decision,
-        // A deny names no workspace: only an allow binds one.
-        ...(input.decision === 'allow' ? { workspace_id: input.workspaceId, access: input.access } : {}),
+        // A deny names no workspace; an allow names one only when the person chose one (omitted = all).
+        ...(input.decision === 'allow' && input.workspaceId ? { workspace_id: input.workspaceId } : {}),
       }),
     });
     return readDecision(res.status, await res.json().catch(() => null));

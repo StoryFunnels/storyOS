@@ -9,8 +9,8 @@ import { OauthConsentService } from './oauth-consent.service';
 const decisionSchema = z.object({
   consent_code: z.string().min(8).max(200),
   decision: z.enum(['allow', 'deny']),
+  /** Omitted = all of the person's workspaces (#1079). */
   workspace_id: z.uuid().optional(),
-  access: z.enum(['read', 'write']).optional(),
 });
 class ConsentDecisionDto extends createZodDto(decisionSchema) {}
 
@@ -31,13 +31,13 @@ export class OauthConsentController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you can bind it to' })
+  @ApiOperation({ summary: 'What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you could limit it to' })
   describe(@Req() req: AuthedRequest, @Query('consent_code') code: string) {
     return this.consent.describe(this.session(req), code ?? '');
   }
 
   @Post()
-  @ApiOperation({ summary: 'Allow (bound to one workspace and read or write) or deny an AI client; returns where to send the browser next' })
+  @ApiOperation({ summary: 'Allow (all your workspaces, or only workspace_id) or deny an AI client; returns where to send the browser next' })
   decide(@Req() req: AuthedRequest, @Body() body: ConsentDecisionDto) {
     return this.consent.decide(this.session(req), body);
   }

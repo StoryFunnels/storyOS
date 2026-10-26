@@ -18,13 +18,24 @@ export interface AiConnection {
   /** Tokens record it; OAuth does not (null, not "never"). */
   last_used_at: string | null;
   /**
-   * #1030 — a token belongs to one workspace (`this_workspace`). An OAuth connection reaches exactly the ONE workspace the person
-   * approved on the consent page (`one_workspace`, named below), or NOTHING if it predates consent and was never approved
-   * (`needs_reconnect`: the guard refuses it until the client is reconnected).
+   * #1030 / #1079 — a token belongs to one workspace (`this_workspace`). An OAuth connection reaches ALL the person's workspaces
+   * (`all_workspaces`, the default), or the ONE they chose on the consent page (`one_workspace`, named below), or NOTHING if it
+   * predates consent, was never approved, or was approved read-only before that level was removed (`needs_reconnect`: the guard
+   * refuses it until the client is reconnected). There is no access level: every connection reads and writes.
    */
-  reaches: 'one_workspace' | 'this_workspace' | 'needs_reconnect';
-  /** OAuth only: the approved workspace and the level approved (null when `needs_reconnect`). */
-  approved?: { workspace_id: string; workspace_name: string | null; access: 'read' | 'write' } | null;
+  reaches: 'all_workspaces' | 'one_workspace' | 'this_workspace' | 'needs_reconnect';
+  /** OAuth, one workspace only: which one (null for all_workspaces and needs_reconnect). */
+  approved?: { workspace_id: string; workspace_name: string | null } | null;
+}
+
+/** What an OAuth connection reaches, from the person's newest grant for it (undefined = none). */
+function reachOf(
+  grant: OauthGrant | undefined,
+  wsName: Map<string, string>,
+): Pick<AiConnection, 'reaches' | 'approved'> {
+  if (!grant) return { reaches: 'needs_reconnect', approved: null };
+  if (grant.workspaceId === null) return { reaches: 'all_workspaces', approved: null };
+  return { reaches: 'one_workspace', approved: { workspace_id: grant.workspaceId, workspace_name: wsName.get(grant.workspaceId) ?? null } };
 }
 
 const OAUTH = 'oauth:';
@@ -70,8 +81,9 @@ export class AiConnectionsService {
         if (g) grantOf.set(c.clientId, g);
       }
     }
-    const grantedWs = grantOf.size
-      ? await this.db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(inArray(workspaces.id, [...new Set([...grantOf.values()].map((g) => g.workspaceId))]))
+    const oneIds = [...new Set([...grantOf.values()].map((g) => g.workspaceId).filter((id): id is string => id !== null))];
+    const grantedWs = oneIds.length
+      ? await this.db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(inArray(workspaces.id, oneIds))
       : [];
     const wsName = new Map(grantedWs.map((w) => [w.id, w.name]));
 
@@ -94,10 +106,7 @@ export class AiConnectionsService {
       client_name: c.name,
       connected_at: c.since?.toISOString() ?? null,
       last_used_at: null,
-      reaches: grantOf.has(clientId) ? 'one_workspace' : 'needs_reconnect',
-      approved: grantOf.has(clientId)
-        ? { workspace_id: grantOf.get(clientId)!.workspaceId, workspace_name: wsName.get(grantOf.get(clientId)!.workspaceId) ?? null, access: grantOf.get(clientId)!.access }
-        : null,
+      ...reachOf(grantOf.get(clientId), wsName),
     }));
 
     const tokenRows = await this.db.query.apiTokens.findMany({

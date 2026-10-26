@@ -3,36 +3,40 @@ import { connectionWords, lastUsedText } from './ai-connections';
 
 const date = (v: unknown) => `<${String(v).slice(0, 10)}>`;
 
-describe('the words for a connection (#1030)', () => {
-  const approved = { workspace_id: 'w1', workspace_name: 'Acme', access: 'write' as const };
-
-  it('an OAuth client bound to one workspace names it and the level, in the row and in the confirmation', () => {
-    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', approved });
-    expect(w.reaches).toBe('Acme only · Read and write');
+describe('the words for a connection (#1030, #1079)', () => {
+  it('a connection that reaches every workspace says so, in the row and in the confirmation, with no access wording', () => {
+    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'all_workspaces', approved: null });
+    expect(w.reaches).toBe('All your workspaces');
     expect(w.confirmTitle).toBe('Disconnect Claude?');
-    expect(w.confirmMessage).toContain('loses access to Acme');
+    expect(w.confirmMessage).toContain('all your workspaces');
     expect(w.confirmMessage).toContain('ask to connect again');
-    expect(connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', approved: { ...approved, access: 'read' } }).reaches).toBe('Acme only · Read only');
+    expect(JSON.stringify(w)).not.toMatch(/read only|read and write|access level/i);
+  });
+
+  it('one workspace names it, and never a level', () => {
+    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', approved: { workspace_id: 'w1', workspace_name: 'Acme' } });
+    expect(w.reaches).toBe('Acme only');
+    expect(w.confirmMessage).toContain('loses access to Acme');
+    expect(JSON.stringify(w)).not.toMatch(/read only|read and write/i);
   });
 
   it('a workspace the server cannot name is still one workspace, never a guess at which', () => {
-    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', approved: { ...approved, workspace_name: null } });
-    expect(w.reaches).toBe('One workspace only · Read and write');
+    const w = connectionWords({ kind: 'oauth', client_name: 'Claude', reaches: 'one_workspace', approved: { workspace_id: 'w1', workspace_name: null } });
+    expect(w.reaches).toBe('One workspace only');
     expect(w.confirmMessage).toContain('its workspace');
   });
 
-  // These are refused by the server; calling them "all workspaces" would claim access they do not have.
-  it('a connection made before approval existed says "Reconnect needed", never a workspace', () => {
+  // Refused by the server; calling it a workspace would claim access it does not have.
+  it('a connection whose approval no longer applies says "Reconnect needed", never a workspace', () => {
     const w = connectionWords({ kind: 'oauth', client_name: 'Cursor', reaches: 'needs_reconnect', approved: null });
     expect(w.reaches).toBe('Reconnect needed');
     expect(w.reaches).not.toMatch(/all|workspaces/i);
-    expect(w.confirmMessage).toContain('before this update');
     expect(w.confirmMessage).toContain('stops working until it is reconnected');
   });
 
   it('a "one_workspace" answer with nothing approved attached is not trusted, and a shape it does not know is not guessed at', () => {
     expect(connectionWords({ kind: 'oauth', client_name: 'X', reaches: 'one_workspace', approved: null }).reaches).toBe('Access not reported');
-    expect(connectionWords({ kind: 'oauth', client_name: 'X', reaches: 'all_your_workspaces' as never }).reaches).toBe('Access not reported');
+    expect(connectionWords({ kind: 'oauth', client_name: 'X', reaches: 'something_new' as never }).reaches).toBe('Access not reported');
   });
 
   it('a token is one workspace, and its confirmation says it stops working', () => {

@@ -106,11 +106,20 @@ owner's full access. PAT scoping (#543) is for delegation. Approval gates still 
 (`auth.guard.ts`); the OAuth path has neither, and that is the decision, not a gap. #860 is closed as
 intended behaviour with #879 cited. Do not build a ceiling for the connector without reopening #879.
 
-**Superseded in part, 2026-10-24 (tickets #1030, #1079).** An OAuth connection is no longer unscoped *and
-unapproved*. Authorization now always stops on a consent page (consent always); a connection with no approval is refused
-until it is reconnected (#1232, #1229). The approval is **not** a power ceiling: every connection is **read and write**
-(there is no access level to choose), and it reaches **all the person's workspaces by default**, with **One workspace**
-as an optional narrowing (#1079). Limiting which tools an AI may use is the client's job (switch them off in the client),
-not StoryOS's. What stands: "my AI, my rules" (the connection acts as its person, with that person's role and grants),
-approval gates still apply, and a token (PAT) remains the way to cap an AI by space, database or power. Decided by the
-product owner on 2026-10-26 (relayed by the product-owner session; see #1030 and #1079).
+## Amendment — 2026-10-26 (ticket #1079): no read-only level, all workspaces by default
+
+Ievgen, after using the consent screen in production (decided 2026-10-26, #1030 and #1079): consent is always required (authorization always stops on the Allow page, and a connection with no approval is refused until it is reconnected, #1232, #1229), and every MCP connection reads and writes. There is no read-only
+level; limiting which tools an AI may use is the client's job (Claude's per-tool toggles), not StoryOS's. A connection
+reaches **all of the person's workspaces** by default, with one workspace as an optional limit; role and grants still
+apply in each. "My AI, my rules" stands, and so does the rest of the 2026-10-17 amendment: no scope ceiling beyond what
+the person's own role allows. The approval is one scope word on the `oauth_consent` row (`ws:all` or `ws:<uuid>`);
+"all" is resolved per request against current memberships, never frozen into a list. A row from before this change that
+says `access:read` is refused until the client reconnects (the person approved less than a connection now is); an old
+`access:write` row stays valid.
+
+Follow-up, same day: an approved OAuth connection carries **no token scope**, exactly like a session. Since #1049 it had been
+pinned to `write`, which hid every schema and admin tool (create_database, add_field, folders, packs) from an admin's own AI.
+What it may do is now decided only by the person's role and grants in each workspace (a member's connection is refused an
+admin route by their role, an admin's is not); account-level, session-only routes stay a person's alone. An explicit
+read/write/admin scope remains the rule for personal access tokens and agent tokens.
+What stands from the 2026-10-17 amendment: approval gates still apply, and a personal access token remains the way to cap an AI by space, database or power.
