@@ -6,6 +6,8 @@ import { authed, signUpUser } from './helpers/users';
 import { connectTestDb } from './helpers/db';
 import { approvals } from '../src/db/schema';
 import { AgentsService } from '../src/agents/agents.service';
+import { RecordsService } from '../src/records/records.service';
+import { asAgentRuntime } from '../src/records/runtime-owned-fields';
 import { TokensService } from '../src/tokens/tokens.service';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { ApprovalActionSnapshot } from '../src/automations/approvals.service';
@@ -705,13 +707,10 @@ describe('The derived principal is enforced at the action boundary (#330)', () =
     // demotion boundary that state-change and run_agent dispatch use.
     const pending = JSON.parse(run.values.pending_action as string);
     pending.principal = { userId: memberRow.user.id, scope: 'write' };
-    const restamped = await as(
-      admin.token,
-      'PATCH',
-      `/workspaces/${wsId}/databases/${runsDbId}/records/${run.id}`,
-      { values: { pending_action: JSON.stringify(pending) } },
+    // #1062 — the fixture is written from inside the runtime scope; the records API no longer accepts `pending_action`.
+    await asAgentRuntime(() =>
+      app.get(RecordsService).update(wsId, runsDbId, run.id, { pending_action: JSON.stringify(pending) }, null),
     );
-    expect(restamped.statusCode, restamped.body).toBe(200);
 
     // #603 — `pending_action` above is now a display-only copy; resolveGate's
     // actual apply reads the principal from the shared `approvals` row

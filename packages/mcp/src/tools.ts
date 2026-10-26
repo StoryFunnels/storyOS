@@ -202,6 +202,8 @@ interface DatabaseDetail {
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   my_access?: string;
+  /** #1062 — set on the agent pack's databases; describeFields uses it to flag the runtime-owned Runs fields. */
+  isSystem?: boolean;
   fields: FieldDef[];
   // #191: the detail endpoint returns each view's cleaned `config` too — needed so
   // update_view can merge a partial change onto the existing config (a true patch).
@@ -320,6 +322,9 @@ export const FILTER_GUIDE = [
   'Example (system):   { "field": "number", "op": "gte", "value": 320 }  + sorts:[{ "field": "created_at", "direction": "desc" }]',
 ].join('\n');
 
+/** #1062 — mirrors RUNTIME_OWNED_RUN_FIELDS in apps/api/src/records/runtime-owned-fields.ts; the API refuses a write to these on an agent run. */
+const RUNTIME_OWNED_RUN_FIELDS = ['pending_action', 'run_class', 'cost'];
+
 function describeFields(db: DatabaseDetail) {
   // Non-system stored fields (title + user-defined) as-is. System columns come
   // from the ONE canonical registry below rather than the per-database stored
@@ -342,6 +347,8 @@ function describeFields(db: DatabaseDetail) {
           ...(o.category ? { category: o.category } : {}),
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
+      // #1062 — set by the agent runtime; a write is refused with a 422, so say so up front rather than let an agent learn it by failing.
+      if (db.isSystem && db.name === 'Runs' && RUNTIME_OWNED_RUN_FIELDS.includes(f.apiName)) out.read_only = true;
       /*
        * #558 — system fields already carried `ops` (below); a user-defined
        * field never did, so the schema advertised the OPTIONS you'd filter
@@ -1631,7 +1638,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Returns the created record.',
+        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1719,7 +1726,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_record',
     {
       title: 'Update record',
-      description: 'Merge-update a record (null clears a field). values by api_name; record is a uuid or public number. Returns the updated record.',
+      description: 'Merge-update a record (null clears a field). values by api_name; record is a uuid or public number. Fields marked read_only in describe_database (system columns, and on an agent run its pending_action, run_class and cost, which the agent runtime owns) cannot be written and are refused. Returns the updated record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),

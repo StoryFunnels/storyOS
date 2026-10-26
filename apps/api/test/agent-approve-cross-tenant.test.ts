@@ -7,6 +7,7 @@ import { connectTestDb } from './helpers/db';
 import { approvals } from '../src/db/schema';
 import { AgentsService } from '../src/agents/agents.service';
 import { RecordsService } from '../src/records/records.service';
+import { asAgentRuntime } from '../src/records/runtime-owned-fields';
 import { AutomationActionsService as ActionsService } from '../src/automations/actions.service';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 
@@ -64,6 +65,13 @@ async function park(agentId: string, action: ProposedAction) {
     return res.json();
   } finally { svc.runtimeFor = original; }
 }
+/**
+ * #1062 closed the REST/MCP door to `pending_action`, so these tests can no longer forge it over HTTP. They still forge it: written
+ * the way a hole elsewhere would, from inside the runtime scope. The #1029 defence (approve trusts only the server-side approvals
+ * row) must hold whatever the field contains, not merely because the field is hard to reach.
+ */
+const forgePendingAction = (run: string, value: unknown) =>
+  asAgentRuntime(() => app.get(RecordsService).update(wsA, runsA, run, { pending_action: value }, null));
 const approve = (run: string) => as(attacker.token, 'POST', `/workspaces/${wsA}/agents/runs/${run}/approve`);
 
 beforeAll(async () => {
@@ -91,9 +99,10 @@ describe('#1029 door 1: a forged run record', () => {
       steps: [], principal: { userId: (await db.query.memberships.findFirst({ where: (m, { eq: e }) => e(m.workspaceId, wsA) }))!.userId, scope: 'admin' },
     });
     const run = await as(attacker.token, 'POST', `/workspaces/${wsA}/databases/${runsA}/records`, {
-      values: { name: 'forged', status: opt(f.get('status'), 'Waiting approval'), pending_action: forged },
+      values: { name: 'forged', status: opt(f.get('status'), 'Waiting approval') },
     });
     expect(run.statusCode, run.body).toBe(201);
+    await forgePendingAction(run.json().id, forged);
     const res = await approve(run.json().id);
     expect(res.statusCode, res.body).toBe(422);
     expect(res.body, 'refused because nothing server-side staged it, not for some other reason').toContain('no server-side approval');
@@ -106,7 +115,7 @@ describe('#1029 door 1: a forged run record', () => {
     const run = await park(agent.id, { kind: 'delete', summary: 'delete mine', payload: { apply: 'record_delete', database_id: issuesA, record_id: own.id } });
     const forged = JSON.parse(run.values.pending_action as string);
     forged.action.payload = { apply: 'record_delete', database_id: victimDb, record_id: victimRec };
-    expect((await as(attacker.token, 'PATCH', `/workspaces/${wsA}/databases/${runsA}/records/${run.id}`, { values: { pending_action: JSON.stringify(forged) } })).statusCode).toBe(200);
+    await forgePendingAction(run.id, JSON.stringify(forged));
 
     const res = await approve(run.id);
     expect(res.statusCode, res.body).toBe(201);
@@ -119,7 +128,7 @@ describe('#1029 door 1: a forged run record', () => {
     const run = await park((await createAgent('Shown')).id, { kind: 'delete', summary: 'delete shown', payload: { apply: 'record_delete', database_id: issuesA, record_id: own.id } });
     const forged = JSON.parse(run.values.pending_action as string);
     forged.action.summary = 'totally harmless';
-    await as(attacker.token, 'PATCH', `/workspaces/${wsA}/databases/${runsA}/records/${run.id}`, { values: { pending_action: JSON.stringify(forged) } });
+    await forgePendingAction(run.id, JSON.stringify(forged));
     const staged = await app.get(AgentsService).getStagedAction({ workspaceId: wsA, userId: (await db.query.memberships.findFirst({ where: (m, { eq: e }) => e(m.workspaceId, wsA) }))!.userId, role: 'admin' } as never, run.id);
     expect(staged?.action.summary).toBe('delete shown');
   });

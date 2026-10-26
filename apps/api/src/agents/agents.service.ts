@@ -45,6 +45,7 @@ import {
   AI_CREDIT_MARKUP_MULTIPLIER,
   STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS,
 } from '../billing/plans';
+import { asAgentRuntime } from '../records/runtime-owned-fields';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import type { AgentPrincipal } from './agent-principal';
 import { defaultManagedAiClient } from './managed-ai-client';
@@ -761,13 +762,13 @@ export class AgentsService implements OnModuleInit {
       creditsChargedCents,
     });
 
-    return this.recordsService.update(
+    return asAgentRuntime(() => this.recordsService.update(
       workspaceId,
       runsDbId,
       run.id,
       { cost: creditsChargedCents },
       actorId,
-    );
+    ));
   }
 
 
@@ -1098,7 +1099,7 @@ export class AgentsService implements OnModuleInit {
     const blockedBeforeExecution =
       overAllowance || costCapExceeded || managedCreditsUnavailable;
 
-    let run = await this.recordsService.create(
+    let run = await asAgentRuntime(() => this.recordsService.create(
       workspaceId,
       runsDb.id,
       {
@@ -1131,7 +1132,7 @@ export class AgentsService implements OnModuleInit {
       // so a write-back that re-triggers is bounded by the max-depth counter.
       input.depth ?? 0,
       'agent',
-    );
+    ));
     if (blockedBeforeExecution) return run;
 
     // ── Execute ───────────────────────────────────────────────────────────────
@@ -1278,7 +1279,7 @@ export class AgentsService implements OnModuleInit {
         notification: { type: 'approval_requested', snippet: previewText },
       });
 
-      let waiting = await this.recordsService.update(
+      let waiting = await asAgentRuntime(() => this.recordsService.update(
         workspaceId,
         runsDb.id,
         run.id,
@@ -1294,7 +1295,7 @@ export class AgentsService implements OnModuleInit {
           // Deliberately no `finished_at`: the run isn't finished, it's blocked.
         },
         actorId,
-      );
+      ));
 
       // The provider work has already happened even though a proposed mutation
       // is waiting for a human. Charge it now; approval remains idempotent.
@@ -1768,7 +1769,7 @@ export class AgentsService implements OnModuleInit {
       );
     }
 
-    let resolved = await this.recordsService.update(
+    let resolved = await asAgentRuntime(() => this.recordsService.update(
       membership.workspaceId,
       runsDb.id,
       run.id,
@@ -1782,7 +1783,7 @@ export class AgentsService implements OnModuleInit {
         pending_action: null,
       },
       actorId,
-    );
+    ));
 
     // MN-168/MN-188: an approved run only truly succeeds now, so this is where
     // a staged non_ai run counts, or a staged storyos_ai run is charged — not
