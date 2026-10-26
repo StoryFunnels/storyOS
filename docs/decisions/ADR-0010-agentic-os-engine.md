@@ -105,3 +105,20 @@ owner's full access. PAT scoping (#543) is for delegation. Approval gates still 
 `RequiresScope` and resource binding are enforced on the personal-access-token path only
 (`auth.guard.ts`); the OAuth path has neither, and that is the decision, not a gap. #860 is closed as
 intended behaviour with #879 cited. Do not build a ceiling for the connector without reopening #879.
+
+## Amendment — 2026-10-26 (ticket #1079): no read-only level, all workspaces by default
+
+Ievgen, after using the consent screen in production: every MCP connection reads and writes. There is no read-only
+level; limiting which tools an AI may use is the client's job (Claude's per-tool toggles), not StoryOS's. A connection
+reaches **all of the person's workspaces** by default, with one workspace as an optional limit; role and grants still
+apply in each. "My AI, my rules" stands, and so does the rest of the 2026-10-17 amendment: no scope ceiling beyond what
+the person's own role allows. The approval is one scope word on the `oauth_consent` row (`ws:all` or `ws:<uuid>`);
+"all" is resolved per request against current memberships, never frozen into a list. A row from before this change that
+says `access:read` is refused until the client reconnects (the person approved less than a connection now is); an old
+`access:write` row stays valid.
+
+Follow-up, same day: an approved OAuth connection carries **no token scope**, exactly like a session. Since #1049 it had been
+pinned to `write`, which hid every schema and admin tool (create_database, add_field, folders, packs) from an admin's own AI.
+What it may do is now decided only by the person's role and grants in each workspace (a member's connection is refused an
+admin route by their role, an admin's is not); account-level, session-only routes stay a person's alone. An explicit
+read/write/admin scope remains the rule for personal access tokens and agent tokens.

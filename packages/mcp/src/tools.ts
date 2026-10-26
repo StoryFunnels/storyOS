@@ -6372,7 +6372,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my connected AI clients',
       description:
-        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). An OAuth connection reaches every workspace the person belongs to; a token only this one. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). Each row says what it `reaches`: all_workspaces (the default for an OAuth connection: every workspace the person belongs to), one_workspace (limited to the one in `approved`), needs_reconnect (refused until the client is reconnected), or this_workspace (a token). Every connection can read and write; there is no access level. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {

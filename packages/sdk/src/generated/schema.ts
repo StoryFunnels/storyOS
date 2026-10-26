@@ -94,10 +94,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you can bind it to */
+        /** What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you could limit it to */
         get: operations["OauthConsentController_describe"];
         put?: never;
-        /** Allow (bound to one workspace and read or write) or deny an AI client; returns where to send the browser next */
+        /** Allow (all your workspaces, or only workspace_id) or deny an AI client; returns where to send the browser next */
         post: operations["OauthConsentController_decide"];
         delete?: never;
         options?: never;
@@ -4837,8 +4837,6 @@ export interface components {
             decision: "allow" | "deny";
             /** Format: uuid */
             workspace_id?: string;
-            /** @enum {string} */
-            access?: "read" | "write";
         };
         CreateWorkspaceDto: {
             name: string;
