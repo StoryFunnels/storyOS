@@ -294,8 +294,13 @@ export class AuthGuard implements CanActivate {
           if (grant.workspaceId && params?.ws && params.ws.toLowerCase() !== grant.workspaceId) {
             throw new NotFoundException('Workspace not found');
           }
-          // 'write', never 'admin': an OAuth connection still cannot call an admin-role route (#1049).
-          this.enforceTokenScope(context, { scope: 'write', allowRunButton: true });
+          // "My AI, my rules" (ADR-0010, #1079): the AI acts AS the person, with the reach their session has. So an approved OAuth
+          // connection carries NO token scope (like a session), and what it may do is decided by the person's ROLE and grants in each
+          // workspace: a member's connection is refused on an admin route by their role, an admin's is not. An explicit read/write/admin
+          // scope belongs to PATs and agent tokens (#1049), whose scope is the point. Account-level routes stay a person's alone.
+          if (this.reflector.getAllAndOverride<boolean>(SESSION_ONLY_KEY, [context.getHandler(), context.getClass()])) {
+            throw new ForbiddenException('This needs a signed-in session: an API token or an AI connection cannot do it.');
+          }
           (request as AuthedRequest).user = {
             id: account.id,
             email: account.email,
@@ -312,7 +317,6 @@ export class AuthGuard implements CanActivate {
             via: 'oauth',
             source: 'mcp',
             ...(grant.workspaceId ? { workspaceId: grant.workspaceId } : {}),
-            tokenScope: 'write',
             allowRunButton: true,
           };
           return true;

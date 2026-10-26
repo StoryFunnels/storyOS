@@ -116,3 +116,9 @@ the person's own role allows. The approval is one scope word on the `oauth_conse
 "all" is resolved per request against current memberships, never frozen into a list. A row from before this change that
 says `access:read` is refused until the client reconnects (the person approved less than a connection now is); an old
 `access:write` row stays valid.
+
+Follow-up, same day: an approved OAuth connection carries **no token scope**, exactly like a session. Since #1049 it had been
+pinned to `write`, which hid every schema and admin tool (create_database, add_field, folders, packs) from an admin's own AI.
+What it may do is now decided only by the person's role and grants in each workspace (a member's connection is refused an
+admin route by their role, an admin's is not); account-level, session-only routes stay a person's alone. An explicit
+read/write/admin scope remains the rule for personal access tokens and agent tokens.

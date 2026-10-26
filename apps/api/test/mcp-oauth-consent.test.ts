@@ -330,12 +330,43 @@ describe('#1030 an approved token reaches only what was approved', () => {
     expect((await bearer(token, 'GET', `/workspaces/${mine}/databases`)).statusCode, 'a workspace the person left is no longer reachable').toBe(404);
   });
 
-  it('#1079 an all-workspaces connection still cannot call an admin-role route (#1049)', async () => {
-    const u = (await signUpUser(app, 'All Admin')).token;
-    const ws = await workspace(u, 'All Admin WS');
-    expect((await as(u, 'GET', `/workspaces/${ws}/audit-log`)).statusCode, 'the person (admin) can').toBe(200);
+  it("#1079 my AI, my rules: an ADMIN's connection reaches the schema/admin routes (create_database, add_field, the audit log); a MEMBER's is refused by their ROLE, not by a token ceiling", async () => {
+    const admin = (await signUpUser(app, 'Rules Admin')).token;
+    const member = await signUpUser(app, 'Rules Member');
+    const ws = await workspace(admin, 'Rules WS');
+    const space = (await as(admin, 'POST', `/workspaces/${ws}/spaces`, { name: 'Work' })).json().id as string;
+    const inv = await as(admin, 'POST', `/workspaces/${ws}/invites`, { email: member.email, role: 'member' });
+    await as(member.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+
+    const a = await connect(admin, null);
+    const m = await connect(member.token, null);
+    // The token carries no scope: it is the person, like a session.
+    expect((await bearer(a.token, 'GET', '/me')).json().auth).toMatchObject({ via: 'oauth', token_scope: null });
+    expect((await bearer(m.token, 'GET', '/me')).json().auth).toMatchObject({ via: 'oauth', token_scope: null });
+
+    expect((await bearer(a.token, 'GET', `/workspaces/${ws}/audit-log`)).statusCode, 'admin: admin-role route').toBe(200);
+    const db = await bearer(a.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Made by admin AI' });
+    expect(db.statusCode, db.body).toBe(201);
+    const field = await bearer(a.token, 'POST', `/workspaces/${ws}/databases/${db.json().id}/fields`, { display_name: 'Notes', type: 'text', config: {} });
+    expect(field.statusCode, field.body).toBe(201);
+
+    const refused = await bearer(m.token, 'GET', `/workspaces/${ws}/audit-log`);
+    expect(refused.statusCode, 'member: the ROLE refuses').toBe(403);
+    expect(refused.body, 'and it says why in role terms, not "token is write-scoped"').not.toContain('-scoped');
+    // Same answer as the member's own session: the connection has exactly the person's reach, no more and no less.
+    const invitePayload = { email: 'someone-new@example.com', role: 'member' };
+    const bySession = await as(member.token, 'POST', `/workspaces/${ws}/invites`, invitePayload);
+    const byAi = await bearer(m.token, 'POST', `/workspaces/${ws}/invites`, invitePayload);
+    expect(bySession.statusCode, 'a member cannot invite').toBe(403);
+    expect(byAi.statusCode, "and neither can the member's AI").toBe(403);
+    expect((await bearer(a.token, 'POST', `/workspaces/${ws}/invites`, invitePayload)).statusCode, "the admin's AI can").toBeLessThan(300);
+  });
+
+  it('#1079 an OAuth connection still cannot do an account-level (session-only) thing, e.g. create a workspace', async () => {
+    const u = (await signUpUser(app, 'Session Only')).token;
+    await workspace(u, 'SO WS');
     const { token } = await connect(u, null);
-    expect((await bearer(token, 'GET', `/workspaces/${ws}/audit-log`)).statusCode).toBe(403);
+    expect((await bearer(token, 'POST', '/workspaces', { name: 'By an AI' })).statusCode).toBe(403);
   });
 
   it('#1079 an old READ-ONLY grant is not upgraded: it is refused until the client reconnects; an old WRITE grant still works', async () => {
@@ -357,7 +388,7 @@ describe('#1030 an approved token reaches only what was approved', () => {
     const ws = await workspace(u, 'Me WS');
     const { token } = await connect(u, ws);
     const me = (await bearer(token, 'GET', '/me')).json();
-    expect(me.auth).toMatchObject({ via: 'oauth', token_scope: 'write' });
+    expect(me.auth).toMatchObject({ via: 'oauth', token_scope: null });
   });
 
   it('a connection with NO grant is refused: a consent row deleted (disconnect) or never written (made before consent existed)', async () => {
