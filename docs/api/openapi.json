@@ -102,7 +102,7 @@
             "bearer": []
           }
         ],
-        "summary": "What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you can bind it to",
+        "summary": "What an AI client is asking for: its name, the host it redirects to, the scopes, and the workspaces you could limit it to",
         "tags": [
           "auth"
         ]
@@ -130,7 +130,7 @@
             "bearer": []
           }
         ],
-        "summary": "Allow (bound to one workspace and read or write) or deny an AI client; returns where to send the browser next",
+        "summary": "Allow (all your workspaces, or only workspace_id) or deny an AI client; returns where to send the browser next",
         "tags": [
           "auth"
         ]
@@ -11475,13 +11475,6 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "access": {
-            "type": "string",
-            "enum": [
-              "read",
-              "write"
-            ]
           }
         },
         "required": [

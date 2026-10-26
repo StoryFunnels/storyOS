@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { GoneException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { GoneException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -70,14 +70,13 @@ export class OauthConsentService {
       redirect_host: new URL(value.redirectURI).host,
       scopes: value.scope.map((id) => ({ id, label: SCOPE_LABELS[id] ?? id })),
       workspaces: wss,
-      access_options: ['read', 'write'] as const,
     };
   }
 
-  /** Allow (bind to one workspace and a power ceiling) or deny. Returns where the browser goes next: the client's redirect URI. */
+  /** Allow (all of the person's workspaces, or the one named) or deny. Returns where the browser goes next: the client's redirect URI. */
   async decide(
     userId: string,
-    input: { consent_code: string; decision: 'allow' | 'deny'; workspace_id?: string; access?: 'read' | 'write' },
+    input: { consent_code: string; decision: 'allow' | 'deny'; workspace_id?: string },
   ): Promise<{ redirect_url: string }> {
     const { row, value } = await this.pending(userId, input.consent_code);
     await this.clientOf(value.clientId);
@@ -90,13 +89,16 @@ export class OauthConsentService {
       return { redirect_url: target.toString() };
     }
 
-    if (!input.workspace_id) throw new UnprocessableEntityException('Choose the workspace this client may reach');
-    const member = await this.db.query.memberships.findFirst({
-      where: and(eq(memberships.userId, userId), eq(memberships.workspaceId, input.workspace_id), eq(memberships.status, 'active')),
-    });
-    // The same answer as a workspace that does not exist: nothing here confirms it.
-    if (!member) throw new NotFoundException('Workspace not found');
-    const grant: OauthGrant = { workspaceId: input.workspace_id.toLowerCase(), access: input.access === 'write' ? 'write' : 'read' };
+    // #1079: no workspace named = all of the person's workspaces (resolved per request); a uuid = that one.
+    let grant: OauthGrant = { workspaceId: null };
+    if (input.workspace_id) {
+      const member = await this.db.query.memberships.findFirst({
+        where: and(eq(memberships.userId, userId), eq(memberships.workspaceId, input.workspace_id), eq(memberships.status, 'active')),
+      });
+      // The same answer as a workspace that does not exist: nothing here confirms it.
+      if (!member) throw new NotFoundException('Workspace not found');
+      grant = { workspaceId: input.workspace_id.toLowerCase() };
+    }
 
     await this.db.transaction(async (tx) => {
       // One live grant per person and client: allowing again REPLACES what was allowed before, never widens it silently.

@@ -2,7 +2,7 @@
 import { restoreMcpOAuth } from './helpers/enable-mcp-oauth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { signUpUser } from './helpers/users';
@@ -62,12 +62,13 @@ describe('#1008 the list of connected AI clients', () => {
     expect((await list(p.token, p.ws))[0]!.last_used_at, 'using the token is recorded').not.toBeNull();
   });
 
-  it('an OAuth connection: kind oauth, the client\'s registered name, reaches ONLY the workspace the person approved (#1030)', async () => {
+  it('an OAuth connection: kind oauth, the client\'s registered name, reaches ALL the person\'s workspaces by default (#1079)', async () => {
     const p = await person('AIC OAuth');
     await connectMcpClient(app, p.token);
     const rows = await list(p.token, p.ws);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: 'oauth', client_name: 'test-connector', reaches: 'one_workspace', last_used_at: null, approved: { workspace_name: expect.any(String), access: 'write' } });
+    expect(rows[0]).toMatchObject({ kind: 'oauth', client_name: 'test-connector', reaches: 'all_workspaces', last_used_at: null, approved: null });
+    expect(JSON.stringify(rows[0]), 'no access level anywhere (#1079)').not.toMatch(/access/);
     expect(rows[0]!.id).toMatch(/^oauth:/);
     expect(Date.parse(rows[0]!.connected_at!)).not.toBeNaN();
     expect(await activation.aiConnected(p.ws)).toBe(true);
@@ -82,6 +83,15 @@ describe('#1008 the list of connected AI clients', () => {
     await db.delete(oauthConsent);
     const rows = await list(p.token, p.ws);
     expect(rows[0]).toMatchObject({ kind: 'oauth', reaches: 'needs_reconnect', approved: null });
+  });
+
+  it('#1079: a connection limited to ONE workspace names it; an old read-only approval needs a reconnect (not upgraded)', async () => {
+    const p = await person('AIC One WS');
+    await connectMcpClient(app, p.token);
+    await db.execute(sql`UPDATE oauth_consent SET scopes = ${`openid ws:${p.ws}`}`);
+    expect((await list(p.token, p.ws))[0]).toMatchObject({ reaches: 'one_workspace', approved: { workspace_id: p.ws, workspace_name: expect.any(String) } });
+    await db.execute(sql`UPDATE oauth_consent SET scopes = ${`openid ws:${p.ws} access:read`}`);
+    expect((await list(p.token, p.ws))[0]).toMatchObject({ reaches: 'needs_reconnect', approved: null });
   });
 
   it('both, and two clients: one row per client however many tokens it has cycled through, oldest first', async () => {

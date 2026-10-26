@@ -154,7 +154,7 @@ describe('#1030 loopback redirects may differ by PORT only (RFC 8252 §7.3)', ()
     const { res, verifier } = await authorizeAt(u, clientId, fresh);
     expect(res.statusCode, res.body).toBe(302);
     expect(String(res.headers.location)).toMatch(/\/oauth\/consent\?/);
-    const decided = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(String(res.headers.location)), decision: 'allow', workspace_id: ws, access: 'read' });
+    const decided = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(String(res.headers.location)), decision: 'allow', workspace_id: ws });
     const back = new URL(decided.json().redirect_url);
     expect(`${back.origin}${back.pathname}`, 'the code goes to the port the client is actually listening on').toBe(fresh);
     const tok = await app.inject({
@@ -207,7 +207,7 @@ describe('#1030 the consent screen', () => {
     expect(d.scopes.map((s: { id: string }) => s.id)).toEqual(expect.arrayContaining(['openid', 'storyos.mcp']));
     expect(d.scopes.find((s: { id: string }) => s.id === 'storyos.mcp').label).not.toBe('storyos.mcp');
     expect(d.workspaces.map((w: { id: string }) => w.id)).toContain(ws);
-    expect(d.access_options).toEqual(['read', 'write']);
+    expect(d.access_options, '#1079: there is no access level to choose').toBeUndefined();
   });
 
   it('someone else\'s code, an unknown code and an expired code never describe or decide anything', async () => {
@@ -217,7 +217,7 @@ describe('#1030 the consent screen', () => {
     const { location } = await authorize(owner, await client());
     const code = consentCodeOf(location);
     expect((await as(other, 'GET', `/oauth/consent?consent_code=${code}`)).statusCode, 'another person: 404').toBe(404);
-    expect((await as(other, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: await workspace(other, 'Other WS'), access: 'write' })).statusCode).toBe(404);
+    expect((await as(other, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: await workspace(other, 'Other WS') })).statusCode).toBe(404);
     expect((await as(owner, 'GET', '/oauth/consent?consent_code=does-not-exist-123')).statusCode).toBe(404);
     await db.execute(sql`UPDATE verification SET expires_at = now() - interval '1 minute' WHERE identifier = ${code}`);
     expect((await as(owner, 'GET', `/oauth/consent?consent_code=${code}`)).statusCode, 'expired: 410').toBe(410);
@@ -251,16 +251,15 @@ describe('#1030 the consent screen', () => {
     expect((await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: await workspace(u, 'x') })).statusCode).toBe(404);
   });
 
-  it('Allow needs a workspace the person is a member of, and cannot be answered twice', async () => {
+  it('Allow names only a workspace the person is a member of (or none = all), and cannot be answered twice', async () => {
     const u = (await signUpUser(app, 'Allower')).token;
     const stranger = (await signUpUser(app, 'Stranger')).token;
     const mine = await workspace(u, 'Allow WS');
     const theirs = await workspace(stranger, 'Not mine');
     const { location } = await authorize(u, await client());
     const code = consentCodeOf(location);
-    expect((await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow' })).statusCode, 'no workspace chosen').toBe(422);
     expect((await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: theirs })).statusCode, 'a workspace they are not in').toBe(404);
-    const ok = await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: mine, access: 'read' });
+    const ok = await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: mine });
     expect(ok.statusCode, ok.body).toBe(201);
     expect(new URL(ok.json().redirect_url).searchParams.get('code')).toBe(code);
     expect((await as(u, 'POST', '/oauth/consent', { consent_code: code, decision: 'allow', workspace_id: mine })).statusCode, 'already answered').toBe(410);
@@ -268,10 +267,10 @@ describe('#1030 the consent screen', () => {
 });
 
 describe('#1030 an approved token reaches only what was approved', () => {
-  async function connect(sessionToken: string, workspaceId: string, access: 'read' | 'write') {
+  async function connect(sessionToken: string, workspaceId: string | null) {
     const clientId = await client();
     const { location, verifier } = await authorize(sessionToken, clientId);
-    const decided = await as(sessionToken, 'POST', '/oauth/consent', { consent_code: consentCodeOf(location), decision: 'allow', workspace_id: workspaceId, access });
+    const decided = await as(sessionToken, 'POST', '/oauth/consent', { consent_code: consentCodeOf(location), decision: 'allow', ...(workspaceId ? { workspace_id: workspaceId } : {}) });
     expect(decided.statusCode, decided.body).toBe(201);
     const tok = await exchange(clientId, new URL(decided.json().redirect_url).searchParams.get('code')!, verifier);
     expect(tok.statusCode, tok.body).toBe(200);
@@ -282,7 +281,7 @@ describe('#1030 an approved token reaches only what was approved', () => {
     const victim = (await signUpUser(app, 'Two Workspaces')).token;
     const approved = await workspace(victim, 'Approved WS');
     const secret = await workspace(victim, 'Secret WS');
-    const { token } = await connect(victim, approved, 'write');
+    const { token } = await connect(victim, approved);
     expect((await bearer(token, 'GET', `/workspaces/${approved}/databases`)).statusCode).toBe(200);
     const blocked = await bearer(token, 'GET', `/workspaces/${secret}/databases`);
     expect(blocked.statusCode, 'the attacker\'s token cannot even see the other workspace exists').toBe(404);
@@ -293,30 +292,78 @@ describe('#1030 an approved token reaches only what was approved', () => {
     expect((skills.data ?? []).map((s) => s.name), 'nothing was planted in the victim\'s other workspace').not.toContain('planted');
   });
 
-  it('a READ grant cannot write; a WRITE grant can', async () => {
-    const u = (await signUpUser(app, 'Ceiling')).token;
-    const ws = await workspace(u, 'Ceiling WS');
-    const reader = await connect(u, ws, 'read');
-    expect((await bearer(reader.token, 'GET', `/workspaces/${ws}/skills`)).statusCode).toBe(200);
-    const denied = await bearer(reader.token, 'POST', `/workspaces/${ws}/skills`, skill('nope'));
-    expect(denied.statusCode, denied.body).toBe(403);
-    expect(denied.body).toContain('read-scoped');
-    const writer = await connect(u, ws, 'write');
-    expect((await bearer(writer.token, 'POST', `/workspaces/${ws}/skills`, skill('yes'))).statusCode).toBe(201);
+  it('#1079 there is no read-only level: a connection writes, and an `access` field sent by an old client changes nothing', async () => {
+    const u = (await signUpUser(app, 'No Ceiling')).token;
+    const ws = await workspace(u, 'No Ceiling WS');
+    const clientId = await client();
+    const { location, verifier } = await authorize(u, clientId);
+    const decided = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(location), decision: 'allow', workspace_id: ws, access: 'read' });
+    expect(decided.statusCode, decided.body).toBe(201);
+    const tok = await exchange(clientId, new URL(decided.json().redirect_url).searchParams.get('code')!, verifier);
+    expect((await bearer(tok.json().access_token, 'POST', `/workspaces/${ws}/skills`, skill('writes'))).statusCode).toBe(201);
+    const row = ((await db.execute(sql`SELECT scopes FROM oauth_consent WHERE client_id = ${clientId}`)) as unknown as { rows: Array<{ scopes: string }> }).rows[0]!;
+    expect(row.scopes, 'no access word is stored').not.toContain('access:');
+  });
+
+  it('#1079 ALL workspaces is the default: omit workspace_id and every workspace the person is in is reachable, including one created later', async () => {
+    const u = (await signUpUser(app, 'All Workspaces')).token;
+    const first = await workspace(u, 'All First');
+    const second = await workspace(u, 'All Second');
+    const { token } = await connect(u, null);
+    expect((await bearer(token, 'GET', `/workspaces/${first}/databases`)).statusCode).toBe(200);
+    expect((await bearer(token, 'GET', `/workspaces/${second}/databases`)).statusCode).toBe(200);
+    expect(((await bearer(token, 'GET', '/workspaces')).json() as Array<{ id: string }>).map((w) => w.id).sort()).toEqual([first, second].sort());
+    const later = await workspace(u, 'All Later');
+    expect((await bearer(token, 'GET', `/workspaces/${later}/databases`)).statusCode, 'a workspace joined after connecting is reachable').toBe(200);
+    expect((await bearer(token, 'POST', `/workspaces/${later}/skills`, skill('anywhere'))).statusCode).toBe(201);
+  });
+
+  it('#1079 all workspaces is still bounded by membership: a workspace the person is NOT in is a 404, and one they leave stops working', async () => {
+    const u = (await signUpUser(app, 'All Bounded')).token;
+    const stranger = (await signUpUser(app, 'Stranger')).token;
+    const mine = await workspace(u, 'Bounded Mine');
+    const theirs = await workspace(stranger, 'Not Mine');
+    const { token } = await connect(u, null);
+    expect((await bearer(token, 'GET', `/workspaces/${theirs}/databases`)).statusCode).toBe(404);
+    expect((await bearer(token, 'GET', `/workspaces/${mine}/databases`)).statusCode).toBe(200);
+    await db.execute(sql`DELETE FROM memberships WHERE workspace_id = ${mine}`);
+    expect((await bearer(token, 'GET', `/workspaces/${mine}/databases`)).statusCode, 'a workspace the person left is no longer reachable').toBe(404);
+  });
+
+  it('#1079 an all-workspaces connection still cannot call an admin-role route (#1049)', async () => {
+    const u = (await signUpUser(app, 'All Admin')).token;
+    const ws = await workspace(u, 'All Admin WS');
+    expect((await as(u, 'GET', `/workspaces/${ws}/audit-log`)).statusCode, 'the person (admin) can').toBe(200);
+    const { token } = await connect(u, null);
+    expect((await bearer(token, 'GET', `/workspaces/${ws}/audit-log`)).statusCode).toBe(403);
+  });
+
+  it('#1079 an old READ-ONLY grant is not upgraded: it is refused until the client reconnects; an old WRITE grant still works', async () => {
+    const u = (await signUpUser(app, 'Legacy')).token;
+    const ws = await workspace(u, 'Legacy WS');
+    const readCid = (await connect(u, ws)).clientId;
+    const { token: writeToken, clientId: writeCid } = await connect(u, ws);
+    await db.execute(sql`UPDATE oauth_consent SET scopes = ${`openid ws:${ws} access:read`} WHERE client_id = ${readCid}`);
+    await db.execute(sql`UPDATE oauth_consent SET scopes = ${`openid ws:${ws} access:write`} WHERE client_id = ${writeCid}`);
+    expect((await bearer(writeToken, 'POST', `/workspaces/${ws}/skills`, skill('legacy-write'))).statusCode).toBe(201);
+    const tokens = ((await db.execute(sql`SELECT access_token FROM oauth_access_token WHERE client_id = ${readCid}`)) as unknown as { rows: Array<{ access_token: string }> }).rows;
+    const refused = await bearer(tokens[0]!.access_token, 'GET', `/workspaces/${ws}/spaces`);
+    expect(refused.statusCode).toBe(401);
+    expect(refused.body).toContain('Reconnect');
   });
 
   it('/me reports the grant, so a client can say what it is allowed', async () => {
     const u = (await signUpUser(app, 'Me Reports')).token;
     const ws = await workspace(u, 'Me WS');
-    const { token } = await connect(u, ws, 'read');
+    const { token } = await connect(u, ws);
     const me = (await bearer(token, 'GET', '/me')).json();
-    expect(me.auth).toMatchObject({ via: 'oauth', token_scope: 'read' });
+    expect(me.auth).toMatchObject({ via: 'oauth', token_scope: 'write' });
   });
 
   it('a connection with NO grant is refused: a consent row deleted (disconnect) or never written (made before consent existed)', async () => {
     const u = (await signUpUser(app, 'No Grant')).token;
     const ws = await workspace(u, 'No Grant WS');
-    const { token, clientId } = await connect(u, ws, 'write');
+    const { token, clientId } = await connect(u, ws);
     expect((await bearer(token, 'GET', `/workspaces/${ws}/spaces`)).statusCode).toBe(200);
     await db.execute(sql`DELETE FROM oauth_consent WHERE client_id = ${clientId}`);
     const refused = await bearer(token, 'GET', `/workspaces/${ws}/spaces`);
@@ -331,7 +378,7 @@ describe('#1030 an approved token reaches only what was approved', () => {
     const clientId = await client();
     const run = async (ws: string) => {
       const { location, verifier } = await authorize(u, clientId);
-      const d = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(location), decision: 'allow', workspace_id: ws, access: 'write' });
+      const d = await as(u, 'POST', '/oauth/consent', { consent_code: consentCodeOf(location), decision: 'allow', workspace_id: ws });
       return exchange(clientId, new URL(d.json().redirect_url).searchParams.get('code')!, verifier);
     };
     const first = (await run(a)).json().access_token as string;
@@ -365,9 +412,13 @@ describe('#1030 policy and grant encoding (pure)', () => {
   });
   it('a grant round-trips through the consent row\'s scopes, and anything malformed parses to NO grant', () => {
     const ws = '3448c14b-70f3-41bc-9188-839029be9f7e';
-    const s = formatGrantScopes(['openid', 'ws:11111111-1111-1111-1111-111111111111'], { workspaceId: ws, access: 'write' });
-    expect(parseGrantScopes(s)).toEqual({ workspaceId: ws, access: 'write' });
+    const s = formatGrantScopes(['openid', 'ws:11111111-1111-1111-1111-111111111111', 'access:write'], { workspaceId: ws });
+    expect(parseGrantScopes(s)).toEqual({ workspaceId: ws });
     expect(s, 'a client-supplied ws: scope word cannot survive formatting').not.toContain('11111111');
-    for (const bad of [null, '', 'openid offline_access', `ws:${ws}`, `access:write`, `ws:not-a-uuid access:write`, `ws:${ws} access:admin`]) expect(parseGrantScopes(bad), String(bad)).toBeNull();
+    expect(s, 'and no access word is ever written (#1079)').not.toContain('access:');
+    expect(parseGrantScopes(formatGrantScopes(['openid'], { workspaceId: null }))).toEqual({ workspaceId: null });
+    expect(formatGrantScopes(['openid'], { workspaceId: null })).toContain('ws:all');
+    expect(parseGrantScopes(`openid ws:${ws} access:write`), 'a pre-#1079 write row stays valid').toEqual({ workspaceId: ws });
+    for (const bad of [null, '', 'openid offline_access', `access:write`, `ws:not-a-uuid`, `ws:${ws} access:read`, 'ws:all access:read', 'ws:ALLX']) expect(parseGrantScopes(bad), String(bad)).toBeNull();
   });
 });

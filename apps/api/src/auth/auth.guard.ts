@@ -278,22 +278,24 @@ export class AuthGuard implements CanActivate {
       // sessions (cookies) and PATs, and nothing else consumes its tokens — so every
       // token it mints is, by construction, an MCP token for the resolved user.
       if (mcpToken?.userId) {
-        // #1030 — a token is only as powerful as what its owner APPROVED for this client: one workspace and read or write.
+        // #1030 — a token reaches only what its owner APPROVED for this client: all their workspaces or one (#1079: always read and write).
         // better-auth mints the token without either, so the grant is looked up (user + client) on every request. No grant
-        // means a flow nobody consented to (or a connection made before consent existed): refused, not defaulted to "all".
+        // means a flow nobody consented to (or a connection made before consent existed): refused, not defaulted to anything.
         const grant = mcpToken.clientId ? await this.oauthGrant(mcpToken.userId, mcpToken.clientId) : null;
         if (!grant) {
           throw new UnauthorizedException('This AI connection has not been approved. Reconnect the client and approve it when asked.');
         }
         const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
         if (account) {
-          // The same ceiling a PAT has (MN-122): 404, not 403, so a connection cannot probe which other workspaces exist. Checked
-          // BEFORE the power ceiling, so a read-only connection gets the same 404 for another workspace as a write one does.
+          // A ONE-workspace connection has the ceiling a PAT has (MN-122): 404, not 403, so it cannot probe which other workspaces
+          // exist. An ALL-workspaces one is bound by nothing here: membership, role and grants are checked per workspace exactly as
+          // for a session (a workspace joined later is reachable, one left is not).
           const params = request.params as { ws?: string } | undefined;
-          if (params?.ws && params.ws.toLowerCase() !== grant.workspaceId) {
+          if (grant.workspaceId && params?.ws && params.ws.toLowerCase() !== grant.workspaceId) {
             throw new NotFoundException('Workspace not found');
           }
-          this.enforceTokenScope(context, { scope: grant.access, allowRunButton: true });
+          // 'write', never 'admin': an OAuth connection still cannot call an admin-role route (#1049).
+          this.enforceTokenScope(context, { scope: 'write', allowRunButton: true });
           (request as AuthedRequest).user = {
             id: account.id,
             email: account.email,
@@ -309,8 +311,8 @@ export class AuthGuard implements CanActivate {
           (request as AuthedRequest).auth = {
             via: 'oauth',
             source: 'mcp',
-            workspaceId: grant.workspaceId,
-            tokenScope: grant.access,
+            ...(grant.workspaceId ? { workspaceId: grant.workspaceId } : {}),
+            tokenScope: 'write',
             allowRunButton: true,
           };
           return true;
