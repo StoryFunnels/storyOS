@@ -339,3 +339,80 @@ describe('#1039 the person can erase THEIR OWN identity (self-service, session o
     expect(row).toMatchObject({ email: `deleted-${personId}@anonymized.invalid`, name: 'Deleted user' });
   });
 });
+
+describe('#1080 self-erase writes no old identifier anywhere and scrubs what already exists', () => {
+  const rawRows = async (q: string, p: unknown[] = []) =>
+    (await (app.get(DB) as unknown as { $client: { query: (q: string, p: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> } }).$client.query(q, p)).rows;
+  const mentions = async (needle: string) => {
+    const like = `%${needle}%`;
+    const out: Record<string, number> = {};
+    for (const [label, q] of Object.entries({
+      activity_events: 'select count(*)::int n from activity_events where payload::text ilike $1',
+      field_changes: 'select count(*)::int n from record_field_changes where coalesce(old_value::text, \'\') ilike $1 or coalesce(new_value::text, \'\') ilike $1',
+      versions: 'select count(*)::int n from record_versions where "values"::text ilike $1 or title ilike $1',
+      members_rows: `select count(*)::int n from records r join databases d on d.id = r.database_id where d.is_system and d.name = 'Members' and (r.values::text ilike $1 or r.title ilike $1)`,
+    })) out[label] = (await rawRows(q, [like]))[0]!.n as number;
+    return out;
+  };
+
+  it('the old email and name appear in NO audit/activity/history row after erase, in workspaces they are in AND ones they had left, and no event is written to a left workspace', async () => {
+    const boss = await signUpUser(app, 'Boss1080');
+    const uniqueName = `Marguerite Quillfeather ${Date.now()}`;
+    const person = await signUpUser(app, uniqueName);
+    const personId = (await as(person.token, 'GET', '/me')).json().id as string;
+    const joined = async (name: string) => {
+      const ws = (await as(boss.token, 'POST', '/workspaces', { name })).json().id as string;
+      const inv = await as(boss.token, 'POST', `/workspaces/${ws}/invites`, { email: person.email, role: 'member' });
+      await as(person.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+      return ws;
+    };
+    const stays = await joined('Stays WS 1080');
+    const left = await joined('Left WS 1080');
+    // The person is removed from `left` BEFORE erasing: their Members row survives there, tombstoned, still holding the real address.
+    const memberId = ((await as(boss.token, 'GET', `/workspaces/${left}/members`)).json() as Array<{ id: string; user_id: string }>).find((m) => m.user_id === personId)!.id;
+    expect((await as(boss.token, 'DELETE', `/workspaces/${left}/members/${memberId}`)).statusCode).toBeLessThan(300);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Make real history quote the address: it is the person's email in a Members-projection write.
+    const needleEmail = person.email.toLowerCase();
+    expect((await mentions(needleEmail)).members_rows, 'precondition: the Members rows hold the real address').toBeGreaterThan(0);
+    const eventsBefore = (await rawRows('select count(*)::int n from activity_events where workspace_id = $1', [left]))[0]!.n as number;
+
+    const res = await as(person.token, 'POST', '/me/gdpr/erase', { confirm: true });
+    expect(res.statusCode, res.body).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+
+    for (const needle of [needleEmail, uniqueName]) {
+      const found = await mentions(needle);
+      expect(found, `"${needle}" must appear in no history table or Members row`).toEqual({ activity_events: 0, field_changes: 0, versions: 0, members_rows: 0 });
+    }
+    expect((await rawRows('select count(*)::int n from activity_events where workspace_id = $1', [left]))[0]!.n, 'nothing was written to the workspace they had left').toBe(eventsBefore);
+    for (const ws of [stays, left]) {
+      const log = await as(boss.token, 'GET', `/workspaces/${ws}/audit-log`);
+      expect(log.statusCode, log.body).toBe(200);
+      expect(log.body.toLowerCase()).not.toContain(needleEmail);
+    }
+  });
+
+  it('existing history that quotes the address is rewritten, not just the Members row', async () => {
+    const boss = await signUpUser(app, 'Boss1080b');
+    const person = await signUpUser(app, 'Scrub Target');
+    const personId = (await as(person.token, 'GET', '/me')).json().id as string;
+    const ws = (await as(boss.token, 'POST', '/workspaces', { name: 'Scrub WS 1080' })).json().id as string;
+    const inv = await as(boss.token, 'POST', `/workspaces/${ws}/invites`, { email: person.email, role: 'member' });
+    await as(person.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+    const space = (await as(boss.token, 'POST', `/workspaces/${ws}/spaces`, { name: 'S' })).json();
+    const dbId = (await as(boss.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space.id, name: 'Notes' })).json().id as string;
+    const rec = (await as(boss.token, 'POST', `/workspaces/${ws}/databases/${dbId}/records`, { values: { name: `call ${person.email}` } })).json();
+    await as(boss.token, 'PATCH', `/workspaces/${ws}/databases/${dbId}/records/${rec.id}`, { values: { name: `emailed ${person.email} today` } });
+    const needle = person.email.toLowerCase();
+    expect((await mentions(needle)).activity_events, 'precondition: history quotes it').toBeGreaterThan(0);
+    expect((await as(person.token, 'POST', '/me/gdpr/erase', { confirm: true })).statusCode).toBe(200);
+    const found = await mentions(needle);
+    expect(found.activity_events + found.field_changes + found.versions).toBe(0);
+    // The workspace's OWN record is its content and stays; only the trail was scrubbed.
+    const kept = (await as(boss.token, 'GET', `/workspaces/${ws}/databases/${dbId}/records/${rec.id}`)).json();
+    expect(String(kept.title)).toContain('emailed');
+    expect(personId).toBeTruthy();
+  });
+});

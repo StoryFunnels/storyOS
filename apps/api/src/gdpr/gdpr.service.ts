@@ -558,6 +558,9 @@ export class GdprService {
     }
     const refsByWorkspace = new Map<string, Awaited<ReturnType<GdprService['userFieldReferences']>>>();
     for (const m of mine) refsByWorkspace.set(m.workspaceId, await this.userFieldReferences(m.workspaceId, userId));
+    // #1080 — read BEFORE the tombstone overwrites it: this is the identifier the erasure has to find and remove everywhere.
+    const before = await this.db.query.user.findFirst({ where: eq(user.id, userId), columns: { email: true } });
+    const anonymisedEmail = `deleted-${userId}@anonymized.invalid`;
 
     const result = await this.db.transaction(async (tx) => {
       const totals: Record<string, number> = {};
@@ -577,12 +580,38 @@ export class GdprService {
       add('oauth_applications', (await tx.delete(oauthApplication).where(eq(oauthApplication.userId, userId)).returning()).length);
       add('api_tokens_anonymized', await this.anonymiseTokens(tx, eq(apiTokens.userId, userId)));
       add('user_preferences', (await tx.delete(userPreferences).where(eq(userPreferences.userId, userId)).returning()).length);
+      if (before?.email && before.email !== anonymisedEmail) add('history_rows_scrubbed', await this.scrubEmailFromHistory(tx, before.email, anonymisedEmail));
       return totals;
     });
 
-    for (const m of mine) {
-      this.membershipEvents.emit({ type: 'membership_erased', workspaceId: m.workspaceId, userId, anonymisedEmail: `deleted-${userId}@anonymized.invalid`, tombstone: true });
-    }
+    /*
+     * #1080 — NO `membership_erased` events here. They made the Members projection erase through `RecordsService.update`, which
+     * wrote the old address as the "before" value of an email change into three history tables, and only reached workspaces the
+     * person was still in. The Members row is erased directly instead, in EVERY workspace that has one (a person removed from a
+     * workspace long ago still has a tombstoned row holding their real email there), and nothing is written to any workspace's log.
+     */
+    result['members_rows_erased'] = await this.membersDb.eraseEverywhere(userId, anonymisedEmail);
     return { anonymized: true, user_id: userId, scope: 'global', identity_erased: true, workspaces_left: mine.length, removed: result };
+  }
+
+  /**
+   * #1080 — replace an email address wherever the change history quotes it: activity payloads, field changes (before/after),
+   * version snapshots. The records themselves are NOT rewritten: a workspace's own data that happens to hold the same address (a contact, a note) is that workspace's content, retained like all authored content. Case-insensitive, and only
+   * rows that mention it are rewritten. Returns the number of rows touched. An erasure is rare, so a scan is acceptable here.
+   * Names are NOT replaced by text match (a short name would mangle unrelated text); the person's Members row, the one place their
+   * name is history, is erased with its history instead (`MembersDbService.eraseEverywhere`).
+   */
+  private async scrubEmailFromHistory(tx: Tx, email: string, replacement: string): Promise<number> {
+    const pattern = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let n = 0;
+    const run = async (q: ReturnType<typeof sql>) => {
+      n += ((await tx.execute(q)) as unknown as { rowCount?: number }).rowCount ?? 0;
+    };
+    await run(sql`UPDATE activity_events SET payload = regexp_replace(payload::text, ${pattern}, ${replacement}, 'gi')::jsonb WHERE payload::text ~* ${pattern}`);
+    await run(sql`UPDATE record_field_changes SET old_value = regexp_replace(old_value::text, ${pattern}, ${replacement}, 'gi')::jsonb WHERE old_value::text ~* ${pattern}`);
+    await run(sql`UPDATE record_field_changes SET new_value = regexp_replace(new_value::text, ${pattern}, ${replacement}, 'gi')::jsonb WHERE new_value::text ~* ${pattern}`);
+    await run(sql`UPDATE record_versions SET values = regexp_replace(values::text, ${pattern}, ${replacement}, 'gi')::jsonb WHERE values::text ~* ${pattern}`);
+    await run(sql`UPDATE record_versions SET title = regexp_replace(title, ${pattern}, ${replacement}, 'gi') WHERE title ~* ${pattern}`);
+    return n;
   }
 }
