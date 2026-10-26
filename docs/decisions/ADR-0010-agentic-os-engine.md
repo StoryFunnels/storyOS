@@ -112,5 +112,5 @@ until it is reconnected (#1232, #1229). The approval is **not** a power ceiling:
 (there is no access level to choose), and it reaches **all the person's workspaces by default**, with **One workspace**
 as an optional narrowing (#1079). Limiting which tools an AI may use is the client's job (switch them off in the client),
 not StoryOS's. What stands: "my AI, my rules" (the connection acts as its person, with that person's role and grants),
-approval gates still apply, and a token (PAT) remains the way to cap an AI by space, database or power. Recorded by the
-build from the product owner's relayed decision, pending the product owner's confirmation.
+approval gates still apply, and a token (PAT) remains the way to cap an AI by space, database or power. Decided by the
+product owner on 2026-10-26 (relayed by the product-owner session; see #1030 and #1079).
