@@ -595,9 +595,14 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
       const sign = db.getTime() < da.getTime() ? -1 : 1;
       const from = sign === 1 ? da : db;
       const to = sign === 1 ? db : da;
-      let days = 0;
       const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
       const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+      // #1067 — whole weeks are 5 weekdays each, counted, not walked: one day per loop turn made a span of a few
+      // hundred thousand years cost seconds on every read and write of every record carrying the formula. Only the
+      // last < 7 days are walked, exactly as before.
+      const fullWeeks = Math.floor(Math.round((end - cur.getTime()) / 86_400_000) / 7);
+      let days = fullWeeks * 5;
+      cur.setUTCDate(cur.getUTCDate() + fullWeeks * 7);
       while (cur.getTime() < end) {
         cur.setUTCDate(cur.getUTCDate() + 1);
         const wd = cur.getUTCDay();

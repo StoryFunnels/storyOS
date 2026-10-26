@@ -250,7 +250,9 @@ function text(value: string, styles?: Styles): TextNode {
   return styles ? { type: 'text', text: value, styles } : { type: 'text', text: value, styles: {} };
 }
 
-const INLINE_RE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/;
+// #1067 — a link's text and URL exclude `[`, so a long run of unclosed `[` (or `[a](x` repeated) is scanned once,
+// not once per `[`: the old form was quadratic on an imported rich_text cell.
+const INLINE_RE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(\*[^*]+\*)|(\[[^\][]+\]\([^)[]+\))/;
 
 /** Parse a single line of Markdown inline syntax (non-nested) into inline nodes. */
 function parseInline(input: string): Inline[] {
