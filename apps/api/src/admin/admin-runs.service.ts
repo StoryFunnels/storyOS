@@ -80,7 +80,7 @@ export class AdminRunsService {
       })
       .from(databases)
       .innerJoin(workspaces, eq(workspaces.id, databases.workspaceId))
-      .where(eq(databases.name, 'Runs'));
+      .where(and(eq(databases.isSystem, true), eq(databases.systemKey, 'agent_runs'))); // #1063: the pack's Runs, by key
 
     const perWorkspace = await Promise.all(
       runsDatabases.map(async (row) => {

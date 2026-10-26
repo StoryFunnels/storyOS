@@ -382,6 +382,12 @@ export const databases = pgTable(
      */
     isSystem: boolean('is_system').notNull().default(false),
     /**
+     * #1063 — WHICH system database this is (`agents` | `agent_triggers` | `agent_runs` | `members`), null for every user database.
+     * The flag above says "a service owns this"; the key is how the service finds it, so the display name is free text again and a
+     * relabel cannot break the agent runtime. Set only by the provisioning service, never over HTTP. See common/system-databases.ts.
+     */
+    systemKey: text('system_key'),
+    /**
      * #943 / ADR-0018 — a RESTRICTED database is visible to members only through an access grant (admins always see it; a guest
      * is closed out of everything by default anyway). false (the default) is exactly today's behaviour: every member sees
      * and edits it. The model lives in `AccessService`; nothing else should read this column to decide access.
@@ -391,7 +397,12 @@ export const databases = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],
+  (t) => [
+    uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug),
+    // #1063 — at most one database per key in a workspace; user databases (null key) are unconstrained.
+    uniqueIndex('databases_workspace_system_key_uq').on(t.workspaceId, t.systemKey).where(sql`${t.systemKey} IS NOT NULL`),
+    check('databases_system_key_valid', sql`${t.systemKey} IS NULL OR (${t.isSystem} AND ${t.systemKey} IN ('agents', 'agent_triggers', 'agent_runs', 'members'))`),
+  ],
 );
 
 export const fields = pgTable(

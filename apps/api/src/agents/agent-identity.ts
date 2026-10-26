@@ -33,7 +33,7 @@ export async function resolveAgentIdentity(
   agentId: string,
 ): Promise<ResolvedAgentIdentity | null> {
   const agentsDb = await db.query.databases.findFirst({
-    where: and(eq(databases.workspaceId, workspaceId), eq(databases.name, 'Agents'), isNull(databases.deletedAt)),
+    where: and(eq(databases.workspaceId, workspaceId), eq(databases.isSystem, true), eq(databases.systemKey, 'agents'), isNull(databases.deletedAt)),
     columns: { id: true },
   });
   if (!agentsDb) return null;

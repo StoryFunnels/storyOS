@@ -153,7 +153,7 @@ export class MembersDbService {
       where: and(
         eq(databasesTable.workspaceId, workspaceId),
         eq(databasesTable.isSystem, true),
-        eq(databasesTable.name, MEMBERS_DB_NAME),
+        eq(databasesTable.systemKey, 'members'), // #1063: by key, never by the display name
       ),
       orderBy: [asc(databasesTable.createdAt), asc(databasesTable.id)],
     });
@@ -211,6 +211,7 @@ export class MembersDbService {
       // #318: the flag is what makes this findable next time. Without it this
       // would provision a fresh Members database on every single call.
       is_system: true,
+      system_key: 'members',
     })) as { id: string };
 
     await this.ensureMemberFields(database.id);
@@ -464,7 +465,7 @@ export class MembersDbService {
     const found = (await this.db.execute(sql`
       SELECT r.id AS record_id, r.database_id AS database_id
       FROM records r
-      JOIN databases d ON d.id = r.database_id AND d.is_system = true AND d.name = ${MEMBERS_DB_NAME}
+      JOIN databases d ON d.id = r.database_id AND d.is_system = true AND d.system_key = 'members'
       JOIN fields f ON f.database_id = r.database_id AND f.api_name = 'user_id'
       WHERE r.values ->> (f.id::text) = ${userId}
     `)) as unknown as { rows: Array<{ record_id: string; database_id: string }> };

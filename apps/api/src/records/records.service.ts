@@ -2808,19 +2808,18 @@ export class RecordsService {
 
   /**
    * #1062 — a member (REST, MCP, batch, undo) may not write the Agent Runs fields the runtime owns. The check is in-memory
-   * first, so a write that names none of those keys never costs a query. Identity is the is_system FLAG plus the pack name
-   * (findPackDbs' rule, #318); #1063 moves this to a fixed system key.
+   * first, so a write that names none of those keys never costs a query. Identity is the is_system FLAG plus the fixed system key (#1063).
    */
   private async assertNotRuntimeOwned(databaseId: string, keys: string[]): Promise<void> {
     if (isAgentRuntimeWrite()) return;
     const hits = keys.filter((k) => RUNTIME_OWNED_RUN_FIELDS.includes(k));
     if (hits.length === 0) return;
     const [db] = await this.db
-      .select({ isSystem: databases.isSystem, name: databases.name })
+      .select({ isSystem: databases.isSystem, systemKey: databases.systemKey })
       .from(databases)
       .where(eq(databases.id, databaseId))
       .limit(1);
-    if (db?.isSystem && db.name === 'Runs') {
+    if (db?.isSystem && db.systemKey === 'agent_runs') {
       throw new UnprocessableEntityException(
         `${hits.map((k) => `"${k}"`).join(', ')} on an agent run ${hits.length === 1 ? 'is' : 'are'} set by the agent runtime and cannot be written directly.`,
       );

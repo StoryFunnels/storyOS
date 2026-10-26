@@ -536,6 +536,7 @@ describe('describe_database flags the runtime-owned Agent Runs fields read-only 
     id: 'db-runs',
     name,
     isSystem,
+    systemKey: isSystem ? 'agent_runs' : null,
     my_access: 'admin',
     fields: [
       { id: 'f1', apiName: 'name', displayName: 'Name', type: 'title' },

@@ -1,3 +1,4 @@
+import type { SystemDatabaseKey } from '../common/system-databases';
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -441,6 +442,8 @@ export class DatabasesService {
        * database called Members.
        */
       is_system?: boolean;
+      /** #1063 — which system database this is; only with `is_system`. Never settable over HTTP either. */
+      system_key?: SystemDatabaseKey;
     },
   ) {
     // #945: creating INTO a space needs edit access to that space. Inside `create` (not the controller) so the template,
@@ -501,6 +504,7 @@ export class DatabasesService {
               apiSlug,
               position,
               isSystem: input.is_system ?? false,
+              systemKey: input.system_key ?? null,
             })
             .returning();
 

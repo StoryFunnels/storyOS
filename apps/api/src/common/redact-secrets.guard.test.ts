@@ -63,6 +63,7 @@ const DECLARED_SAFE: Record<string, string> = {
   // them on the `*_token` / `*_secret` tail, and it is the boolean *value* that
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
+  system_key: "ticket #1063 — which system database a row is ('agents', 'agent_runs', ...): an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
   has_key: 'a presence BOOLEAN on the Linear config response (#906) — it reports that a key is stored and never carries the key',
   // packages/schemas/src/record-values.ts (#230) — upsertRecordSchema's
