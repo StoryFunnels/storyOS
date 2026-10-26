@@ -17,12 +17,14 @@ export interface AiConnection {
   /** Tokens record it; OAuth does not, so null means "not recorded" for OAuth and "never used" for a token. */
   last_used_at: string | null;
   /**
-   * `one_workspace`: an OAuth connection bound to the ONE workspace and level the person approved (`approved`, #1030).
-   * `needs_reconnect`: made before approval existed, so the server refuses it until it is reconnected. `this_workspace`: a token.
+   * `all_workspaces`: an OAuth connection that reaches every workspace the person is in (the default, #1079). `one_workspace`: one the
+   * person limited to a single workspace (`approved`). `needs_reconnect`: its earlier approval no longer applies (made before approval
+   * existed, or with the read-only level that was since removed), so the server refuses it until it is reconnected.
+   * `this_workspace`: a token. No connection has an access level: every one is read and write.
    */
-  reaches: 'one_workspace' | 'this_workspace' | 'needs_reconnect';
-  /** OAuth only; null when `needs_reconnect`. The workspace name is null when it cannot be named. */
-  approved?: { workspace_id: string; workspace_name: string | null; access: 'read' | 'write' } | null;
+  reaches: 'all_workspaces' | 'one_workspace' | 'this_workspace' | 'needs_reconnect';
+  /** `one_workspace` only; null otherwise. The name is null when it cannot be given. */
+  approved?: { workspace_id: string; workspace_name: string | null } | null;
 }
 
 export const aiConnectionsKey = (ws: string) => ['ai-connections', ws] as const;
@@ -62,8 +64,6 @@ export interface ConnectionWords {
   confirmMessage: string;
 }
 
-const ACCESS_LABEL = { read: 'Read only', write: 'Read and write' } as const;
-
 /** The words for one connection, in one place so the row and its confirmation can never describe different things. */
 export function connectionWords(c: Pick<AiConnection, 'kind' | 'client_name' | 'reaches' | 'approved'>): ConnectionWords {
   const confirmTitle = `Disconnect ${c.client_name}?`;
@@ -76,22 +76,30 @@ export function connectionWords(c: Pick<AiConnection, 'kind' | 'client_name' | '
     };
   }
   const how = 'Connected by signing in';
+  if (c.reaches === 'all_workspaces') {
+    return {
+      how,
+      reaches: 'All your workspaces',
+      confirmTitle,
+      confirmMessage: `${c.client_name} loses access to all your workspaces right away. It can ask to connect again, and you will be asked to allow it.`,
+    };
+  }
   if (c.reaches === 'one_workspace' && c.approved) {
     const where = c.approved.workspace_name ?? 'One workspace';
     return {
       how,
-      reaches: `${where} only · ${ACCESS_LABEL[c.approved.access]}`,
+      reaches: `${where} only`,
       confirmTitle,
       confirmMessage: `${c.client_name} loses access to ${c.approved.workspace_name ?? 'its workspace'} right away. It can ask to connect again, and you will be asked to allow it.`,
     };
   }
   if (c.reaches === 'needs_reconnect') {
-    // Made before approval existed: the server refuses it, so it is shown as what it is, never as access it does not have.
+    // Its earlier approval no longer applies, so the server refuses it: shown as what it is, never as access it does not have.
     return {
       how,
       reaches: 'Reconnect needed',
       confirmTitle,
-      confirmMessage: `${c.client_name} was connected before this update, so it stops working until it is reconnected and approved. Disconnecting removes it; you can connect it again to choose a workspace.`,
+      confirmMessage: `${c.client_name} stops working until it is reconnected: its earlier approval no longer applies. Disconnecting removes it; connect it again to choose its workspaces.`,
     };
   }
   // A shape this page does not know (a newer or older server): say so rather than guess at access.

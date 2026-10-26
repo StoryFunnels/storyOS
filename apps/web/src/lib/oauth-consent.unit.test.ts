@@ -1,18 +1,23 @@
-import { describe, expect, it } from 'vitest';
-import { readConsent, readDecision, redirectTarget } from './oauth-consent';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { decideConsent, readConsent, readDecision, redirectTarget } from './oauth-consent';
 
 const ready = {
   client_name: 'Claude',
   redirect_host: 'claude.ai',
   scopes: [{ id: 'openid', label: 'Know who you are' }],
   workspaces: [{ id: 'w1', name: 'Acme' }, { id: 'w2', name: 'Side project' }],
-  access_options: ['read', 'write'],
 };
 const envelope = (code: string, message: string) => ({ error: { code, message } });
 
 describe('readConsent (#1030)', () => {
-  it('reads a complete request, with the workspaces to choose from and the access levels offered', () => {
+  it('reads a complete request, with the workspaces to choose from and no access level', () => {
     expect(readConsent(200, ready)).toEqual({ kind: 'ready', request: ready });
+  });
+
+  // An API that still sends the old field is not an error: it is ignored, and never reaches the screen.
+  it('ignores an access_options field an older server may still send', () => {
+    const r = readConsent(200, { ...ready, access_options: ['read', 'write'] });
+    expect(r.kind === 'ready' && 'access_options' in r.request).toBe(false);
   });
 
   // The danger is a 200 the screen cannot read being drawn as an Allow button for something unnamed.
@@ -23,17 +28,10 @@ describe('readConsent (#1030)', () => {
     ['a workspace without a name', { ...ready, workspaces: [{ id: 'w1' }] }],
     ['scopes not a list', { ...ready, scopes: 'read' }],
     ['a scope without a label', { ...ready, scopes: [{ id: 'openid' }] }],
-    ['no access levels', { ...ready, access_options: [] }],
-    ['only unknown access levels', { ...ready, access_options: ['admin'] }],
     ['not an object', 'ok'],
     ['null', null],
   ])('a 200 with %s is never shown as ready', (_n, body) => {
     expect(readConsent(200, body)).toEqual({ kind: 'failed', code: 'invalid' });
-  });
-
-  it('keeps only the access levels it knows', () => {
-    const r = readConsent(200, { ...ready, access_options: ['read', 'admin'] });
-    expect(r.kind === 'ready' && r.request.access_options).toEqual(['read']);
   });
 
   it('a person in no workspace is a dead end with its own wording, not an empty chooser', () => {
@@ -106,5 +104,43 @@ describe('redirectTarget', () => {
     expect(redirectTarget('cursor://x/y')).toBe('cursor://x/y');
     expect(redirectTarget('javascript:1')).toBeNull();
     expect(redirectTarget('not a url')).toBeNull();
+  });
+});
+
+describe('what Allow sends (#1079)', () => {
+  const sent: unknown[] = [];
+  afterEach(() => {
+    sent.length = 0;
+    vi.unstubAllGlobals();
+  });
+  const stub = () =>
+    vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body));
+      return { status: 200, json: async () => ({ redirect_url: 'https://claude.ai/cb' }) };
+    });
+
+  it('allow for ALL workspaces names none: the field is omitted, and there is no access level', async () => {
+    stub();
+    await decideConsent({ consentCode: 'code-123456', decision: 'allow' });
+    expect(sent[0]).toEqual({ consent_code: 'code-123456', decision: 'allow' });
+  });
+
+  it('allow for ONE workspace names it, and still no access level', async () => {
+    stub();
+    await decideConsent({ consentCode: 'code-123456', decision: 'allow', workspaceId: 'w2' });
+    expect(sent[0]).toEqual({ consent_code: 'code-123456', decision: 'allow', workspace_id: 'w2' });
+  });
+
+  it('a deny names no workspace, even if one was passed', async () => {
+    stub();
+    await decideConsent({ consentCode: 'code-123456', decision: 'deny', workspaceId: 'w2' });
+    expect(sent[0]).toEqual({ consent_code: 'code-123456', decision: 'deny' });
+  });
+
+  it('no request this layer builds ever carries an access level', async () => {
+    stub();
+    await decideConsent({ consentCode: 'code-123456', decision: 'allow', workspaceId: 'w1' });
+    await decideConsent({ consentCode: 'code-123456', decision: 'allow' });
+    expect(JSON.stringify(sent)).not.toMatch(/access/);
   });
 });
