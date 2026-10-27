@@ -28,6 +28,7 @@ import {
   formulaRefs,
   formulaTypeOfFieldType,
   inferStateCategory,
+  DEFAULT_WORKFLOW_OPTIONS,
   isTextToChoice,
   OPTION_COLORS,
   parseFormula,
@@ -423,6 +424,13 @@ export class FieldsService {
     membership?: Membership,
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
+    // #1087 — a workflow field created with no options (none, or an empty list) starts as To do / In progress / Done, not with zero
+    // columns to type by hand. Decided HERE, in the one place every surface creates a field through, so REST, MCP and the web dialog
+    // agree. Options a caller gives are used exactly as given, and every other type is untouched.
+    const options: typeof input.options =
+      input.type === 'workflow' && !(input.options && input.options.length > 0)
+        ? DEFAULT_WORKFLOW_OPTIONS.map((o) => ({ ...o }))
+        : input.options;
     // #172: a database is allowed at most one Workflow (canonical status) field.
     if (input.type === 'workflow') await this.assertNoExistingWorkflowField(databaseId);
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {}, membership);
@@ -464,7 +472,7 @@ export class FieldsService {
       config['default']
     ) {
       pendingDefaultLabel = config['default'] as string;
-      if (!input.options?.some((o) => o.label === pendingDefaultLabel)) {
+      if (!options?.some((o) => o.label === pendingDefaultLabel)) {
         throw new UnprocessableEntityException(
           "default must match the label of one of this field's options",
         );
@@ -491,11 +499,11 @@ export class FieldsService {
         .returning();
 
       let finalField = field!;
-      if (OPTIONED_FIELD_TYPES.has(input.type) && input.options && input.options.length > 0) {
+      if (OPTIONED_FIELD_TYPES.has(input.type) && options && options.length > 0) {
         const optionRows = await tx
           .insert(selectOptions)
           .values(
-            input.options.map((option, i, all) => ({
+            options.map((option, i, all) => ({
               fieldId: field!.id,
               label: option.label,
               color: option.color ?? 'gray',

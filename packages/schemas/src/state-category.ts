@@ -63,3 +63,14 @@ export function inferStateCategory(label: string, opts: { isLast?: boolean } = {
   if (STARTED_LABEL.test(l)) return 'started';
   return 'unstarted';
 }
+
+/**
+ * #1087 — what a NEW workflow (status) field contains when nobody gave it options: the three states every tracker starts with, in the
+ * categories of #1014, with three distinct colours. The API applies it (`FieldsService.create`), so the web dialog, REST and MCP `add_field`
+ * all get it; options a caller DOES give are used exactly as given, with nothing added on top. Zod-free like the rest of this file.
+ */
+export const DEFAULT_WORKFLOW_OPTIONS: ReadonlyArray<{ label: string; color: string; category: StateCategory }> = [
+  { label: 'To do', color: 'gray', category: 'unstarted' },
+  { label: 'In progress', color: 'blue', category: 'started' },
+  { label: 'Done', color: 'green', category: 'completed' },
+];

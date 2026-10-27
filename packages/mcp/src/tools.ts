@@ -3326,14 +3326,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
-        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) ' +
+        'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) ' +
         'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         name: z.string().describe('Field name, e.g. "Status".'),
         type: z.enum(FIELD_TYPES),
-        options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon,category}. On a workflow field each option gets a state category (inferred from its label and position unless you give one).'),
+        options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon,category}. On a workflow field each option gets a state category (inferred from its label and position unless you give one). Omit them on a workflow field to get To do / In progress / Done.'),
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
       },
     },
