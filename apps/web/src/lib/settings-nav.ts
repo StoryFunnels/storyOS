@@ -18,6 +18,15 @@ export function settingsFlags(role: string | undefined, billingEnabled: boolean 
   return { isAdmin: role === 'admin', canEdit: role !== 'guest', billingEnabled: Boolean(billingEnabled) };
 }
 
+/**
+ * Whether a role may open a workspace-level admin settings page (Billing, Webhooks, Connections, Integrations...): admins only, the
+ * same rule the nav applies with `isAdmin` and the API applies with `@MinRole('admin')`. One predicate for the in-page refusal
+ * (`AdminsOnly`, #1092), so the nav, the page and the guard test cannot drift.
+ */
+export function canOpenAdminSettings(role: string | undefined): boolean {
+  return role === 'admin';
+}
+
 /** Whether a role may use the Connect-your-AI screen: the same rule as minting an API token. */
 export function canConnectAi(role: string | undefined): boolean {
   return role !== 'guest';
