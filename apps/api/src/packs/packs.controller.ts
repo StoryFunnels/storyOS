@@ -48,6 +48,11 @@ const installSchema = z.object({
   manifest: z.unknown().optional(),
   /** How to resolve each `collision` `preview` reported (MN-219 / #161). */
   resolutions: packInstallResolutionsSchema.optional(),
+  /**
+   * #1095 — install INTO this existing space instead of creating the manifest's own: every database, view and automation the pack
+   * makes lands in it and no space is created. Only for a manifest whose databases all sit in one space.
+   */
+  target_space_id: z.uuid().optional(),
 });
 class InstallDto extends createZodDto(installSchema) {}
 
@@ -148,7 +153,7 @@ export class PacksController {
   @Post('install')
   @ApiOperation({ summary: 'Install a pack manifest; idempotent' })
   install(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.install(req.membership, body.manifest, body.resolutions);
+    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id);
   }
 
   /**
@@ -161,7 +166,7 @@ export class PacksController {
   @Post('preview')
   @ApiOperation({ summary: 'Preview what installing a manifest would do; creates nothing' })
   preview(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.preview(req.membership, body.manifest);
+    return this.packs.preview(req.membership, body.manifest, body.target_space_id);
   }
 
   /** Every pack tracked as installed in this workspace (MN-219 / #161). */

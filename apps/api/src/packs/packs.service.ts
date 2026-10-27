@@ -53,6 +53,7 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SkillsService } from '../skills/skills.service';
 import { ViewsService } from '../views/views.service';
+import { AccessService } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords } from '../workspaces/sample-records';
@@ -237,6 +238,7 @@ export class PacksService {
     private readonly architect: ArchitectService,
     private readonly skills: SkillsService,
     private readonly marketplace: MarketplaceService,
+    private readonly access: AccessService,
   ) {}
 
   // ── export ─────────────────────────────────────────────────────────────────
@@ -1000,6 +1002,49 @@ export class PacksService {
   // ── preview ────────────────────────────────────────────────────────────────
 
   /**
+   * #1095 — validate "install into this existing space" and return it, BEFORE anything is built.
+   *
+   *  - The space must be one the caller may see and EDIT: a missing, deleted or other-workspace space and someone else's personal
+   *    space are all the same 404; viewing without editing is a 403 (the rule `databases.create` already applies).
+   *  - Not a PERSONAL space: a personal space holds documents and views only, never databases (personal-space.md).
+   *  - A manifest whose databases sit in more than one space is refused: "everything lands in the target" would flatten a structure
+   *    the pack chose on purpose, and picking which space the target stands in for would be a guess.
+   *  - Install reuses a database by NAME anywhere in the workspace, so a manifest database that already lives in a DIFFERENT space
+   *    would be reused where it is and leave the target space without it: exactly the dead end this exists to remove. Refused (409)
+   *    naming where it lives, rather than reported as success. In the target space itself it is simply reused (idempotent).
+   */
+  private async resolveTargetSpace(
+    membership: Membership,
+    manifest: PackManifest,
+    targetSpaceId: string,
+  ): Promise<{ id: string; name: string }> {
+    await this.access.assertSpaceDoor(membership, targetSpaceId);
+    const space = await this.access.assertSpace(membership, targetSpaceId, 'editor');
+    if (space.personal) {
+      throw new UnprocessableEntityException('A pack cannot be installed into a personal space: it holds documents and views, not databases.');
+    }
+    const planned = [...new Set(manifest.databases.map((d) => norm(d.space)))];
+    if (planned.length > 1) {
+      const names = [...new Set(manifest.databases.map((d) => d.space))].join(', ');
+      throw new UnprocessableEntityException(
+        `"${manifest.name}" places its databases in ${planned.length} spaces (${names}), so it cannot be installed into one existing space. Install it without choosing a space.`,
+      );
+    }
+    const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
+    const live = await this.databases.list(membership);
+    const elsewhere = manifest.databases
+      .map((planned) => ({ planned, found: live.find((d) => norm(d.name) === norm(planned.name)) }))
+      .filter((x) => x.found && x.found.spaceId !== targetSpaceId);
+    if (elsewhere.length > 0) {
+      const where = elsewhere.map((x) => `"${x.planned.name}" (in ${spaceNames.get(x.found!.spaceId) ?? 'another space'})`).join(', ');
+      throw new ConflictException(
+        `${where} already exist${elsewhere.length === 1 ? 's' : ''} in this workspace outside "${space.name}", and installing reuses what exists by name, which would leave this space without ${elsewhere.length === 1 ? 'it' : 'them'}. Open the existing ${elsewhere.length === 1 ? 'database' : 'databases'} instead, or rename ${elsewhere.length === 1 ? 'it' : 'them'} first.`,
+      );
+    }
+    return { id: space.id, name: space.name };
+  }
+
+  /**
    * What `install` would do, without doing it (MN-219 / #161).
    *
    * The same split `ArchitectService` already draws between `propose` (reads,
@@ -1011,8 +1056,10 @@ export class PacksService {
    * provisioned, every agent in the manifest previews as `create` — which is
    * correct, since that is exactly what installing it would do.
    */
-  async preview(membership: Membership, rawManifest: unknown): Promise<PackPreviewResult> {
+  async preview(membership: Membership, rawManifest: unknown, targetSpaceId?: string): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
+    // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
+    if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
     const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
     return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
@@ -1387,8 +1434,11 @@ export class PacksService {
     membership: Membership,
     rawManifest: unknown,
     resolutions: PackInstallResolutions = {},
+    /** #1095 — an existing space to install INTO instead of creating the manifest's own. */
+    targetSpaceId?: string,
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
+    const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
     // Fail fast, before anything is built: a manifest whose agent declares a
     // skill it does not bundle is malformed the same way a dangling `$ref`
     // is, and the same rule applies — a broken promise about the manifest's
@@ -1405,7 +1455,7 @@ export class PacksService {
     // Databases, fields, relations, states, agents and bindings — all of it,
     // through the walk #214 already ships. Nothing about that walk is
     // reimplemented, adapted or wrapped here.
-    const built = await this.architect.build(membership, working);
+    const built = await this.architect.build(membership, working, { targetSpace });
 
     const result: PackInstallResult = {
       slug: manifest.slug,

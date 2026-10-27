@@ -157,7 +157,12 @@ export class ArchitectService {
    * Idempotent wherever that is cheap: everything is found-by-name first, so a
    * re-build of the same plan reuses instead of duplicating.
    */
-  async build(membership: Membership, rawPlan: unknown): Promise<ArchitectBuildResult> {
+  async build(
+    membership: Membership,
+    rawPlan: unknown,
+    /** #1095 — build every planned database into THIS existing space; none is created and the plan's own space names are ignored. */
+    options: { targetSpace?: { id: string; name: string } } = {},
+  ): Promise<ArchitectBuildResult> {
     const parsed = architectPlanSchema.safeParse(rawPlan);
     if (!parsed.success) {
       // 422, never a 500: a malformed plan is a bad request about a legitimate
@@ -184,13 +189,18 @@ export class ArchitectService {
 
     // The pack has to exist before an agent record can: this is the ONE
     // provisioning call, and it belongs to build, not propose.
-    const { agentsDb, triggersDb } = await this.agents.ensurePack(membership);
+    //
+    // #1095 — it also makes the "Agentic OS" SPACE if the workspace has none, for EVERY build. Installing a pack into a space the
+    // person already has must not leave that second space behind, so with a target it is provisioned only when the plan has
+    // something to put in it (agents or triggers). Without a target nothing changes: it is always provisioned, as before.
+    const needsAgentOs = !options.targetSpace || plan.agents.length > 0 || plan.triggers.length > 0;
+    const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
-    const dbIds = await this.buildDatabases(membership, plan, result);
+    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace);
     await this.buildRelations(membership, plan, dbIds, result);
     await this.buildStates(membership, plan, dbIds, result);
-    const agentIds = await this.buildAgents(membership, plan, agentsDb.id, dbIds, result);
-    await this.buildTriggers(membership, plan, dbIds, agentIds, triggersDb.id, result);
+    const agentIds = await this.buildAgents(membership, plan, agentOs?.agentsDb.id ?? '', dbIds, result);
+    await this.buildTriggers(membership, plan, dbIds, agentIds, agentOs?.triggersDb.id ?? '', result);
 
     return result;
   }
@@ -207,7 +217,13 @@ export class ArchitectService {
     membership: Membership,
     name: string,
     result: ArchitectBuildResult,
+    targetSpace?: { id: string; name: string },
   ): Promise<string> {
+    if (targetSpace) {
+      // #1095 — the caller chose the space: it is reused, never looked up by name and never created.
+      if (!result.spaces.some((s) => s.id === targetSpace.id)) result.spaces.push({ name: targetSpace.name, action: 'reused', id: targetSpace.id });
+      return targetSpace.id;
+    }
     const already = result.spaces.find((s) => norm(s.name) === norm(name));
     if (already) return already.id;
 
@@ -255,6 +271,7 @@ export class ArchitectService {
     membership: Membership,
     plan: ArchitectPlan,
     result: ArchitectBuildResult,
+    targetSpace?: { id: string; name: string },
   ): Promise<Map<string, string>> {
     const live = await this.databases.list(membership);
     const byName = new Map(live.map((d) => [norm(d.name), d]));
@@ -286,7 +303,7 @@ export class ArchitectService {
         databaseId = existing.id;
         result.databases.push({ name: planned.name, action: 'reused', id: existing.id });
       } else {
-        const spaceId = await this.ensureSpace(membership, planned.space, result);
+        const spaceId = await this.ensureSpace(membership, planned.space, result, targetSpace);
         const created = await this.databases.create(membership, {
           space_id: spaceId,
           name: planned.name,
