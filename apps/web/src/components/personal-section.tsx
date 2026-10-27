@@ -28,6 +28,7 @@ import {
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
+import { markNewDocument } from '@/lib/new-doc-focus';
 
 interface PersonalDoc {
   id: string;
@@ -284,6 +285,7 @@ export function PersonalSection({ ws }: { ws: string }) {
     },
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: docsKey });
+      markNewDocument(d.id);
       router.push(`/w/${ws}/doc/${d.id}`);
     },
     onError: () => toast.error('Could not create document'),
@@ -336,7 +338,12 @@ export function PersonalSection({ ws }: { ws: string }) {
       if (error) throw error;
       return data as unknown as { id: string };
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: viewsKey }),
+    // #1090 — open what was just made, the same rule as New document: a personal view is a lens on its database, so
+    // it opens there with itself selected.
+    onSuccess: (v, vars) => {
+      void qc.invalidateQueries({ queryKey: viewsKey });
+      router.push(`/w/${ws}/d/${vars.databaseId}?view=${v.id}`);
+    },
     onError: () => toast.error('Could not create view'),
   });
 

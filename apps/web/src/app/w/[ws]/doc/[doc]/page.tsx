@@ -10,6 +10,7 @@ import '@blocknote/mantine/style.css';
 import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
+import { consumeNewDocument } from '@/lib/new-doc-focus';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
 import { PrintAction } from '@/components/entity/print-action';
 import { PdfExportAction } from '@/components/entity/pdf-export-action';
@@ -70,6 +71,15 @@ function DocEditor({
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
   useEffect(() => () => (timer.current !== null ? clearTimeout(timer.current) : undefined), []);
+  // #1090 — a document the person just made from a sidebar New opens with its title focused, once.
+  const titleRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!consumeNewDocument(doc)) return;
+    // The new document is titled "Untitled" (a real value, not the placeholder), so SELECT it: the first keystroke
+    // replaces it instead of appending to it.
+    titleRef.current?.focus();
+    titleRef.current?.select();
+  }, [doc]);
 
   const save = useMutation({
     mutationFn: async (body: { title?: string; content?: unknown; expected_version?: number }) => {
@@ -113,6 +123,7 @@ function DocEditor({
             product. The placeholder->muted rule (#637) is about instructions
             at body size; it is not about every string in a placeholder. */}
         <input
+          ref={titleRef}
           className="w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
           placeholder="Untitled"
           value={title}
