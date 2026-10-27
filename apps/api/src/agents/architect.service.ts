@@ -187,13 +187,13 @@ export class ArchitectService {
       triggers: [],
     };
 
-    // The pack has to exist before an agent record can: this is the ONE
-    // provisioning call, and it belongs to build, not propose.
+    // The pack has to exist before an agent record can: this is the ONE provisioning call, and it belongs to build, not propose.
     //
-    // #1095 — it also makes the "Agentic OS" SPACE if the workspace has none, for EVERY build. Installing a pack into a space the
-    // person already has must not leave that second space behind, so with a target it is provisioned only when the plan has
-    // something to put in it (agents or triggers). Without a target nothing changes: it is always provisioned, as before.
-    const needsAgentOs = !options.targetSpace || plan.agents.length > 0 || plan.triggers.length > 0;
+    // Ticket #1096 — the Agentic OS space and its Agents/Runs/Agent Triggers databases exist because SOMETHING NEEDS THEM, so a
+    // build provisions them only when the plan has an agent or a trigger. A pack of databases and views alone must not leave a
+    // space and three databases the install never asked for. (#1095 made this so for installs that target a space; this is every
+    // install.) Anything that later needs the databases goes through `AgentsService.ensurePack` itself.
+    const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
     const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace);
