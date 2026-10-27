@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { confirmToggleWebhook } from '@/lib/settings-confirmations';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -183,7 +184,9 @@ export default function WebhooksSettingsPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => toggle.mutate({ id: hook.id, enabled: !hook.enabled })}
+                  onClick={async () => {
+                    if (await confirm(confirmToggleWebhook(hook.url, !hook.enabled))) toggle.mutate({ id: hook.id, enabled: !hook.enabled });
+                  }}
                 >
                   {hook.enabled ? 'Disable' : 'Enable'}
                 </Button>

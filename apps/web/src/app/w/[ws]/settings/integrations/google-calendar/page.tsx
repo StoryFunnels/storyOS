@@ -16,6 +16,8 @@ import { SelectField } from '@/components/ui/select-field';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { qualifiedDatabaseLabel } from '@/lib/database-labels';
 import { useDateFormat } from '@/lib/preferences';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { confirmRemoveCalendarMapping } from '@/lib/settings-confirmations';
 
 interface Connection {
   id: string;
@@ -239,6 +241,8 @@ export default function GoogleCalendarIntegrationPage() {
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Sync failed')),
   });
+
+  const confirm = useConfirm();
 
   const remove = useMutation({
     mutationFn: (id: string) =>
@@ -604,7 +608,9 @@ export default function GoogleCalendarIntegrationPage() {
                       size="sm"
                       variant="ghost"
                       disabled={remove.isPending}
-                      onClick={() => remove.mutate(binding.id)}
+                      onClick={async () => {
+                        if (await confirm(confirmRemoveCalendarMapping(binding.database_name, binding.calendar_name))) remove.mutate(binding.id);
+                      }}
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Remove
                     </Button>
