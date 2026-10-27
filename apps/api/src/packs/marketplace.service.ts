@@ -8,6 +8,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import {
   compareSemver,
+  describeManifestIssues,
   packManifestSchema,
   packListingMetaSchema,
 } from '@storyos/schemas';
@@ -297,9 +298,7 @@ export class MarketplaceService {
     const parsed = packManifestSchema.safeParse(rawManifest);
     if (!parsed.success) {
       throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
+        `This is not a valid pack manifest: ${describeManifestIssues(rawManifest, parsed.error.issues)}`,
       );
     }
     return parsed.data;

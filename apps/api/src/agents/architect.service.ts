@@ -390,7 +390,8 @@ export class ArchitectService {
           display_name: planned.field,
           type: 'select',
           config: {},
-          options: planned.options.map((o) => ({ label: o.label, color: o.color })),
+          // #1105 — a declared category is stored; omitted stays undefined, which a plain select keeps as none (as before)
+          options: planned.options.map((o) => ({ label: o.label, color: o.color, category: o.category })),
         })) as unknown as LiveField;
         result.states.push({ name: label, action: 'created', id: created.id });
         continue;
@@ -421,6 +422,7 @@ export class ArchitectService {
       await this.fields.addOption(databaseId, field.id, {
         label: option.label,
         color: option.color ?? 'gray',
+        category: option.category, // #1105 — only for an option that is MISSING; an existing one is never rewritten
       });
     }
   }
