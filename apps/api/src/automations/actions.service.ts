@@ -867,9 +867,12 @@ export class AutomationActionsService {
     displayToApi: Map<string, string>,
   ): { url: string; headers?: Record<string, string>; body_template?: string } {
     const url = this.interpolate(action.url, ctx, displayToApi, encodeURIComponent);
-    const headers = action.headers
+    // Persisted actions only ever hold string header values (#1068 widened the
+    // write shape to accept the keep flag); coerce for the renderer.
+    const stored = stringHeadersOnly(action.headers);
+    const headers = stored
       ? Object.fromEntries(
-          Object.entries(action.headers).map(([name, value]) => [name, this.interpolate(value, ctx, displayToApi)]),
+          Object.entries(stored).map(([name, value]) => [name, this.interpolate(value, ctx, displayToApi)]),
         )
       : undefined;
     const body_template = action.body_template

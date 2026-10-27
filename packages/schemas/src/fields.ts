@@ -455,7 +455,14 @@ export const actionSchema = z.discriminatedUnion('type', [
     // isn't a valid absolute URL until rendered, so host validation happens at
     // send time (net-guard.ts's assertPublicHost), not save time here.
     url: z.string().min(1).max(2000),
-    headers: z.record(z.string().max(100), z.string().max(1000)).optional(),
+    // Write-only like send_webhook's (#249): reads return `{ __keep: true }` for
+    // every value, so a write must accept it back (#1068).
+    headers: z
+      .record(
+        z.string().max(100),
+        z.union([z.string().max(1000), z.object({ __keep: z.literal(true) }).strict()]),
+      )
+      .optional(),
     body_template: z.string().max(10_000).optional(),
     connection_id: z.uuid().optional(),
     capture: z

