@@ -14,6 +14,25 @@ Human or AI agent, **read before you write code.** Most of the rules below exist
 - **A bug report needs evidence, not interpretation.** Say what you did, what you expected, and what actually happened, and quote the response or attach the screenshot. "It seems broken" can't be fixed.
 - `tickets/MN-###` is the original build backlog, kept as history. Don't start new work from it.
 
+## Trunk-based development
+
+`main` is the trunk and the only long-lived branch. There are no `staging`, `production` or release branches.
+
+- **Branches are short-lived.** Merge within a day or two. A branch that lives for weeks drifts from `main` and turns its merge into a project of its own.
+- **Keep PRs small.** One ticket, one concern. A small diff gets a real review and clears the merge queue fast. If a change keeps growing, split it and land the safe half first.
+- **`main` is always deployable.** Every merge builds the images and deploys that exact commit to staging (`build-images.yml`, the `deploy staging` job) within minutes. Don't merge something you wouldn't want running there.
+- **Production ships when a person decides.** A maintainer runs `Deploy production` with a green `main` sha. Rolling back means running it again with the previous sha. Nothing is promoted through branches.
+
+### Unfinished work: merge it switched off
+
+Don't hold a feature on a branch until it's finished. Merge it in small steps, switched off, and switch it on when it's ready. There is no general feature-flag system yet, so use the smallest switch that already exists:
+
+- **UI-only:** a named constant that stops the UI rendering, e.g. `SHOW_LEGACY_ZONING_UI` in `record-detail.tsx`.
+- **Server features and integrations:** an env-gated `enabled()` check. Source providers do this: a disabled provider is hidden from the list and rejected on create.
+- Per-workspace `featureFlags` on entitlement overrides are **recorded but not enforced**. Don't build on them.
+
+Every flag names its ticket in a comment, and **removing the flag is part of that ticket's Done**. A flag that outlives its feature is dead code that still looks like a decision.
+
 ## Branches and commits
 
 Work in **your own branch, in your own worktree**. Never switch branches in a checkout another session may be using.
