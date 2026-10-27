@@ -88,10 +88,15 @@ describe('#1088 the fallback: no configured default means the first state', () =
     expect(r.values['priority'] ?? null).toBeNull();
   });
 
-  it('a workflow field with no options at all has nothing to default to, and a create still works', async () => {
-    const db = await newDb('No options', []);
+  // #1087 means a workflow field can no longer be created with zero options (it starts as To do / In progress / Done), so "a field with
+  // nothing to default to" is not reachable through the API; the resolver's empty-options case is covered in field-defaults.unit.test.ts.
+  // What IS reachable, and worth pinning, is the two changes together: a brand-new status field and the first record created in it.
+  it('a workflow field created with no options starts as To do / In progress / Done, and the first record lands in To do (#1087 + #1088)', async () => {
+    const db = await newDb('No options given', []);
+    const state = (await fieldsOf(db)).find((x) => x.apiName === 'state')!;
+    expect(state.options!.map((o) => o.label)).toEqual(['To do', 'In progress', 'Done']);
     const r = await create(db, { name: 'x' });
-    expect(r.values['state'] ?? null).toBeNull();
+    expect(labelOf(state, r.values['state'])).toBe('To do');
   });
 });
 

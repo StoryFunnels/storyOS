@@ -1601,6 +1601,22 @@ describe('option icons round-trip through the MCP (#216)', () => {
     expect(body.options[0]).toEqual({ label: 'Sev1', color: 'red', icon: 'set:flame' });
     expect(body.options[1]).toEqual({ label: 'Sev2' });
   });
+
+  // #1087 — the DEFAULT lives in the API, so the tool must not invent or send one: omitting options sends none, and the API fills
+  // To do / In progress / Done; options the agent does give go through untouched.
+  it('add_field on a workflow field with no options sends NO options (the API supplies To do / In progress / Done)', async () => {
+    written.length = 0;
+    const res = await handlersFor().get('add_field')!({ workspace: 'Eng', database: 'Issues', name: 'Status', type: 'workflow' });
+    expect(res.isError).toBeFalsy();
+    const body = written[0] as { options?: unknown };
+    expect(body.options, 'nothing is sent, so nothing is added on top of what the API decides').toBeUndefined();
+  });
+
+  it('the add_field description tells an agent what an option-less workflow field contains', async () => {
+    const descriptions = new Map<string, string>();
+    registerTools({ registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') } as never, { client: {} as never, baseUrl: 'http://t', token: 't' } as never);
+    expect(descriptions.get('add_field')).toContain('To do / In progress / Done');
+  });
 });
 
 /**
