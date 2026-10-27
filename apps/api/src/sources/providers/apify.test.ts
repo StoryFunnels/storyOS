@@ -257,6 +257,37 @@ describe('apifyActorProvider.discover (Step 4)', () => {
     await expect(apifyActorProvider.discover!({ api_key: 'k' }, {}, fetcher)).rejects.toBeInstanceOf(BadRequestException);
     expect(calls).toHaveLength(0);
   });
+
+  // #1078 — discover() gets the config even when it failed the schema, and the id went into the path unchecked and
+  // unencoded, so the workspace's Apify key could be sent to any Apify API path the id spelled out.
+  it.each([
+    'x/../../users/me',
+    'x/y/../../../v2/key-value-stores',
+    'user/actor?token=evil',
+    'user/actor#frag',
+    'user%2Factor',
+    '../acts',
+    'user/..',
+  ])('rejects an actor id that is not one actor (%s), before any network call', async (actorId) => {
+    const { fetcher, calls } = routedFetcher([]);
+    await expect(apifyActorProvider.discover!({ api_key: 'k' }, { actor_id: actorId }, fetcher)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['user/actor', '/acts/user~actor/runs?'],
+    ['user~actor', '/acts/user~actor/runs?'],
+    ['aBcDeFgHiJkLmNoPq', '/acts/aBcDeFgHiJkLmNoPq/runs?'],
+  ])('still addresses a real actor id (%s) as one path segment', async (actorId, path) => {
+    const { fetcher, calls } = routedFetcher([
+      { method: 'GET', test: (u) => u.includes('status=SUCCEEDED'), respond: () => jsonRes(200, { data: { items: [{ defaultDatasetId: 'ds_9' }] } }) },
+      { method: 'GET', test: (u) => u.includes('/datasets/ds_9/items'), respond: () => jsonRes(200, [{ foo: 'a' }]) },
+    ]);
+    await apifyActorProvider.discover!({ api_key: 'k' }, { actor_id: actorId }, fetcher);
+    expect(calls[0]!.url).toContain(path);
+  });
 });
 
 describe('apifyActorProvider — auth guard', () => {
