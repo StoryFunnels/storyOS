@@ -8,6 +8,10 @@ plus a second, independent top-level source, "Glossary Term"). Written per
 questions it names have a decision and a reason, not a list of options, before
 anything is split into buildable pieces.
 
+> **Amended 2026-10-27 for boards by [ADR-0020](../decisions/ADR-0020-multi-source-boards.md)** (ticket #951): sections 4 (columns), 7 (writes)
+> and 8 (table-only) below hold for the nested **table** only. A flat **board** over several databases uses ONE view-owned column
+> set that each source maps into, and writes through that mapping. The `sources` shape below is shared by both.
+
 > **TL;DR** — a view's `config` gains an optional `sources: SourceNode[]`, each
 > node `{ database_id, relation_field_id?, filter?, sorts?, children? }`.
 > Table-only in v1. Paging is over top-level rows only; per-source
