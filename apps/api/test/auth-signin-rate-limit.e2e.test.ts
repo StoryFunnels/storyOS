@@ -3,6 +3,8 @@ import { TEST_SIGNIN_RATE_LIMIT, restoreSignInRateLimit } from './helpers/auth-r
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
+import { request } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 /**
  * MN-257 — better-auth's sign-in routes (`/api/v1/auth/sign-in/*`) are mounted
@@ -36,6 +38,7 @@ function signIn(app: NestFastifyApplication, email: string, password: string, ex
 
 beforeAll(async () => {
   app = await createTestApp();
+  await app.listen(0, '127.0.0.1');
 });
 
 afterAll(async () => {
@@ -96,4 +99,48 @@ describe('better-auth sign-in rate limiting (MN-257)', () => {
     const res = await signIn(app, neighbor, PASSWORD);
     expect(res.statusCode, "a different account behind the same IP isn't locked out by someone else's failures").toBe(200);
   });
+
+  // #1078 — the limiter matched the raw path string, but better-auth routes on the WHATWG-normalized URL, so a
+  // dot-segment spelling reached sign-in without ever being counted. app.inject (and fetch) normalize the URL before
+  // Fastify sees it, which hides the bug — so these go over a real socket with node:http, which sends the path as is.
+  it.each([
+    '/api/v1/auth/./sign-in/email',
+    '/api/v1/auth/%2e/sign-in/email',
+    '/api/v1/auth/x/../sign-in/email',
+    '/api/v1/auth/x/%2e%2e/sign-in/email',
+    '/api/v1/auth/sign-in/./email',
+  ])('a dot-segment spelling (%s) is the same bucket, not a way around it', async (variant) => {
+    const email = `t1078-${Math.random().toString(36).slice(2)}@test.storyos.dev`;
+    await signUp(app, email);
+    for (let i = 0; i < TEST_SIGNIN_RATE_LIMIT; i++) {
+      const res = await rawPost(variant, { email, password: 'wrong-password' });
+      expect(res.status, `attempt ${i} via ${variant} should reach better-auth and fail auth`).toBe(401);
+    }
+    const blocked = await rawPost(variant, { email, password: PASSWORD });
+    expect(blocked.status, `${variant} must be counted and throttled`).toBe(429);
+  });
+
+  it('still serves an ordinary sign-in on the normalized path (with a query string)', async () => {
+    const email = `t1078-ok-${Date.now()}@test.storyos.dev`;
+    await signUp(app, email);
+    const res = await rawPost('/api/v1/auth/sign-in/email?x=1', { email, password: PASSWORD });
+    expect(res.status).toBe(200);
+  });
 });
+
+/** POST over a real socket; unlike app.inject/fetch, node:http does not normalize `path`. */
+function rawPost(path: string, body: unknown): Promise<{ status: number }> {
+  const { port } = app.getHttpServer().address() as AddressInfo;
+  const data = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { host: '127.0.0.1', port, path, method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+      },
+    );
+    req.on('error', reject);
+    req.end(data);
+  });
+}
