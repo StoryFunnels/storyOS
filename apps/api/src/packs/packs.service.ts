@@ -263,8 +263,10 @@ export class PacksService {
     const slice = await this.readSlice(membership, request);
 
     const idToRef = this.buildExportRefs(slice);
-    const { agentsDb, triggersDb } = await this.agents.ensurePack(membership);
-    const bindings = await this.records.list(triggersDb.id, { limit: MAX_SCAN });
+    // Ticket #1096: an EXPORT reads the workspace, it must not provision the Agentic OS pack. A workspace that never had one has
+    // no agents and no bindings, so the manifest simply carries none.
+    const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
+    const bindings = triggersDb ? await this.records.list(triggersDb.id, { limit: MAX_SCAN }) : { data: [] as Array<{ id: string; values: Record<string, unknown> }> };
 
     // Which selects are workflow states, and which are ordinary columns? A state
     // is a select the workflow *binds to* (ADR-0010 §5: "a state is a select;
@@ -337,12 +339,9 @@ export class PacksService {
     }
 
     const relations = await this.exportRelations(slice);
-    const { agents, triggers } = await this.exportAgents(
-      membership,
-      slice,
-      agentsDb.id,
-      bindings.data,
-    );
+    const { agents, triggers } = agentsDb
+      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data)
+      : { agents: [], triggers: [] };
     const views = this.exportViews(slice, idToRef);
     const automations = await this.exportAutomations(slice, idToRef);
     const sampleRecords = request.include_sample_records

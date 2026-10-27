@@ -266,6 +266,19 @@ export class AgentsService implements OnModuleInit {
     };
   }
 
+  /**
+   * Ticket #1096 — the pack for a caller that ACTS ON an existing agent or run (run, delegate, approve/reject, activity, bindings).
+   * Provisioning belongs to whatever creates the first agent (`ensurePack`: setup_agents, a pack/Architect build with agents). A
+   * workspace with no Agents database cannot hold an agent, so the answer is the same 404 a missing agent gives, WITHOUT
+   * creating a space and three databases as a side effect of asking. With an Agents database it is exactly `ensurePack`, which
+   * still back-fills Runs / Agent Triggers on an older workspace.
+   */
+  private async ensurePackForExisting(membership: Membership, what = 'Agent'): Promise<{ agentsDb: Database; runsDb: Database; triggersDb: Database; created: boolean }> {
+    const { agentsDb, runsDb } = await this.findPackDbs(membership.workspaceId);
+    if (!agentsDb && !runsDb) throw new NotFoundException(`${what} not found`);
+    return this.ensurePack(membership);
+  }
+
   /** Add a field to a pack database if it isn't there yet, found by api_name. */
   private async ensureField(
     databaseId: string,
@@ -828,7 +841,7 @@ export class AgentsService implements OnModuleInit {
     agentRef: string,
     range: { from?: string; to?: string } = {},
   ) {
-    const { agentsDb } = await this.ensurePack(membership);
+    const { agentsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     const from = range.from ? new Date(range.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -1372,7 +1385,7 @@ export class AgentsService implements OnModuleInit {
    */
   async run(membership: Membership, agentRef: string): Promise<ProjectedRecord> {
     // Idempotent, and it back-fills Runs/Agent Triggers for older workspaces.
-    const { agentsDb, runsDb } = await this.ensurePack(membership);
+    const { agentsDb, runsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     // A disabled agent is a definition, not a runnable thing. An unset checkbox
@@ -1420,7 +1433,7 @@ export class AgentsService implements OnModuleInit {
     agentRef: string,
     recordId: string,
   ): Promise<ProjectedRecord> {
-    const { agentsDb, runsDb } = await this.ensurePack(membership);
+    const { agentsDb, runsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     if (agentRecord.values['enabled'] !== true) {
@@ -1643,7 +1656,7 @@ export class AgentsService implements OnModuleInit {
     verdict: 'approve' | 'reject',
     reason?: string,
   ): Promise<ProjectedRecord> {
-    const { runsDb } = await this.ensurePack(membership);
+    const { runsDb } = await this.ensurePackForExisting(membership, 'Run');
     const run = await this.resolveRun(runsDb.id, runRef);
 
     const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
@@ -1836,7 +1849,7 @@ export class AgentsService implements OnModuleInit {
     membership: Membership,
     runRef: string,
   ): Promise<{ action: ProposedAction; steps: AgentStep[] } | null> {
-    const { runsDb } = await this.ensurePack(membership);
+    const { runsDb } = await this.ensurePackForExisting(membership, 'Run');
     const run = await this.resolveRun(runsDb.id, runRef);
     // #1029 — show what the SERVER staged (the approvals row), not the editable display copy: what a person is asked to
     // approve must be what would actually run.
@@ -1978,7 +1991,7 @@ export class AgentsService implements OnModuleInit {
     },
     source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
-    const { agentsDb, triggersDb } = await this.ensurePack(membership);
+    const { agentsDb, triggersDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
     const { database, field, option } = await this.validateBinding(membership.workspaceId, input);
 
