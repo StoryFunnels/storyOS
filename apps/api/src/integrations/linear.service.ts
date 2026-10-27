@@ -1122,6 +1122,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const sprintField = relationField('sprint');
       const projectField = relationField('project');
       const parentField = relationField('parent_issue');
+      const issuesLabelsField = labelsFieldId ? { id: labelsFieldId } : undefined;
 
       // What is already mirrored (one paged read), for drift detection and for spotting issues that have left scope.
       const mirrored = await this.loadMirror(issuesDb.id, actorId);
@@ -1144,22 +1145,26 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         issueIds.set(issue.id, id);
         summary.issues++;
 
-        const link = async (field: typeof sprintField, target: string | undefined) => {
-          if (!field || !target) return;
-          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, id, field.id, [target], actorId);
+        // #1103 — Linear OWNS these links, so each sync sets them to Linear's set (a dropped label, a changed cycle or project
+        // is unlinked). `null` = Linear names something we cannot place (not imported), which is not the same as "none":
+        // leave the existing link alone rather than clear it.
+        const own = async (field: { id: string } | undefined, targets: string[] | null) => {
+          if (!field || targets === null) return;
+          const failure = await this.relationLinker.set(membership.workspaceId, issuesDb.id, id, field.id, targets, actorId);
           if (failure) linkWarnings.push(failure);
         };
-        await link(sprintField, issue.cycle ? sprintIds.get(issue.cycle.id) : undefined);
-        await link(projectField, issue.project ? projectIds.get(issue.project.id) : undefined);
+        const one = (linearId: string | undefined, known: Map<string, string>): string[] | null => {
+          if (!linearId) return [];
+          const target = known.get(linearId);
+          return target ? [target] : null;
+        };
+        await own(sprintField, one(issue.cycle?.id, sprintIds));
+        await own(projectField, one(issue.project?.id, projectIds));
 
         // Link the issue to its label records (many-to-many).
-        const labelTargets = issue.labels.nodes
-          .map((l) => labelRecordIds.get(l.id))
-          .filter((v): v is string => Boolean(v));
-        if (labelsFieldId && labelTargets.length) {
-          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, id, labelsFieldId, labelTargets, actorId);
-          if (failure) linkWarnings.push(failure);
-        }
+        const labelTargets = issue.labels.nodes.map((l) => labelRecordIds.get(l.id));
+        const labelsPlaced = labelTargets.every((v): v is string => Boolean(v));
+        await own(issuesLabelsField, labelsPlaced ? (labelTargets as string[]) : null);
       }
 
       // #906 — an issue we mirrored that Linear no longer returns (archived, deleted, moved out of the chosen teams) is
@@ -1203,8 +1208,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         for (const issue of data.issues.nodes) {
           const child = issueIds.get(issue.id);
           const parent = issue.parent ? (issueIds.get(issue.parent.id) ?? (incremental ? mirrored.get(issue.parent.id)?.id : undefined)) : undefined;
-          if (!child || !parent) continue;
-          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, child, parentField.id, [parent], actorId);
+          // #1103 — a parent Linear no longer has is unlinked; one we cannot place (not imported) is left as it was.
+          if (!child || (issue.parent && !parent)) continue;
+          const failure = await this.relationLinker.set(membership.workspaceId, issuesDb.id, child, parentField.id, parent ? [parent] : [], actorId);
           if (failure) linkWarnings.push(failure);
         }
       }
