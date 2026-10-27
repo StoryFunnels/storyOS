@@ -25,8 +25,42 @@ export interface ManagedAiCompletion {
  * schema-validation and metering logic are all provable without ever making a
  * real network call.
  */
+export interface ManagedAiCallOptions {
+  /**
+   * `json` (the default, and what every caller before #1109 got) asks the
+   * provider for a syntactically valid JSON object. `text` asks for a plain
+   * answer and sends no response format at all — what an AI field wants, since
+   * its stored value is a bare string, not a JSON document (#1109).
+   */
+  responseFormat?: 'json' | 'text';
+}
+
 export interface ManagedAiClient {
-  complete(prompt: string): Promise<ManagedAiCompletion>;
+  complete(prompt: string, options?: ManagedAiCallOptions): Promise<ManagedAiCompletion>;
+}
+
+/**
+ * The instruction added in JSON mode when no message already says "JSON".
+ * OpenAI's Chat Completions API refuses `response_format: json_object` (HTTP
+ * 400) unless the word "json" appears somewhere in the messages (documented
+ * behaviour, not exercised against the real API in this repo). The guard lives
+ * here, not in each caller, so a caller whose prompt forgets the word cannot
+ * turn every call into a 400.
+ */
+export const JSON_MODE_INSTRUCTION = 'Respond with a single valid JSON object.';
+
+export interface ChatMessageBody {
+  role: 'system' | 'user';
+  content: string;
+}
+
+/** The `messages` array for a call: the user prompt, plus the JSON instruction when JSON mode is requested and the prompt does not already mention JSON. */
+export function buildMessages(prompt: string, responseFormat: 'json' | 'text'): ChatMessageBody[] {
+  const messages: ChatMessageBody[] = [{ role: 'user', content: prompt }];
+  if (responseFormat === 'json' && !/json/i.test(prompt)) {
+    messages.unshift({ role: 'system', content: JSON_MODE_INSTRUCTION });
+  }
+  return messages;
 }
 
 /**
@@ -44,7 +78,8 @@ export class OpenAiManagedAiClient implements ManagedAiClient {
     private readonly model: string,
   ) {}
 
-  async complete(prompt: string): Promise<ManagedAiCompletion> {
+  async complete(prompt: string, options: ManagedAiCallOptions = {}): Promise<ManagedAiCompletion> {
+    const responseFormat = options.responseFormat ?? 'json';
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -53,8 +88,8 @@ export class OpenAiManagedAiClient implements ManagedAiClient {
       },
       body: JSON.stringify({
         model: this.model,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
+        messages: buildMessages(prompt, responseFormat),
+        ...(responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
         temperature: 0.2,
       }),
     });
