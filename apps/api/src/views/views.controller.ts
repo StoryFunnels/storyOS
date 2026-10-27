@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -154,7 +154,14 @@ export class ViewsController {
     // depends on WHICH view: the owner deleting their own personal view needs
     // only viewer (matching createPersonal), everything else still needs editor.
     const level = await this.viewsService.deleteAccessLevel(databaseId, viewId, req.user.id);
-    await this.databases.assertAccess(req.membership, databaseId, level);
+    try {
+      await this.databases.assertAccess(req.membership, databaseId, level);
+    } catch (e) {
+      // ticket #1117 / ADR-0018 (b): the view was found above, so "Database not found" would tell a caller who cannot read the
+      // database that this view exists; an id that does not exist answers "View not found" at the lookup above. Say the same.
+      if (e instanceof NotFoundException) throw new NotFoundException('View not found');
+      throw e;
+    }
     return this.viewsService.remove(databaseId, viewId);
   }
 
