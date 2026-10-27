@@ -12,9 +12,11 @@ import {
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
+  describeManifestIssues,
   packManifestSchema,
   resolveSampleDate,
   SAMPLE_ME,
+  type PlanOption,
 } from '@storyos/schemas';
 import type {
   PackAgent,
@@ -173,7 +175,7 @@ interface LiveField {
   type: string;
   isSystem?: boolean;
   config?: Record<string, unknown>;
-  options?: Array<{ id: string; label: string; color?: string }>;
+  options?: Array<{ id: string; label: string; color?: string; category?: string | null }>;
 }
 
 interface LiveView {
@@ -317,6 +319,8 @@ export class PacksService {
             options: (field.options ?? []).map((o) => ({
               label: o.label,
               color: o.color as PlanState['options'][number]['color'],
+              // #1105 — round-trips: an exported manifest keeps the categories its options carry (a select option without one stays without)
+              ...(o.category ? { category: o.category as PlanOption['category'] } : {}),
             })),
           });
           continue;
@@ -327,6 +331,8 @@ export class PacksService {
           options: field.options?.map((o) => ({
             label: o.label,
             color: o.color as PlanState['options'][number]['color'],
+            // #1105 — a workflow field's categories round-trip too (a person may have changed them after install)
+            ...(o.category ? { category: o.category as PlanOption['category'] } : {}),
           })),
           // Configs of plain types carry no refs (precision, multiline,
           // include_time), but they are schema and dropping them would make the
@@ -1359,7 +1365,14 @@ export class PacksService {
           blocks_install: true,
         });
       } else if (decision.options_to_add.length > 0) {
-        gains.get(norm(st.database))!.options.push({ field: st.field, labels: decision.options_to_add });
+        const declared = Object.fromEntries(
+          st.options.filter((o) => o.category && decision.options_to_add.includes(o.label)).map((o) => [o.label, o.category!]),
+        );
+        gains.get(norm(st.database))!.options.push({
+          field: st.field,
+          labels: decision.options_to_add,
+          ...(Object.keys(declared).length > 0 ? { categories: declared } : {}),
+        });
         const existing = fields.find((f) => norm(f.displayName) === norm(st.field));
         if (existing) existing.options = [...(existing.options ?? []), ...decision.options_to_add.map((label) => ({ label }))];
       }
@@ -1384,9 +1397,7 @@ export class PacksService {
     const parsed = packManifestSchema.safeParse(rawManifest);
     if (!parsed.success) {
       throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
+        `This is not a valid pack manifest: ${describeManifestIssues(rawManifest, parsed.error.issues)}`,
       );
     }
     return parsed.data;

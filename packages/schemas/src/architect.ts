@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { creatableFieldTypeSchema, OPTION_COLORS } from './fields';
+import { creatableFieldTypeSchema, OPTION_COLORS, stateCategorySchema } from './fields';
 import { relationCardinalitySchema } from './relations';
 
 /**
@@ -26,14 +26,29 @@ import { relationCardinalitySchema } from './relations';
 
 const nameSchema = z.string().min(1).max(200);
 
+/**
+ * One option of a select / workflow field in a plan or pack manifest (ticket #1105).
+ *
+ * `category` is OPTIONAL, so every manifest written before it stays valid, and it is the #1014 state category
+ * (backlog | unstarted | started | completed | canceled): the author's word on what KIND of state this option is. Omitted, install
+ * behaves exactly as it did before: a `workflow` field infers one from the label and position, a plain `select` keeps none. Declared,
+ * it wins over inference. An unknown value is refused at validation, naming the option (see `planOptionSchema`'s refine below).
+ *
+ * THE ONE PLACE to extend a manifest option (the `fields[].options` and `states[].options` shapes below both use it).
+ */
+export const planOptionSchema = z.object({
+  label: nameSchema,
+  color: z.enum(OPTION_COLORS).optional(),
+  category: stateCategorySchema.optional(),
+});
+export type PlanOption = z.infer<typeof planOptionSchema>;
+
 /** A field the plan wants on a database, in the terms a reviewer reads. */
 export const planFieldSchema = z.object({
   name: nameSchema,
   type: creatableFieldTypeSchema,
   /** For select/multi_select fields. Ignored for other types. */
-  options: z
-    .array(z.object({ label: nameSchema, color: z.enum(OPTION_COLORS).optional() }))
-    .optional(),
+  options: z.array(planOptionSchema).optional(),
   /**
    * The field's type config — number precision, `include_time`, `multiline`.
    *
@@ -95,7 +110,7 @@ export type PlanRelation = z.infer<typeof planRelationSchema>;
 export const planStateSchema = z.object({
   database: nameSchema,
   field: nameSchema,
-  options: z.array(z.object({ label: nameSchema, color: z.enum(OPTION_COLORS).optional() })).min(1),
+  options: z.array(planOptionSchema).min(1),
 });
 export type PlanState = z.infer<typeof planStateSchema>;
 
