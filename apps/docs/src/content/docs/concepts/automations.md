@@ -38,6 +38,14 @@ Eleven actions, all available to buttons and rules alike.
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
 
+### Setting a select, workflow or multi-select field by its label
+
+In **Set fields on this record**, **Create a record**, **Create many records** and **Update linked records**, a value for a select, workflow or multi-select field can be the option's **label** (`Done`) or its id. A label is matched ignoring case, so `in review` finds `In review`. For a multi-select field, give a list of labels or ids; each entry is matched on its own. This is what you want when a rule is written over [MCP](#building-a-rule-over-mcp) or the API, where an agent knows the label and not the option's id.
+
+A value that is neither an option id nor the label of an option fails the run. The message names the field, what was given and every valid label, for example `"Status" has no option "Shipped". Valid options: New, In review, Done.` The failing action writes nothing. Actions that ran before it in the same rule are not undone, and in **Create many records** the records already created for earlier items stay.
+
+A token is expanded first and the result is then matched, so a token such as `{payload.status}` can supply a label. In **Update linked records** only a token that is the whole value is expanded (such as `{payload.status}` or `@me`); a `{Field Name}` placeholder inside text is not, so it is looked up as written.
+
 ### Running an agent on a schedule
 
 Choose **Run an agent** under **Then**, pick the agent, and add an optional instruction for the run. Pair it with **On a
