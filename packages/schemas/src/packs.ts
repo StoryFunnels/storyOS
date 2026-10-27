@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { architectPlanSchema, planAgentSchema } from './architect';
+import { stateCategorySchema } from './fields';
 import { skillExampleSchema } from './skills';
 import { viewTypeSchema } from './views';
 
@@ -393,6 +394,30 @@ export const packManifestSchema = architectPlanSchema.extend({
 export type PackManifest = z.infer<typeof packManifestSchema>;
 
 /**
+ * The text of a manifest validation failure, for the 422 body. A path alone ("states.0.options.5.category") makes an author count array
+ * positions; where the issue is on an OPTION (ticket #1105: an unknown `category`), this also names that option by its label, read off the
+ * raw manifest that failed, so the error says which option is wrong.
+ */
+export function describeManifestIssues(raw: unknown, issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
+  return issues
+    .map((i) => {
+      const where = i.path.map(String).join('.') || '(root)';
+      // ticket #1106: an issue inside `agents[n]` names that agent too, because "agents.0.ai_mode" does not say which of ten it is.
+      if (i.path[0] === 'agents' && typeof i.path[1] === 'number') {
+        const name = (raw as { agents?: Array<{ name?: unknown }> } | null | undefined)?.agents?.[i.path[1]]?.name;
+        return typeof name === 'string' ? `${where} (agent "${name}") ${i.message}` : `${where} ${i.message}`;
+      }
+      const at = i.path.indexOf('options');
+      if (at < 0 || at + 1 >= i.path.length) return `${where} ${i.message}`;
+      let node: unknown = raw;
+      for (const key of i.path.slice(0, at + 2)) node = (node as Record<string, unknown> | null | undefined)?.[key as string];
+      const label = (node as { label?: unknown } | null | undefined)?.label;
+      return typeof label === 'string' ? `${where} (option "${label}") ${i.message}` : `${where} ${i.message}`;
+    })
+    .join('; ');
+}
+
+/**
  * One unmet requirement, as install reports it. `'source'` (#600) is
  * reported through this SAME channel deliberately — both `connection` and
  * `source` entries already share the property that made this "unmet, never
@@ -533,7 +558,14 @@ export type PackAgentUpdate = z.infer<typeof packAgentUpdateSchema>;
  */
 export const packDatabaseGainsSchema = z.object({
   fields: z.array(z.object({ name: z.string(), type: z.string() })),
-  options: z.array(z.object({ field: z.string(), labels: z.array(z.string()) })),
+  options: z.array(
+    z.object({
+      field: z.string(),
+      labels: z.array(z.string()),
+      /** #1105 — the state category the manifest DECLARES for an added option, by label; only the declared ones are listed. */
+      categories: z.record(z.string(), stateCategorySchema).optional(),
+    }),
+  ),
   views: z.array(z.string()),
   not_applied: z.array(
     z.object({
