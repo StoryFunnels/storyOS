@@ -56,9 +56,11 @@ import {
   proposedActionPayloadSchema,
   RUN_CLASS_BY_LABEL,
   RUN_CLASS_LABEL,
+  skillsLoadStep,
   stepsToMarkdown,
 } from './agent-runtime';
-import type { AgentRuntime, AgentRunAgent, AgentStep, ProposedAction } from './agent-runtime';
+import type { AgentRuntime, AgentRunAgent, AgentRunSkill, AgentStep, ProposedAction } from './agent-runtime';
+import { SkillsService } from '../skills/skills.service';
 
 type Database = typeof databasesTable.$inferSelect;
 
@@ -202,7 +204,35 @@ export class AgentsService implements OnModuleInit {
      * already imports AutomationsModule (one-way), so this needs no new
      * module wiring. */
     private readonly approvals: ApprovalsService,
+    /** ticket #1106: resolves the skills an agent names, at run time, as its owner sees them. */
+    private readonly skillsService: SkillsService,
   ) {}
+
+  /**
+   * ticket #1106 — the skills an agent's "Skills" field names (one name per line), resolved by
+   * name AT RUN TIME as the agent's owner. `missing` lists every named skill that cannot be found, so the caller fails the run naming it.
+   */
+  private async resolveAgentSkills(
+    workspaceId: string,
+    ownerUserId: string,
+    raw: string,
+  ): Promise<{ loaded: AgentRunSkill[]; missing: string[] }> {
+    const names = raw
+      .split('\n')
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) return { loaded: [], missing: [] };
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, ownerUserId)),
+    });
+    // dispatch only runs for an active owner (resolveAgentOwner), so this is defensive: with no membership nothing is visible.
+    if (!membership) return { loaded: [], missing: names };
+    const { loaded, missing } = await this.skillsService.resolveByNames(membership, ownerUserId, names);
+    return {
+      loaded: loaded.map((k) => ({ name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
+      missing,
+    };
+  }
 
   /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
    * this runs, actions.service.ts's execute() routes any `run_agent` action
@@ -500,6 +530,14 @@ export class AgentsService implements OnModuleInit {
         { label: 'Your own AI', color: 'green' },
         { label: 'StoryOS AI', color: 'purple' },
       ],
+    });
+
+    // ticket #1106: the skills (by name) an agent loads at run time. A plain text field rather than a relation: a skill is a workspace-wide
+    // table row, not a record in a pack database, and the pack manifest names skills the same way. Back-filled like "AI mode" above.
+    await this.ensureField(agentsDb.id, 'skills', {
+      display_name: 'Skills',
+      type: 'text',
+      config: { multiline: true },
     });
 
     let runsDb = existing.runsDb;
@@ -1051,6 +1089,14 @@ export class AgentsService implements OnModuleInit {
     );
     const aiMode = aiModeLabel ? RUN_CLASS_BY_LABEL[aiModeLabel] : undefined;
 
+    // ticket #1106: the skills this agent loads, resolved NOW (at run time) by name from the skills table, never copied at install —
+    // so an edited skill is what the next run uses, and one that was removed or renamed is reported instead of silently skipped.
+    const { loaded: loadedSkills, missing: missingSkills } = await this.resolveAgentSkills(
+      workspaceId,
+      owner.userId,
+      (agentRecord.values['skills'] as string | undefined) ?? '',
+    );
+
     const agent: AgentRunAgent = {
       id: agentRecord.id,
       name: agentRecord.title,
@@ -1068,6 +1114,7 @@ export class AgentsService implements OnModuleInit {
       scopes: effectiveScopes,
       targetDatabases: (agentRecord.values['target_databases'] as string | undefined) ?? undefined,
       aiMode,
+      skills: loadedSkills,
     };
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
@@ -1115,8 +1162,12 @@ export class AgentsService implements OnModuleInit {
       runtime.requiresManagedAiCredits === true &&
       !(await this.aiCredits.canUseManagedAi(workspaceId));
 
+    // ticket #1106: a run that was supposed to use a skill that is gone must not quietly run without it. The Run is still created and
+    // stamped (visible where the owner looks) and fails before any runtime starts, naming each skill.
+    const skillsMissing = missingSkills.length > 0;
+
     const blockedBeforeExecution =
-      overAllowance || costCapExceeded || managedCreditsUnavailable;
+      overAllowance || costCapExceeded || managedCreditsUnavailable || skillsMissing;
 
     let run = await asAgentRuntime(() => this.recordsService.create(
       workspaceId,
@@ -1131,7 +1182,9 @@ export class AgentsService implements OnModuleInit {
           ? {
               finished_at: new Date().toISOString(),
               steps: markdownToBlocks(
-                overAllowance
+                skillsMissing
+                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} attached to this agent but cannot be found (removed, renamed, or not visible to the agent's owner). The run did not start. To fix it: ${missingSkills.map((n) => `rename the skill back to "${n}" (agents find skills by name), or re-attach the skill you want by editing this agent's Skills field`).join('; ')}.`
+                  : overAllowance
                   ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
                   : costCapExceeded
                     ? `- **guardrail.cost_cap** — Estimated run cost exceeds the configured max_cost_cents (${input.guardrails?.maxCostCents})`
@@ -1161,6 +1214,8 @@ export class AgentsService implements OnModuleInit {
     // the dead-letter (ADR-0010 §5) — visible where the user already looks.
     const attempts = (input.retries ?? 0) + 1;
     const steps: AgentStep[] = [];
+    // ticket #1106: say in the run record which skills this run loaded (and that the instructions are what the runtime is given).
+    if (loadedSkills.length > 0) steps.push(skillsLoadStep(loadedSkills, runtime.runClass));
     let failure: string | null = null;
     let staged: ProposedAction | null = null;
     let backoffMs = input.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;

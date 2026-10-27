@@ -84,6 +84,8 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Tickets'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
