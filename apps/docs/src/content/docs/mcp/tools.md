@@ -131,6 +131,27 @@ plan instead of cramming prose into a record or inventing a database for one pag
 | `set_default_view` / `set_favorite` | Which view people land on; star a record or database for the calling identity. |
 | `list_icon_set` | The curated icon names usable as `icon` on databases and spaces. |
 
+### Installing a pack into an existing space
+
+By default `install_pack` creates the pack's own space. To put a pack in a space you already have, pass
+`space` (a name, slug or id from `list_spaces`). Over REST the same input is `target_space_id` (a space
+id) on the workspace's `packs/install` and `packs/preview` calls. Every database the pack creates, with its views, lands in that
+space, and the pack's own space is not created. With no `space` the install behaves as it did before.
+
+- **`preview` takes the same input** and applies the same checks, so a refusal shows up before anything is created.
+- **You need edit access to the space.** Someone with view-only access gets a 403. A space that does not
+  exist, is deleted, or belongs to another workspace (or is another member's personal space) is a 404.
+- **A personal space is refused (422).** A personal space holds documents and views, not databases.
+- **A pack whose databases sit in more than one space is refused (422)**, and the message names those spaces.
+  Install it without choosing a space.
+- **A pack whose databases already exist in a different space is refused (409)**, naming where each one lives.
+  Install reuses a database it finds by name anywhere in the workspace, so without the refusal the target
+  space would be left without it. Open the existing database, or rename it first.
+- **Installing twice into the same space reuses** what the first install made rather than creating it again.
+- **Uninstalling removes the pack's content, not the space** you installed it into.
+- **A pack that includes agents or triggers still gets the *Agentic OS* space** they live in, if the
+  workspace does not have one yet. Only the pack's own space is skipped.
+
 ### Space-level views and groups
 
 | Tool | What it does |
