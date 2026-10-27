@@ -1,0 +1,9 @@
+# Paths where a change can run code in CI, reach deploy secrets, or change how
+# production is built and served. A PR touching them needs a code-owner review
+# (enforced by the `protect main` ruleset). Ticket #1084.
+
+/.github/                    @IllyaMoore @ikrasovytskyi
+/docker/                     @IllyaMoore @ikrasovytskyi
+/scripts/                    @IllyaMoore @ikrasovytskyi
+/docker-compose*.yml         @IllyaMoore @ikrasovytskyi
+/SECURITY.md                 @IllyaMoore @ikrasovytskyi
