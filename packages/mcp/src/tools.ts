@@ -3024,7 +3024,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff).',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3044,9 +3044,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Names of installed agents a person EDITED whose content should be replaced with this pack version (preview marks them agent_update.status = edited_needs_choice). Agents not named stay as they are.',
           ),
+        enable_automations: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Labels ("Database.Rule name", as preview lists them) of automations that send something outside the workspace (email, Slack, webhook, HTTP, social post) or run an agent, which a pack installs SWITCHED OFF, that you want switched ON. Only name one when the person asked for it; a pack\'s own enabled:true on such a rule is ignored. Preview and the install result list every automation with enabled / enabled_on_install and, when off for what it does, switched_off_because.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[] }>(async ({ workspace, slug, preview, space, update_agents }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; enable_automations?: string[] }>(async ({ workspace, slug, preview, space, update_agents, enable_automations }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3063,6 +3069,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           ...(update_agents?.length
             ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
             : {}),
+          ...(enable_automations?.length ? { enable_automations } : {}),
         } as never,
       };
       return text(

@@ -15,6 +15,7 @@ import {
   describeManifestIssues,
   packManifestSchema,
   resolveSampleDate,
+  installedEnabledState,
   SAMPLE_ME,
   type PlanOption,
 } from '@storyos/schemas';
@@ -1061,12 +1062,28 @@ export class PacksService {
    * provisioned, every agent in the manifest previews as `create` — which is
    * correct, since that is exactly what installing it would do.
    */
-  async preview(membership: Membership, rawManifest: unknown, targetSpaceId?: string): Promise<PackPreviewResult> {
+  async preview(
+    membership: Membership,
+    rawManifest: unknown,
+    targetSpaceId?: string,
+    /** #1107 — see `install`. A preview that ignored it would show the rules off that the install then turns on. */
+    enableAutomations: string[] = [],
+  ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
     const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
+    const turnedOn = this.labelSet(enableAutomations);
+    const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
+    for (const item of automations) {
+      const planned = plannedByLabel.get(item.name);
+      if (!planned || item.action === 'reuse') continue;
+      const state = installedEnabledState(planned.actions, planned.enabled, turnedOn.has(norm(item.name)));
+      item.enabled_on_install = state.enabled;
+      if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
+    }
     return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
   }
 
@@ -1446,6 +1463,11 @@ export class PacksService {
     resolutions: PackInstallResolutions = {},
     /** #1095 — an existing space to install INTO instead of creating the manifest's own. */
     targetSpaceId?: string,
+    /**
+     * #1107 — "Database.Rule name" labels of automations that act outward or run an agent (installed switched OFF) the person chose to
+     * switch ON in the review. The only way such a rule installs on: the manifest's own `enabled: true` is ignored for them.
+     */
+    enableAutomations: string[] = [],
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
     const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
@@ -1511,6 +1533,7 @@ export class PacksService {
       result,
       automationResolutions,
       hashes,
+      this.labelSet(enableAutomations),
     );
     await this.installSampleRecords(membership, working, dbIds, refToId, result);
     await this.installSkills(membership, working, result, hashes);
@@ -2184,6 +2207,10 @@ export class PacksService {
     }
   }
 
+  private labelSet(labels: readonly string[]): Set<string> {
+    return new Set(labels.map((l) => norm(l)));
+  }
+
   private async installAutomations(
     membership: Membership,
     manifest: PackManifest,
@@ -2192,6 +2219,7 @@ export class PacksService {
     result: PackInstallResult,
     resolutions: Map<string, PackInstallResolutions[string]> = new Map(),
     hashes: Map<string, string> = new Map(),
+    turnedOn: Set<string> = new Set(),
   ): Promise<void> {
     for (const planned of manifest.automations) {
       const label = `${planned.database}.${planned.name}`;
@@ -2224,6 +2252,8 @@ export class PacksService {
       const trigger = deref(planned.trigger, refToId, where);
       const condition = planned.condition ? deref(planned.condition, refToId, where) : undefined;
       const actions = deref(planned.actions, refToId, where);
+      // #1107 — decided on the pack's own planned actions (what the rule DOES), never on the manifest's `enabled` alone.
+      const state = installedEnabledState(planned.actions, planned.enabled, turnedOn.has(norm(label)));
       const created = await this.automations.create(
         membership.workspaceId,
         dbId,
@@ -2232,14 +2262,22 @@ export class PacksService {
           trigger: trigger as never,
           condition,
           actions: actions as never,
-          enabled: planned.enabled,
+          enabled: state.enabled,
         },
         membership.userId,
       );
-      result.automations.push({ name: label, action: 'created', id: created.id });
+      result.automations.push({
+        name: label,
+        action: 'created',
+        id: created.id,
+        enabled: state.enabled,
+        ...(state.switched_off_because ? { switched_off_because: state.switched_off_because } : {}),
+      });
+      // The EFFECTIVE flag, so uninstall's modified-since-install check does not call a rule installed off "edited".
       hashes.set(
         `automation:${created.id}`,
-        this.hashOf({ name: targetName, trigger, condition, actions, enabled: planned.enabled }),
+        // `condition ?? null`: a live rule without one reads back `null`, and `undefined` would hash differently, so every unconditioned rule read as edited.
+        this.hashOf({ name: targetName, trigger, condition: condition ?? null, actions, enabled: state.enabled }),
       );
     }
   }
