@@ -9,6 +9,7 @@ import { DatabasesService } from '../databases/databases.service';
 import { JobRunnerService } from '../automations/job-runner.service';
 import { AutomationsService } from '../automations/automations.service';
 import { AWAITING_APPROVAL, effectiveStatus, hasWaitingApproval, waitingCounts } from '../automations/run-status';
+import { maskUserinfoInText } from '../common/webhook-headers';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
 export interface RunsListFilters {
@@ -252,7 +253,7 @@ export class RunsService {
               status: approval.status,
               decided_by: approval.decidedBy,
               decided_at: approval.decidedAt,
-              preview_text: approval.previewText,
+              preview_text: maskUserinfoInText(approval.previewText), // #1068
             }
           : null,
       };
@@ -275,7 +276,7 @@ export class RunsService {
           status: a.status,
           decided_by: a.decidedBy,
           decided_at: a.decidedAt,
-          preview_text: a.previewText,
+          preview_text: maskUserinfoInText(a.previewText),
         },
       }));
 

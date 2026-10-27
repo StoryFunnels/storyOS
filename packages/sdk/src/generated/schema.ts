@@ -5580,7 +5580,10 @@ export interface components {
                 method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
                 url: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
                 body_template?: string;
                 /** Format: uuid */
@@ -5771,7 +5774,10 @@ export interface components {
                 method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
                 url: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
                 body_template?: string;
                 /** Format: uuid */

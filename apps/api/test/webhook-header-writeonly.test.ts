@@ -1,14 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { automations, fields } from '../src/db/schema';
+import { approvals, automations, fields } from '../src/db/schema';
+import { AutomationsService } from '../src/automations/automations.service';
 
 /**
- * #249 — outbound-webhook Authorization headers must be write-only. Header VALUES
+ * #249 / #1068 — outbound-webhook headers (and URL userinfo) must be write-only. Header VALUES
  * are never returned (any viewer, guests included), and editing an unrelated part
  * of a config must not clobber the stored credential.
  */
@@ -26,6 +27,9 @@ let ruleId: string;
 
 const SECRET = 'Bearer sk-live-do-not-leak-000';
 const COOKIE = 'session=super-secret-cookie';
+// #1068: a credential under a header name the old name-based rule did not know, and in URL userinfo.
+const CUSTOM = 'custom-header-secret-1068';
+const USERINFO = 'hookuser:userinfo-secret-1068';
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
   return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
@@ -52,8 +56,8 @@ beforeAll(async () => {
       actions: [
         {
           type: 'send_webhook',
-          url: 'https://hooks.example.com/ping',
-          headers: { Authorization: SECRET, Cookie: COOKIE, 'Content-Type': 'application/json' },
+          url: `https://${USERINFO}@hooks.example.com/ping`,
+          headers: { Authorization: SECRET, Cookie: COOKIE, 'Content-Type': 'application/json', 'X-Custom': CUSTOM },
         },
       ],
     },
@@ -92,10 +96,13 @@ afterAll(async () => {
 });
 
 /** The raw stored button config, straight from the row (bypasses presentation). */
-async function storedButtonHeaders(): Promise<Record<string, string>> {
+async function storedButtonAction(): Promise<{ url: string; headers?: Record<string, string> }> {
   const row = await db.query.fields.findFirst({ where: eq(fields.id, buttonId) });
-  const config = row!.config as { actions: Array<{ type: string; headers?: Record<string, string> }> };
-  return config.actions.find((a) => a.type === 'send_webhook')!.headers ?? {};
+  const config = row!.config as { actions: Array<{ type: string; url: string; headers?: Record<string, string> }> };
+  return config.actions.find((a) => a.type === 'send_webhook')!;
+}
+async function storedButtonHeaders(): Promise<Record<string, string>> {
+  return (await storedButtonAction()).headers ?? {};
 }
 async function storedRuleHeaders(): Promise<Record<string, string>> {
   const row = await db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
@@ -115,12 +122,16 @@ describe('#249 read side — header VALUES never leave', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain(SECRET);
     expect(res.body).not.toContain(COOKIE);
+    expect(res.body).not.toContain(CUSTOM);
+    expect(res.body).not.toContain('userinfo-secret-1068');
     const webhook = buttonActionsFromIntrospection(res.json()).find((a) => a.type === 'send_webhook')!;
     expect(webhook.headers).toEqual({
       Authorization: { __keep: true },
       Cookie: { __keep: true },
-      'Content-Type': 'application/json', // non-secret header stays readable
+      'Content-Type': { __keep: true }, // #1068: every value is write-only, not a name list
+      'X-Custom': { __keep: true },
     });
+    expect(webhook.url).toBe('https://***@hooks.example.com/ping');
   });
 
   it('button field config: a GUEST viewer never receives the secret header values', async () => {
@@ -128,6 +139,8 @@ describe('#249 read side — header VALUES never leave', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain(SECRET);
     expect(res.body).not.toContain(COOKIE);
+    expect(res.body).not.toContain(CUSTOM);
+    expect(res.body).not.toContain('userinfo-secret-1068');
     const webhook = buttonActionsFromIntrospection(res.json()).find((a) => a.type === 'send_webhook')!;
     expect(webhook.headers!.Authorization).toEqual({ __keep: true });
   });
@@ -166,6 +179,8 @@ describe('#249 round-trip — an unrelated edit must not clobber the credential'
     expect(stored.Authorization).toBe(SECRET); // NOT clobbered to a flag/empty
     expect(stored.Cookie).toBe(COOKIE);
     expect(stored['Content-Type']).toBe('application/json');
+    expect(stored['X-Custom']).toBe(CUSTOM);
+    expect((await storedButtonAction()).url).toBe(`https://${USERINFO}@hooks.example.com/ping`);
   });
 
   it('automation: reload, change name, save actions back → stored secret intact', async () => {
@@ -218,5 +233,91 @@ describe('#249 legacy configs — a plain string still works and is never leaked
     expect(res.body).not.toContain('legacy-xyz');
     const rule = res.json().data.find((r: { id: string }) => r.id === legacy.json().id);
     expect(rule.actions[0].headers.Authorization).toEqual({ __keep: true });
+  });
+});
+
+describe('#1068 — a kept secret is bound to its URL host and header name', () => {
+  it('button: pointing the webhook at another host while echoing the flags is a 422; nothing changes', async () => {
+    const loaded = (await asAdmin('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const config = loaded.fields.find((f: { id: string }) => f.id === buttonId).config;
+    const before = await storedButtonAction();
+    const actions = config.actions.map((a: Record<string, unknown>) =>
+      a.type === 'send_webhook' ? { ...a, url: 'https://collector.attacker.example/steal' } : a,
+    );
+    const patched = await asAdmin('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${buttonId}`, {
+      config: { ...config, actions },
+    });
+    expect(patched.statusCode, patched.body).toBe(422);
+    expect(patched.body).not.toContain(SECRET);
+    expect(await storedButtonAction()).toEqual(before);
+  });
+
+  it('button: the masked userinfo on another host is refused too', async () => {
+    const loaded = (await asAdmin('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const config = loaded.fields.find((f: { id: string }) => f.id === buttonId).config;
+    const actions = config.actions.map((a: Record<string, unknown>) =>
+      a.type === 'send_webhook' ? { ...a, url: 'https://***@collector.attacker.example/steal', headers: {} } : a,
+    );
+    const patched = await asAdmin('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${buttonId}`, {
+      config: { ...config, actions },
+    });
+    expect(patched.statusCode, patched.body).toBe(422);
+  });
+
+  it('automation: a new host with RE-ENTERED values saves, and only the new values are stored', async () => {
+    const list = (await asAdmin('GET', `/workspaces/${wsId}/databases/${dbId}/automations`)).json();
+    const rule = list.data.find((r: { id: string }) => r.id === ruleId);
+    const moved = await asAdmin('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${ruleId}`, {
+      actions: [{ ...rule.actions[0], url: 'https://elsewhere.example.com/auto', headers: { Authorization: 'Bearer re-entered' } }],
+    });
+    expect(moved.statusCode, moved.body).toBe(200);
+    expect(await storedRuleHeaders()).toEqual({ Authorization: 'Bearer re-entered' });
+  });
+
+  it('automation: a renamed header cannot carry the old value over (matched by name, not position)', async () => {
+    const list = (await asAdmin('GET', `/workspaces/${wsId}/databases/${dbId}/automations`)).json();
+    const rule = list.data.find((r: { id: string }) => r.id === ruleId);
+    const renamed = await asAdmin('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${ruleId}`, {
+      actions: [{ ...rule.actions[0], headers: { 'X-Forward-To-Me': { __keep: true } } }],
+    });
+    expect(renamed.statusCode, renamed.body).toBe(422);
+  });
+});
+
+describe('#1068 — approval snapshots never return header values or URL userinfo', () => {
+  it('a gated send_webhook approval reads back masked; the stored snapshot keeps the real values for execution', async () => {
+    const rule = await asAdmin('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Gated hook',
+      trigger: { type: 'record_created' },
+      actions: [
+        {
+          type: 'send_webhook',
+          url: `https://${USERINFO}@hooks.example.com/gated`,
+          headers: { 'X-Custom': CUSTOM },
+          require_approval: true,
+        },
+      ],
+    });
+    expect(rule.statusCode, rule.body).toBe(201);
+    // Only the gated rule may fire on the record below (the others would try a real send).
+    await db.update(automations).set({ enabled: false }).where(and(eq(automations.databaseId, dbId), ne(automations.id, rule.json().id)));
+    const rec = await asAdmin('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'gate me' } });
+    expect(rec.statusCode, rec.body).toBe(201);
+    await app.get(AutomationsService).settle(rec.json().id);
+
+    const rows = await db.query.approvals.findMany({ where: eq(approvals.ruleId, rule.json().id) });
+    expect(rows).toHaveLength(1);
+    const raw = JSON.stringify(rows[0]!.actionSnapshot);
+    expect(raw).toContain(CUSTOM); // execution still has the real values
+    expect(raw).toContain('userinfo-secret-1068');
+    expect(rows[0]!.previewText).not.toContain('userinfo-secret-1068');
+
+    const res = await asAdmin('GET', `/workspaces/${wsId}/approvals`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).not.toContain(CUSTOM);
+    expect(res.body).not.toContain('userinfo-secret-1068');
+    const approval = (res.json().data ?? res.json()).find((a: { id: string }) => a.id === rows[0]!.id);
+    expect(approval.action_snapshot.action.headers).toEqual({ 'X-Custom': { __keep: true } });
+    expect(approval.action_snapshot.action.url).toBe('https://***@hooks.example.com/gated');
   });
 });

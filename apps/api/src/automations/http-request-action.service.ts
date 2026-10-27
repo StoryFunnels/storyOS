@@ -10,6 +10,7 @@ import { urlWithinBase } from '../connections/providers';
 import { RecordsService } from '../records/records.service';
 import { getJsonPath } from '../common/json-path';
 import { redactLiteralValues, redactSecrets } from '../common/redact-secrets';
+import { stringHeadersOnly } from '../common/webhook-headers';
 import { guardedFetch, SsrfBlockedError } from '../common/net-guard';
 import { ProviderError } from '../common/provider-error';
 import { parseTemplateBody } from './actions.service';
@@ -177,7 +178,7 @@ export class HttpRequestActionService implements OnModuleInit {
     const secrets = secretLiteralsFromAuth(auth);
     const outside = assertUrlAllowedForConnection(auth, action.url);
     if (outside) throw new ProviderError(outside, { retryable: false }); // a configuration refusal never succeeds on retry
-    const headers = mergeAuthHeaders({ ...(action.headers ?? {}) }, auth);
+    const headers = mergeAuthHeaders({ ...stringHeadersOnly(action.headers) }, auth);
 
     let body: string | undefined;
     if (action.body_template && action.method !== 'GET') {
@@ -303,7 +304,7 @@ export class HttpRequestActionService implements OnModuleInit {
     const secrets = secretLiteralsFromAuth(auth);
     const outside = assertUrlAllowedForConnection(auth, action.url);
     if (outside) throw new UnprocessableEntityException(outside);
-    const headers = mergeAuthHeaders({ ...(action.headers ?? {}) }, auth);
+    const headers = mergeAuthHeaders({ ...stringHeadersOnly(action.headers) }, auth);
     let body: string | undefined;
     if (action.body_template && action.method !== 'GET') {
       body = JSON.stringify(parseTemplateBody(action.body_template));

@@ -14,6 +14,7 @@ import type { AgentPrincipal } from '../agents/agent-principal';
 import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
 import { JobRunnerService } from './job-runner.service';
 import type { ActionEffect } from './actions.service';
+import { maskUserinfoInText, presentActionHeaders } from '../common/webhook-headers';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
@@ -181,6 +182,14 @@ export interface CreateApprovalInput {
   notification?: { type: NotificationType; snippet: string };
 }
 
+/** #1068 — a rendered send_webhook/http_request snapshot holds the real header values
+ * and URL userinfo. The API returns them masked; execution reads the row itself. */
+function presentSnapshot(snapshot: unknown): unknown {
+  const snap = snapshot as Partial<ApprovalActionSnapshot> | null;
+  if (!snap || typeof snap !== 'object' || !snap.action) return snapshot;
+  return { ...snap, action: presentActionHeaders([snap.action])[0] };
+}
+
 function toDto(row: ApprovalRow) {
   return {
     id: row.id,
@@ -188,8 +197,8 @@ function toDto(row: ApprovalRow) {
     run_id: row.runId,
     record_id: row.recordId,
     action_index: row.actionIndex,
-    action_snapshot: row.actionSnapshot,
-    preview_text: row.previewText,
+    action_snapshot: presentSnapshot(row.actionSnapshot),
+    preview_text: maskUserinfoInText(row.previewText),
     status: row.status,
     approver_id: row.approverId,
     decided_by: row.decidedBy,
@@ -284,6 +293,9 @@ export class ApprovalsService implements OnModuleInit {
    * `actions.service.ts`'s existing call site — behavior unchanged.
    */
   async createRow(input: CreateApprovalInput): Promise<ApprovalRow> {
+    // #1068 — the preview names the webhook URL; its userinfo must not reach the
+    // stored preview or the approver's notification.
+    const previewText = maskUserinfoInText(input.previewText);
     const approverId = await this.approverFor(input.ruleId, input.requesterActorId);
     const snapshot: ApprovalActionSnapshot = {
       action: input.action,
@@ -303,7 +315,7 @@ export class ApprovalsService implements OnModuleInit {
         recordId: input.recordId,
         actionIndex: input.actionIndex,
         actionSnapshot: snapshot,
-        previewText: input.previewText,
+        previewText,
         approverId,
       })
       .returning();
@@ -316,7 +328,7 @@ export class ApprovalsService implements OnModuleInit {
         actorId: input.requesterActorId,
         type: input.notification?.type ?? 'action_approval_requested',
         recipients: [approverId],
-        snippet: input.notification?.snippet ?? input.previewText.slice(0, 140),
+        snippet: input.notification?.snippet ?? previewText.slice(0, 140),
         refId: created!.id,
         // The rule owner must be asked even when they're the one whose rule
         // fired it — same reasoning as #210's agent-run gate.
@@ -335,7 +347,7 @@ export class ApprovalsService implements OnModuleInit {
     return {
       type: 'pending_approval',
       record_id: input.recordId ?? undefined,
-      summary: `Waiting for approval (approval ${created.id}): ${input.previewText}`,
+      summary: `Waiting for approval (approval ${created.id}): ${created.previewText}`,
     };
   }
 
