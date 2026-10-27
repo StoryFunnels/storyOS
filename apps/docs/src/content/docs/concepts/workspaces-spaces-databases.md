@@ -57,6 +57,13 @@ schema, record, the relation graph, and every attachment's actual file — strea
 built in memory first, so it works the same way on a large workspace as a small one. StoryOS is
 built with no lock-in: this is the whole workspace, not a sample.
 
+**The archive records who can see what.** Every space and database in `manifest.json` carries a
+`restricted` flag, and `access.json` lists the access grants (`user_id`, the space, database or
+record it is on, and the `role`) whose target is in the archive. It holds user ids, not email
+addresses. `format_version` is `3`. There is no import in the product yet, so nothing reads this
+file back; it is there so that a restore built from the archive cannot describe a restricted
+database as open.
+
 **System databases (Members and the rest of the Agentic OS pack) are not included** — their
 content is either personal data or internal machinery, not the work product this export exists to
 hand you.
@@ -76,7 +83,8 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
 - **Identity** — icon, name, and its [description](#every-level-can-say-what-it-is-for) if it has
   one.
 - **Access** — three groups: workspace members, space-level grants, and database-scoped grants
-  within the space. A guest sees an honest one-line explanation instead of this section, since the
+  within the space, and for an admin a **Manage access** button that opens the dialog described in
+  [restricting a space or database](/concepts/access-and-roles/#restricting-a-space-or-database). A guest sees an honest one-line explanation instead of this section, since the
   underlying endpoints refuse a non-member anyway — never a silently empty section or a doomed
   "Manage access" button.
 - **Ontology** — one database as a **centre chip** (whichever one has the most relations in this

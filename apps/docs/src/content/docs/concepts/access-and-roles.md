@@ -1,12 +1,13 @@
 ---
 title: Access & roles
-description: Admins, members, and space-scoped guests — invite a client into exactly one space and keep everything else invisible.
+description: Admins, members, and space-scoped guests — restrict a space or database to the people who need it, or invite a client into exactly one space.
 sidebar:
   order: 7
 ---
 
-Access in StoryOS is workspace-wide with three roles, plus **space scoping** for guests so you can
-invite a client into exactly one space.
+Access in StoryOS starts from three roles. By default a member can open every shared space and
+database; an admin can [restrict a space or a database](#restricting-a-space-or-database) so that
+only the people added to it can. **Space scoping** lets you invite a guest into exactly one space.
 
 ## Roles
 
@@ -15,7 +16,7 @@ invite a client into exactly one space.
 | Manage workspace, members, invites, tokens | ✅ | — | — |
 | Edit schema (spaces, databases, fields, relations) | ✅ | ✅ | — |
 | Create / edit / delete records & views | ✅ | ✅ | — |
-| Read records & views (guest: scoped spaces only) | ✅ | ✅ | ✅ |
+| Read records & views (guest: scoped spaces only; member: not what is restricted) | ✅ | ✅ | ✅ |
 | Comment | ✅ | ✅ | ✅ |
 
 - **Members can edit schema** in v1 — a small-team trust model. A "lock schema to admins" toggle is
@@ -23,15 +24,85 @@ invite a client into exactly one space.
 - The **last admin** cannot demote or remove themselves.
 - Removed or deactivated users keep their historical authorship in comments and activity.
 
-### Restricting a specific member's access
+## Restricting a space or database
 
-**Members are workspace-wide by design — there's no per-space member restriction, and none is
-planned in the near term.** If you don't want someone touching a particular space, the answer
-isn't a policy on their membership; it's a different kind of person entirely: invite them as a
-**guest** scoped to only the spaces they need, instead of adding them as a member. A guest at
-`contributor` can add and edit records without ever being able to delete anything — the rung
-exists specifically for "let them contribute, but don't let them destroy" — and, per the billing
-section below, `viewer`/`commenter` guests cost nothing either way.
+By default every member can open every shared space and database, as a creator. An admin can
+instead mark a space or a database **Restricted**. A member then sees it only if an admin has
+added them to it. Admins always see everything, so a restricted space can never end up with nobody
+who can manage it. Nothing changes for an existing workspace until an admin restricts something.
+
+**To restrict one:** an admin opens **Manage access** — from a space's `⋯` menu in the sidebar or
+the **Manage access** button on the space's own page, or from a database's menu — and picks
+**Restricted** instead of **Everyone in the workspace**. Only admins see the item and only admins
+can change it, including through the API; someone holding `creator` on a database still cannot
+change who it is shared with.
+
+Switching to Restricted opens a confirmation first. It lists the members who can open the item now
+and will not afterwards. Each has a **Keep as Editor** tick (a guest's tick keeps the role they
+have), and ticked people are granted access before the flag is set, so nobody you meant to keep is
+locked out in between. Switching back to **Everyone** also confirms, naming the members who gain
+access. Adding a person, changing their role and removing them save as you click, and a removal
+offers **Undo**. The people you added stay on the list when you open the item up again, so
+restricting it again brings the same people back.
+
+A restricted space or database shows a small lock in the sidebar, for the people who can see it.
+
+### What a member without access sees
+
+Nothing. The space or database is not in the sidebar, not in search, and a direct request for it
+returns **404** with no name in the response, the same answer as for something that does not exist.
+A guest is narrowed the same way (see [Guest scoping](#guest-scoping)).
+
+### How the rules combine
+
+- **Grants add; they never take access away.** On something that is not restricted, a member
+  already has full access and a grant changes nothing. On something restricted, a member holds the
+  role of the grants that apply, and where several apply the highest wins. A member granted
+  `viewer` on one restricted database is a viewer there and a creator everywhere that is not
+  restricted.
+- **Restricting a space closes every database in it.** A grant on the space opens them again.
+- **Restricting a database closes only that database**, and it can sit in a space everyone can see.
+- **A database that is itself restricted is opened only by a grant on that database.** A grant on
+  its space does not open it, so a confidential database inside a shared team space stays closed to
+  people who merely hold the space grant. The dialog lists these people as not seeing it.
+  Un-restricting a space does not open a database in it that is itself restricted.
+- **A grant on a database makes its space appear** in that person's sidebar, holding only the
+  databases they can open.
+- **Not everything can be restricted.** A personal space (already private to its owner) and a
+  system database such as Members are refused with a **422**. A **record-scoped grant** can be given
+  to a guest but not to a member; for a member it is refused with a 422, so share the database
+  instead.
+
+### Who it applies to besides people
+
+- A [personal access token](/api/authentication/) acts as its owner, with the owner's access
+  checked on every call, so revoking a person's grant takes effect on the token's next request.
+- A token [bound to specific spaces or databases](/api/authentication/#binding-a-token-to-specific-spaces-or-databases)
+  never reaches more than its owner does. Bound to a space, it opens a restricted database inside
+  that space only if its owner holds a grant directly on that database.
+- An [MCP](/mcp/overview/) agent connected with a token has exactly that token's reach.
+- **Removing a member deletes their grants**, so re-inviting them later does not bring old access
+  back. **Inviting someone as a member can carry grants** (space or database); the invite is
+  refused with a 422 if it carries a record-scoped grant for a member, or any grants for an admin,
+  who already sees everything.
+- A notification about something that later became restricted, and that you can no longer open, is
+  hidden from your inbox; see [mentions and notifications](/concepts/mentions-and-notifications/).
+
+### From the API and MCP
+
+`restricted` is a boolean on a space and on a database. Set it with the same `PATCH` that renames
+them, as an admin; the MCP `update_space` and `update_database` tools take `restricted` too. It is
+read back on the space and database. Adding or removing a person's access is not an MCP tool: see
+the end of [Sharing beyond a space](#sharing-beyond-a-space-access-grants).
+Restricting and un-restricting appear in the [audit log](/concepts/record-history/#workspace-wide-the-admin-audit-log).
+
+### Not built yet
+
+Groups (people are added one at a time), record-scoped access for members, letting someone other
+than an admin manage who has access, and inviting a brand-new person from the Manage access box.
+
+The **workspace export** records which spaces and databases are restricted and who holds grants;
+see [taking everything out](/concepts/workspaces-spaces-databases/#taking-everything-out).
 
 ## Guest scoping
 
@@ -134,16 +205,18 @@ as before — and so is everyone who isn't a guest. The restriction is enforced 
 hidden in the app. This describes what was built phase by phase against a read-path inventory; if you
 rely on it to keep one client's data from another's, test with a real restricted account.
 
-**Space- and database-scoped grants have a real UI: Manage Access.** Open it from a space's own
-page, or a database's `⋯` menu. It lists **Members** (workspace-wide, unconditional) separately
-from **Guests** — each guest's grant level is a dropdown, right there, editable without leaving the
-dialog. **Record-scoped grants have no UI yet** — creating or revoking one is still a direct REST
-API call. No MCP tool creates or removes a grant at any scope; that stays a human decision made
+**Space- and database-scoped grants have a real UI: Manage access**, the same dialog used to
+[restrict a space or database](#restricting-a-space-or-database). Open it from a space's own page
+or from the `⋯` menu of a space or database in the sidebar (admins only). On something everyone can
+open it shows who has access and lets you add a guest; on something restricted it lists the people
+added, each with a role dropdown and a remove button. **Record-scoped grants have no UI yet** —
+creating or revoking one is still a direct REST API call. No MCP tool creates or removes a grant at any scope; that stays a human decision made
 directly against the API, not something an agent does on its own. The MCP `list_grants` tool can
 still read existing grants, record scope included.
 
 ## Personal access tokens
 
 A [personal access token](/api/authentication/) (`mn_pat_…`) acts as **its creator** — same role,
-same guest scoping. That's also an agent's blast radius: give an [MCP](/mcp/overview/) agent a
+same guest scoping, and the same [restricted](#restricting-a-space-or-database) spaces and
+databases. That's also an agent's blast radius: give an [MCP](/mcp/overview/) agent a
 token scoped to one guest's spaces and it can only touch those.
