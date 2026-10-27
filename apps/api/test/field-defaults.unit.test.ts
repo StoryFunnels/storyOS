@@ -96,3 +96,23 @@ describe('applyFieldDefaults (#203)', () => {
     expect(a['due']).toBe(b['due']);
   });
 });
+
+describe('a workflow field starts at its first state (#1088)', () => {
+  const order = ['opt-triage', 'opt-backlog', 'opt-done'];
+  it('no configured default: the first option, for a WORKFLOW field only', () => {
+    expect(fieldDefaultValue('workflow', {}, NOW, order)).toBe('opt-triage');
+    expect(fieldDefaultValue('select', {}, NOW, order), 'a plain select is never auto-filled').toBeUndefined();
+    expect(fieldDefaultValue('multi_select', {}, NOW, order)).toBeUndefined();
+  });
+  it('a configured default wins; no options, or a caller with none to hand, falls back to nothing', () => {
+    expect(fieldDefaultValue('workflow', { default: 'opt-done' }, NOW, order)).toBe('opt-done');
+    expect(fieldDefaultValue('workflow', {}, NOW, [])).toBeUndefined();
+    expect(fieldDefaultValue('workflow', {}, NOW)).toBeUndefined();
+  });
+  it('applyFieldDefaults fills an ABSENT key only: an explicit null, or any given value, is left alone', () => {
+    const defs = [{ api_name: 'state', type: 'workflow', config: {}, option_order: order }];
+    expect(applyFieldDefaults(defs, { name: 'x' }, NOW)).toEqual({ name: 'x', state: 'opt-triage' });
+    expect(applyFieldDefaults(defs, { name: 'x', state: null }, NOW)).toEqual({ name: 'x', state: null });
+    expect(applyFieldDefaults(defs, { name: 'x', state: 'opt-done' }, NOW)).toEqual({ name: 'x', state: 'opt-done' });
+  });
+});

@@ -190,18 +190,20 @@ describe('CARET_HIT_AREA (#799)', () => {
     expect(glyph + 2 * vertical).toBeGreaterThanOrEqual(24);
     expect(CARET_HIT_AREA).toContain('before:-inset-y-1.5');
   });
-  it('#972: on a phone the box is >= 28px each way, counting the room the drawer actually leaves', () => {
-    // Otto measured elementFromPoint at 390px: 26x32. The drawer opens BESIDE the 52px rail and the caret sits 14px
-    // from the drawer's edge, so the rail clips any reach further left than 14px: width = 14 + 12 (glyph) = 26 no
-    // matter how far `-left-*` goes. The only way to 28+ is a little reach to the RIGHT, on the phone only
-    // (6px of the gap before the label; #799's no-right rule is about the desktop rule, tested above).
+  it('#1065: on a phone the box is 44px each way, counting the room the drawer actually leaves', () => {
+    // #972 measured 26x32 at 390px and got it to 28; #1065 asks for 44. The drawer opens BESIDE the 52px rail and the
+    // caret sits 14px from the drawer's edge, so the rail clips any reach further left than 14px: the rest of the width has
+    // to come from the RIGHT, on the phone only (24px: 18 would do on paper, but the live hit-test measured 40 with 18 and 42 with 20 on a space header, into the gap before the label and the first few px of the glyph
+    // beside it; #799's no-right rule is about the desktop rule, tested above). The pseudo-element is positioned, so it
+    // paints over that neighbour and the caret wins the overlap.
     const roomLeft = 14;
     const glyph = 12;
-    const phoneRight = 6;
-    expect(roomLeft + glyph + phoneRight).toBeGreaterThanOrEqual(28);
-    expect(CARET_HIT_AREA).toContain('max-md:before:-right-1.5');
-    expect(glyph + 2 * 10).toBeGreaterThanOrEqual(28);
-    expect(CARET_HIT_AREA).toContain('max-md:before:-inset-y-2.5');
+    const phoneRight = 24;
+    expect(roomLeft + glyph + phoneRight).toBeGreaterThanOrEqual(44);
+    expect(CARET_HIT_AREA).toContain('max-md:before:-left-3.5');
+    expect(CARET_HIT_AREA).toContain('max-md:before:-right-6');
+    expect(glyph + 2 * 16).toBeGreaterThanOrEqual(44);
+    expect(CARET_HIT_AREA).toContain('max-md:before:-inset-y-4');
   });
   it('is applied by every caret button in sidebar.tsx, so the three sites cannot drift', () => {
     const src = readFileSync(fileURLToPath(new URL('./sidebar.tsx', import.meta.url)), 'utf8');

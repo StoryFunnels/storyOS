@@ -57,14 +57,15 @@ export function QuickAddFab() {
 
   return (
     <>
-      {/* z-20: below the mobile drawer (z-40) and its backdrop (z-30), so an
-          open drawer naturally covers this instead of both fighting for taps. */}
+      {/* #1065 — below the mobile drawer and its scrim (--z-drawer-backdrop is 20). It used to be a raw z-20, the SAME layer
+          as the scrim, so DOM order decided and the button painted over the scrim: a tap meant to dismiss the drawer opened
+          Quick add instead. --z-sticky (10) is under both, so an open drawer covers it and its scrim swallows the tap. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Quick add an item"
         title={newRecordTitle}
-        className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[var(--shadow-lifted)] hover:bg-primary-hover md:hidden"
+        className="fixed bottom-5 right-4 z-[var(--z-sticky)] flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[var(--shadow-lifted)] hover:bg-primary-hover md:hidden"
       >
         <Plus className="h-6 w-6" />
       </button>
