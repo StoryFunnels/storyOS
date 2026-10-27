@@ -14,6 +14,20 @@ import { LinearService } from './linear.service';
 /** The one Linear mutation this service ever sends. A test asserts nothing else is (no issue field is ever written). */
 export const COMMENT_CREATE_MUTATION = `mutation CommentCreate($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id url } } }`;
 
+/**
+ * #1102 — a read of ONE issue's comments, used only to find a comment of ours that Linear already holds. Read-only; the
+ * mutation above is still the only write. Filtered by issue (the same filter shape the importer's team query uses) and
+ * matched on the marker client-side, so a filter Linear ignores can only cost pages, never a missed match.
+ */
+export const ISSUE_COMMENTS_QUERY = `query IssueComments($id: ID!, $after: String) { comments(first: 100, after: $after, filter: { issue: { id: { eq: $id } } }) { nodes { id body url } pageInfo { hasNextPage endCursor } } }`;
+
+/**
+ * #1102 — the idempotency marker: the last line of every pushed comment names the StoryOS comment it came from. A send
+ * can reach Linear and the "sent" record still be lost (crash, dropped response), so "did this already go out?" is
+ * answered by asking Linear, not by our own bookkeeping. The first line (the signature the importer keys on) is untouched.
+ */
+export const pushMarker = (commentId: string) => `storyos-comment-${commentId}`;
+
 /** What closes the first line of every pushed comment. The importer treats it as proof a Linear comment came from us. */
 export const VIA_STORYOS = '· via StoryOS';
 
@@ -124,6 +138,19 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const apiKey = await this.linear.apiKeyFor(workspaceId);
+      // #1102 — attempts > 1 means an earlier attempt may have reached Linear before its outcome was recorded (a crash
+      // leaves the row 'sending'; a dropped response looks like a failure). Ask Linear before sending again. A lookup
+      // that itself fails throws into the catch below: back off and retry, never fall through to a blind resend.
+      if (attempts > 1) {
+        const existing = await this.findAlreadySent(apiKey, linearIssueId, commentId);
+        if (existing) {
+          await this.db
+            .update(linearCommentPushes)
+            .set({ status: 'sent', lastError: null, linearCommentId: existing.id, linearCommentUrl: existing.url ?? null })
+            .where(eq(linearCommentPushes.commentId, commentId));
+          return;
+        }
+      }
       const text = await this.signedText(comment);
       const data = (await this.linear.fetcher(COMMENT_CREATE_MUTATION, { input: { issueId: linearIssueId, body: text } }, apiKey)) as {
         commentCreate?: { success?: boolean; comment?: { id?: string; url?: string } };
@@ -156,6 +183,28 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** #1102 — the Linear comment on this issue that carries this StoryOS comment's marker, if one is there. */
+  private async findAlreadySent(apiKey: string, linearIssueId: string, commentId: string): Promise<{ id: string; url?: string } | null> {
+    const marker = pushMarker(commentId);
+    const seen = new Set<string>();
+    let after: string | undefined;
+    for (;;) {
+      const data = (await this.linear.fetcher(ISSUE_COMMENTS_QUERY, after ? { id: linearIssueId, after } : { id: linearIssueId }, apiKey)) as {
+        comments?: { nodes?: Array<{ id: string; body?: string | null; url?: string }>; pageInfo?: { hasNextPage: boolean; endCursor: string | null } };
+      };
+      const conn = data.comments;
+      // An answer we cannot read as a complete list is NOT "not there": that reading is what would cause the duplicate.
+      if (!conn || !Array.isArray(conn.nodes) || !conn.pageInfo) throw new Error('Linear returned no usable comment list, so it is unknown whether this comment was already sent');
+      const hit = conn.nodes.find((n) => typeof n.body === 'string' && n.body.includes(marker));
+      if (hit) return hit;
+      if (!conn.pageInfo.hasNextPage) return null;
+      const next = conn.pageInfo.endCursor;
+      if (!next || seen.has(next)) throw new Error('Linear comment paging stopped advancing, so it is unknown whether this comment was already sent');
+      seen.add(next);
+      after = next;
+    }
+  }
+
   /**
    * First line = who wrote it and the route, because everything goes out through one Linear key and without this line
    * the team reads an agent's output as whoever owns the key. The agent's name when it is one, else the author's.
@@ -169,6 +218,6 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
     });
     const names = new Map(people.map((p) => [p.id, p.name ?? 'someone']));
     const author = comment.agentName ?? names.get(comment.authorId) ?? 'Someone';
-    return `**${author} ${VIA_STORYOS}**\n\n${renderCommentText(body, { userNames: names })}`;
+    return `**${author} ${VIA_STORYOS}**\n\n${renderCommentText(body, { userNames: names })}\n\n_${pushMarker(comment.id)}_`;
   }
 }
