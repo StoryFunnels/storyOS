@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -18,6 +24,12 @@ export type ReviewsFetcher = GithubAppFetcher;
 
 const defaultFetcher: ReviewsFetcher = (url, init) =>
   fetch(url, { method: init.method, headers: init.headers, body: init.body });
+
+/** `/repos/{owner}/{repo}` with both segments encoded (#1073), so a `/`, `?` or
+ *  `#` in a name can never reshape the GitHub API path. */
+function repoPath(owner: string, repo: string): string {
+  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
 
 /** One of the Reviews sidebar's three buckets (#43 AC 1). */
 export type ReviewBucket = 'needs_review' | 'authored' | 'participating';
@@ -138,6 +150,28 @@ export class GithubReviewsService {
     return { token, config };
   }
 
+  /**
+   * #1073: every `:owner/:repo` route acts with the workspace's credential (the
+   * App installation or the admin's PAT), which can usually reach far more than
+   * the repos the admin connected. Only a repo in `config.repos` may be used —
+   * compared case-insensitively, as GitHub is — and the configured spelling is
+   * returned so the GitHub paths and the comment cache key never depend on how
+   * the caller typed it.
+   */
+  private async repoToken(
+    membership: Membership,
+    owner: string,
+    repo: string,
+  ): Promise<{ token: string; owner: string; repo: string }> {
+    const config = await this.github.readConfig(membership.workspaceId);
+    const wanted = `${owner}/${repo}`.toLowerCase();
+    const match = (config.repos ?? []).find((r) => r.toLowerCase() === wanted);
+    if (!match) throw new ForbiddenException('That repository is not connected to this workspace');
+    const { token } = await this.token(membership);
+    const [o, r] = match.split('/') as [string, string];
+    return { token, owner: o, repo: r };
+  }
+
   private async call(
     token: string,
     method: string,
@@ -220,8 +254,8 @@ export class GithubReviewsService {
 
   // ── AC 2: PR detail — files, checks, diff ────────────────────────────────
 
-  async getPull(membership: Membership, owner: string, repo: string, number: number): Promise<PullDetail> {
-    const { token } = await this.token(membership);
+  async getPull(membership: Membership, reqOwner: string, reqRepo: string, number: number): Promise<PullDetail> {
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
     const full = `${owner}/${repo}`;
     const pull = await this.fetchPull(token, owner, repo, number);
     const files = await this.fetchFiles(token, owner, repo, number);
@@ -247,7 +281,7 @@ export class GithubReviewsService {
   }
 
   private async fetchPull(token: string, owner: string, repo: string, number: number): Promise<RawPull> {
-    const res = await this.call(token, 'GET', `/repos/${owner}/${repo}/pulls/${number}`);
+    const res = await this.call(token, 'GET', `${repoPath(owner, repo)}/pulls/${number}`);
     if (res.status === 404) throw new NotFoundException('Pull request not found');
     if (res.status < 200 || res.status >= 300) {
       throw new UnprocessableEntityException(`GitHub PR fetch failed (HTTP ${res.status})`);
@@ -262,7 +296,7 @@ export class GithubReviewsService {
       const res = await this.call(
         token,
         'GET',
-        `/repos/${owner}/${repo}/pulls/${number}/files?per_page=100&page=${page}`,
+        `${repoPath(owner, repo)}/pulls/${number}/files?per_page=100&page=${page}`,
       );
       if (res.status < 200 || res.status >= 300) {
         throw new UnprocessableEntityException(`GitHub PR files fetch failed (HTTP ${res.status})`);
@@ -286,7 +320,7 @@ export class GithubReviewsService {
 
   /** AC 2's "checks" — the modern Checks API (richer than the legacy combined-status). */
   private async fetchChecks(token: string, owner: string, repo: string, sha: string): Promise<CheckRun[]> {
-    const res = await this.call(token, 'GET', `/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100`);
+    const res = await this.call(token, 'GET', `${repoPath(owner, repo)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`);
     if (res.status < 200 || res.status >= 300) return []; // decoration — a flaky read shouldn't sink the whole PR view
     const body = (await res.json()) as {
       check_runs?: Array<{ name: string; status: string; conclusion: string | null; html_url: string | null }>;
@@ -319,14 +353,14 @@ export class GithubReviewsService {
   /** Post a new top-level (file/line-anchored) comment, then cache it. */
   async createComment(
     membership: Membership,
-    owner: string,
-    repo: string,
+    reqOwner: string,
+    reqRepo: string,
     number: number,
     input: { path: string; line: number; side: 'LEFT' | 'RIGHT'; body: string },
   ): Promise<ReviewCommentRow> {
-    const { token } = await this.token(membership);
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
     const pull = await this.fetchPull(token, owner, repo, number);
-    const res = await this.call(token, 'POST', `/repos/${owner}/${repo}/pulls/${number}/comments`, {
+    const res = await this.call(token, 'POST', `${repoPath(owner, repo)}/pulls/${number}/comments`, {
       body: input.body,
       commit_id: pull.head.sha,
       path: input.path,
@@ -343,17 +377,17 @@ export class GithubReviewsService {
   /** Reply within an existing thread — GitHub only needs the body + parent id. */
   async replyComment(
     membership: Membership,
-    owner: string,
-    repo: string,
+    reqOwner: string,
+    reqRepo: string,
     number: number,
     inReplyTo: string,
     body: string,
   ): Promise<ReviewCommentRow> {
-    const { token } = await this.token(membership);
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
     const res = await this.call(
       token,
       'POST',
-      `/repos/${owner}/${repo}/pulls/${number}/comments/${inReplyTo}/replies`,
+      `${repoPath(owner, repo)}/pulls/${number}/comments/${encodeURIComponent(inReplyTo)}/replies`,
       { body },
     );
     if (res.status < 200 || res.status >= 300) {
@@ -366,13 +400,13 @@ export class GithubReviewsService {
   /** React to a comment (AC 3's "reactions"); refreshes the cached count. */
   async react(
     membership: Membership,
-    owner: string,
-    repo: string,
+    reqOwner: string,
+    reqRepo: string,
     commentId: string,
     content: string,
   ): Promise<Record<string, number>> {
-    const { token } = await this.token(membership);
-    const res = await this.call(token, 'POST', `/repos/${owner}/${repo}/pulls/comments/${commentId}/reactions`, {
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
+    const res = await this.call(token, 'POST', `${repoPath(owner, repo)}/pulls/comments/${encodeURIComponent(commentId)}/reactions`, {
       content,
     });
     if (res.status < 200 || res.status >= 300) {
@@ -394,7 +428,7 @@ export class GithubReviewsService {
     repo: string,
     commentId: string,
   ): Promise<Record<string, number>> {
-    const res = await this.call(token, 'GET', `/repos/${owner}/${repo}/pulls/comments/${commentId}/reactions?per_page=100`);
+    const res = await this.call(token, 'GET', `${repoPath(owner, repo)}/pulls/comments/${encodeURIComponent(commentId)}/reactions?per_page=100`);
     if (res.status < 200 || res.status >= 300) return {};
     const items = (await res.json()) as Array<{ content: string }>;
     const totals: Record<string, number> = {};
@@ -407,14 +441,14 @@ export class GithubReviewsService {
    * from GitHub and upsert the cache. Covers workspaces without (or between)
    * webhook deliveries — a manual "Refresh" the PR view can call.
    */
-  async syncComments(membership: Membership, owner: string, repo: string, number: number): Promise<number> {
-    const { token } = await this.token(membership);
+  async syncComments(membership: Membership, reqOwner: string, reqRepo: string, number: number): Promise<number> {
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
     let synced = 0;
     for (let page = 1; page <= 10; page++) {
       const res = await this.call(
         token,
         'GET',
-        `/repos/${owner}/${repo}/pulls/${number}/comments?per_page=100&page=${page}`,
+        `${repoPath(owner, repo)}/pulls/${number}/comments?per_page=100&page=${page}`,
       );
       if (res.status < 200 || res.status >= 300) {
         throw new UnprocessableEntityException(`GitHub comments fetch failed (HTTP ${res.status})`);
@@ -484,12 +518,12 @@ export class GithubReviewsService {
 
   async submitReview(
     membership: Membership,
-    owner: string,
-    repo: string,
+    reqOwner: string,
+    reqRepo: string,
     number: number,
     input: { event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'; body?: string },
   ): Promise<{ state: string }> {
-    const { token } = await this.token(membership);
+    const { token, owner, repo } = await this.repoToken(membership, reqOwner, reqRepo);
     const settings = await this.github.getReviewSettings(membership.workspaceId);
 
     if (settings.auto_convert_draft) {
@@ -497,7 +531,7 @@ export class GithubReviewsService {
       await this.maybeMarkReady(token, owner, repo, number).catch(() => undefined);
     }
 
-    const res = await this.call(token, 'POST', `/repos/${owner}/${repo}/pulls/${number}/reviews`, {
+    const res = await this.call(token, 'POST', `${repoPath(owner, repo)}/pulls/${number}/reviews`, {
       event: input.event,
       body: input.body,
     });
