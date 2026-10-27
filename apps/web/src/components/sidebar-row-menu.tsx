@@ -105,7 +105,7 @@ export function SidebarRowMenu({
              * control you must hover to find does not exist on a touch screen, and a keyboard user tabs onto it seeing it.
              * (It was `opacity-0 group-hover:opacity-100`.) 17px, the prototype's `.act`.
              */
-            className="flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[3px] text-faint transition-colors group-hover:text-muted hover:bg-border-strong hover:text-ink aria-expanded:text-ink max-md:h-7 max-md:w-7"
+            className="flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[3px] text-faint transition-colors group-hover:text-muted hover:bg-border-strong hover:text-ink aria-expanded:text-ink max-md:h-11 max-md:w-11"
             aria-label={`Options for ${label}`}
             // The row is usually a link or a toggle; opening the menu must not
             // also navigate or collapse it.

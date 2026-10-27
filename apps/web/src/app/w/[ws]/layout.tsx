@@ -137,6 +137,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         />
       )}
       <div
+        data-mobile-drawer=""
         className={cn(
           'z-[var(--z-drawer)] h-full shrink-0 transition-transform duration-200 ease-out',
           'fixed inset-y-0 left-0 md:static md:z-auto md:translate-x-0',

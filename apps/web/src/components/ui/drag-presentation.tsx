@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DragOverlay, KeyboardSensor, MouseSensor, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { Announcements, DragStartEvent, DragEndEvent, DragCancelEvent, DragMoveEvent } from '@dnd-kit/core';
 import { blockAnnouncements } from './drag-announcements';
@@ -36,6 +36,21 @@ export type { DragLabeller };
 export function useSortableSensors() {
   return useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+}
+
+/**
+ * #1065 — sensors for the SIDEBAR's sortable lists. The shared `useSortableSensors` above registers a PointerSensor, which on
+ * a phone turns any finger that moves 5px over a row into a reorder drag, and (with the `touch-none` the rows used to carry)
+ * stops the browser scrolling there, so the drawer only scrolled from the few pixels between rows. A mouse drags as before;
+ * a finger must HOLD for 250ms before a row lifts (moving first is a scroll, tolerance 8px), which is the "long-press"
+ * the row's hover grip already promises (#322, #1006). Keyboard unchanged (#814).
+ */
+export function useSidebarSortableSensors() {
+  return useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 }
