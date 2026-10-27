@@ -311,6 +311,83 @@ describe('moderation — platform-admin only (MN-220)', () => {
   });
 });
 
+describe('slug ownership — only the publishing workspace can version a slug (ticket #1072)', () => {
+  let other: { token: string; email: string }; // a different author, in their own workspace
+  let otherWsId: string;
+
+  beforeAll(async () => {
+    other = await signUpUser(app, 'MarketOtherAuthor');
+    const res = await as(other.token, 'POST', '/workspaces', { name: `Other Author ${Date.now()}` });
+    expect(res.statusCode, res.body).toBe(201);
+    otherWsId = res.json().id;
+  });
+
+  function submitAsOther(manifest: unknown) {
+    return as(other.token, 'POST', `/workspaces/${otherWsId}/packs/submissions`, {
+      manifest,
+      vertical: 'ops',
+      screenshots: [],
+    });
+  }
+
+  it("another workspace's submission for a published slug is refused at submit", async () => {
+    const wsId = await newWorkspace('Slug Owner');
+    await buildMinimalBusiness(wsId);
+    const v1 = await exportManifest(wsId, { slug: 'owned-pack', version: '1.0.0' });
+    await reviewOk((await submitOk(wsId, v1)).id, 'approve');
+
+    const hijack = { ...v1, version: '9.0.0', summary: 'Not the original author' };
+    const res = await submitAsOther(hijack);
+    expect(res.statusCode, res.body).toBe(409);
+
+    // Nothing reached the queue, and the listing is untouched.
+    const queueRes = await as(operator.token, 'GET', '/admin/packs/submissions?status=pending');
+    const queue = queueRes.json() as Array<{ slug: string }>;
+    expect(queue.some((s) => s.slug === 'owned-pack')).toBe(false);
+    const detail = (await marketplaceEntry('owned-pack')).json() as {
+      latest_version: string;
+      summary: string;
+    };
+    expect(detail.latest_version).toBe('1.0.0');
+    expect(detail.summary).toBe('A minimal ops pack');
+  });
+
+  it('the owning workspace can still submit and publish a new version', async () => {
+    const wsId = await newWorkspace('Slug Owner Bump');
+    await buildMinimalBusiness(wsId);
+    const v1 = await exportManifest(wsId, { slug: 'owned-bump-pack', version: '1.0.0' });
+    await reviewOk((await submitOk(wsId, v1)).id, 'approve');
+
+    const v2 = await exportManifest(wsId, { slug: 'owned-bump-pack', version: '1.1.0' });
+    await reviewOk((await submitOk(wsId, v2)).id, 'approve');
+
+    const detail = (await marketplaceEntry('owned-bump-pack')).json() as { latest_version: string };
+    expect(detail.latest_version).toBe('1.1.0');
+  });
+
+  it('re-checked at approval: a pending submission for a slug another workspace published since is refused', async () => {
+    const wsId = await newWorkspace('Slug Race');
+    await buildMinimalBusiness(wsId);
+    const v1 = await exportManifest(wsId, { slug: 'raced-pack', version: '1.0.0' });
+
+    // Both are submitted while the slug is still unclaimed, so submit lets both through.
+    const ownerSubmission = await submitOk(wsId, v1);
+    const otherRes = await submitAsOther({ ...v1, version: '2.0.0', summary: 'Not the original author' });
+    expect(otherRes.statusCode, otherRes.body).toBe(201);
+
+    await reviewOk(ownerSubmission.id, 'approve');
+    const res = await review(otherRes.json().id, 'approve');
+    expect(res.statusCode, res.body).toBe(409);
+
+    const detail = (await marketplaceEntry('raced-pack')).json() as {
+      latest_version: string;
+      versions: Array<{ version: string }>;
+    };
+    expect(detail.latest_version).toBe('1.0.0');
+    expect(detail.versions.map((v) => v.version)).toEqual(['1.0.0']);
+  });
+});
+
 describe('installed packs surface available updates (MN-220)', () => {
   it('a marketplace pack installed at an older version reports the newer one available', async () => {
     const sourceWs = await newWorkspace('Update Source');
