@@ -172,6 +172,18 @@ export function addableProperties(
   );
 }
 
+/**
+ * #1089 — the properties a person SETS on a new record, so the strip draws them even while empty ("Set Assignee",
+ * "Set Due date"): who and when. Ticket #1019 kept every empty property out of sight behind "+ Add property"; for these two
+ * kinds that cost a new issue its assignee in six clicks (New, Add property, Assignee, open it, pick, close), because an empty
+ * strip member is ALSO left out of the grid below (#937: a field appears once) and is not in "hidden" either, so
+ * "+ Add property" was the only path. Everything else stays calm: an empty select, number or relation is still absent.
+ *
+ * Only strip MEMBERS can be drawn here, and the strip is built from the visible fields, so a person/date field somebody hid
+ * stays hidden (`entity_hidden`) and a user/date field that is not in the strip still lives in the grid as before.
+ */
+export const SET_ON_CREATE_TYPES: ReadonlySet<string> = new Set(['user', 'date']);
+
 export function partitionStrip(
   fields: Field[],
   valueOf: (f: Field) => unknown,
@@ -179,6 +191,6 @@ export function partitionStrip(
 ): { shown: Field[]; absent: Field[]; buttons: Field[] } {
   const buttons = fields.filter((f) => f.type === 'button');
   const props = fields.filter((f) => f.type !== 'button');
-  const shown = props.filter((f) => revealed.has(f.id) || !isEmptyValue(valueOf(f)));
+  const shown = props.filter((f) => revealed.has(f.id) || SET_ON_CREATE_TYPES.has(f.type) || !isEmptyValue(valueOf(f)));
   return { shown, absent: props.filter((f) => !shown.includes(f)), buttons };
 }
