@@ -71,11 +71,19 @@ interface Envelope {
   error?: { code?: string; message?: string; details?: Array<{ path?: string; message: string }> };
 }
 
+import { ROLE_RANK } from './role-gates.js';
+import type { WorkspaceRole } from './role-gates.js';
+
 /** A token's power ceiling, as advertised by GET /me (MN-134). */
 export type ToolScope = 'read' | 'write' | 'admin';
 export interface EffectiveScope {
   scope: ToolScope;
   allowRunButton: boolean;
+  /**
+   * #1081 — the HIGHEST workspace role the person holds across every workspace this credential reaches. A tool that needs a higher
+   * role is not advertised (the API still refuses the call). Absent = unknown = nothing hidden: fail open, as for scope.
+   */
+  role?: WorkspaceRole;
 }
 
 /**
@@ -88,6 +96,34 @@ export interface EffectiveScope {
  * a /me hiccup must never silently downgrade a legitimately-admin token to read-only.
  */
 export async function fetchEffectiveScope(ctx: Ctx): Promise<EffectiveScope> {
+  const base = await fetchTokenScope(ctx);
+  const role = await fetchHighestRole(ctx);
+  return role ? { ...base, role } : base;
+}
+
+/**
+ * #1081 — the highest role the person holds in any workspace this credential reaches (GET /workspaces already narrows a bound token
+ * or a one-workspace connection to what it may touch). Fails OPEN to undefined: a hiccup must never hide a tool the person can use.
+ */
+export async function fetchHighestRole(ctx: Ctx): Promise<WorkspaceRole | undefined> {
+  try {
+    const res = await fetch(`${ctx.baseUrl}/api/v1/workspaces`, { headers: { Authorization: `Bearer ${ctx.token}` } });
+    if (!res.ok) return undefined;
+    const body = (await res.json().catch(() => undefined)) as Array<{ role?: unknown }> | undefined;
+    if (!Array.isArray(body) || body.length === 0) return undefined;
+    let best: WorkspaceRole | undefined;
+    for (const w of body) {
+      const r = w?.role;
+      if (r !== 'guest' && r !== 'member' && r !== 'admin') return undefined; // an unknown shape: say nothing rather than guess
+      if (!best || ROLE_RANK[r] > ROLE_RANK[best]) best = r;
+    }
+    return best;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchTokenScope(ctx: Ctx): Promise<EffectiveScope> {
   const full: EffectiveScope = { scope: 'admin', allowRunButton: true };
   try {
     const res = await fetch(`${ctx.baseUrl}/api/v1/me`, {

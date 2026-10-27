@@ -344,6 +344,10 @@ describe('#1030 an approved token reaches only what was approved', () => {
     expect((await bearer(a.token, 'GET', '/me')).json().auth).toMatchObject({ via: 'oauth', token_scope: null });
     expect((await bearer(m.token, 'GET', '/me')).json().auth).toMatchObject({ via: 'oauth', token_scope: null });
 
+    // #1081: this is what the MCP reads to decide which tools to list: the person's role per reachable workspace.
+    const roleOf = async (t: string) => ((await bearer(t, 'GET', '/workspaces')).json() as Array<{ id: string; role: string }>).find((w) => w.id === ws)?.role;
+    expect(await roleOf(a.token), "an admin's connection reports admin").toBe('admin');
+    expect(await roleOf(m.token), "a member's connection reports member").toBe('member');
     expect((await bearer(a.token, 'GET', `/workspaces/${ws}/audit-log`)).statusCode, 'admin: admin-role route').toBe(200);
     const db = await bearer(a.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Made by admin AI' });
     expect(db.statusCode, db.body).toBe(201);

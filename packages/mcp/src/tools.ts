@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx, EffectiveScope, ToolScope } from './client.js';
+import { ROLE_RANK } from './role-gates.js';
+import { TOOL_MIN_ROLE } from './role-gates.generated.js';
 import { unwrap, uploadAttachment } from './client.js';
 import { SCHEMA_VERSION_NOTICE } from './schema-version.js';
 // Subpath, not the barrel: markdown/icons are zod-free, and pulling the whole
@@ -925,6 +927,11 @@ const SCOPE_RANK: Record<ToolScope, number> = { read: 0, write: 1, admin: 2 };
 
 /** Human summary of what a scope excludes, for get_started. */
 function scopeExclusions(effective: EffectiveScope): string {
+  const roleNote = effective.role && effective.role !== 'admin' ? ` Tools that need a workspace ${effective.role === 'guest' ? 'member or admin' : 'admin'} role are not listed for you.` : '';
+  return scopeExclusionsBase(effective) + roleNote;
+}
+
+function scopeExclusionsBase(effective: EffectiveScope): string {
   if (effective.scope === 'admin') {
     return effective.allowRunButton
       ? 'Full access — every tool is available.'
@@ -986,6 +993,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const need = TOOL_SCOPE[name] ?? 'admin';
     if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
     if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
+    // #1081: a tool the person's role cannot use is not advertised (the API still answers 403 if it is called anyway).
+    const needRole = TOOL_MIN_ROLE[name];
+    if (needRole && effective.role && ROLE_RANK[needRole] > ROLE_RANK[effective.role]) return;
     // Wired in HERE, the one place every tool is registered, for the same reason
     // rejectUnknownArgs is: no tool gets to be the strict one, and a client that
     // stringifies arguments works uniformly instead of on whichever tools

@@ -18,7 +18,7 @@
     "license:check": "node scripts/license-check.mjs",
     "db:migrate": "pnpm --filter @storyos/api db:migrate",
     "db:generate": "pnpm --filter @storyos/api db:generate",
-    "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build",
+    "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build && pnpm --filter @storyos/mcp role-gates:generate",
     "seed:agent-uat": "pnpm --filter @storyos/api seed:agent-uat --",
     "design:contrast": "node scripts/contrast-advisory.mjs",
     "collision:check": "node scripts/collision-check.mjs"

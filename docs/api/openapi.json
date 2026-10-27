@@ -229,7 +229,8 @@
         "summary": "Update workspace (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/spaces": {
@@ -277,7 +278,8 @@
         "summary": "Create a space",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/spaces/trash": {
@@ -297,7 +299,8 @@
         "summary": "Deleted spaces in this workspace (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/spaces/personal": {
@@ -356,7 +359,8 @@
         "summary": "Rename/reorder a space",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "member"
       },
       "delete": {
         "operationId": "WorkspaceController_deleteSpace",
@@ -422,7 +426,8 @@
         "summary": "Restore a deleted space, its cascade-deleted databases, and their fields/records/views (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/members": {
@@ -442,7 +447,8 @@
         "summary": "List active members",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/members/{member}": {
@@ -481,7 +487,8 @@
         "summary": "Change a member role / guest scoping (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "delete": {
         "operationId": "WorkspaceController_removeMember",
@@ -508,7 +515,8 @@
         "summary": "Remove a member (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/invites": {
@@ -528,7 +536,8 @@
         "summary": "List pending invites (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "WorkspaceController_createInvite",
@@ -556,7 +565,8 @@
         "summary": "Invite by email; guests require space_ids (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/invites/{invite}/resend": {
@@ -585,7 +595,8 @@
         "summary": "Resend a pending invite; returns a fresh link (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/invites/{invite}": {
@@ -614,7 +625,8 @@
         "summary": "Revoke a pending invite (admin)",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/invites/accept": {
@@ -710,7 +722,8 @@
         "summary": "Create a folder in a space",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/folders/{folder}": {
@@ -749,7 +762,8 @@
         "summary": "Rename / re-icon / reorder a folder",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       },
       "delete": {
         "operationId": "FoldersController_remove",
@@ -776,7 +790,8 @@
         "summary": "Delete a folder (its items fall back to the space root)",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/space-groups": {
@@ -824,7 +839,8 @@
         "summary": "Create a sidebar group",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/space-groups/{group}": {
@@ -863,7 +879,8 @@
         "summary": "Rename / re-colour / reorder a sidebar group",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       },
       "delete": {
         "operationId": "GroupsController_remove",
@@ -890,7 +907,8 @@
         "summary": "Delete a sidebar group (its spaces fall back to ungrouped)",
         "tags": [
           "spaces"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/onboarding": {
@@ -985,7 +1003,8 @@
         "summary": "Plan, status, usage vs limits, and whether billing is configured",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/billing/checkout": {
@@ -1010,7 +1029,8 @@
         "summary": "Create a Stripe Checkout session for a plan; returns a redirect URL",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/billing/portal": {
@@ -1025,7 +1045,8 @@
         "summary": "Create a Stripe Customer Portal session; returns a redirect URL",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/billing/trial": {
@@ -1040,7 +1061,8 @@
         "summary": "Start the 30-day Pro trial (no card, no Stripe subscription yet)",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/billing/webhook": {
@@ -1079,7 +1101,8 @@
         "summary": "Current AI credit balance, auto-reload config, and card-on-file status",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/billing/ai-credits/top-up": {
@@ -1104,7 +1127,8 @@
         "summary": "Create a one-time Checkout session to add credits; returns a redirect URL",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/billing/ai-credits/auto-reload": {
@@ -1129,7 +1153,8 @@
         "summary": "Configure (or disable) auto-reload",
         "tags": [
           "billing"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/grants": {
@@ -1158,7 +1183,8 @@
         "summary": "List access grants (optionally for one user)",
         "tags": [
           "access"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "GrantsController_create",
@@ -1186,7 +1212,8 @@
         "summary": "Grant a role on a space or database (upserts per scope)",
         "tags": [
           "access"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/grants/{grant}": {
@@ -1215,7 +1242,8 @@
         "summary": "Revoke a grant",
         "tags": [
           "access"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/referrals/me": {
@@ -1406,7 +1434,8 @@
         "summary": "Convert a user field into a relation to the Members database. DRY RUN by default: reports matched/unresolvable counts, the per-role permission-neutrality proof, and what would be created. Applying keeps the original field (renamed) and parks anything unresolvable; nothing is dropped.",
         "tags": [
           "fields"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-user": {
@@ -1453,7 +1482,8 @@
         "summary": "Convert a relation to the Members database back into a user field (the reverse). DRY RUN by default. Removes the relation and its Members-side inverse field; Members rows with no user id are parked in a text field.",
         "tags": [
           "fields"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases": {
@@ -1501,7 +1531,8 @@
         "summary": "Create a database (auto: title field, system fields, default view)",
         "tags": [
           "databases"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/databases/trash": {
@@ -1521,7 +1552,8 @@
         "summary": "Deleted databases in this workspace (admin)",
         "tags": [
           "databases"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}": {
@@ -1653,7 +1685,8 @@
         "summary": "Restore a deleted database, and whatever fields/records/views were deleted with it (admin)",
         "tags": [
           "databases"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/fields": {
@@ -4285,7 +4318,8 @@
         "summary": "List this database's validation rules, each with how many stored records break it now",
         "tags": [
           "validation-rules"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "ValidationRulesController_create",
@@ -4322,7 +4356,8 @@
         "summary": "Declare a rule that REFUSES a record write when its condition is not met. Applies to every writer, admins included; no bypass.",
         "tags": [
           "validation-rules"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}": {
@@ -4369,7 +4404,8 @@
         "summary": "Change a rule's name, condition, message or enabled flag (the trigger is fixed)",
         "tags": [
           "validation-rules"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "delete": {
         "operationId": "ValidationRulesController_remove",
@@ -4404,7 +4440,8 @@
         "summary": "Delete a rule",
         "tags": [
           "validation-rules"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/validation-rules/{id}/violations": {
@@ -4449,7 +4486,8 @@
         "summary": "The stored records that ALREADY break this rule (a rule only fires when a field it references changes, so existing violations persist; this is how they are seen)",
         "tags": [
           "validation-rules"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
@@ -4938,7 +4976,8 @@
         "summary": "List webhooks (secrets are never returned)",
         "tags": [
           "webhooks"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "WebhooksController_create",
@@ -4966,7 +5005,8 @@
         "summary": "Create a webhook — the signing secret is returned once, here only",
         "tags": [
           "webhooks"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/webhooks/{id}": {
@@ -5005,7 +5045,8 @@
         "summary": "Update a webhook (url / events / enabled; take_ownership makes you its owner and resumes it if paused)",
         "tags": [
           "webhooks"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "delete": {
         "operationId": "WebhooksController_remove",
@@ -5032,7 +5073,8 @@
         "summary": "Delete a webhook",
         "tags": [
           "webhooks"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/webhooks/{id}/deliveries": {
@@ -5069,7 +5111,8 @@
         "summary": "Recent delivery attempts — status, code, error, retries",
         "tags": [
           "webhooks"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments": {
@@ -5702,7 +5745,8 @@
         "summary": "Workspace-wide activity + field changes, filterable by actor/entity/date range (admin)",
         "tags": [
           "activity"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations": {
@@ -5732,7 +5776,8 @@
         "summary": "GitHub config (token presence + repos + App connect state)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "IntegrationsController_saveConfig",
@@ -5755,7 +5800,8 @@
         "summary": "Save GitHub token, repos, webhook secret and/or state automation",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/connect": {
@@ -5770,7 +5816,8 @@
         "summary": "Begin GitHub App OAuth connect (redirects to GitHub)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/repos": {
@@ -5785,7 +5832,8 @@
         "summary": "List the connected installation's repositories",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/sync": {
@@ -5800,7 +5848,8 @@
         "summary": "Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/disconnect": {
@@ -5815,7 +5864,8 @@
         "summary": "Disconnect GitHub — clears token, App installation and watched repos",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews": {
@@ -5839,7 +5889,8 @@
         "summary": "Reviews sidebar: PRs in one bucket (needs_review/authored/participating)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}": {
@@ -5879,7 +5930,8 @@
         "summary": "PR detail: metadata, changed files (with patch), checks",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments": {
@@ -5919,7 +5971,8 @@
         "summary": "Cached inline review comments for this PR",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       },
       "post": {
         "operationId": "GithubReviewsController_createComment",
@@ -5967,7 +6020,8 @@
         "summary": "Post a new inline (file/line-anchored) review comment",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/{commentId}/replies": {
@@ -6025,7 +6079,8 @@
         "summary": "Reply within an existing comment thread",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/{commentId}/reactions": {
@@ -6075,7 +6130,8 @@
         "summary": "React to a review comment",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/sync": {
@@ -6115,7 +6171,8 @@
         "summary": "Poll GitHub for review comments and refresh the local cache",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/reviews": {
@@ -6165,7 +6222,8 @@
         "summary": "Approve / Request changes / Comment — submits a GitHub PR review",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/github/review-settings": {
@@ -6180,7 +6238,8 @@
         "summary": "Code & reviews settings (defaulted)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "GithubReviewSettingsController_save",
@@ -6203,7 +6262,8 @@
         "summary": "Save Code & reviews settings",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/integrations/github/webhook": {
@@ -6290,7 +6350,8 @@
         "summary": "Linear config (key presence + team keys)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "LinearIntegrationsController_saveConfig",
@@ -6313,7 +6374,8 @@
         "summary": "Save Linear API key and/or team-key filter",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/linear/dry-run": {
@@ -6328,7 +6390,8 @@
         "summary": "Preview import counts per team — writes nothing",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/linear/sync": {
@@ -6343,7 +6406,8 @@
         "summary": "Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
@@ -6358,7 +6422,8 @@
         "summary": "Disconnect Linear — clears the stored API key and team-key filter",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/slack": {
@@ -6373,7 +6438,8 @@
         "summary": "Slack config (token/webhook presence + default channel)",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "SlackIntegrationsController_saveConfig",
@@ -6396,7 +6462,8 @@
         "summary": "Save Slack bot token, webhook URL and/or default channel",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/slack/test": {
@@ -6411,7 +6478,8 @@
         "summary": "Send a test message using the saved Slack config, to verify the connection",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/slack/disconnect": {
@@ -6426,7 +6494,8 @@
         "summary": "Disconnect Slack — clears the stored bot token, webhook and default channel",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/shopify/catalogue": {
@@ -6451,7 +6520,8 @@
         "summary": "Create the Shopify product catalogue — databases, sources and relations in one click",
         "tags": [
           "integrations"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/providers/shopify/webhook/{connectionId}": {
@@ -7060,7 +7130,8 @@
         "summary": "Connect an api_key/smtp provider — runs a live health check before saving",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/connections/providers": {
@@ -7119,7 +7190,8 @@
         "summary": "Set the one URL prefix an HTTP connection's credential may be sent to (#1035)",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "delete": {
         "operationId": "ConnectionsController_remove",
@@ -7146,7 +7218,8 @@
         "summary": "Disconnect — hard-deletes the row, no tombstone",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/connections/{id}/test": {
@@ -7175,7 +7248,8 @@
         "summary": "Re-run the provider health check against the stored credential",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/connections/{id}/resume": {
@@ -7204,7 +7278,8 @@
         "summary": "MN-264: manually close the circuit breaker before its cool-down elapses",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/connections/oauth/{provider}/start": {
@@ -7233,7 +7308,8 @@
         "summary": "Begin an OAuth2 connect (redirects to the provider)",
         "tags": [
           "connections"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/connections/oauth/callback": {
@@ -7694,7 +7770,8 @@
         "summary": "Create a skill — shared with the workspace by default, whether a person or an agent (token, connected AI) creates it. An agent can also share it with named workspace members; making one public only raises an approval a person must give. A workspace admin can switch agent publishing off, after which an agent-authored skill is created personal",
         "tags": [
           "skills"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/skills/templates": {
@@ -7767,7 +7844,8 @@
         "summary": "Edit a skill — owner-only, even if it's shared",
         "tags": [
           "skills"
-        ]
+        ],
+        "x-min-role": "member"
       },
       "delete": {
         "operationId": "SkillsController_remove",
@@ -7790,7 +7868,8 @@
         "summary": "Delete a skill — owner-only",
         "tags": [
           "skills"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/skills/import": {
@@ -7815,7 +7894,8 @@
         "summary": "Import a SKILL.md: returns a KEPT/DROPPED report first; pass create:true to write the skill",
         "tags": [
           "skills"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/skills/{id}/export": {
@@ -7932,7 +8012,8 @@
         "summary": "Create a portal recipient — never creates a user, never touches billable seats",
         "tags": [
           "portal"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "get": {
         "operationId": "PortalRecipientsController_list",
@@ -7950,7 +8031,8 @@
         "summary": "List portal recipients for this workspace",
         "tags": [
           "portal"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke": {
@@ -7979,7 +8061,8 @@
         "summary": "Revoke a recipient — every access path closes immediately, no cache/TTL",
         "tags": [
           "portal"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate": {
@@ -8008,7 +8091,8 @@
         "summary": "Issue a new token for a recipient, atomically invalidating the old one (#602)",
         "tags": [
           "portal"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/portal-activity": {
@@ -8068,7 +8152,8 @@
         "summary": "Portal recipient activity — what a client saw and did, filterable by recipient/view (admin)",
         "tags": [
           "portal"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/views": {
@@ -9132,7 +9217,8 @@
         "summary": "Download the whole workspace as a .zip (schema, records, relations, attachments)",
         "tags": [
           "export"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/capabilities": {
@@ -9258,7 +9344,8 @@
         "summary": "A credential's scope and window — including after it was revoked or its owner erased (#882)",
         "tags": [
           "credentials"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/credentials/{id}/actions": {
@@ -9295,7 +9382,8 @@
         "summary": "Everything one credential did (activity events), newest first (#882)",
         "tags": [
           "credentials"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/activity-events/{event}": {
@@ -9324,7 +9412,8 @@
         "summary": "One past action and the credential that performed it (#882)",
         "tags": [
           "credentials"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/files": {
@@ -9402,7 +9491,8 @@
         "summary": "Revoke a file — kills its capability URL and any signed download URLs (#201)",
         "tags": [
           "files"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/files/{id}": {
@@ -9537,7 +9627,8 @@
         "summary": "Import CSV: fields \"file\", \"mapping\" (JSON), \"dry_run\" (\"true\"/\"false\")",
         "tags": [
           "import"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/records/copy": {
@@ -9605,7 +9696,8 @@
         "summary": "List writable calendars for a Calendar connection",
         "tags": [
           "google-calendar"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings": {
@@ -9625,7 +9717,8 @@
         "summary": "List database-to-calendar sync bindings",
         "tags": [
           "google-calendar"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "post": {
         "operationId": "CalendarSyncController_createBinding",
@@ -9653,7 +9746,8 @@
         "summary": "Bind a database and date fields to a Google Calendar",
         "tags": [
           "google-calendar"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings/{id}/sync": {
@@ -9682,7 +9776,8 @@
         "summary": "Push all current dated records to Google Calendar now",
         "tags": [
           "google-calendar"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings/{id}": {
@@ -9711,7 +9806,8 @@
         "summary": "Remove a calendar binding (existing Google events remain)",
         "tags": [
           "google-calendar"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/runs/quota": {
@@ -9909,7 +10005,8 @@
         "summary": "Agents database summary, or { exists: false } if not provisioned",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/ensure": {
@@ -9924,7 +10021,8 @@
         "summary": "Provision the Agentic OS space + Agents/Runs/Agent Triggers databases (idempotent)",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/triggers": {
@@ -9949,7 +10047,8 @@
         "summary": "Bind an agent to a state on a database; returns the binding record",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/run": {
@@ -9974,7 +10073,8 @@
         "summary": "Run an agent manually; returns the Run record",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/delegate": {
@@ -10009,7 +10109,8 @@
         "summary": "Delegate a record to an agent — it runs with the record as context and posts progress back as a comment",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/runs/{run}/approve": {
@@ -10034,7 +10135,8 @@
         "summary": "Approve a run waiting for approval: apply the staged action",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/runs/{run}/reject": {
@@ -10069,7 +10171,8 @@
         "summary": "Reject a run waiting for approval: apply nothing, cancel it",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/runs/{run}/staged": {
@@ -10094,7 +10197,8 @@
         "summary": "A parked run's staged action and step log, or null if it isn't waiting",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
@@ -10135,7 +10239,8 @@
         "summary": "Field changes + activity events attributed to this agent, in a date range",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/architect/propose": {
@@ -10160,7 +10265,8 @@
         "summary": "Propose a plan from a plain-language goal; creates nothing",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/architect/build": {
@@ -10185,7 +10291,8 @@
         "summary": "Build an approved plan through the ordinary CRUD services",
         "tags": [
           "agents"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/tyron/threads": {
@@ -10502,7 +10609,8 @@
         "summary": "Install a template (packs create a space; database templates take space_id and may be renamed)",
         "tags": [
           "templates"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/templates/sample-data": {
@@ -10522,7 +10630,8 @@
         "summary": "Remove exactly the sample records templates created",
         "tags": [
           "templates"
-        ]
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/packs/export": {
@@ -10547,7 +10656,8 @@
         "summary": "Export a workspace slice as a pack manifest; creates nothing",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/packs/install": {
@@ -10572,7 +10682,8 @@
         "summary": "Install a pack manifest; idempotent",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/packs/preview": {
@@ -10597,7 +10708,8 @@
         "summary": "Preview what installing a manifest would do; creates nothing",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/packs/installed": {
@@ -10612,7 +10724,8 @@
         "summary": "List tracked pack installs in this workspace",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/packs/{installId}/uninstall": {
@@ -10636,7 +10749,8 @@
         "summary": "Uninstall a tracked pack install",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/packs/submissions": {
@@ -10661,7 +10775,8 @@
         "summary": "Submit a pack manifest to the marketplace for review",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       },
       "get": {
         "operationId": "PacksController_mySubmissions",
@@ -10674,7 +10789,8 @@
         "summary": "List this workspace's marketplace submissions",
         "tags": [
           "packs"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/packs/registry": {
@@ -11070,7 +11186,8 @@
         "summary": "Export everything held about this member (machine-readable JSON)",
         "tags": [
           "gdpr"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/workspaces/{ws}/members/{member}/gdpr/anonymize": {
@@ -11099,7 +11216,8 @@
         "summary": "Erase this member FROM THIS WORKSPACE: remove their membership, access and per-person state here and the tokens minted for it. Their global identity and every other workspace are untouched (#1039); that is /me/gdpr/erase, self-service. Comments and history are kept.",
         "tags": [
           "gdpr"
-        ]
+        ],
+        "x-min-role": "admin"
       }
     },
     "/api/v1/me/gdpr/erase": {
