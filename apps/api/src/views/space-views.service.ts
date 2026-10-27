@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -13,6 +14,8 @@ import { databases, spaceFolders, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { ACCESS_RANK, AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { viewConfigSchema, type ViewConfig } from '@storyos/schemas';
+import { ViewsService } from './views.service';
 
 /**
  * #1013 — the databases a view NAMES as its sources, before any access check: an ordinary view reads its own database; a dashboard
@@ -48,6 +51,7 @@ export class SpaceViewsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly viewsService: ViewsService,
   ) {}
 
   async listForSpace(membership: Membership, spaceId: string) {
@@ -434,11 +438,29 @@ export class SpaceViewsService {
     });
     if (patch.folder_id) await this.assertFolderInSpace(spaceId, patch.folder_id);
 
+    // #1083 — the body's `config` is untyped on this route; parse it with the same schema the database-scoped route uses.
+    let config: ViewConfig | undefined;
+    if (patch.config !== undefined) {
+      const parsed = viewConfigSchema.safeParse(patch.config);
+      if (!parsed.success) throw new BadRequestException(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+      config = parsed.data;
+    }
+
+    // #1083 — a database's view is saved by the database-scoped update itself, so it gets the same config validation,
+    // server-minted form token (#1041), `share` preservation and public-form relation check (#1071) on either route.
+    if (view.databaseId) {
+      return this.viewsService.update(view.databaseId, viewId, { name: patch.name, config, folder_id: patch.folder_id }, membership);
+    }
+
+    // A space dashboard is neither a published view nor a form, so its `share` and `form` are never taken from the body.
+    const stored = view.config as ViewConfig | null;
+    if (config) config = { ...config, share: stored?.share, form: stored?.form };
+
     const [updated] = await this.db
       .update(views)
       .set({
         name: patch.name,
-        config: patch.config as never,
+        config: config as never,
         // `undefined` leaves placement alone; explicit null unfiles it. Same
         // distinction the database-scoped endpoint keeps.
         ...(patch.folder_id !== undefined ? { folderId: patch.folder_id } : {}),
