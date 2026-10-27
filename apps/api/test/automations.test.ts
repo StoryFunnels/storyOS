@@ -242,11 +242,10 @@ describe('automations (MN-047)', () => {
     const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
       name: 'Set state to a label, not an option id',
       trigger: { type: 'record_created' },
-      // "New" reads like a real State option to a human configuring this,
-      // but the field only has Urgent/Done — and even if it existed, a
-      // LABEL is never what this field type accepts (see the hypothesis
-      // this test also confirms).
-      actions: [{ type: 'set_values', values: { [stateApi]: 'New' } }],
+      // #719 — a LABEL is now resolved (and an unknown label fails earlier, naming the field and the valid labels; see
+      // automation-set-values-labels.test.ts). #714's guarantee is about any REMAINING validation failure, so this feeds the select a
+      // value that is neither an id nor a label: a number, which reaches the validator.
+      actions: [{ type: 'set_values', values: { [stateApi]: 5 } }],
     })).json();
     try {
       const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
@@ -261,7 +260,7 @@ describe('automations (MN-047)', () => {
       expect(runs.data[0].error).toContain('Record values validation failed');
       // ...AND so does the field-level detail that used to be dropped.
       expect(runs.data[0].error).toContain(`values.${stateApi}`);
-      expect(runs.data[0].error).toMatch(/unknown option id/i);
+      expect(runs.data[0].error).toMatch(/expected an option id/i);
     } finally {
       // record_created triggers on every record this workspace creates for
       // the rest of the file — leaving this enabled corrupted MN-168's

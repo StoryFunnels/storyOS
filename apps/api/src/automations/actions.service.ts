@@ -1086,11 +1086,9 @@ export class AutomationActionsService {
         // context — ctx.record is guaranteed here.
         const record = ctx.record!;
         // #339: every string value. #342: number targets are COMPUTED.
-        const values = this.interpolateValues(
-          action.values,
-          ctx,
-          displayToApi,
-          await this.numericContext(ctx.databaseId, ctx.databaseId),
+        const values = await this.recordsService.resolveSelectLabels(
+          ctx.databaseId,
+          this.interpolateValues(action.values, ctx, displayToApi, await this.numericContext(ctx.databaseId, ctx.databaseId)),
         );
         await this.recordsService.update(
           ctx.workspaceId,
@@ -1114,11 +1112,9 @@ export class AutomationActionsService {
         // preview/snapshot branch above is a separate call site, and patching
         // only one of them would have made the preview honest and the write
         // still literal. #342: number targets are COMPUTED, not substituted.
-        const values = this.interpolateValues(
-          action.values,
-          ctx,
-          displayToApi,
-          await this.numericContext(ctx.databaseId, action.database_id),
+        const values = await this.recordsService.resolveSelectLabels(
+          action.database_id,
+          this.interpolateValues(action.values, ctx, displayToApi, await this.numericContext(ctx.databaseId, action.database_id)),
         );
         let created: { id: string; title: string };
         let wasCreated = true;
@@ -1194,7 +1190,7 @@ export class AutomationActionsService {
           const itemCtx: ActionContext = { ...ctx, itemIndex: i + 1 };
           // #339: every string value, per item — so {index} and {changesSummary}
           // reach the batch's other fields, not only its name.
-          const values = this.interpolateValues(action.values, itemCtx, displayToApi);
+          const values = await this.recordsService.resolveSelectLabels(action.database_id, this.interpolateValues(action.values, itemCtx, displayToApi));
           const created = await this.recordsService.create(
             ctx.workspaceId,
             action.database_id,
@@ -1270,7 +1266,7 @@ export class AutomationActionsService {
           ctx.record!,
         );
         if (resolved && resolved.linkedIds.length > 0) {
-          const values = this.resolveTokens(action.values, ctx);
+          const values = await this.recordsService.resolveSelectLabels(resolved.targetDbId, this.resolveTokens(action.values, ctx));
           for (const linkedId of resolved.linkedIds) {
             await this.recordsService.update(
               ctx.workspaceId,

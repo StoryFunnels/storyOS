@@ -11,6 +11,8 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../acti
 import {
   activeFilter,
   applyFieldDefaults,
+  describeUnresolvedLabels,
+  resolveOptionLabels,
   evaluateFormula,
   formulaRefs,
   SORTABLE_FIELD_TYPES as SHARED_SORTABLE_FIELD_TYPES,
@@ -45,6 +47,7 @@ import {
 } from '../db/schema';
 import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
+import type { LabelledField } from '@storyos/schemas';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, optionRank, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
@@ -2846,6 +2849,32 @@ export class RecordsService {
     await this.attachmentsService.duplicateAll(workspaceId, recordId, created.id, actorId);
 
     return this.get(databaseId, created.id);
+  }
+
+  /**
+   * #719 — an automation writes the values an admin typed into the rule, and what a person types for a select, workflow or multi-select
+   * field is its LABEL ("Done"), not the option id storage holds. Resolve the labels to ids, by the same shared rule the MCP layer uses
+   * (`@storyos/schemas` `resolveOptionLabels`). A value that is neither an id nor a label is refused HERE, naming the field and every
+   * valid label, instead of reaching the validator as an anonymous "unknown option id". Ids pass through untouched.
+   */
+  async resolveSelectLabels(databaseId: string, values: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const keys = Object.keys(values);
+    if (keys.length === 0) return values;
+    const fieldRows = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt), inArray(fields.type, ['select', 'multi_select', 'workflow'])),
+    });
+    const wanted = fieldRows.filter((f) => keys.includes(f.apiName));
+    if (wanted.length === 0) return values;
+    const optionRows = await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, wanted.map((f) => f.id)) });
+    const labelled: LabelledField[] = wanted.map((f) => ({
+      apiName: f.apiName,
+      displayName: f.displayName,
+      type: f.type,
+      options: optionRows.filter((o) => o.fieldId === f.id).sort((a, b) => a.position - b.position).map((o) => ({ id: o.id, label: o.label })),
+    }));
+    const { values: resolved, unresolved } = resolveOptionLabels(labelled, values);
+    if (unresolved.length > 0) throw new UnprocessableEntityException(describeUnresolvedLabels(unresolved));
+    return resolved;
   }
 
   /**
