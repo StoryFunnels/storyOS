@@ -852,7 +852,8 @@ export function RecordDetail({
                 {/* #1060 (replacing #1019's draft) — every VALUE is the one pill (select, state, relation) or the person (avatar +
                     name), the prototype's `.strip`; a faint label names each value that does not name itself ("Priority [Low]"),
                     and every one carries its field name as a tooltip and aria-label ("Priority: Low"). Empty properties are
-                    absent and come back through "+ Add property"; an ACTION is the app's secondary button, set apart at the
+                    absent and come back through "+ Add property" — EXCEPT a person or a date (#1089: "Set Assignee", "Set Due date"),
+                    the two things set on a new record, which are drawn while empty (`SET_ON_CREATE_TYPES`); an ACTION is the app's secondary button, set apart at the
                     right end, never a tinted chip like a value. */}
                 {stripShown.map((field) => {
                   const title = fieldTitle(field, record.data?.values[field.apiName], memberNames);

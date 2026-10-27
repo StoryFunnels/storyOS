@@ -109,7 +109,7 @@ describe('gridFieldsExcludingStrip (ticket #937)', () => {
   });
 });
 
-import { partitionStrip } from './strip-fields';
+import { SET_ON_CREATE_TYPES, partitionStrip } from './strip-fields';
 
 describe('partitionStrip (#1019)', () => {
   const f = (id: string, type: string): Field => ({ id, apiName: id, displayName: id, type }) as unknown as Field;
@@ -117,15 +117,35 @@ describe('partitionStrip (#1019)', () => {
   const values: Record<string, unknown> = { status: 'o1', who: undefined, epic: [] };
   const valueOf = (x: Field) => values[x.apiName];
 
+  const due = f('due', 'date'), pri = f('pri', 'select');
   it('draws what has a value, keeps empty properties out of sight, and sets actions apart', () => {
-    const p = partitionStrip([status, who, epic, done], valueOf, new Set());
+    // epic (a relation) and pri (a select) are empty and stay absent; who (a person) is empty and is drawn (#1089, below).
+    const p = partitionStrip([status, epic, pri, done], valueOf, new Set());
     expect(p.shown.map((x) => x.id)).toEqual(['status']);
-    expect(p.absent.map((x) => x.id)).toEqual(['who', 'epic']);
+    expect(p.absent.map((x) => x.id)).toEqual(['epic', 'pri']);
     expect(p.buttons.map((x) => x.id)).toEqual(['done']);
   });
+  it('#1089: an EMPTY person or date field is drawn by default, so a new record can be assigned and dated in one click', () => {
+    const p = partitionStrip([status, who, due, epic, pri], (x) => ({ status: 'o1' })[x.apiName as 'status'], new Set());
+    expect(p.shown.map((x) => x.id)).toEqual(['status', 'who', 'due']);
+    expect(p.absent.map((x) => x.id)).toEqual(['epic', 'pri']);
+  });
+  it('#1089: only user and date qualify: a text, number, select, checkbox or relation that is empty stays out of sight', () => {
+    expect([...SET_ON_CREATE_TYPES].sort()).toEqual(['date', 'user']);
+    for (const type of ['text', 'number', 'select', 'multi_select', 'checkbox', 'relation', 'workflow', 'url', 'email']) {
+      expect(partitionStrip([f('x', type)], () => undefined, new Set()).shown).toEqual([]);
+    }
+  });
+  it('#1089 MUST KEEP WORKING: a person or date field only reaches the strip if it is a visible member, so one a person hid stays hidden', () => {
+    // partitionStrip only ever sees `strip.fields`, which record-detail builds from `visibleFields` (hidden fields removed).
+    // The hidden field is simply not passed in, so it cannot be drawn by the rule above.
+    const p = partitionStrip([status], valueOf, new Set());
+    expect(p.shown.map((x) => x.id)).toEqual(['status']);
+    expect(p.shown.some((x) => x.id === 'who')).toBe(false);
+  });
   it('a property asked for through "+ Add property" is drawn even while empty — nothing loses its edit path', () => {
-    const p = partitionStrip([status, who], valueOf, new Set(['who']));
-    expect(p.shown.map((x) => x.id)).toEqual(['status', 'who']);
+    const p = partitionStrip([status, epic], valueOf, new Set(['epic']));
+    expect(p.shown.map((x) => x.id)).toEqual(['status', 'epic']);
     expect(p.absent).toEqual([]);
   });
   it('a button is never a property: not in shown, not in absent, whatever its value', () => {
