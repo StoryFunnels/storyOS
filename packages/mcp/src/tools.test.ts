@@ -2307,6 +2307,7 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
         if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
         if (path === '/api/v1/packs/registry') return { data: [{ slug: 'crm', name: 'CRM' }] };
         if (path === '/api/v1/packs/registry/{slug}') return { data: { slug: 'crm', manifest: { databases: [] } } };
+        if (path === '/api/v1/workspaces/{ws}/spaces') return { data: [{ id: 'sp-1', name: 'Ops', slug: 'ops' }] };
         throw new Error(`unexpected GET ${path}`);
       },
       POST: async (path: string, opts: { body: unknown }) => {
@@ -2425,6 +2426,18 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
       const { call, sent } = harness();
       await call('install_pack', { workspace: 'Eng', slug: 'crm' });
       expect(sent.map((s) => s.path)).toContain('/api/v1/workspaces/{ws}/packs/install');
+    });
+
+    // #1095 — install into an existing space: the tool resolves the NAME to an id and sends it as target_space_id; absent means absent.
+    it('install_pack with a space sends target_space_id (resolved from the name); without one it sends none', async () => {
+      const withSpace = harness();
+      await withSpace.call('install_pack', { workspace: 'Eng', slug: 'crm', space: 'Ops' });
+      const body = withSpace.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect(body['target_space_id']).toBe('sp-1');
+      const plain = harness();
+      await plain.call('install_pack', { workspace: 'Eng', slug: 'crm' });
+      const plainBody = plain.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect('target_space_id' in plainBody).toBe(false);
     });
 
     it('create_records sends ONE request for many records', async () => {

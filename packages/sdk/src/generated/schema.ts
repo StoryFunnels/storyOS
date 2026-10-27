@@ -6890,6 +6890,8 @@ export interface components {
                     rename_to?: string;
                 };
             };
+            /** Format: uuid */
+            target_space_id?: string;
         };
         SubmitDto: {
             /** @enum {string} */

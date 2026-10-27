@@ -3042,6 +3042,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .boolean()
           .optional()
           .describe('Show what would be created and create nothing. Worth doing first on a workspace that already has data.'),
+        space: z
+          .string()
+          .optional()
+          .describe(
+            'Install INTO this existing space (name, slug or id from list_spaces) instead of creating the pack\'s own: every database, view and automation lands in it and no space is created. Only for a pack whose databases all sit in one space; a multi-space pack is refused, and so is one whose databases already exist in a different space. You need edit access to the space; a personal space is refused. Omit it for the usual install. Combine with preview to check first.',
+          ),
         update_agents: z
           .array(z.string())
           .optional()
@@ -3050,7 +3056,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; update_agents?: string[] }>(async ({ workspace, slug, preview, update_agents }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[] }>(async ({ workspace, slug, preview, space, update_agents }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3063,6 +3069,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         params: { path: { ws: ws.id } } as never,
         body: {
           manifest: pack.manifest,
+          ...(space ? { target_space_id: await resolveSpaceId(ws.id, space) } : {}),
           ...(update_agents?.length
             ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
             : {}),
