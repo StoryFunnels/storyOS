@@ -229,6 +229,30 @@ export class SkillsService {
     return (await this.presentAll([row], membership, userId))[0]!;
   }
 
+  /**
+   * ticket #1106 — resolve the skills an AGENT names, at run time, as the agent's owner would see them (the same visibility rule as
+   * every other read: `list` goes through `visibleTo`). Matched by name, trimmed and case-insensitive — the same match pack install
+   * uses. Every name is accounted for: it comes back either in `loaded` (in the order the agent lists them) or in `missing`, never dropped.
+   * If a name is visible twice (a personal and a shared skill of one name) the owner's own wins, then the newest.
+   */
+  async resolveByNames(
+    membership: Membership,
+    userId: string,
+    names: string[],
+  ): Promise<{ loaded: SkillView[]; missing: string[] }> {
+    const key = (n: string) => n.trim().toLowerCase();
+    const { data } = await this.list(membership, userId);
+    const loaded: SkillView[] = [];
+    const missing: string[] = [];
+    for (const name of names) {
+      const matches = data.filter((s) => key(s.name) === key(name));
+      const pick = matches.find((s) => s.owner_id === userId) ?? matches[0];
+      if (pick) loaded.push(pick);
+      else missing.push(name);
+    }
+    return { loaded, missing };
+  }
+
   private publicGate: PublicPublishGate | null = null;
 
   registerPublicGate(gate: PublicPublishGate | null): void {

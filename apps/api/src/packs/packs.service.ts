@@ -52,6 +52,7 @@ import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SkillsService } from '../skills/skills.service';
+import { RUN_CLASS_BY_LABEL } from '../agents/agent-runtime';
 import { ViewsService } from '../views/views.service';
 import { AccessService } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -83,7 +84,7 @@ interface AgentUpdatePlan {
 /** `pack_install_items` provenance for an agent, keyed by normalised agent name. */
 type AgentProvenance = Map<string, { packVersion: string | null; sourceHash: string | null }>;
 
-const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy'] as const;
+const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy', 'ai_mode', 'skills'] as const;
 
 /** #266 — every `$db:`/`$field:`/`$option:` ref anywhere inside a value,
  *  walked the same generic way `refify`/`deref` do (any string, any depth,
@@ -347,7 +348,7 @@ export class PacksService {
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
-    const skills = await this.exportSkills(membership, request.skill_ids);
+    const skills = await this.exportSkills(membership, [...request.skill_ids, ...(await this.agentSkillIds(membership, agents, request.skill_ids))]);
 
     const manifest: PackManifest = packManifestSchema.parse({
       format_version: 1,
@@ -637,6 +638,32 @@ export class PacksService {
    * service is used), and the result is #40's own portable shape, unchanged —
    * a skill carries no ids to rewrite.
    */
+  /**
+   * ticket #1106 — the ids of skills the exported agents NAME that the caller did not already list in `skill_ids`, so an agent's skills
+   * travel with it (the manifest would otherwise fail install's "every agent skill is bundled" rule). A named skill the caller cannot
+   * see is a 422 naming it: exporting without it would produce an agent that fails every run.
+   */
+  private async agentSkillIds(membership: Membership, agents: PackAgent[], alreadyIds: string[]): Promise<string[]> {
+    const wanted = [...new Set(agents.flatMap((a) => a.skills.map((n) => norm(n))))];
+    if (wanted.length === 0) return [];
+    const { data: visible } = await this.skills.list(membership, membership.userId);
+    const have = new Set(alreadyIds);
+    const have_names = new Set(visible.filter((s) => have.has(s.id)).map((s) => norm(s.name)));
+    const out: string[] = [];
+    for (const name of wanted) {
+      if (have_names.has(name)) continue;
+      const found = visible.find((s) => norm(s.name) === name);
+      if (!found) {
+        throw new UnprocessableEntityException(
+          `An exported agent uses the skill "${name}", which this workspace cannot see (removed, renamed, or someone else's personal skill). ` +
+            `Restore it, or take it off the agent's Skills field, then export again.`,
+        );
+      }
+      out.push(found.id);
+    }
+    return out;
+  }
+
   private async exportSkills(membership: Membership, ids: string[]): Promise<PackSkill[]> {
     const out: PackSkill[] = [];
     const seenNames = new Set<string>();
@@ -808,6 +835,12 @@ export class PacksService {
    * Only agents whose bindings target the slice come along — an agent that
    * watches a database the pack does not contain is not part of this pack.
    */
+  /** `{ ai_mode }` for a live "AI mode" label, or `{}` when it is unset (or not one of the three). */
+  private exportedAiMode(label: string | null): { ai_mode?: PackAgent['ai_mode'] } {
+    const mode = label ? RUN_CLASS_BY_LABEL[label] : undefined;
+    return mode ? { ai_mode: mode } : {};
+  }
+
   private async exportAgents(
     membership: Membership,
     slice: SliceDb[],
@@ -875,12 +908,14 @@ export class PacksService {
             ['delete', 'webhook', 'email', 'run_button', 'outward'].includes(l ?? ''),
           ),
         target_databases: targets,
-        // No live agent↔skill relation exists yet (see packAgentSchema's
-        // doc) — an Agent record has nowhere to have recorded this, so it is
-        // always empty coming out of export. Hand-editing the manifest to
-        // add names here (matched against `skills[].name`) is what the field
-        // is for; install validates them either way.
-        skills: [],
+        // ticket #1106: the agent's own "Skills" field, one name per line. `export` bundles each named skill (below) so the manifest
+        // still satisfies install's "every agent skill is bundled" rule.
+        skills: String(row.values['skills'] ?? '')
+          .split('\n')
+          .map((n) => n.trim())
+          .filter(Boolean),
+        // The mode only when one is SET: an unset mode exports as omitted, so a round trip leaves an agent the pack never configured alone.
+        ...this.exportedAiMode(labelOf('ai_mode', row.values['ai_mode'])),
       });
     }
     return { agents, triggers };
@@ -1187,10 +1222,20 @@ export class PacksService {
    * live record and the manifest go through it — the manifest side after `agentContentValues` turned it into blocks — so "did this
    * agent change" can never be a question about how the editor happens to normalise whitespace or block structure.
    */
-  private agentContent(values: Record<string, unknown>) {
+  private agentContent(values: Record<string, unknown>, declared: { aiMode?: boolean; skills?: boolean } = {}) {
     const text = (v: unknown) => (Array.isArray(v) ? blocksToMarkdown(v as never).trim() : '');
     const ids = (v: unknown) => (Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string').sort() : []);
-    return { goal: text(values.goal), instructions: text(values.instructions), scopes: ids(values.scopes), approval_policy: ids(values.approval_policy) };
+    return {
+      goal: text(values.goal),
+      instructions: text(values.instructions),
+      scopes: ids(values.scopes),
+      approval_policy: ids(values.approval_policy),
+      // ticket #1106: part of an agent's pack content ONLY when the pack declares it. Absent keys keep every hash an earlier install
+      // recorded valid (so no existing agent flips to "edited"), and a person who set the mode or skills by hand on an agent the pack
+      // never configured is not reported as having edited it.
+      ...(declared.aiMode ? { ai_mode: typeof values.ai_mode === 'string' ? values.ai_mode : '' } : {}),
+      ...(declared.skills ? { skills: typeof values.skills === 'string' ? values.skills.trim() : '' } : {}),
+    };
   }
 
   /**
@@ -1220,15 +1265,32 @@ export class PacksService {
       const record = live.get(norm(planned.name));
       if (!item || !record) continue;
       const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
-      const next = this.agentContent(values);
-      const now = this.agentContent(record.values as Record<string, unknown>);
+      const declared = { aiMode: 'ai_mode' in values, skills: 'skills' in values };
+      const next = this.agentContent(values, declared);
+      const now = this.agentContent(record.values as Record<string, unknown>, declared);
       const newHash = this.hashOf(next);
       const nowHash = this.hashOf(now);
       const changed = AGENT_CONTENT_FIELDS.filter((f) => JSON.stringify(now[f]) !== JSON.stringify(next[f]));
       let update: PackAgentUpdate;
+      // ticket #1106: the stored origin hash covers only the keys the PREVIOUS version declared, which we cannot see, so "untouched since the
+      // pack installed it" is: the live agent hashes to the origin under SOME key set. A key this version declares that the origin did not cover
+      // (a newly declared mode or skills) counts as touched when the person already put their own value there: never overwritten silently.
+      const keySets = [{}, { aiMode: true }, { skills: true }, { aiMode: true, skills: true }];
+      const origin = item.sourceHash
+        ? keySets.find((k) => this.hashOf(this.agentContent(record.values as Record<string, unknown>, k)) === item.sourceHash)
+        : undefined;
+      const liveOwnValue = (key: 'ai_mode' | 'skills', covered: boolean | undefined) =>
+        declared[key === 'ai_mode' ? 'aiMode' : 'skills'] &&
+        !covered &&
+        now[key] !== '' &&
+        now[key] !== undefined &&
+        now[key] !== next[key];
+      const overwritesOwnValue =
+        liveOwnValue('ai_mode', (origin as { aiMode?: boolean } | undefined)?.aiMode) ||
+        liveOwnValue('skills', (origin as { skills?: boolean } | undefined)?.skills);
       if (nowHash === newHash) {
         update = { status: 'unchanged', changed_fields: [], installed_version: item.packVersion };
-      } else if (item.sourceHash && nowHash === item.sourceHash) {
+      } else if (origin && !overwritesOwnValue) {
         update = { status: 'will_update', changed_fields: [...changed], installed_version: item.packVersion };
       } else {
         update = {
@@ -1273,7 +1335,9 @@ export class PacksService {
       const plan = plans.get(key);
       if (entry.action === 'created') {
         const record = await this.records.get(agentsDb.id, entry.id);
-        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>)) });
+        const planned = manifest.agents.find((a) => norm(a.name) === key);
+        const declared = { aiMode: Boolean(planned?.ai_mode), skills: (planned?.skills.length ?? 0) > 0 };
+        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>, declared)) });
         continue;
       }
       if (!plan) continue; // reused but never tracked (an adopted collision): origin unknown, stays null
@@ -1383,10 +1447,16 @@ export class PacksService {
   private parseManifest(rawManifest: unknown): PackManifest {
     const parsed = packManifestSchema.safeParse(rawManifest);
     if (!parsed.success) {
+      // ticket #1106: an issue inside `agents[n]` also names that agent, because "agents.0.ai_mode" does not say which of ten it is.
+      const rawAgents = (rawManifest as { agents?: Array<{ name?: unknown }> } | null)?.agents;
+      const where = (path: PropertyKey[]): string => {
+        const label = path.join('.') || '(root)';
+        if (path[0] !== 'agents' || typeof path[1] !== 'number') return label;
+        const name = rawAgents?.[path[1]]?.name;
+        return typeof name === 'string' ? `${label} (agent "${name}")` : label;
+      };
       throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
+        `This is not a valid pack manifest: ${parsed.error.issues.map((i) => `${where(i.path)} ${i.message}`).join('; ')}`,
       );
     }
     return parsed.data;

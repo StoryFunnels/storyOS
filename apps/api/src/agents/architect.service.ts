@@ -1,5 +1,5 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
+import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos/schemas';
 import type { PlanAgent } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AiCreditsService } from '../billing/ai-credits.service';
@@ -10,6 +10,7 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { RUN_CLASS_LABEL } from './agent-runtime';
 import type { RunClass } from './agent-runtime';
 import { AgentsService } from './agents.service';
 import { knownScenarios, pickProposer } from './architect-proposer';
@@ -173,7 +174,7 @@ export class ArchitectService {
           .join('; ')}`,
       );
     }
-    const plan = parsed.data;
+    const plan = this.withPackAgentExtras(parsed.data, rawPlan);
 
     const result: ArchitectBuildResult = {
       summary: plan.summary,
@@ -426,6 +427,24 @@ export class ArchitectService {
   }
 
   /**
+   * ticket #1106 — `architectPlanSchema` is the Architect's own shape and has no `ai_mode` or `skills` on an agent, so parsing a pack
+   * manifest as a plan strips them. A manifest IS a plan (see packs.ts), so rather than widen the Architect's schema this puts back, by
+   * position, exactly the two keys a PACK agent adds, validated by the pack's own agent schema. A plain Architect plan has neither: no-op.
+   */
+  private withPackAgentExtras(plan: ArchitectPlan, rawPlan: unknown): ArchitectPlan {
+    const rawAgents = (rawPlan as { agents?: unknown } | null)?.agents;
+    if (!Array.isArray(rawAgents)) return plan;
+    const extras = packAgentSchema.pick({ ai_mode: true, skills: true });
+    return {
+      ...plan,
+      agents: plan.agents.map((agent, i) => {
+        const parsed = extras.safeParse(rawAgents[i]);
+        return parsed.success ? { ...agent, ...parsed.data } : agent;
+      }),
+    };
+  }
+
+  /**
    * The PACK-DEFINED part of an agent record: what a pack ships and a pack update may bring up to date (#977): goal, instructions,
    * scopes and approval policy. The name, the target databases (workspace-specific ids) and the enabled flag are the workspace's own and
    * are never part of an update. One function for create and update so the two cannot disagree about what an agent is made of.
@@ -436,7 +455,27 @@ export class ArchitectService {
       instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
       scopes: planned.scopes.map((s) => optionId('scopes', s)).filter((id): id is string => Boolean(id)),
       approval_policy: planned.approval_policy.map((p) => optionId('approval_policy', p)).filter((id): id is string => Boolean(id)),
+      ...this.packAgentRuntimeValues(planned, optionId),
     };
+  }
+
+  /**
+   * ticket #1106 — the two pack-declared parts that decide HOW an agent runs: its AI mode and the skills it loads at run time.
+   * Written only when the manifest DECLARES them: an omitted `ai_mode` or an empty `skills` list leaves the key out entirely, so an agent
+   * a pack author said nothing about keeps what it had (unset mode = Non-AI, as before) and a person's own choice is never overwritten by a
+   * pack that never mentioned it. A plain `PlanAgent` (the Architect's) carries neither, so for it this is `{}`.
+   */
+  private packAgentRuntimeValues(
+    planned: PlanAgent & { ai_mode?: keyof typeof RUN_CLASS_LABEL; skills?: string[] },
+    optionId: (apiName: string, label: string) => string | null,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (planned.ai_mode) {
+      const id = optionId('ai_mode', RUN_CLASS_LABEL[planned.ai_mode]);
+      if (id) out['ai_mode'] = id;
+    }
+    if (planned.skills && planned.skills.length > 0) out['skills'] = planned.skills.join('\n');
+    return out;
   }
 
   /** The values to write onto an EXISTING agent record to bring it to `planned` (a pack update, #977). */

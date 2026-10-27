@@ -307,16 +307,22 @@ export type PackSkill = z.infer<typeof packSkillSchema>;
  * opaque blobs (`packViewSchema.config`, `packAutomationSchema.trigger`/
  * `actions`) that bury ids at arbitrary, unknowable depth.
  *
- * There is no live agent↔skill relation in the product yet (an Agent record
- * has no `skills` column — see `skills.ts`'s header on why a skill is a plain
- * table, not a provisioned "pack" database), so this is honestly declarative
- * today: `PacksService.install` validates every name resolves to a bundled
- * skill, but nothing yet reads it at runtime. That is the same bargain the
- * rest of the format strikes elsewhere (`requires.ai` is a human-facing
- * declaration, not a runtime input) rather than a gap unique to this field.
+ * ticket #1106 — the names are now REAL: install records them on the agent's own
+ * "Skills" field, and every run resolves them by name at dispatch (an edited skill
+ * is used on the next run; a skill that no longer exists fails the run naming it).
+ * `PacksService.install` still validates every name resolves to a bundled skill.
+ *
+ * `ai_mode` (ticket #1106) is the agent's "AI mode": who drives its runs, which is also
+ * what decides whether a run is metered (MN-188). Omitted means the field is not written,
+ * exactly the behaviour every pack agent had before: it runs as Non-AI.
  */
+export const PACK_AGENT_AI_MODES = ['non_ai', 'your_own_ai', 'storyos_ai'] as const;
+export const packAgentAiModeSchema = z.enum(PACK_AGENT_AI_MODES);
+export type PackAgentAiMode = z.infer<typeof packAgentAiModeSchema>;
+
 export const packAgentSchema = planAgentSchema.extend({
   skills: z.array(nameSchema).default([]),
+  ai_mode: packAgentAiModeSchema.optional(),
 });
 export type PackAgent = z.infer<typeof packAgentSchema>;
 
@@ -493,7 +499,7 @@ export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
  */
 export const packAgentUpdateSchema = z.object({
   status: z.enum(['will_update', 'edited_needs_choice', 'unchanged']),
-  changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy'])),
+  changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy', 'ai_mode', 'skills'])),
   /** Why it is `edited_needs_choice`: the person changed it, or it was installed before the origin was recorded (treated as changed). */
   reason: z.enum(['edited', 'unknown_origin']).optional(),
   /** The line diff, current -> pack, for each changed TEXT field; present only for `edited_needs_choice`. */

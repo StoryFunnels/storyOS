@@ -114,6 +114,8 @@ const FIELD_LABEL: Record<PackAgentUpdate['changed_fields'][number], string> = {
   instructions: 'instructions',
   scopes: 'what it may access',
   approval_policy: 'when it asks for approval',
+  ai_mode: 'AI mode',
+  skills: 'skills',
 };
 
 /** "goal and instructions", "instructions, what it may access and when it asks for approval". */

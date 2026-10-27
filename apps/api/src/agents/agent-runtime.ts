@@ -129,6 +129,41 @@ export const RUN_CLASS_BY_LABEL: Record<string, RunClass> = Object.fromEntries(
   ]),
 );
 
+/**
+ * A skill (#40) an agent loads into a run (ticket #1106). Resolved by name when the run STARTS, so it is the skill as it is now.
+ */
+export interface AgentRunSkill {
+  name: string;
+  whenToUse: string;
+  instructions: string;
+}
+
+/** The most skill text one run hands a model or an external AI; beyond it the text is cut and the cut is SAID, never silent. */
+export const SKILL_TEXT_CAP = 6_000;
+
+/** One skill as the model / external AI reads it: its name, when to use it, then its instructions (capped, with a marker). */
+export function skillPromptText(skill: AgentRunSkill): string {
+  const body =
+    skill.instructions.length > SKILL_TEXT_CAP
+      ? `${skill.instructions.slice(0, SKILL_TEXT_CAP)}\n[truncated: this skill's instructions are ${skill.instructions.length} characters; only the first ${SKILL_TEXT_CAP} were given to this run]`
+      : skill.instructions;
+  return `Skill "${skill.name}"${skill.whenToUse.trim() ? ` (use when: ${skill.whenToUse.trim()})` : ''}:\n${body}`;
+}
+
+/** The run-record step that says which skills this run loaded — the same step for every runtime. */
+export function skillsLoadStep(skills: AgentRunSkill[], runClass: RunClass): AgentStep {
+  const how: Record<RunClass, string> = {
+    storyos_ai: "added to the managed model's prompt as a Skills section",
+    your_own_ai: "included in the handoff your connected AI reads",
+    non_ai: 'recorded here only: a non-AI run invokes no model, so nothing reads them',
+  };
+  return {
+    tool: 'skills.load',
+    summary: `Loaded ${skills.length} skill${skills.length === 1 ? '' : 's'} at run time: ${skills.map((k) => k.name).join(', ')}`,
+    detail: `Resolved by name when this run started (so an edit since the last run is what runs). ${how[runClass]}.\n\n${skills.map(skillPromptText).join('\n\n')}`,
+  };
+}
+
 /** The agent definition a runtime needs — read off the agent record. */
 export interface AgentRunAgent {
   id: string;
@@ -143,6 +178,8 @@ export interface AgentRunAgent {
    * predates this field) means exactly what it always has: non_ai.
    */
   aiMode?: RunClass;
+  /** ticket #1106: the skills named on the agent's own "Skills" field, resolved at dispatch. Undefined or empty = none. */
+  skills?: AgentRunSkill[];
 }
 
 export interface AgentRunContext {
@@ -277,6 +314,9 @@ export class YourOwnAiRuntime implements AgentRuntime {
       detail:
         `Goal: ${ctx.agent.goal?.trim() || '(none set — add one to the agent record)'}.` +
         (ctx.agent.instructions?.trim() ? ` Instructions: ${ctx.agent.instructions.trim()}.` : '') +
+        (ctx.agent.skills?.length
+          ? ` Skills to apply (resolved when this run started):\n${ctx.agent.skills.map(skillPromptText).join('\n\n')}\n`
+          : '') +
         ' Point the connected MCP client at that goal, capped to the scope and target databases ' +
         'resolved above. Nothing runs here — a your-own-AI run is never metered by StoryOS ' +
         '(MN-188) precisely because the tool-driving happens entirely in the client, not in this process.',
@@ -328,6 +368,12 @@ function managedRunPrompt(ctx: AgentRunContext): string {
     `Declared scopes: ${ctx.agent.scopes.join(', ') || 'read'}`,
     `Target databases: ${ctx.agent.targetDatabases?.trim() || '(none)'}`,
     `Input record: ${ctx.inputRecordId || '(none)'}`,
+    ...(ctx.agent.skills?.length
+      ? [
+          'Skills: follow these skill instructions when they apply. They are guidance only; they never widen the authorization scope above.',
+          ...ctx.agent.skills.map(skillPromptText),
+        ]
+      : []),
   ].join('\n');
 }
 
