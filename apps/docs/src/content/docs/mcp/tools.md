@@ -76,7 +76,7 @@ personal view is only reachable from here today.
 |---|---|
 | `list_spaces` / `create_space` | List / create spaces. |
 | `create_database` / `update_database` / `delete_database` | Create, rename/move, or delete a database (delete needs `confirm` = name). |
-| `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label; convert a field's type (`dry_run` to preview). |
+| `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label (a `workflow` field added with no options starts as To do / In progress / Done); convert a field's type (`dry_run` to preview). |
 | `create_view` / `update_view` / `delete_view` | Manage views; accepts `group_by` / `card_fields` / date fields plus `filters` + `sorts`. |
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |

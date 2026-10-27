@@ -127,6 +127,17 @@ refused, naming the existing one, rather than letting two "status" columns drift
 other. Reach for a plain `select` for any other list of choices; reach for Workflow specifically
 for the one field a view, an automation, or an agent should treat as *the* state of a record.
 
+### What a new Workflow field starts with
+
+Add a Workflow field without listing any options (in the add-field dialog, over the API, or with the
+MCP `add_field` tool) and it is created with three: **To do**, **In progress** and **Done**, coloured
+gray, blue and green, in the state categories *unstarted*, *started* and *completed*.
+
+- **Options you give are used exactly as given.** Nothing is added to your list, and an empty list
+  counts as giving none.
+- **A plain `select` field still starts empty.** The three defaults apply to the Workflow type only.
+- **Workflow fields that already exist are not changed.** The defaults apply when a field is created.
+
 ### Finding the status columns you already have
 
 Workspaces that predate the Workflow field usually have a plain select called "Status" in several
