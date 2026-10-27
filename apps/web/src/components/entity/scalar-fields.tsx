@@ -303,12 +303,12 @@ export function ScalarValue({ field, cell, strip, record, ws, db, rec, members, 
   // #780 — the artifact badges the VALUE, not just the row, so this stays
   // regardless of `empty`: an em-dash placeholder still needs the badge to
   // explain why it isn't a fake "Add value" affordance.
-  const badge = computedBadgeLabel(field.type);
+  // #1116 — the type badge ("rollup", "formula") is gone from the value cell: the Computed heading already says what
+  // these are, and the badge wrapped under the label beside a right-aligned figure, so every row read crooked.
   return (
     <div
       className={cn(
         'min-h-6 min-w-0',
-        badge && 'flex flex-wrap items-center gap-1.5',
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
@@ -348,7 +348,6 @@ export function ScalarValue({ field, cell, strip, record, ws, db, rec, members, 
       ) : (
         <CellDisplay field={field} value={value} aiState={aiState} wrap={aiStateSpeaks(aiState)} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
-      {badge && <ComputedBadge type={field.type} />}
     </div>
   );
 }
@@ -479,10 +478,11 @@ function ClampedValue({ children }: { children: ReactNode }) {
 function PercentBar({ field, value }: { field: Field; value: unknown }) {
   const n = Number(value);
   const fill = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+  // #1116 — one line: the figure, then a short track — stacked, the track pushed the row taller than its neighbours.
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex items-center justify-end gap-2">
       <span className="text-body tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
+      <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
         <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${fill}%` }} />
       </div>
     </div>
