@@ -1277,3 +1277,25 @@ html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [conte
 .scroll-quiet:hover::-webkit-scrollbar-thumb {
   background: var(--border-strong);
 }
+
+/* #1065 — the phone drawer's tap targets. Unlayered on purpose, like the block above: it has to beat the Tailwind
+ * `max-md:h-[34px]` / `max-md:h-8` the shared row carries. Scoped to `[data-mobile-drawer]` and to phone width, so the
+ * desktop sidebar (#742, Will Not Do) is untouched.
+ *
+ * WHY a row's name could not be tapped across its height: the row (`[data-sidebar-row]`) was 34px tall but its link is a
+ * direct child sized to its own text (20px, 18px on a space header), so the 7px above and below it hit the row, not the link.
+ * `align-self: stretch` makes the link as tall as the row, and the row is 44px. */
+@media (max-width: 767.98px) {
+  [data-mobile-drawer] [data-sidebar-row] {
+    height: 44px;
+    min-height: 44px;
+    /* a row waits 250ms for a long-press drag (useSidebarSortableSensors); without this iOS selects the name or shows its
+       callout while the finger rests */
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+  [data-mobile-drawer] [data-sidebar-row] > a,
+  [data-mobile-drawer] [data-sidebar-row] > button {
+    align-self: stretch;
+  }
+}

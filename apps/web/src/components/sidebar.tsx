@@ -48,7 +48,7 @@ import { useSignOut } from '@/lib/sign-out';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
-import { CARET_HIT_AREA, PHONE_TAP_28, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, PHONE_TAP, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
@@ -64,7 +64,7 @@ import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row'
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
-import { useSortableSensors } from '@/components/ui/drag-presentation';
+import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
 
@@ -174,7 +174,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   }
   const ungroupedSpaces = visibleSpaces.filter((s) => !s.groupId || !spacesByGroup.has(s.groupId));
 
-  const sensors = useSortableSensors();
+  const sensors = useSidebarSortableSensors();
 
   /**
    * #742 phase 5 — a container (a group's own area, or the ungrouped zone)
@@ -345,7 +345,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               type="button"
               onClick={onCloseMobile}
               aria-label="Close sidebar"
-              className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted md:hidden"
+              className="flex shrink-0 items-center border-b border-border-default px-3 text-faint hover:bg-hover hover:text-muted max-md:min-w-11 max-md:justify-center md:hidden"
             >
               <X className="h-4 w-4" />
             </button>
@@ -359,7 +359,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           row here — this box's click always opens the command palette. */}
       <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
-          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong"
+          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong max-md:min-h-11"
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5 shrink-0" />
@@ -391,7 +391,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
                   aria-label="Collapse all spaces"
-                  className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP_28)}
+                  className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP)}
                 >
                   <ChevronsDownUp className="h-3.5 w-3.5" />
                 </button>
@@ -495,7 +495,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         {canEdit && (
           <>
             <button
-              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover max-md:min-h-11"
               onClick={() => setGalleryOpen(true)}
             >
               <LayoutTemplate className="h-3.5 w-3.5" /> From template
@@ -898,7 +898,7 @@ function RailWorkspaceButton({ ws, name }: { ws: string; name?: string }) {
         <DropdownMenuTrigger asChild>
           <button
             aria-label="Switch workspace"
-            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-primary text-body font-bold text-[var(--text-on-dark)] hover:opacity-90 max-md:h-11 max-md:w-11"
           >
             {name?.[0]?.toUpperCase() ?? 'S'}
           </button>
@@ -1080,7 +1080,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       // row; there is no group-collapse feature to put in `caret` here.
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'sticky top-0 z-30 h-auto cursor-grab touch-none bg-frame active:cursor-grabbing',
+        'sticky top-0 z-30 h-auto cursor-grab touch-manipulation bg-frame active:cursor-grabbing',
         isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
       )}
       draggable
@@ -1157,7 +1157,7 @@ function SpaceSection({
   const mutations = useSidebarMutations(ws);
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
-  const dbSensors = useSortableSensors();
+  const dbSensors = useSidebarSortableSensors();
   /**
    * #369 — collision detection that lets a CONTAINER win.
    *
@@ -1750,7 +1750,7 @@ function SpaceSection({
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
         style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
-        className="group sticky z-20 h-6 cursor-grab touch-none bg-frame active:cursor-grabbing"
+        className="group sticky z-20 h-6 cursor-grab touch-manipulation bg-frame active:cursor-grabbing"
         draggable
         {...attributes}
         {...listeners}
@@ -1822,7 +1822,7 @@ function SpaceSection({
             <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label="Add">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Add to ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP)} aria-label={`Add to ${space.name}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -1881,7 +1881,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn(SPACE_ACT, PHONE_TAP_28)} aria-label={`Options for ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
@@ -2812,7 +2812,7 @@ function DatabaseRow({
         // #322: the row itself is the handle, not only the 12px grip — the exact
         // thing header-cell.tsx records as "too hard to grab, so reorder felt
         // broken" (MN-225).
-        canDrag && 'cursor-grab touch-none active:cursor-grabbing',
+        canDrag && 'cursor-grab touch-manipulation active:cursor-grabbing',
       )}
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
@@ -3222,7 +3222,7 @@ function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: 
       aria-pressed={active}
       className={cn(
         'relative rounded p-0.5 hover:bg-hover',
-        PHONE_TAP_28,
+        PHONE_TAP,
         active ? 'text-ink' : 'text-faint hover:text-muted',
       )}
     >
@@ -3249,7 +3249,7 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
         <DialogTrigger asChild>
           <button
             aria-label="New group"
-            className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP_28)}
+            className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP)}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -3284,7 +3284,7 @@ function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string)
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover">
+        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover max-md:min-h-11">
           <Plus className="h-3.5 w-3.5" /> New space
         </button>
       </DialogTrigger>

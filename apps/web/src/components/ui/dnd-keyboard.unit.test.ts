@@ -51,7 +51,7 @@ describe('keyboard-operable sortable lists (#815)', () => {
 
   it('every DndContext uses useSortableSensors(), or is a documented 2D exclusion', () => {
     const offenders = withDnd
-      .filter((f) => !EXCLUDED[f.rel] && !/useSortableSensors\(\)/.test(f.text))
+      .filter((f) => !EXCLUDED[f.rel] && !/useSortableSensors\(\)|useSidebarSortableSensors\(\)/.test(f.text))
       .map((f) => f.rel);
     expect(offenders, 'these mount a DndContext with pointer-only sensors: use useSortableSensors() or add a reasoned exclusion').toEqual([]);
   });
