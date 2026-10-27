@@ -116,6 +116,7 @@ export class RecordsController {
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
+      req.membership, // #1070 — link targets are access-checked
       ),
     );
   }
@@ -145,6 +146,8 @@ export class RecordsController {
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
+      'update',
+      req.membership, // #1070
       ),
     );
   }
@@ -217,7 +220,7 @@ export class RecordsController {
       body.records.map((r) => r.values),
       req.user.id,
       0,
-      { source: req.auth?.source ?? 'human' },
+      { source: req.auth?.source ?? 'human', membership: req.membership }, // #1070
     );
     return { data: await this.recordsService.narrowTitlesDeep(req.membership, created) };
   }
@@ -237,6 +240,7 @@ export class RecordsController {
       body.values,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.membership, // #1070
     );
   }
 
@@ -273,6 +277,10 @@ export class RecordsController {
     @Body() body: BulkRecordJobDto,
   ) {
     await this.assertDb(req, databaseId, body.op === 'delete' ? 'editor' : 'contributor');
+    // #1070 — the worker writes later, without the caller; check link targets now.
+    if (body.op === 'update' && body.values) {
+      await this.recordsService.assertLinkTargetsReadable(req.membership, databaseId, body.values);
+    }
     return this.bulkJobs.enqueue(
       req.membership.workspaceId,
       databaseId,
@@ -397,6 +405,7 @@ export class RecordsController {
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
+      req.membership, // #1070
     );
     // #884 — the writer may be a guest: serve them their own narrowed title, not the stored full one.
     return this.recordsService.narrowTitlesDeep(req.membership, updated);
@@ -482,6 +491,7 @@ export class RecordsController {
       body,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.membership, // #1070
       ),
     );
   }

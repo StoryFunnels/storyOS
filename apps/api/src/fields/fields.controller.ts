@@ -61,7 +61,7 @@ export class FieldsController {
     @Param('db') databaseId: string,
     @Body() body: CreateFieldDto,
   ) {
-    return this.fieldsService.create(await this.db(req, databaseId), body);
+    return this.fieldsService.create(await this.db(req, databaseId), body, req.membership);
   }
 
   @Patch(':field')
@@ -72,7 +72,7 @@ export class FieldsController {
     @Param('field') fieldId: string,
     @Body() body: UpdateFieldDto,
   ) {
-    return this.fieldsService.update(await this.db(req, databaseId), fieldId, body);
+    return this.fieldsService.update(await this.db(req, databaseId), fieldId, body, req.membership);
   }
 
   @Delete(':field')

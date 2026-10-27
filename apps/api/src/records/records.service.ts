@@ -2308,15 +2308,26 @@ export class RecordsService {
    * bad target id fails the whole write instead of leaving an unlinked record.
    */
   private async planLinks(
+    databaseId: string,
     defs: FieldDef[],
     links: Record<string, Array<string | number>>,
+    /** #1070 — the caller; omitted by internal/system writers. See linkableTargets. */
+    membership?: Membership,
   ): Promise<LinkPlan[]> {
     const plans: LinkPlan[] = [];
     for (const [apiName, raw] of Object.entries(links)) {
       const def = defs.find((d) => d.api_name === apiName)!;
       const config = def.config as { relation_id?: string; side?: 'a' | 'b' };
+      // #1070 — this database must be the relation's own side for this field, so
+      // a relation_id naming some other database's (or tenant's) relation is
+      // simply not found.
       const relation = config.relation_id
-        ? await this.db.query.relations.findFirst({ where: eq(relations.id, config.relation_id) })
+        ? await this.db.query.relations.findFirst({
+            where: and(
+              eq(relations.id, config.relation_id),
+              eq(config.side === 'b' ? relations.databaseBId : relations.databaseAId, databaseId),
+            ),
+          })
         : undefined;
       if (!relation || !config.side) {
         throw new UnprocessableEntityException({
@@ -2360,7 +2371,7 @@ export class RecordsService {
       const numbers = raw
         .filter((v) => typeof v === 'number' || (typeof v === 'string' && isNumericString(v)))
         .map(toNumber);
-      const found = raw.length
+      const candidates = raw.length
         ? await this.db.query.records.findMany({
             where: and(
               eq(records.databaseId, targetDatabaseId),
@@ -2374,6 +2385,7 @@ export class RecordsService {
             columns: { id: true, title: true, number: true },
           })
         : [];
+      const found = membership ? await this.linkableTargets(membership, targetDatabaseId, candidates) : candidates;
 
       const targets: Array<{ id: string; title: string }> = [];
       for (const v of raw) {
@@ -2408,6 +2420,31 @@ export class RecordsService {
       });
     }
     return plans;
+  }
+
+  /**
+   * #1070 — #238 access-checked the target side of POST/PUT .../links, but
+   * record create/update write links through planLinks, which checked nothing:
+   * anyone who could write a record could link (and by trying ids/numbers,
+   * enumerate) records of a database they hold no grant on. Narrowed to what the
+   * caller can read — the database, or for a record-scoped guest the records it
+   * names (same fallback attachLinks uses) — and a record outside that is
+   * reported exactly like one that does not exist.
+   */
+  private async linkableTargets<T extends { id: string }>(
+    membership: Membership,
+    targetDatabaseId: string,
+    candidates: T[],
+  ): Promise<T[]> {
+    if (candidates.length === 0) return candidates;
+    const targetDb = await this.db.query.databases.findFirst({
+      where: eq(databases.id, targetDatabaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!targetDb) return [];
+    if ((await this.access.effectiveForDatabase(membership, targetDb)) !== null) return candidates;
+    const scope = await this.access.visibleRecordIds(membership, targetDb);
+    return scope ? candidates.filter((c) => scope.ids.has(c.id)) : [];
   }
 
   /**
@@ -2527,11 +2564,14 @@ export class RecordsService {
     /** #541 — see createBatch's `options.agentId`/`agentName` doc. */
     agentId?: string,
     agentName?: string,
+    /** #1070 — see createBatch's `options.membership`. */
+    membership?: Membership,
   ): Promise<ProjectedRecord> {
     const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth, {
       source,
       agentId,
       agentName,
+      membership,
     });
     return created!;
   }
@@ -2565,6 +2605,8 @@ export class RecordsService {
      * param rather than a required one every caller must decide on.
      */
     onMatch: 'update' | 'skip' = 'update',
+    /** #1070 — see createBatch's `options.membership`. */
+    membership?: Membership,
   ): Promise<{ record: ProjectedRecord; created: boolean }> {
     const defs = await this.fieldDefs(databaseId);
     const def = defs.find((d) => d.api_name === keyField);
@@ -2587,10 +2629,10 @@ export class RecordsService {
         const record = await this.get(databaseId, existing.id);
         return { record, created: false };
       }
-      const record = await this.update(workspaceId, databaseId, existing.id, input, actorId, 0, source, agentId, agentName);
+      const record = await this.update(workspaceId, databaseId, existing.id, input, actorId, 0, source, agentId, agentName, membership);
       return { record, created: false };
     }
-    const record = await this.create(workspaceId, databaseId, input, actorId, 0, source, agentId, agentName);
+    const record = await this.create(workspaceId, databaseId, input, actorId, 0, source, agentId, agentName, membership);
     return { record, created: true };
   }
 
@@ -2844,6 +2886,8 @@ export class RecordsService {
        */
       agentId?: string;
       agentName?: string;
+      /** #1070 — the caller, so link targets are access-checked (planLinks). */
+      membership?: Membership;
     } = {},
   ): Promise<ProjectedRecord[]> {
     const source: ChangeSource = options.source ?? 'human';
@@ -2876,7 +2920,7 @@ export class RecordsService {
     );
     // Resolved up front: an unknown target must fail before any record is inserted.
     const linkPlans = await Promise.all(
-      validated.map((v) => (v.links ? this.planLinks(defs, v.links) : Promise.resolve([]))),
+      validated.map((v) => (v.links ? this.planLinks(databaseId, defs, v.links, options.membership) : Promise.resolve([]))),
     );
     const positions = await keysAfter(await this.lastPosition(databaseId), inputs.length);
 
@@ -3176,6 +3220,8 @@ export class RecordsService {
     /** #541 — see createBatch's `options.agentId`/`agentName` doc; same rule. */
     agentId?: string,
     agentName?: string,
+    /** #1070 — see createBatch's `options.membership`. */
+    membership?: Membership,
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
@@ -3200,7 +3246,7 @@ export class RecordsService {
       }
     }
     // MN-080: resolved before the transaction — a bad target must not half-apply.
-    const linkPlans = validated.links ? await this.planLinks(defs, validated.links) : [];
+    const linkPlans = validated.links ? await this.planLinks(databaseId, defs, validated.links, membership) : [];
     // #31: resolved OUTSIDE the transaction — a plan lookup must not hold a row
     // lock, and it cannot change mid-write. 0 ⇒ Free ⇒ capture nothing.
     const historyDays = await this.historyRetentionDays(workspaceId);
@@ -4015,6 +4061,8 @@ export class RecordsService {
     },
     actorId: string,
     source: ChangeSource = 'human',
+    /** #1070 — see createBatch's `options.membership`. */
+    membership?: Membership,
   ): Promise<ProjectedRecord> {
     await this.getRow(databaseId, recordId);
 
@@ -4092,7 +4140,7 @@ export class RecordsService {
     }
 
     if (input.values && Object.keys(input.values).length > 0) {
-      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source);
+      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source, undefined, undefined, membership);
     }
     return this.get(databaseId, recordId);
   }
@@ -4277,6 +4325,24 @@ export class RecordsService {
    * can undo the whole batch via `undoBatchUpdate` without this codebase
    * inventing a second snapshot mechanism.
    */
+  /**
+   * #1070 — for a write that runs later without the caller (the durable bulk job,
+   * #694): resolve `values`' link targets now, against the caller's access, so an
+   * unreadable target is refused at enqueue time instead of linked by the worker.
+   */
+  async assertLinkTargetsReadable(
+    membership: Membership,
+    databaseId: string,
+    values: Record<string, unknown>,
+  ): Promise<void> {
+    const defs = await this.fieldDefs(databaseId);
+    const validated = this.validateOrThrow(
+      defs,
+      await this.resolveUserInputs(membership.workspaceId, defs, values, membership.userId),
+    );
+    if (validated.links) await this.planLinks(databaseId, defs, validated.links, membership);
+  }
+
   async batchUpdate(
     workspaceId: string,
     databaseId: string,
@@ -4284,6 +4350,8 @@ export class RecordsService {
     input: Record<string, unknown>,
     actorId: string,
     source: ChangeSource = 'human',
+    /** #1070 — see createBatch's `options.membership`. */
+    membership?: Membership,
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
     const restorable: Array<{ record_id: string; version_id: string }> = [];
@@ -4291,7 +4359,7 @@ export class RecordsService {
     for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
       for (const recordId of batch) {
         try {
-          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
+          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source, undefined, undefined, membership);
           updated++;
           // The version row (if any) was just committed inside update()'s own
           // transaction — a no-op patch (value already equal) creates none,
