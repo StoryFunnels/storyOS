@@ -35,6 +35,7 @@ records in place instead of duplicating them.
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
 | Cycle | Record in **Sprints** (number, start/end dates) + Sprint relation on the issue |
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
+| Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled. A database imported earlier keeps its raw-named options; the sync still matches them. |
 | Issue ID (internal) | Linear ID text field — the idempotency key; don't edit it |
 
 ## What is intentionally NOT imported
