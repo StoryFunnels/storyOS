@@ -876,6 +876,12 @@ export function fieldDefaultValue(
   type: string,
   config: Record<string, unknown> | null | undefined,
   now: Date,
+  /**
+   * #1088 — the field's option ids in the field's own order (`FieldDef.option_order`). Only a WORKFLOW field uses it: with no
+   * configured default, a new record starts at the first state. Omitted by a caller that has no options to hand, which then gets
+   * exactly the old behaviour (only a configured default).
+   */
+  optionOrder?: readonly string[],
 ): unknown {
   const cfg = config ?? {};
   if (type === 'checkbox') {
@@ -907,7 +913,13 @@ export function fieldDefaultValue(
     // this resolver only reads what was already validated, same as every
     // other type it handles.
     const def = cfg['default'];
-    return typeof def === 'string' && def.length > 0 ? def : undefined;
+    if (typeof def === 'string' && def.length > 0) return def;
+    // #1088 — no configured default, and this is a WORKFLOW field (a state): a new record starts at the FIRST state, so it is on a
+    // board column and in a queue from the moment it exists ("everything lands in Triage"). A plain `select` is NOT filled: an empty
+    // Priority or Type is a legitimate answer, an empty State never is. Explicitly empty still wins, because applyFieldDefaults only
+    // fills an ABSENT key.
+    if (type === 'workflow' && optionOrder && optionOrder.length > 0) return optionOrder[0];
+    return undefined;
   }
   return undefined;
 }
@@ -920,14 +932,14 @@ export function fieldDefaultValue(
  * form should not have the server put it back.
  */
 export function applyFieldDefaults(
-  defs: Array<{ api_name: string; type: string; config?: Record<string, unknown> | null }>,
+  defs: Array<{ api_name: string; type: string; config?: Record<string, unknown> | null; option_order?: string[] }>,
   input: Record<string, unknown>,
   now: Date,
 ): Record<string, unknown> {
   const out = { ...input };
   for (const def of defs) {
     if (def.api_name in out) continue;
-    const value = fieldDefaultValue(def.type, def.config, now);
+    const value = fieldDefaultValue(def.type, def.config, now, def.option_order);
     if (value !== undefined) out[def.api_name] = value;
   }
   return out;
