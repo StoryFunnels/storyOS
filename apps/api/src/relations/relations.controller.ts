@@ -3,7 +3,9 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -12,7 +14,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ResourceScopable } from '../access/resource-scope';
+import { BOUNDARY_REFUSAL, ResourceScopable } from '../access/resource-scope';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
@@ -27,6 +29,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import type { EffectiveRole } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from './relations.service';
@@ -53,6 +56,35 @@ export class RelationsController {
     private readonly selectDriftService: SelectRelationDriftService,
     private readonly databases: DatabasesService,
   ) {}
+
+  /**
+   * ticket #1101 — the ONE way a route keyed by a relation id loads it. A relation is reachable only through the two databases it joins,
+   * so a caller who cannot read either of them gets exactly the answer for a relation that does not exist ("Relation not found"), not
+   * "Database not found" (which says the relation exists and names what it touches). A token bound to spaces/databases (#543) gets its
+   * boundary refusal for a missing relation too, as it does for a missing database: that refusal is promised to be identical whether the
+   * target exists or not. Both databases are checked for visibility BEFORE either is checked for rank, so a "you need more access" 403
+   * never confirms a relation whose other end the caller cannot see.
+   */
+  private async reachRelation(req: WorkspaceRequest, relationId: string, min: EffectiveRole) {
+    let relation;
+    try {
+      relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    } catch (e) {
+      if (e instanceof NotFoundException && req.membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
+      throw e;
+    }
+    for (const rank of min === 'viewer' ? (['viewer'] as const) : (['viewer', min] as const)) {
+      for (const databaseId of [relation.databaseAId, relation.databaseBId]) {
+        try {
+          await this.databases.assertAccess(req.membership, databaseId, rank);
+        } catch (e) {
+          if (e instanceof NotFoundException) throw new NotFoundException('Relation not found');
+          throw e;
+        }
+      }
+    }
+    return relation;
+  }
 
   @Post()
   @ApiOperation({ summary: 'Create a relation — needs creator on BOTH databases' })
@@ -86,9 +118,7 @@ export class RelationsController {
   @Get(':rel')
   @ApiOperation({ summary: 'Relation config + comparable fields for the auto-link editor' })
   async detail(@Req() req: WorkspaceRequest, @Param('rel') relationId: string) {
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'viewer');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'viewer');
+    await this.reachRelation(req, relationId, 'viewer');
     return this.relationsService.getRelationDetail(req.membership.workspaceId, relationId);
   }
 
@@ -99,18 +129,14 @@ export class RelationsController {
     @Param('rel') relationId: string,
     @Body() body: UpdateRelationDto,
   ) {
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'creator');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'creator');
+    await this.reachRelation(req, relationId, 'creator');
     return this.relationsService.setAutoLink(req.membership.workspaceId, relationId, body.auto_link);
   }
 
   @Post(':rel/auto-link')
   @ApiOperation({ summary: 'Run auto-link now across existing records — returns a summary (MN-085)' })
   async runAutoLink(@Req() req: WorkspaceRequest, @Param('rel') relationId: string) {
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
+    await this.reachRelation(req, relationId, 'editor');
     return this.autoLinkService.runAutoLink(req.membership.workspaceId, relationId, req.user.id);
   }
 
@@ -127,9 +153,7 @@ export class RelationsController {
     @Query('record_id') recordId?: string,
   ) {
     if (!recordId) throw new BadRequestException('record_id query param is required');
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'viewer');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'viewer');
+    await this.reachRelation(req, relationId, 'viewer');
     return this.selectDriftService.checkDrift(req.membership.workspaceId, relationId, recordId);
   }
 
@@ -141,9 +165,7 @@ export class RelationsController {
     @Param('rel') relationId: string,
     @Body() body: SelectDriftReconcileDto,
   ) {
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
+    await this.reachRelation(req, relationId, 'editor');
     return this.selectDriftService.reconcile(
       req.membership.workspaceId,
       relationId,
@@ -159,9 +181,7 @@ export class RelationsController {
     @Param('rel') relationId: string,
     @Body() _body: DeleteRelationDto,
   ) {
-    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
-    await this.databases.assertAccess(req.membership, relation.databaseAId, 'creator');
-    await this.databases.assertAccess(req.membership, relation.databaseBId, 'creator');
+    await this.reachRelation(req, relationId, 'creator');
     return this.relationsService.remove(req.membership.workspaceId, relationId);
   }
 }
