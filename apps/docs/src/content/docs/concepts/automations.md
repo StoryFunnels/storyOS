@@ -27,8 +27,6 @@ Eleven actions, all available to buttons and rules alike.
 | **Add a comment** | Posts a comment on the record. |
 | **Notify a person** | An in-app notification to a person field's value, `@me`, or a [specific workspace member](#notifying-a-specific-member). |
 | **Update linked records** | Sets fields on every record linked through a chosen relation. |
-
-**What a "field to set" can be.** For both of the actions above the picker offers the record's **title** (a plain text box) and **relation** fields (a record search, to choose which records to link), as well as ordinary fields. Lookups, rollups, buttons, rich text and the automatic fields (created at, updated at, created by) are not offered, because they can't be set by hand.
 | **Send a Slack message** | Posts to a channel, or the workspace's default channel. |
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
 | **Send an email** | A templated 1:1 email through a Resend or SMTP connection. See below. |
@@ -37,6 +35,8 @@ Eleven actions, all available to buttons and rules alike.
 
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
+
+**What a "field to set" can be.** For both **Set fields on this record** and **Update linked records** the picker offers the record's **title** (a plain text box) and **relation** fields (a record search, to choose which records to link), as well as ordinary fields. Lookups, rollups, buttons, rich text and the automatic fields (created at, updated at, created by) are not offered, because they can't be set by hand.
 
 ### Setting a select, workflow or multi-select field by its label
 
