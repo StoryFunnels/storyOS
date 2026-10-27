@@ -12,6 +12,7 @@ import type { JobHelpers } from '../automations/job-runner.service';
 import { defaultManagedAiClient } from '../agents/managed-ai-client';
 import type { ManagedAiClient } from '../agents/managed-ai-client';
 import { renderAiPrompt } from './ai-field-prompt';
+import { choiceInstruction, matchChoice } from './ai-field-choice';
 import { pendingAtKey } from './ai-field-state';
 
 interface AiFieldRecomputePayload {
@@ -170,7 +171,10 @@ export class AiFieldSubscriber implements OnModuleInit {
 
     let text: string;
     try {
-      const completion = await this.client.complete(prompt);
+      // #1109 — an AI field's value is a bare string, so ask for a plain answer. The client's default is JSON mode, which OpenAI
+      // refuses unless the messages mention JSON and which would wrap a choice answer as a JSON document.
+      const asked = config.output.kind === 'choice' ? prompt + choiceInstruction(config.output.options) : prompt;
+      const completion = await this.client.complete(asked, { responseFormat: 'text' });
       text = completion.text.trim();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -178,6 +182,10 @@ export class AiFieldSubscriber implements OnModuleInit {
       throw error; // let JobRunnerService's own retry/backoff handle it (#571 reuses it, doesn't reinvent one)
     }
 
+    if (config.output.kind === 'choice') {
+      const matched = matchChoice(text, config.output.options);
+      if (matched !== null) text = matched;
+    }
     if (config.output.kind === 'choice' && !config.output.options.includes(text)) {
       const message = `model returned "${text.slice(0, 200)}", not one of the configured choices`;
       await this.markFailed(payload, message);
