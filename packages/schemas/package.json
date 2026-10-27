@@ -37,6 +37,10 @@
     "./system-fields": {
       "types": "./dist/system-fields.d.ts",
       "default": "./dist/system-fields.js"
+    },
+    "./option-labels": {
+      "types": "./dist/option-labels.d.ts",
+      "default": "./dist/option-labels.js"
     }
   },
   "scripts": {

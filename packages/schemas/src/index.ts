@@ -3,6 +3,7 @@ import { z } from 'zod';
 export * from './colors';
 export * from './entity-color';
 export * from './state-category';
+export * from './option-labels';
 export * from './safe-url';
 export * from './descriptions';
 export * from './workspaces';

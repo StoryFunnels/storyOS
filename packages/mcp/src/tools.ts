@@ -10,6 +10,7 @@ import { SCHEMA_VERSION_NOTICE } from './schema-version.js';
 // schemas index into this ESM bundle inlines a CJS require('zod') that throws
 // at boot.
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
+import { resolveOptionLabels } from '@storyos/schemas/option-labels';
 import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
 // Subpath, not the barrel: the system-field registry is zod-free (see note above),
 // so it can be imported as a value here without inlining a CJS require('zod').
@@ -1532,20 +1533,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   /** Label-friendly writes (MN-076): map select/multi-select values given as human
    * labels to their option ids, so the model writes "High", not a UUID. */
   function mapSelectLabels(detail: DatabaseDetail, values: Record<string, unknown>): Record<string, unknown> {
-    const byApi = new Map(detail.fields.map((f) => [f.apiName, f]));
-    const out: Record<string, unknown> = { ...values };
-    for (const [key, value] of Object.entries(values)) {
-      const f = byApi.get(key);
-      if (!f?.options?.length) continue;
-      const toId = (v: unknown) => {
-        const o = f.options!.find((x) => x.id === v || x.label.toLowerCase() === String(v).toLowerCase());
-        return o ? o.id : v;
-      };
-      // #172: workflow is single-select-shaped — resolve its label → id like select.
-      if ((f.type === 'select' || f.type === 'workflow') && typeof value === 'string') out[key] = toId(value);
-      else if (f.type === 'multi_select' && Array.isArray(value)) out[key] = value.map(toId);
-    }
-    return out;
+    // #719 — the mapping itself lives in @storyos/schemas/option-labels, shared with the API's automation path. An unknown label is
+    // left as given (the API answers with its own 422), exactly as before.
+    return resolveOptionLabels(detail.fields, values).values;
   }
 
   /** Full write mapping (#6 + labels + #60): select labels → ids, and a string on a
