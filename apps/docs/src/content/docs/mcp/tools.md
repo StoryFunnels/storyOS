@@ -149,8 +149,9 @@ space, and the pack's own space is not created. With no `space` the install beha
   space would be left without it. Open the existing database, or rename it first.
 - **Installing twice into the same space reuses** what the first install made rather than creating it again.
 - **Uninstalling removes the pack's content, not the space** you installed it into.
-- **A pack that includes agents or triggers still gets the *Agentic OS* space** they live in, if the
-  workspace does not have one yet. Only the pack's own space is skipped.
+- **No second pack space is made, but a pack that includes agents or triggers still creates the
+  workspace's one shared *Agentic OS* space** they live in, if the workspace does not have it yet.
+  Only the pack's own space is skipped.
 
 ### Space-level views and groups
 
