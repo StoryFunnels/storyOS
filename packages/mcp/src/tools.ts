@@ -699,7 +699,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // is a human act, same line #441 draws for grants — see coverage.ts.
   list_action_gates: 'read',
   // #1104 — read-only on purpose, same reasoning: the gate on an agent's own writes is not the agent's to lift (see coverage.ts).
-  list_agent_write_gates: 'read',
+  list_agent_write_gates: 'admin', // an admin-role route: mirrors the API, which needs admin scope even to read (#1049)
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',

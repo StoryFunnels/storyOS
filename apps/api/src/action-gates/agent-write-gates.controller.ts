@@ -67,8 +67,8 @@ export class AgentWriteGatesController {
     }
   }
 
+  // No `@RequiresScope('read')` override: this is an admin-role route, so a token needs ADMIN scope even to read (#1049: an admin's write/read token must not reach admin-role routes).
   @Get()
-  @RequiresScope('read')
   @ApiOperation({ summary: 'List the gates that hold an agent\'s record create/update for approval (optionally for one agent)' })
   async list(@Req() req: WorkspaceRequest, @Query('agent_id') agentId?: string) {
     this.assertAdmin(req); // a gate names databases and fields a member or guest may not be allowed to see
