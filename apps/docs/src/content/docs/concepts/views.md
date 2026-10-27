@@ -94,6 +94,66 @@ empty field already counts toward `is_empty`. The full type-by-type list is the 
 matrix](/api/conventions/#operator--type-matrix) — the same table the raw API and MCP tools use,
 so what the panel offers and what a `filter` you write by hand can express never disagree.
 
+## One shared view, each person's own records
+
+A filter on a person field can say **Me** instead of naming someone. Me is not stored as a person:
+it is resolved for whoever is looking, when the records are fetched. So one shared view with
+**Assignee is Me** shows you your records, and shows a teammate theirs. There is nothing to
+duplicate per person.
+
+### Making one: the "Assigned to me" tile
+
+**New view** opens with a full-width tile above the view types. It is named after the first person
+field in the database, in plain words: **Assigned to me** for an *Assignee* field, **Owned by me**
+for *Owner*, **Me as Account manager** for a field name it has no phrase for. Open **New view** and click the
+tile: that creates a view with:
+
+- a **board** grouped by the database's workflow field, or a **table** when nothing can group it;
+- filtered to that field being Me, and, when the database has a workflow field, to records that
+  are not in a finished state (Done or Canceled);
+- the Me condition is pinned to the toolbar, so the chip reading **Assigned to me** stays visible
+  as the explanation, and the view is pinned to the tab strip for the person who made it.
+
+Right after you create it, a line above the view says each teammate sees their own records, with
+a **Got it** button. It shows once, to the creator, and does not come back after you dismiss it.
+
+If the database already has a view filtered to that field being Me alone, the tile opens that view
+instead of creating "Assigned to me 2". With no person field in the database the tile is disabled
+and reads **Needs a person field**.
+
+You can also build the same thing by hand: add a condition on a person field and pick **Me
+(current user)** as the value. A condition that is Me on its own reads in the same words as the
+tile on its chip; Me plus other people stays a list.
+
+The template databases' **My Tasks** views (the Agency, Dev and Creators templates) are built this way: *Assignee is Me* and
+*State is none of Done, Canceled*, so everyone who opens **My Tasks** sees their own open work.
+
+**Me works on person fields.** That means a **Person** field, and the system **Created by** and
+**Updated by** fields. It is not offered on a relation to the Members database: an assignee stored
+as a relation is a different kind of field, and Me does not apply to it.
+
+### A Me view cannot be shared publicly
+
+A public link has no signed-in visitor, so there is no "me" to resolve and the page would show
+nothing. StoryOS refuses it rather than publish a page that looks broken (the signed-in owner
+would see their own link working, and not notice):
+
+- **Publishing a view that filters by Me** is refused. In the app, **Share…** on such a view
+  explains that the view can't have a public link and offers **Publish a copy with only your
+  records**. That makes a copy where Me is replaced by you and publishes only the copy; the shared
+  view your team uses is left unchanged. Through the API the publish is refused with `422` and
+  says: *This view filters by "Me" (the "Assignee" field). A public link has no signed-in visitor,
+  so "Me" matches nobody and the page would show nothing. Remove that condition, or filter by a
+  specific person, then publish.*
+- **Adding a Me condition to a view that is already public** is refused with `422`, and the view
+  and its link keep working unchanged: *This view is published. Its "Assignee" filter uses "Me",
+  which matches nobody on a public link, so saving it would empty the public page. Unpublish the
+  view first, or filter by a specific person.*
+
+The check covers the view's filter at any depth (inside **and**/**or** groups) and the filters on
+a dashboard's tiles and widgets. A text filter whose value happens to be the word "me" is an
+ordinary value and is not affected.
+
 ## Record ordering
 
 Manual order (table default and within-column kanban order) is stored as a fractional index per
@@ -341,6 +401,8 @@ than adding a second permission branch to get right and maintain forever. It ref
 **404**, the same way a personal view is already invisible to everyone but its owner everywhere
 else — the endpoint doesn't confirm one exists at that id. Revoking an already-published link
 (**Stop sharing**) stays open regardless, since removing exposure is always safe.
+
+**A view filtered by Me cannot be published either**, because a public visitor has no "me". See [A Me view cannot be shared publicly](#a-me-view-cannot-be-shared-publicly).
 
 ### Publishing one
 
