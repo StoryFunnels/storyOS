@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth';
+import { eq } from 'drizzle-orm';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer, mcp } from 'better-auth/plugins';
 import { env } from '../config/env';
@@ -86,6 +87,13 @@ export function createAuth(
       enabled: true,
       sendResetPassword: async ({ user: u, url }) => {
         await emailService.send({ kind: 'reset-password', to: u.email, url });
+      },
+      // #1077 — a reset is what someone does after a compromise, so it must end every credential the attacker may hold:
+      // all sessions (better-auth deletes them after this hook) and every connected-AI OAuth access + refresh token, which
+      // better-auth's mcp plugin knows nothing about here. PATs are deliberately left alone: they are long-lived API keys.
+      revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user: u }) => {
+        await db.delete(oauthAccessToken).where(eq(oauthAccessToken.userId, u.id));
       },
     },
     emailVerification: {
