@@ -48,6 +48,14 @@ same query you'd send from code or an agent:
 References to deleted fields are dropped defensively at read time, so a view never breaks when
 schema changes.
 
+### Choosing the order and grouping
+
+**Display** holds the one-choice controls: **Group by** lists only the fields that can group this
+view, and **Ordering** sets the primary sort from a menu with a direction flip beside it. The
+**Sort** button is a picker of the same fields — choose one to sort by it, choose it again to
+reverse — and **Then by** adds secondary keys. A list shows the **Group** button at all times, so
+grouping is one click away.
+
 ### Building a filter
 
 - **Nested And/Or groups** — a condition can itself be a group, so "State is Urgent AND (Owner is

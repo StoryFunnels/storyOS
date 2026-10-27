@@ -39,7 +39,9 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
+  ArrowDownWideNarrow,
   ArrowUpDown,
+  ArrowUpNarrowWide,
   Check,
   CircleHelp,
   ChevronDown,
@@ -108,7 +110,7 @@ import {
   MAX_FILTER_DEPTH,
 } from './filter-config';
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
-import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
+import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, pickPrimarySort, reorderSorts, sortableFields as pickSortableFields } from './sort-config';
 import type { NullsPlacement } from './sort-config';
 import { meConditionText } from '@/lib/me-label';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
@@ -304,6 +306,9 @@ const RELATIVE_RANGES = [
  */
 export const SORTABLE = new Set<string>(SORTABLE_FIELD_TYPES);
 
+/** A row of the Sort picker: a field name, the tick and direction on the active one. */
+const SORT_PICK_ROW = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-label text-ink hover:bg-hover';
+
 /**
  * #754 (G1) — replaces the Cover picker when the database has no attachment
  * field at all. #225's rule, reused verbatim for the gallery: "a picker that
@@ -476,7 +481,7 @@ export function ViewToolbar({
 
       {/* Group: ALWAYS on a board (its columns ARE the grouping), on a list only while grouping is on.
           The change-grouping dialog and the toggles that lived in the filter popover are in here. */}
-      {viewGroups(viewType) && showsGroupChip(viewType, config) && (
+      {viewGroups(viewType) && showsGroupChip(viewType) && (
         <GroupChip viewType={viewType} fields={fields} config={config} onPatch={onPatch} />
       )}
 
@@ -2521,20 +2526,7 @@ export function SortButton({
 }) {
   const [open, setOpen] = useState(false);
   const byApiName = new Map(fields.map((f) => [f.apiName, f]));
-  const sortableFields = fields.filter(
-    (f) =>
-      SORTABLE.has(f.type) &&
-      isSortableFormula(f, byApiName) &&
-      // #662/#680 — a MULTI user or relation field has no single value to order
-      // by; offering it here would just 422 at save time (validateSorts,
-      // records.service.ts's identical `(user || relation) && config.multi` check —
-      // #680 found this picker was still missing the `relation` half of it).
-      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true) &&
-      // #743 — a deprecated system field (`number`) must never be offered as a
-      // NEW sort key. `byApiName` above stays unfiltered so an EXISTING sort
-      // key still referencing it resolves its label correctly via `sortLabel`.
-      isPickableField(f),
-  );
+  const sortableFields = pickSortableFields(fields);
   // MN-267: rollup is sortable now (real recompute-on-related-record-change
   // plumbing exists, so it's in SORTABLE_FIELD_TYPES); `lookup` is the one
   // still fully excluded (not in that shared list at all), and a formula
@@ -2606,10 +2598,10 @@ export function SortButton({
         <>
           <BackLayer dismiss={() => setOpen(false)} />
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
-          <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[27.5rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+          <div className={cn('phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
               {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
-              <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort</span>
+              <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort by</span>
               {sorts.length > 1 && <span className="text-micro text-faint">first rule wins, the rest break ties</span>}
             </div>
 
@@ -2619,10 +2611,41 @@ export function SortButton({
               </p>
             )}
 
-            {sorts.length === 0 ? (
-              <p className="px-3 py-3 text-label text-faint">No sort yet — items show in manual order.</p>
-            ) : (
-              <div className="max-h-64 overflow-y-auto px-2 py-1">
+            {/* One choice, the way a tracker offers it: the fields down a list, the current one
+                ticked with its direction; click it again to flip. The builder below only
+                appears once a second key exists ("Then by"). */}
+            <div className="max-h-72 overflow-y-auto p-1">
+              <button type="button" className={SORT_PICK_ROW} onClick={() => onChange([])}>
+                <span className="min-w-0 flex-1 truncate">Manual</span>
+                {sorts.length === 0 && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
+              </button>
+              {sortableFields.map((f) => {
+                const active = sorts[0]?.field === f.apiName;
+                const first = sorts[0];
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={SORT_PICK_ROW}
+                    onClick={() => onChange(pickPrimarySort(sorts, f.apiName, { keepRest: true, flipIfSame: true }))}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{f.displayName}</span>
+                    {active && first && (
+                      <>
+                        <span className="shrink-0 text-meta text-muted">{directionLabel(f.type, first.direction, f.options)}</span>
+                        {first.direction === 'asc' ? (
+                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                        ) : (
+                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                        )}
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {sorts.length > 1 && (
+              <div className="max-h-64 overflow-y-auto border-t border-border-default px-2 py-1">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} {...sortDrag.contextProps}>
                   <SortableContext items={sorts.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
                     {sorts.map((sort, i) => (
@@ -2667,7 +2690,7 @@ export function SortButton({
                   title={sorts.length >= MAX_SORTS ? `Up to ${MAX_SORTS} sorts per view` : undefined}
                   className="flex items-center gap-1 rounded py-1 text-label text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Plus className="h-3 w-3" /> Add sort
+                  <Plus className="h-3 w-3" /> Then by
                 </button>
                 {sorts.length > 0 && (
                   <button

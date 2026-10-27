@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SORTABLE_FIELD_TYPES } from '@storyos/schemas';
-import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
+import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, pickPrimarySort, reorderSorts, sortableFields } from './sort-config';
+import type { Field } from '../table-view/use-table-data';
 import type { SortSpec } from './sort-config';
 import { SORTABLE } from './view-toolbar';
 
@@ -205,5 +206,72 @@ describe('isSortableFormula', () => {
   it('is false when the field has no compiled ast (never saved successfully)', () => {
     const broken = field({ apiName: 'broken', config: {} });
     expect(isSortableFormula(broken, new Map([['broken', broken]]))).toBe(false);
+  });
+});
+
+/** The one list a view can order by, shared by the Sort chip, Display's Ordering and list headers. */
+describe('sortableFields', () => {
+  const field = (over: Partial<Field> & { apiName: string }): Field => ({
+    id: over.apiName,
+    displayName: over.apiName,
+    type: 'text',
+    config: {},
+    isSystem: false,
+    ...over,
+  });
+  const relation = (side: 'a' | 'b', cardinality: 'one_to_many' | 'many_to_many'): Field['relation'] => ({
+    id: 'rel',
+    cardinality,
+    side,
+    target_database_id: 'db-b',
+    target_database_name: 'B',
+    inverse_field_id: 'inv',
+  });
+
+  it('offers the ONE side of a one-to-many relation and refuses the many side and a many-to-many', () => {
+    const fields = [
+      field({ apiName: 'project', type: 'relation', relation: relation('a', 'one_to_many') }),
+      field({ apiName: 'issues', type: 'relation', relation: relation('b', 'one_to_many') }),
+      field({ apiName: 'labels', type: 'relation', relation: relation('a', 'many_to_many') }),
+    ];
+    expect(sortableFields(fields).map((f) => f.apiName)).toEqual(['project']);
+  });
+
+  it('refuses a multi user field and a deprecated system field, keeps an ordinary text and select', () => {
+    const fields = [
+      field({ apiName: 'title' }),
+      field({ apiName: 'state', type: 'select' }),
+      field({ apiName: 'members', type: 'user', config: { multi: true } }),
+      field({ apiName: 'number', type: 'number', isSystem: true, deprecated: true }),
+    ];
+    expect(sortableFields(fields).map((f) => f.apiName)).toEqual(['title', 'state']);
+  });
+});
+
+/** One choice sets the order: a header click, the Ordering menu, the Sort picker. */
+describe('pickPrimarySort', () => {
+  const sorts: SortSpec[] = [sort({ field: 'priority', direction: 'desc' }), sort({ field: 'due', direction: 'asc' })];
+
+  it('a new field leads ascending; a header click drops the other keys', () => {
+    expect(pickPrimarySort(sorts, 'title', { flipIfSame: true })).toEqual([sort({ field: 'title', direction: 'asc' })]);
+  });
+
+  it('keepRest keeps the then-by keys and drops a duplicate of the chosen field among them', () => {
+    expect(pickPrimarySort(sorts, 'due', { keepRest: true })).toEqual([sort({ field: 'due', direction: 'asc' })]);
+    expect(pickPrimarySort(sorts, 'title', { keepRest: true })).toEqual([
+      sort({ field: 'title', direction: 'asc' }),
+      sort({ field: 'due', direction: 'asc' }),
+    ]);
+  });
+
+  it('choosing the field that already leads flips it only when flipIfSame is on', () => {
+    expect(pickPrimarySort(sorts, 'priority', { flipIfSame: true })[0]).toEqual(sort({ field: 'priority', direction: 'asc' }));
+    expect(pickPrimarySort(sorts, 'priority', { keepRest: true })[0]).toEqual(sort({ field: 'priority', direction: 'asc' }));
+    expect(pickPrimarySort([sort({ field: 'priority', direction: 'asc' })], 'priority', { flipIfSame: true })).toEqual([sort({ field: 'priority', direction: 'desc' })]);
+  });
+
+  it('an empty field clears the primary key, keeping or dropping the rest as asked', () => {
+    expect(pickPrimarySort(sorts, '', { keepRest: true })).toEqual([sort({ field: 'due', direction: 'asc' })]);
+    expect(pickPrimarySort(sorts, '')).toEqual([]);
   });
 });

@@ -1,3 +1,6 @@
+import { SORTABLE_FIELD_TYPES } from '@storyos/schemas';
+import type { Field } from '../table-view/use-table-data';
+import { isPickableField } from './system-fields';
 import { arrayMove } from '@dnd-kit/sortable';
 import { choiceDirectionLabels } from './option-order';
 import { formulaRefs } from '@storyos/schemas';
@@ -132,4 +135,47 @@ export function directionLabel(
   const labels = DIRECTION_LABELS[fieldType];
   if (labels) return labels[direction];
   return direction === 'asc' ? 'Ascending' : 'Descending';
+}
+
+const SORTABLE_TYPES = new Set<string>(SORTABLE_FIELD_TYPES);
+
+/**
+ * The fields a view can order by: a sortable type, a formula that stays on its
+ * own record, never a multi user / relation (no single value to order by, #680)
+ * and never a deprecated system field (#743). The one list the Sort panel and
+ * the Display menu's Ordering both read, so they cannot drift.
+ */
+export function sortableFields(fields: Field[]): Field[] {
+  const byApiName = new Map(fields.map((f) => [f.apiName, f]));
+  return fields.filter(
+    (f) =>
+      SORTABLE_TYPES.has(f.type) &&
+      isSortableFormula(f, byApiName) &&
+      !((f.type === 'user' || f.type === 'relation') && f.config['multi'] === true) &&
+      // A relation orders rows only when each row holds ONE linked record: the "one" side of a
+      // one-to-many (the same rule button-actions-editor.tsx reads). The many side has a set per
+      // row, and the API answers a sort by it with an empty page rather than a refusal.
+      !(f.type === 'relation' && !(f.relation?.cardinality === 'one_to_many' && f.relation.side === 'a')) &&
+      isPickableField(f),
+  );
+}
+
+/**
+ * The order set by ONE choice — a column header, the Display menu's Ordering, the Sort
+ * chip's picker. `field` becomes the primary key, ascending; choosing the field that already
+ * leads flips it when `flipIfSame` is on (a header click, the picker) and leaves it when off
+ * (a menu that has its own flip control). `keepRest` keeps the "then by" keys behind it; a
+ * header click drops them. An empty `field` clears the primary key.
+ */
+export function pickPrimarySort(
+  sorts: SortSpec[],
+  field: string,
+  opts: { keepRest?: boolean; flipIfSame?: boolean } = {},
+): SortSpec[] {
+  const rest = opts.keepRest ? sorts.slice(1).filter((s) => s.field !== field) : [];
+  if (!field) return rest;
+  const first = sorts[0];
+  const direction: SortSpec['direction'] =
+    opts.flipIfSame && first?.field === field ? (first.direction === 'asc' ? 'desc' : 'asc') : 'asc';
+  return [{ field, direction }, ...rest];
 }
