@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Layers, Users } from 'lucide-react';
+import { Layers, Lock, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { apiErrorMessage } from '@/lib/api';
 import { useDatabases, useSpaces, useSidebarMutations, useWorkspace } from '@/lib/queries';
@@ -17,6 +17,14 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
 import { canManageAccess } from '@/lib/access-model';
+import {
+  RESTRICTED_PRIVATE_NOTE,
+  RESTRICTED_SUMMARY,
+  adminRows,
+  canReadGrants,
+  everyoneRows,
+  spaceAccessMode,
+} from '@/lib/space-access-section';
 import { SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
@@ -103,7 +111,8 @@ export default function SpacePage() {
       if (error) throw error;
       return (data as unknown as { data: Grant[] }).data;
     },
-    enabled: canSeeAccessList,
+    // #1099 — /grants is admin-only (the Manage access dialog's own gate); a member's call is a doomed 403.
+    enabled: canReadGrants(workspace.data?.role),
   });
   const relations = useQuery({
     queryKey: ['relations', ws, spaceId],
@@ -144,7 +153,8 @@ export default function SpacePage() {
 
   const spaceNameById = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
 
-  const workspaceMembers = (members.data ?? []).filter((m) => m.role !== 'guest');
+  // #1099 — "every member has access" is true only of an UNRESTRICTED space (ADR-0018).
+  const accessMode = spaceAccessMode({ restricted: space.restricted, workspaceRole: workspace.data?.role });
   const spaceDbIds = new Set(spaceDatabases.map((d) => d.id));
   const spaceGrants = (grants.data ?? []).filter((g) => g.space_id === space.id);
   const dbGrants = (grants.data ?? []).filter(
@@ -271,13 +281,29 @@ export default function SpacePage() {
             </Button>
           )}
         </div>
-        {canSeeAccessList ? (
+        {accessMode !== 'guest' ? (
           <div className="flex flex-col gap-3 text-body">
-            <AccessGroup
-              label="Workspace members"
-              hint="admin or member — access to every non-personal space"
-              rows={workspaceMembers.map((m) => ({ name: m.user.name, role: m.role }))}
-            />
+            {accessMode === 'everyone' ? (
+              <AccessGroup
+                label="Workspace members"
+                hint="admin or member — access to every non-personal space"
+                rows={everyoneRows(members.data ?? [])}
+              />
+            ) : (
+              <>
+                <p className="flex items-start gap-1.5 text-muted">
+                  <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{accessMode === 'restricted-admin' ? RESTRICTED_SUMMARY : `${RESTRICTED_SUMMARY} ${RESTRICTED_PRIVATE_NOTE}`}</span>
+                </p>
+                {accessMode === 'restricted-admin' && (
+                  <AccessGroup
+                    label="Workspace admins"
+                    hint="admins always see a restricted space"
+                    rows={adminRows(members.data ?? [])}
+                  />
+                )}
+              </>
+            )}
             <AccessGroup
               label="Granted on this space"
               hint="a space-level grant"
