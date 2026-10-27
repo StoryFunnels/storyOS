@@ -54,8 +54,11 @@ export class TokensController {
 
   @Post()
   @ApiOperation({ summary: 'Create a PAT — the token is shown ONCE in this response' })
-  create(@Req() req: AuthedRequest, @Body() body: CreateTokenDto) {
+  async create(@Req() req: AuthedRequest, @Body() body: CreateTokenDto) {
     assertSession(req, 'create a token');
+    // #1091 — the REST route is where the contract "guests cannot create a token" is enforced (the UI and the docs already say it).
+    // Not in `create` itself: Tyron mints a short-lived token for the person it acts for, guests included, and that must keep working.
+    await this.tokens.assertMayCreate(req.user.id, body.workspace_id);
     return this.tokens.create(
       req.user.id,
       body.workspace_id,

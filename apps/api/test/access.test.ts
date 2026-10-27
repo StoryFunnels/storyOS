@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
+import { TokensService } from '../src/tokens/tokens.service';
 import { authed, signUpUser } from './helpers/users';
 
 let app: NestFastifyApplication;
@@ -149,11 +150,14 @@ describe('access grants ladder (MN-034, ADR-0007)', () => {
     });
     expect(asGuest.statusCode).toBe(403);
 
-    const pat = await as(guest.token, 'POST', '/me/tokens', { name: 'client-script', workspace_id: wsId });
+    // #1091 — a guest can no longer mint a PAT over REST (guest-token-refused.test.ts); what this test is about is that a PAT a guest
+    // ALREADY holds inherits the guest's grants, so it is created through the service, as an internal minter or an older token would be.
+    expect((await as(guest.token, 'POST', '/me/tokens', { name: 'client-script', workspace_id: wsId })).statusCode).toBe(403);
+    const heldToken = (await app.get(TokensService).create(guestId, wsId, 'client-script')).token;
     const patWrite = await app.inject({
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/databases/${clientTasks}/records`,
-      headers: { authorization: `Bearer ${pat.json().token}` },
+      headers: { authorization: `Bearer ${heldToken}` },
       payload: { values: { name: 'via client PAT' } },
     });
     expect(patWrite.statusCode).toBe(201);

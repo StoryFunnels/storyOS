@@ -19,6 +19,22 @@ export class TokensService {
     private readonly access: AccessService,
   ) {}
 
+  /**
+   * #1091 — a GUEST may not create a personal access token. The Connect your AI page and the docs already say so; the API only checked
+   * for an active membership, so `POST /me/tokens` handed one to a guest. The refusal is the same sentence the page shows. A person who
+   * is not a member of the workspace is NOT answered here: `create` gives them the usual 404, so this can never work as a membership probe.
+   * Existing tokens a guest already holds are not touched (they act with a guest's narrowing on every request, as before).
+   */
+  async assertMayCreate(userId: string, workspaceId: string): Promise<void> {
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, userId), eq(memberships.status, 'active')),
+      columns: { role: true },
+    });
+    if (membership?.role === 'guest') {
+      throw new ForbiddenException('Guests cannot create a personal access token. Ask a workspace admin if you need access.');
+    }
+  }
+
   async create(
     userId: string,
     workspaceId: string,
