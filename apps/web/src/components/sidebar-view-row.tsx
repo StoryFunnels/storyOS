@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Database, Table2, Lock, Star } from 'lucide-react';
+import { Database, Table2, Star } from 'lucide-react';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { buildViewMenu } from '@/components/views/view-menu';
 import { useViewMenuActions, viewMenuSidebarActions } from '@/components/views/view-menu-items';
@@ -115,11 +115,6 @@ export function SidebarViewRow({
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {/* #994 — a view pinned to the viewer's tabs carries a small gold star at the right edge (the prototype's pinned mark). */}
       {pinned && <Star className="h-[11px] w-[11px] shrink-0 text-accent" aria-label="Pinned to your tabs" />}
-      {view.personal && (
-        // #291 — badge that it is private. Never say whose: the payload does
-        // not carry an owner id, and this must not become the place it leaks.
-        <Lock className="h-3 w-3 shrink-0 text-faint" aria-label="Only you can see this view" />
-      )}
     </>
   );
 

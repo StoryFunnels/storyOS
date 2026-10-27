@@ -1401,7 +1401,11 @@ function SpaceSection({
       return (data as unknown as { data: SidebarView[] }).data;
     },
   });
-  const spaceViews = viewsQuery.data ?? [];
+  // #1097 — a personal view lives ONLY under Personal (views-and-the-sidebar.md: one home), never again under its source
+  // database with a lock. It used to arrive in this list marked `personal`, and the row drew the lock; since #924 a lock in the
+  // sidebar means RESTRICTED, so a private view wearing it read as a restricted one. Dropping them here also keeps them out of
+  // every count and caret below (#381/#382), which all read this list.
+  const spaceViews = (viewsQuery.data ?? []).filter((v) => !v.personal);
   const moveViewToFolder = useMutation({
     mutationFn: async (v: { id: string; databaseId: string; folderId: string | null }) => {
       const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {

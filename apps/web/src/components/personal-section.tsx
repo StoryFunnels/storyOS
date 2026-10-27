@@ -4,7 +4,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { FileText, Lock, Plus, Table2 } from 'lucide-react';
+import { ChevronRight, FileText, Plus, Table2, UserRound } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -17,7 +17,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { PHONE_TAP } from '@/components/sidebar-row-style';
+import { CARET_HIT_AREA, PHONE_TAP } from '@/components/sidebar-row-style';
+import { PERSONAL_PRIVACY_SENTENCE } from '@/lib/personal-space-copy';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
@@ -30,13 +31,13 @@ import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { markNewDocument } from '@/lib/new-doc-focus';
 
-interface PersonalDoc {
+export interface PersonalDoc {
   id: string;
   title: string;
   icon: string | null;
 }
 
-interface PersonalView {
+export interface PersonalView {
   id: string;
   name: string;
   /** A view's `type` can be anything ViewKind allows (created via the MCP or a
@@ -58,7 +59,9 @@ interface PersonalView {
  */
 const PERSONAL_VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline'] as const;
 
-function usePersonalViews(ws: string) {
+const PERSONAL_OPEN_KEY = 'storyos-personal-open';
+
+export function usePersonalViews(ws: string) {
   return useQuery({
     queryKey: ['personal-views', ws],
     queryFn: async () => {
@@ -69,6 +72,21 @@ function usePersonalViews(ws: string) {
       return (data as unknown as { data: PersonalView[] }).data;
     },
     enabled: Boolean(ws),
+  });
+}
+
+/** The personal space's documents: the same query (same key) the sidebar section runs, so the Personal page and the tree cannot disagree. */
+export function usePersonalDocs(ws: string, spaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['space-docs', ws, spaceId] as const,
+    enabled: Boolean(spaceId),
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+        params: { path: { ws, space: spaceId! } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: PersonalDoc[] }).data;
+    },
   });
 }
 
@@ -89,7 +107,7 @@ function usePersonalViews(ws: string) {
  * the same way #479 does, so this component just renders whatever `open` it's
  * given.
  */
-function NewPersonalViewDialog({
+export function NewPersonalViewDialog({
   ws,
   open,
   onOpenChange,
@@ -131,6 +149,10 @@ function NewPersonalViewDialog({
       }}
     >
       <DialogContent title="New personal view" unsaved>
+        {/* #1097 — the privacy sentence, word for word, at the point of use (personal-space.md §1). */}
+        <p className="mb-3 text-label text-muted" data-testid="personal-privacy">
+          {PERSONAL_PRIVACY_SENTENCE}
+        </p>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -397,6 +419,24 @@ export function PersonalSection({ ws }: { ws: string }) {
   /** batch-bar.tsx's #479 fix, same shape: a macrotask after the DropdownMenu
    * item's onSelect, so the new Dialog mounts after the menu's FocusScope has
    * finished tearing down instead of racing it. */
+  // #1097 — the row's caret collapses the items; remembered per browser, never required (storage can be blocked).
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(PERSONAL_OPEN_KEY) === '0') setOpen(false);
+    } catch {
+      /* storage unavailable: stay open */
+    }
+  }, []);
+  const toggleOpen = () =>
+    setOpen((o) => {
+      try {
+        localStorage.setItem(PERSONAL_OPEN_KEY, o ? '0' : '1');
+      } catch {
+        /* ignore */
+      }
+      return !o;
+    });
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [pendingViewDialog, setPendingViewDialog] = useState(false);
   useEffect(() => {
@@ -438,71 +478,50 @@ export function PersonalSection({ ws }: { ws: string }) {
   );
 
   /**
-   * #570 — the empty state used to be a permanent card: the privacy
-   * paragraph, "Nothing here yet" copy, and two full create buttons,
-   * rendered every time for a feature most workspaces haven't touched yet.
-   * Mira's recommendation (approved by Ievgen, ticket #570): collapse to the
-   * SAME compact "label + New…" row the non-empty header already uses, with
-   * the privacy sentence moved to a hover tooltip (still "at the point of
-   * use" per the ADR, just not permanently rendered) instead of a standing
-   * paragraph. Reclaims ~6 rows for the Spaces tree below it.
+   * #1097 — ONE look, empty or not. Before, an empty Personal was #967's compact "Personal · only you" row and the first item
+   * turned it into an older block (an uppercase PERSONAL header plus a standing two-line privacy paragraph), so adding a
+   * document changed the section's whole shape. Now it is always Dara's #932 prototype row: a caret, the person glyph,
+   * "Personal · only you", + New; the items nest under it like a space's contents, and the caret collapses them. The caret
+   * slot is reserved even with nothing to collapse, so the row is the same size and the same place either way.
+   *
+   * The privacy sentence (personal-space.md §1, word for word: `PERSONAL_PRIVACY_SENTENCE`) is no longer a paragraph in the
+   * sidebar. It sits at the points of use: this row's tooltip, the create dialog for a personal view, and the Personal page
+   * header. The glyph is the person, not a lock: since #924 a lock in the sidebar means RESTRICTED.
    */
-  if (isEmpty) {
-    return (
-      // #641 — mb-2 stacked with the Spaces label's own top margin to make up
-      // most of a 72px void above the tree; mb-1 keeps a real section break
-      // without the extra 4px neither side needed.
-      <div className="mb-1">
-        {/* #779 — through SidebarRow like Reviews/Business Packs: this is the
-            "Collections row (Personal)" Dara's spec measures against the
-            same icon/label offset as every other row, and a bare div with no
-            reserved gutter landed short of it, same as the other two. */}
-        <SidebarRow
-          depth={0}
-          className="hover:bg-hover"
-          title="Only you can see this. If your account is removed, this content is deleted with it."
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
-            <GlyphSlot>
-              <Lock className="h-3.5 w-3.5 text-faint" />
-            </GlyphSlot>
-            Personal
-            {/* #967 — "Personal · only you": the row states the privacy rule itself. */}
-            <span className="text-muted">· only you</span>
-          </span>
-          {newMenu}
-        </SidebarRow>
-        {newViewDialog}
-      </div>
-    );
-  }
-
+  const hasItems = !isEmpty;
   return (
+    // #641 — mb-1 keeps a real section break above the Spaces tree.
     <div className="mb-1">
-      <div className="mb-0.5 flex items-center justify-between px-2">
-        {/* #706 — KEEPS faint, for CONSISTENCY rather than on its own merits.
-            sidebar.tsx renders the neighbouring section headers ("Workspace",
-            "Personal") with this exact treatment and #665 classified them as
-            deliberate keeps. Moving only this one would put two adjacent
-            headers at different weights, which is worse than either choice
-            applied uniformly. If the call is wrong it is wrong for ALL sidebar
-            section headers and belongs in #665's terms, not diverging here. */}
-        <span className="text-meta font-semibold uppercase tracking-wider text-faint">Personal</span>
+      <SidebarRow
+        depth={0}
+        className="hover:bg-hover"
+        title={PERSONAL_PRIVACY_SENTENCE}
+        caret={
+          hasItems ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={open ? 'Hide personal items' : 'Show personal items'}
+              onClick={toggleOpen}
+              className={cn('rounded text-faint hover:text-ink', CARET_HIT_AREA)}
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} aria-hidden />
+            </button>
+          ) : undefined
+        }
+      >
+        {/* The name opens the Personal page (#1097), like a space's name opens its page. */}
+        <Link href={`/w/${ws}/personal`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+          <GlyphSlot>
+            <UserRound className="h-3.5 w-3.5 text-faint" />
+          </GlyphSlot>
+          Personal
+          {/* #967 — "Personal · only you": the row states the privacy rule itself. */}
+          <span className="text-muted">· only you</span>
+        </Link>
         {newMenu}
-      </div>
-      {/*
-        #292 / docs/architecture/personal-space.md §1 — "say so at the point of
-        use", verbatim. The ADR calls a wording drift here a support incident,
-        so this sentence must change in the same PR as the ADR if it ever needs
-        to change at all, not independently. #570 only removed this paragraph
-        from the EMPTY state (moved to a tooltip there) — once there's real
-        content the section isn't a chrome-heavy card anymore, so the standing
-        sentence stays here unchanged.
-      */}
-      <p className="mb-1.5 flex items-start gap-1 px-2 text-[11px] leading-snug text-muted">
-        <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>Only you can see this. If your account is removed, this content is deleted with it.</span>
-      </p>
+      </SidebarRow>
+      {open && hasItems && (
       <div className="flex flex-col gap-0.5">
         {docItems.map((doc) => (
           <SidebarRow key={doc.id} depth={1}>
@@ -589,6 +608,7 @@ export function PersonalSection({ ws }: { ws: string }) {
           );
         })}
       </div>
+      )}
       {newViewDialog}
     </div>
   );
