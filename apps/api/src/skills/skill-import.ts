@@ -55,7 +55,18 @@ const DROP_REASONS: Record<string, string> = {
 
 function unquote(v: string): string {
   const t = v.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
+  if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
+    // #1078: our own export writes a non-plain description as a JSON string; read its escapes back. A YAML-only
+    // escape (`\x41`, `\e`) is not JSON — that falls back to the old strip-the-quotes reading.
+    try {
+      const parsed: unknown = JSON.parse(t);
+      if (typeof parsed === 'string') return parsed;
+    } catch {
+      /* not JSON — fall through */
+    }
+    return t.slice(1, -1);
+  }
+  if (t.length >= 2 && t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1);
   return t;
 }
 
