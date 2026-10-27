@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
+import { TokensService } from '../src/tokens/tokens.service';
 import { authed, signUpUser } from './helpers/users';
 
 /**
@@ -291,15 +292,14 @@ describe('#543 minting — never wider than the minter, and no oracle', () => {
     await inject(guest.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
     const guestId = ((await inject(guest.token, 'GET', '/me')).json().user?.id ?? (await inject(guest.token, 'GET', '/me')).json().id) as string;
 
-    const tooWide = await inject(guest.token, 'POST', '/me/tokens', {
-      name: 'wide', workspace_id: ws, resource_scope: { database_ids: [clients] },
-    });
-    expect(tooWide.statusCode).toBe(404);
-
-    const ok = await inject(guest.token, 'POST', '/me/tokens', {
-      name: 'ok', workspace_id: ws, resource_scope: { database_ids: [projects] },
-    });
-    expect(ok.statusCode, ok.body).toBe(201);
+    // #1091 — a guest can no longer mint a token over REST at all (see guest-token-refused.test.ts). The invariant this test exists for
+    // still matters for the tokens a guest already holds and for any internal minter, so it is exercised through the service, which is
+    // where "never wider than the minter's own access" and the live narrowing are enforced.
+    expect((await inject(guest.token, 'POST', '/me/tokens', { name: 'rest', workspace_id: ws, resource_scope: { database_ids: [projects] } })).statusCode).toBe(403);
+    const tokens = app.get(TokensService);
+    await expect(tokens.create(guestId, ws, 'wide', 'admin', true, undefined, undefined, { space_ids: [], database_ids: [clients] })).rejects.toThrow(/not found/i);
+    const minted = await tokens.create(guestId, ws, 'ok', 'admin', true, undefined, undefined, { space_ids: [], database_ids: [projects] });
+    const ok = { statusCode: 201, body: '', json: () => ({ token: minted.token }) };
     const url = `/workspaces/${ws}/databases/${projects}/records`;
     expect((await inject(ok.json().token, 'GET', url)).statusCode).toBe(200);
 
