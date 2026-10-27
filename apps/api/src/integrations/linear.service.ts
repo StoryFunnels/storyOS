@@ -60,8 +60,8 @@ export interface LinearTeamComplete extends LinearTeamData {
   comments: { nodes: LinearComment[] };
   /** The team's real workflow states, in Linear's order (#904). These BUILD the Issues State options. */
   states: { nodes: LinearState[] };
-  /** Linear's own `Team.issueCount`, fetched separately from the walk. */
-  issueTotal: number;
+  /** Linear's own `Team.issueCount`, fetched separately from the walk. Null for an incremental read (#1027), which has no total to compare. */
+  issueTotal: number | null;
 }
 
 export interface LinearTeamData {
@@ -100,7 +100,40 @@ interface LinearSyncStatus {
   last_error?: string;
   last_error_at?: string;
   consecutive_failures?: number;
-  last_run?: { issues: number; comments: number; drift_flagged: number; left_scope: number; duration_ms: number };
+  last_run?: { issues: number; comments: number; drift_flagged: number; left_scope: number; duration_ms: number; mode?: SyncMode };
+  /** #1027 — when the last SUCCESSFUL run STARTED (not ended: a 19 minute run must not skip what changed while it ran). */
+  cursor_at?: string;
+  /** #1027 — when the last successful FULL read started; an incremental run is only planned while this is under a day old. */
+  last_full_at?: string;
+  /** #1027 — the team keys the last successful run covered; a changed list means a new team the cursor knows nothing about. */
+  synced_teams?: string[];
+}
+
+export type SyncMode = 'full' | 'incremental';
+/** #1027 — an incremental run reads from this long before the cursor, so clock skew with Linear cannot drop a record. Upserts are idempotent. */
+export const INCREMENTAL_OVERLAP_MINUTES = 5;
+/** #1027 — the safety net: a full re-read at least this often (it is the only run that sees an issue that left scope). */
+export const FULL_REFRESH_HOURS = 24;
+
+/**
+ * #1027 — full or incremental? Incremental only for a scheduled run that has a cursor, whose last full read is under a
+ * day old, and that covers the SAME teams as the run that set the cursor. Anything unknown is a full read: a wrongly
+ * chosen incremental run silently misses records, a wrongly chosen full one is only slow.
+ */
+export function planSyncMode(
+  status: LinearSyncStatus | undefined,
+  now: Date,
+  teamKeys: string[],
+  scheduled: boolean,
+): { mode: SyncMode; since?: string } {
+  if (!scheduled || !status?.cursor_at || !status.last_full_at) return { mode: 'full' };
+  const cursor = new Date(status.cursor_at).getTime();
+  const lastFull = new Date(status.last_full_at).getTime();
+  if (!Number.isFinite(cursor) || !Number.isFinite(lastFull)) return { mode: 'full' };
+  if (now.getTime() - lastFull >= FULL_REFRESH_HOURS * 3_600_000) return { mode: 'full' };
+  const synced = [...(status.synced_teams ?? [])].sort().join(',');
+  if (!synced || synced !== [...teamKeys].sort().join(',')) return { mode: 'full' };
+  return { mode: 'incremental', since: new Date(cursor - INCREMENTAL_OVERLAP_MINUTES * 60_000).toISOString() };
 }
 
 interface LinearSettings {
@@ -169,6 +202,16 @@ export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String)
   }
 }`;
 
+/** #1027 — the same reads, limited to what Linear changed after `$since`. Used by an incremental run only. */
+export const TEAM_ISSUES_SINCE_QUERY = TEAM_ISSUES_QUERY
+  .replace('query TeamIssues($id: String!, $after: String)', 'query TeamIssuesSince($id: String!, $after: String, $since: DateTimeOrDuration!)')
+  .replace(`issues(first: ${ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${ISSUE_PAGE_SIZE}, after: $after, filter: { updatedAt: { gt: $since } })`);
+if (!TEAM_ISSUES_SINCE_QUERY.includes('updatedAt') || !TEAM_ISSUES_SINCE_QUERY.includes('TeamIssuesSince')) {
+  // The derivation above is textual; if the base query is ever reworded it must fail at load, not read everything silently.
+  throw new Error('TEAM_ISSUES_SINCE_QUERY no longer derives from TEAM_ISSUES_QUERY');
+}
+export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { name } botActor { name } externalUser { name } issue { id } } ${PAGE_INFO} } }`;
+
 interface PageInfo { hasNextPage: boolean; endCursor: string | null }
 
 /**
@@ -212,16 +255,20 @@ export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Pro
  * SEPARATE count (`Team.issueCount`) so the comparison is between two independent answers, not the walk checking
  * itself. A mismatch throws: a copy that is short of Linear must never be reported as a success.
  */
-export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam): Promise<LinearTeamComplete> {
+export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, opts: { since?: string } = {}): Promise<LinearTeamComplete> {
   const id = team.id;
+  const { since } = opts;
+  // #1027 — incremental: only issues and comments Linear changed after `since`. Labels, cycles, projects and states are
+  // small and are always read whole. Nothing here can tell "complete" (no total to compare, a comment may sit on an
+  // issue that did not change), so those two checks belong to the full read only.
   const [labels, cycles, projects, issues, count, states, linearComments] = await Promise.all([
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
-    pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, TEAM_ISSUES_QUERY, { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
-    fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>,
+    pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, since ? TEAM_ISSUES_SINCE_QUERY : TEAM_ISSUES_QUERY, since ? { id, since } : { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
+    since ? Promise.resolve(undefined) : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
-    pageAll<LinearComment>(fetcher, apiKey, TEAM_COMMENTS_QUERY, { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
+    pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SINCE_QUERY : TEAM_COMMENTS_QUERY, since ? { id, since } : { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
   ]);
   states.sort((a, b) => a.position - b.position);
   // #904: a status the team's own state list does not contain cannot be given an option, so the copy would have to
@@ -231,18 +278,22 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
   if (stray.length > 0) {
     throw new UnprocessableEntityException(`Linear team ${team.key} has issues in status ${stray.map((n) => `"${n}"`).join(', ')} which is not in its workflow states — refusing to map them by guesswork`);
   }
-  const total = count.team?.issueCount;
-  if (typeof total !== 'number') {
-    throw new UnprocessableEntityException(`Linear did not report an issue total for ${team.key} — cannot verify the copy is complete`);
+  let total: number | null = null;
+  if (!since) {
+    total = count?.team?.issueCount ?? null;
+    if (typeof total !== 'number') {
+      throw new UnprocessableEntityException(`Linear did not report an issue total for ${team.key} — cannot verify the copy is complete`);
+    }
+    if (total !== issues.length) {
+      throw new UnprocessableEntityException(
+        `Linear team ${team.key} has ${total} issues but ${issues.length} were fetched — nothing was written. Re-run; if it persists, the team may include archived issues.`,
+      );
+    }
   }
-  if (total !== issues.length) {
-    throw new UnprocessableEntityException(
-      `Linear team ${team.key} has ${total} issues but ${issues.length} were fetched — nothing was written. Re-run; if it persists, the team may include archived issues.`,
-    );
-  }
-  // #903: a comment on an issue we did not read cannot be placed, and dropping it would be a silent loss.
+  // #903: a comment on an issue we did not read cannot be placed, and dropping it would be a silent loss. (An incremental
+  // read may legitimately return a comment on an unchanged issue; the caller places those through the mirror, and fails if it cannot.)
   const issueIds = new Set(issues.map((i) => i.id));
-  const orphans = linearComments.filter((c) => !c.issue || !issueIds.has(c.issue.id));
+  const orphans = since ? [] : linearComments.filter((c) => !c.issue || !issueIds.has(c.issue.id));
   if (orphans.length > 0) {
     throw new UnprocessableEntityException(`Linear team ${team.key} has ${orphans.length} comments on issues that were not read — refusing to copy without them`);
   }
@@ -811,7 +862,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         key: team.key,
         name: team.name,
         issues: data.issues.nodes.length,
-        linear_issue_total: data.issueTotal,
+        linear_issue_total: data.issueTotal ?? data.issues.nodes.length, // preview is always a full read, which always has a total
         comments: data.comments.nodes.length,
         sprints: data.cycles.nodes.length,
         projects: data.projects.nodes.length,
@@ -839,7 +890,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * admin sees is true whichever one made it. A failure is stored with its message and re-thrown, never swallowed: a
    * job that fails quietly every hour looks exactly like one with nothing to do.
    */
-  async sync(membership: Membership, actorId: string, opts: { runHeld?: boolean } = {}) {
+  async sync(membership: Membership, actorId: string, opts: { runHeld?: boolean; scheduled?: boolean } = {}) {
     const started = Date.now();
     const workspaceId = membership.workspaceId;
     // One run at a time per workspace. A scheduled run already holds the lock (claimRun took it); a manual one must take it,
@@ -848,18 +899,18 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('A Linear sync is already running for this workspace — try again when it finishes');
     }
     try {
-      return await this.syncRecorded(membership, actorId, started);
+      return await this.syncRecorded(membership, actorId, started, Boolean(opts.scheduled));
     } finally {
       await this.releaseRun(workspaceId).catch(() => undefined);
     }
   }
 
-  private async syncRecorded(membership: Membership, actorId: string, started: number) {
+  private async syncRecorded(membership: Membership, actorId: string, started: number, scheduled: boolean) {
     const workspaceId = membership.workspaceId;
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
-      const summary = await this.runSync(membership, actorId);
+      const summary = await this.runSync(membership, actorId, { scheduled, status: before.sync_status });
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -867,7 +918,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           last_attempt_at: new Date(started).toISOString(),
           last_success_at: new Date().toISOString(),
           consecutive_failures: 0,
-          last_run: { issues: summary.issues, comments: summary.comments.fetched, drift_flagged: summary.drift_flagged, left_scope: summary.left_scope, duration_ms: Date.now() - started },
+          // #1027 — the cursor is when this run STARTED, and moves only here, on success: a failed run leaves it where it was.
+          cursor_at: new Date(started).toISOString(),
+          last_full_at: summary.mode === 'full' ? new Date(started).toISOString() : before.sync_status?.last_full_at,
+          synced_teams: summary.teams,
+          last_run: { issues: summary.issues, comments: summary.comments.fetched, drift_flagged: summary.drift_flagged, left_scope: summary.left_scope, duration_ms: Date.now() - started, mode: summary.mode },
         },
       });
       return summary;
@@ -969,7 +1024,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       await this.writeLinear(workspaceId, { ...after, sync_status: { ...after.sync_status, last_attempt_at: new Date().toISOString(), last_error: 'No active admin to run the scheduled sync as', last_error_at: new Date().toISOString(), consecutive_failures: (after.sync_status?.consecutive_failures ?? 0) + 1 } });
       return;
     }
-    await this.sync(membership, membership.userId, { runHeld: true });
+    await this.sync(membership, membership.userId, { runHeld: true, scheduled: true });
   }
 
   private async isOurOwnPush(c: LinearComment): Promise<boolean> {
@@ -978,12 +1033,16 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     return Boolean(row);
   }
 
-  private async runSync(membership: Membership, actorId: string) {
+  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus } = {}) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
+    // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
+    const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
+    const incremental = plan.mode === 'incremental';
     const summary = {
-      dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
+      dry_run: false,
+      mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
       /** #902 — per team, what was fetched against what Linear says it has. A mismatch never gets this far (it throws). */
-      per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number }>,
+      per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number | null }>,
       /** #904 — issues mapped to a State by anything other than their own status name. Always 0: a non-zero would have thrown. */
       fallback_mapped: 0,
       /** #903 — fetched = created + already_present, checked below; a gap throws. Not compared with a Linear-side total (Linear reports none). */
@@ -998,7 +1057,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
-    for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team));
+    for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -1107,7 +1166,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // MARKED, never deleted: agents may hold work against it. The read above passed the count check, so "absent" is
       // reliable. It reverts by itself if the issue comes back (the upsert rewrites linear_status).
       const fetchedIds = new Set(data.issues.nodes.map((i) => i.id));
-      for (const [linearId, prior] of mirrored) {
+      // An incremental read returns only what changed, so "absent" proves nothing: the daily full read does this.
+      for (const [linearId, prior] of incremental ? [] : mirrored) {
         if (fetchedIds.has(linearId) || prior.linearStatus?.startsWith(LEFT_SCOPE_PREFIX)) continue;
         await this.recordsService.update(
           membership.workspaceId, issuesDb.id, prior.id,
@@ -1120,7 +1180,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // #903 — comments, in the order they were written. Each keeps its real author, time and body.
       const commentRows = [...data.comments.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
       for (const c of commentRows) {
-        const recordId = issueIds.get(c.issue!.id);
+        // #1027 — on an incremental read a comment can belong to an issue that did not change: place it through the mirror.
+        const recordId = issueIds.get(c.issue!.id) ?? (incremental ? mirrored.get(c.issue!.id)?.id : undefined);
         if (!recordId) throw new UnprocessableEntityException(`Comment ${c.id} belongs to an issue that was not imported`);
         // #907 — a comment WE pushed to Linear must not come back as a second copy. Two independent guards: its Linear id is
         // recorded in the outbox, and its first line ends "· via StoryOS". Either one is enough; both is the point.
@@ -1141,7 +1202,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       if (parentField) {
         for (const issue of data.issues.nodes) {
           const child = issueIds.get(issue.id);
-          const parent = issue.parent ? issueIds.get(issue.parent.id) : undefined;
+          const parent = issue.parent ? (issueIds.get(issue.parent.id) ?? (incremental ? mirrored.get(issue.parent.id)?.id : undefined)) : undefined;
           if (!child || !parent) continue;
           const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, child, parentField.id, [parent], actorId);
           if (failure) linkWarnings.push(failure);

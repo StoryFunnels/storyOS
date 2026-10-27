@@ -4,7 +4,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { makeLinearFetcher, manyIssues } from './helpers/linear-fake';
 import { connectTestDb } from './helpers/db';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { fields as fieldsTable } from '../src/db/schema';
 import { LinearService } from '../src/integrations/linear.service';
 import type { LinearFetcher } from '../src/integrations/linear.service';
@@ -97,6 +97,9 @@ describe('#906 schedule and loud failure', () => {
 
   it('a count mismatch on a scheduled run is a FAILED run, not a partial success (#902 still applies)', async () => {
     linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { ...empty, issues: { nodes: current } } }], { issueCount: () => current.length + 1 }).fetcher;
+    // #1027: the count check belongs to the FULL read; a scheduled run is incremental until the last full read is a day old.
+    const aged = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    await rawDb.execute(sql`UPDATE workspaces SET settings = jsonb_set(settings, '{linear,sync_status,last_full_at}', to_jsonb(${aged}::text)) WHERE id = ${ws}`);
     await linear.tick(new Date(Date.now() + 5 * 60 * 60_000));
     const c = await cfg();
     expect(c.sync.last_error).toContain('issues but');
