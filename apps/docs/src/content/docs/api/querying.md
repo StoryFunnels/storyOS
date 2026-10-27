@@ -38,6 +38,11 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
+- **Sorting by a choice field** — a `select`, `workflow` or `multi_select` sorts by the **position of
+  its option** in the field's own option order (descending reverses it), not by label and not by
+  option id. A `multi_select` sorts by the position of its **first stored value**. A value whose
+  option no longer exists sorts with the empty values, which follow `nulls` (last by default), and
+  ties break by record id. Paging walks the same order, so a cursor never repeats or skips a record.
 - **Sorting by a relation** — a **single-valued** relation (the "Parent" side of a one-to-many)
   sorts by the **title of the linked record**; records with no link follow the usual empty-values
   placement. A **multi-valued** relation (the "many" side of a one-to-many, or either side of a
