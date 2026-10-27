@@ -203,6 +203,20 @@ actually stays true over time:
   options are still local drafts without ids to point a default at. Configure the options first,
   save the field, then set the default from Edit.
 
+  **A workflow field with no default starts at its first state.** A record created without a value
+  for a Workflow (status) field gets the field's configured default, or else its **first** option in
+  the field's own order, so a new record is on a board column and in a queue from the moment it
+  exists. That holds on every way of creating a record: the app, REST, MCP, forms, CSV import and
+  automations. The rules:
+  - **A plain select is not filled.** An empty Priority or Type is a legitimate answer; an empty
+    State is not.
+  - **Passing a value is respected, including an explicit empty one.** Leaving the field out of the
+    request is what triggers the default; sending the field as `null` keeps it empty. In a batch
+    each record decides for itself.
+  - **Existing records are not changed**, and neither is a record you later edit. Changing the
+    default afterwards doesn't touch records that were already empty.
+  - A workflow field with no options has nothing to default to, and the record is still created.
+
 ## Field lifecycle
 
 - **Rename** — the `display_name` changes freely; the `api_name` is a stable slug (auto-generated,
