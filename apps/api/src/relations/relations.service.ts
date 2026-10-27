@@ -452,8 +452,13 @@ export class RelationsService {
     const field = await findFieldByRef(this.db, databaseId, fieldRef);
     if (!field || field.type !== 'relation') throw new NotFoundException('Relation field not found');
     const config = field.config as { relation_id: string; side: 'a' | 'b' };
+    // #1070 — scoped to this database's side, so a relation_id naming another
+    // database's (or tenant's) relation is not found.
     const relation = await this.db.query.relations.findFirst({
-      where: eq(relations.id, config.relation_id),
+      where: and(
+        eq(relations.id, config.relation_id),
+        eq(config.side === 'b' ? relations.databaseBId : relations.databaseAId, databaseId),
+      ),
     });
     if (!relation) throw new NotFoundException('Relation not found');
 

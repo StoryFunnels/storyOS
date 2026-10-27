@@ -246,7 +246,7 @@ export class ArchitectService {
       // and hardcoding `{}` here silently dropped it.
       config: field.config ?? {},
       options: field.options,
-    })) as unknown as LiveField;
+    }, membership)) as unknown as LiveField;
     result.fields.push({ name: label, action: 'created', id: created.id });
     return created;
   }

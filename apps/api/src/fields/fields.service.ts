@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -40,7 +41,9 @@ import {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automations, fields, records, relations, selectOptions, validationRules, views } from '../db/schema';
+import { automations, databases, fields, records, relations, selectOptions, validationRules, views } from '../db/schema';
+import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
@@ -200,6 +203,8 @@ export class FieldsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly recordsService: RecordsService,
+    /** #1070 — read access on a lookup/rollup's related database. */
+    private readonly access: AccessService,
   ) {}
 
   async getField(databaseId: string, fieldId: string): Promise<Field> {
@@ -414,12 +419,14 @@ export class FieldsService {
       config?: Record<string, unknown>;
       options?: Array<{ label: string; color?: string; icon?: string | null; category?: StateCategory }>; // #202, #1014
     },
+    /** #1070 — the caller; omitted by internal/system callers. Set, it must be able to read a lookup/rollup's related database. */
+    membership?: Membership,
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
     // #172: a database is allowed at most one Workflow (canonical status) field.
     if (input.type === 'workflow') await this.assertNoExistingWorkflowField(databaseId);
-    if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
-    if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
+    if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {}, membership);
+    if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {}, membership);
     // #579 — number was the one creatable type with NO server-side config
     // validation at all (unlike select/lookup/rollup/formula, each re-validated
     // above or below); a malformed `bins` array would have corrupted every
@@ -909,12 +916,33 @@ export class FieldsService {
       );
     }
     const relConfig = relationField.config as { relation_id: string; side: 'a' | 'b' };
+    // #1070 — the relation must have THIS database on the field's own side, so a
+    // relation_id pointing at another database (or tenant) resolves to nothing.
     const relation = await this.db.query.relations.findFirst({
-      where: eq(relations.id, relConfig.relation_id),
+      where: and(
+        eq(relations.id, relConfig.relation_id),
+        eq(relConfig.side === 'b' ? relations.databaseBId : relations.databaseAId, databaseId),
+      ),
     });
     if (!relation)
       throw new UnprocessableEntityException('The underlying relation no longer exists');
     return relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+  }
+
+  /**
+   * #1070 — a lookup/rollup materializes the related database's values onto this
+   * one. Reads are narrowed (#503/#778), but someone who cannot read the related
+   * database must not be able to create one at all.
+   */
+  private async assertRelatedDbReadable(membership: Membership | undefined, targetDbId: string) {
+    if (!membership) return;
+    const targetDb = await this.db.query.databases.findFirst({
+      where: eq(databases.id, targetDbId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!targetDb || (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+      throw new ForbiddenException('You need access to the related database to look up or roll up its fields');
+    }
   }
 
   /** MN-040: the relation must live on this database; the target field on the related one. */
@@ -1041,12 +1069,13 @@ export class FieldsService {
     }
   }
 
-  private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
+  private async assertLookupConfig(databaseId: string, config: Record<string, unknown>, membership?: Membership) {
     const targetApiName = config['target_field_api_name'] as string | undefined;
     const targetDbId = await this.resolveRelationTargetDb(
       databaseId,
       config['relation_field_id'] as string | undefined,
     );
+    await this.assertRelatedDbReadable(membership, targetDbId);
     const targetField = await this.db.query.fields.findFirst({
       where: and(
         eq(fields.databaseId, targetDbId),
@@ -1114,7 +1143,7 @@ export class FieldsService {
    * as the validator (its `err()` throws are already the right shape for a
    * config 422), rather than re-implementing field/op/option-id checks here.
    */
-  private async assertRollupConfig(databaseId: string, config: Record<string, unknown>) {
+  private async assertRollupConfig(databaseId: string, config: Record<string, unknown>, membership?: Membership) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
       throw new UnprocessableEntityException(
@@ -1126,6 +1155,7 @@ export class FieldsService {
       databaseId,
       config['relation_field_id'] as string | undefined,
     );
+    await this.assertRelatedDbReadable(membership, targetDbId);
 
     // #286: first/last is a DIFFERENT contract from the aggregates — it needs an
     // ordering field, and its target field is the value to RETURN (any type, or
@@ -1312,6 +1342,8 @@ export class FieldsService {
     databaseId: string,
     fieldId: string,
     patch: { display_name?: string; config?: Record<string, unknown>; position?: number },
+    /** #1070 — same contract as create()'s `membership`. */
+    membership?: Membership,
   ) {
     const field = await this.getField(databaseId, fieldId);
     // A system field's schema (name, type, position) is fixed — but its per-view
@@ -1347,6 +1379,25 @@ export class FieldsService {
     let recompiledFormula = false;
     let rollupConfigChanged = false;
     let nextConfig: object | undefined;
+    // #1070 — a relation field's relation_id/side are written by RelationsService
+    // when the relation is created; through this generic config merge they would
+    // let a field point at any relation, another tenant's included. Echoing the
+    // stored values back (a client saving the whole config) is still fine.
+    if (field.type === 'relation' && patch.config !== undefined) {
+      const stored = field.config as Record<string, unknown>;
+      for (const key of ['relation_id', 'side']) {
+        if (key in patch.config && patch.config[key] !== stored[key]) {
+          throw new UnprocessableEntityException(`A relation field's ${key} cannot be changed`);
+        }
+      }
+    }
+    // #1070 — re-pointing a lookup/rollup at other data is a creation as far as
+    // access goes, so it needs read access on the related database; editing
+    // anything else about an existing one does not.
+    const retargets = (stored: Record<string, unknown>, next: Record<string, unknown>) =>
+      ['relation_field_id', 'target_field_api_name', 'order_by_field_api_name', 'op', 'filter'].some(
+        (k) => k in next && JSON.stringify(next[k]) !== JSON.stringify(stored[k]),
+      );
     if (field.type === 'title' && patch.config !== undefined) {
       nextConfig = await this.compileTitleConfig(databaseId, field, patch.config);
       backfillTitles = (nextConfig as { name_mode?: string }).name_mode === 'computed';
@@ -1392,7 +1443,8 @@ export class FieldsService {
        */
       const restored = restoreFieldConfig(patch.config, field.config);
       const merged = { ...(field.config as Record<string, unknown>), ...restored };
-      await this.assertRollupConfig(databaseId, merged);
+      const stored = field.config as Record<string, unknown>;
+      await this.assertRollupConfig(databaseId, merged, retargets(stored, patch.config) ? membership : undefined);
       nextConfig = merged;
       // The stored sort key was computed under the OLD config — recompute it,
       // for the same reason a recompiled formula is re-materialized below.
@@ -1469,6 +1521,17 @@ export class FieldsService {
         Boolean(merged['unique']),
         merged['unique_normalize'] !== false,
       );
+      nextConfig = merged;
+    } else if (
+      field.type === 'lookup' &&
+      patch.config !== undefined &&
+      retargets(field.config as Record<string, unknown>, patch.config)
+    ) {
+      // #1070 — a lookup had no update branch, so the generic merge below let a
+      // PATCH re-point it at any relation field and target, unchecked.
+      const restored = restoreFieldConfig(patch.config, field.config);
+      const merged = { ...(field.config as Record<string, unknown>), ...restored };
+      await this.assertLookupConfig(databaseId, merged, membership);
       nextConfig = merged;
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
