@@ -11,6 +11,8 @@
   --bg-frame: #f4efe5;
   --bg-card: #ffffff;
   --bg-hover: #f5f3ef;
+  /* #1115 — a row's hover: fainter than --bg-hover, which belongs to controls and group bands; a list of 40 rows cannot flash the full tint. */
+  --bg-hover-soft: #f9f7f3;
   /**
    * #380 — deepened from #ece6d8. The active row used to carry an amber inset
    * bar as well; with that removed this token is the ONLY "you are here" signal,
@@ -284,6 +286,7 @@
   --shadow-page: 0 0 0 1px rgb(0 0 0 / 0.25), 0 8px 28px rgb(0 0 0 / 0.35);
   --bg-card: #171c26;
   --bg-hover: #1e2430;
+  --bg-hover-soft: #1b202b;
   --bg-active: #28303d;
 
   /* Text */
@@ -350,6 +353,7 @@
   --color-frame: var(--bg-frame);
   --color-card: var(--bg-card);
   --color-hover: var(--bg-hover);
+  --color-hover-soft: var(--bg-hover-soft);
   --color-active: var(--bg-active);
   --color-ink: var(--text-primary);
   --color-ink-secondary: var(--text-secondary);

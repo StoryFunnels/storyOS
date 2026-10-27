@@ -18,6 +18,10 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
   **Day** mode — see [below](#calendar-day-week-and-month-modes).
 - **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
   optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
+- **List** — compact rows, optionally grouped by a select or status field. A row reads like a
+  tracker's: the record's state glyph, then its select and identifier fields before the title, the
+  rest in fixed slots after it. Click a column header to sort by it (again to reverse). A grouped
+  list loads every record of each group, not only the first page.
 
 ## Creating a view
 
