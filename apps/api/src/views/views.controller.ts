@@ -54,7 +54,7 @@ export class ViewsController {
     @Body() body: CreateViewDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.viewsService.create(databaseId, body, req.user.id);
+    return this.viewsService.create(databaseId, body, req.user.id, undefined, req.membership);
   }
 
   /**
@@ -72,7 +72,7 @@ export class ViewsController {
     @Body() body: CreatePersonalViewDto,
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    return this.viewsService.createPersonal(databaseId, body, req.user.id);
+    return this.viewsService.createPersonal(databaseId, body, req.user.id, req.membership);
   }
 
   @Patch(':view')
@@ -84,7 +84,7 @@ export class ViewsController {
     @Body() body: UpdateViewDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.viewsService.update(databaseId, viewId, body);
+    return this.viewsService.update(databaseId, viewId, body, req.membership);
   }
 
   @Post(':view/duplicate')

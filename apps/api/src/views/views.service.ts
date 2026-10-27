@@ -416,6 +416,40 @@ export class ViewsService {
   }
 
   /**
+   * #1071 — the same rule as #941, for forms. A public form's relation picker serves the TARGET database's record ids and
+   * titles to anyone with the link (`/public/forms/:token/relations/:fieldId`), so a guest with editor here could expose a
+   * database they hold no grant on just by putting its relation field on a form. A relation field may become publicly
+   * exposed only by someone who can read its target. Only NEWLY exposed fields are checked, so editing a form an admin
+   * already published does not lock the guest out of it.
+   */
+  private async assertPublicFormRelationsReadable(
+    databaseId: string,
+    next: ViewConfig | null | undefined,
+    previous: ViewConfig | null | undefined,
+    membership: Membership,
+  ) {
+    const exposed = (config: ViewConfig | null | undefined): string[] => {
+      const form = config?.form;
+      if (!form || (form.access !== 'link' && form.access !== 'public')) return [];
+      // Same order rule as FormsService.getDefinition: the form's own list, else the view's card fields.
+      return form.fields?.length ? form.fields.map((f) => f.field_id) : (config?.card_field_ids ?? []);
+    };
+    const before = new Set(exposed(previous));
+    const added = exposed(next).filter((id) => !before.has(id));
+    if (!added.length) return;
+    const live = await this.liveFields(databaseId);
+    for (const id of added) {
+      const field = live.find((f) => f.id === id);
+      if (field?.type !== 'relation') continue;
+      if (!(await this.canReadRelationTarget(membership, field, databaseId))) {
+        throw new UnprocessableEntityException(
+          `"${field.displayName}" cannot be on a public form: you do not have access to the database it links to`,
+        );
+      }
+    }
+  }
+
+  /**
    * #938 — a view's first "Me" condition, as the field's display name, or undefined. Looks everywhere a view carries a filter:
    * the view's own `filters` and each dashboard tile's and widget's own `filter` (cross-database tiles are refused at share
    * time by #555 before this runs, so every filter here names THIS database's fields).
@@ -610,6 +644,8 @@ export class ViewsService {
      * its own to belong to).
      */
     ownerUserId?: string,
+    /** #1071 — the caller, when the request comes from a person; templates and pack installs never publish a form. */
+    membership?: Membership,
   ) {
     if (ownerUserId) {
       if (input.folder_id) throw new UnprocessableEntityException('A personal view cannot be placed in a folder.');
@@ -623,6 +659,7 @@ export class ViewsService {
     const base = defaultBoardGroupBy(input.type, input.config, live);
     const config: ViewConfig = { ...base, share: undefined, form: resolveFormSharing(base.form, undefined) };
     await this.validateConfig(databaseId, input.type, config);
+    if (membership) await this.assertPublicFormRelationsReadable(databaseId, config, undefined, membership);
     const siblings = await this.db.query.views.findMany({
       where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
       columns: { position: true },
@@ -653,14 +690,16 @@ export class ViewsService {
     databaseId: string,
     input: { name: string; type: ViewType; config: ViewConfig },
     ownerUserId: string,
+    membership?: Membership,
   ) {
-    return this.create(databaseId, input, ownerUserId, ownerUserId);
+    return this.create(databaseId, input, ownerUserId, ownerUserId, membership);
   }
 
   async update(
     databaseId: string,
     viewId: string,
     patch: { name?: string; config?: ViewConfig; position?: number; folder_id?: string | null },
+    membership?: Membership,
   ) {
     const view = await this.db.query.views.findFirst({
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
@@ -708,6 +747,9 @@ export class ViewsService {
     const config = patch.config
       ? { ...patch.config, share: (view.config as ViewConfig | null)?.share, form }
       : patch.config;
+    if (config && membership) {
+      await this.assertPublicFormRelationsReadable(databaseId, config, view.config as ViewConfig | null, membership);
+    }
 
     const [updated] = await this.db
       .update(views)
