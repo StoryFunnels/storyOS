@@ -2144,6 +2144,38 @@ export const actionGatePolicies = pgTable(
 );
 
 /**
+ * #1104 — a PER-AGENT gate on record create/update. An agent's own `approval_policy` can hold a delete, a webhook,
+ * an email, a button or an outward action, but never an ordinary record write; this is the table that lets an admin say
+ * "this agent proposes, a person approves" and have the platform enforce it instead of the prompt.
+ *
+ * A TABLE, deliberately not a field on the Agent record: any contributor, and the gated agent itself through its own
+ * write scope, can edit an Agent record, so a gate stored there would be a gate the agent can remove. These rows are
+ * written only by a person who is a workspace admin (AgentWriteGatesController) or by a pack install.
+ *
+ * `agent_id` is the Agents-database record id (not an FK: records are soft-deleted and a gate on a vanished agent
+ * simply never matches). `database_id` null = every database. `fields` null = any write; set = only a write that touches
+ * one of those field api_names (a create counts the fields it supplies).
+ */
+export const agentWriteGates = pgTable(
+  'agent_write_gates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id').notNull(),
+    /** 'create' | 'update' (one or both). */
+    operations: text('operations').array().notNull(),
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    fields: text('fields').array(),
+    enabled: boolean('enabled').notNull().default(true),
+    createdBy: text('created_by').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('agent_write_gates_workspace_agent_idx').on(t.workspaceId, t.agentId)],
+);
+
+/**
  * #231 — validation rules: a write that would leave a record invalid is REFUSED, inside the write's own
  * transaction. See `packages/schemas/src/validation-rules.ts` for the semantics. The condition is stored as the
  * filter AST (field api_names), so it is evaluated by the same compiler saved views use; a rule whose field was

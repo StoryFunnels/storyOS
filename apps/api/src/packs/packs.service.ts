@@ -851,6 +851,13 @@ export class PacksService {
       });
     }
 
+    // #1104 — the per-agent write gates, by database/field NAME. Absent for an agent with none, so an ungated agent exports exactly as before.
+    const gatesByAgent = await this.architect.exportWriteGates(
+      membership.workspaceId,
+      [...wantedAgentIds],
+      new Map([...byId].map(([id, d]) => [id, { name: d.name, fields: d.fields }])),
+    );
+
     const agents: PackAgent[] = [];
     for (const id of wantedAgentIds) {
       const row = agentById.get(id)!;
@@ -875,6 +882,7 @@ export class PacksService {
             ['delete', 'webhook', 'email', 'run_button', 'outward'].includes(l ?? ''),
           ),
         target_databases: targets,
+        ...(gatesByAgent.has(id) ? { write_gates: gatesByAgent.get(id) } : {}),
         // No live agent↔skill relation exists yet (see packAgentSchema's
         // doc) — an Agent record has nowhere to have recorded this, so it is
         // always empty coming out of export. Hand-editing the manifest to

@@ -224,6 +224,7 @@ export class LinksController {
     @Body() body: LinkRecordsDto,
   ) {
     await this.assertDb(req, db, 'editor');
+    await this.records.refuseIfAgentGated(req.membership.workspaceId, db, 'update', req.auth?.source ?? 'human', req.auth?.agentId, 'Changing relation links'); // #1104
     return this.narrowed(req, this.relationsService.addLinks(
       req.membership.workspaceId,
       db,
@@ -251,6 +252,7 @@ export class LinksController {
     @Body() body: ReplaceLinksDto,
   ) {
     await this.assertDb(req, db, 'editor');
+    await this.records.refuseIfAgentGated(req.membership.workspaceId, db, 'update', req.auth?.source ?? 'human', req.auth?.agentId, 'Changing relation links'); // #1104
     return this.narrowed(req, this.relationsService.replaceLinks(
       req.membership.workspaceId,
       db,
@@ -278,6 +280,7 @@ export class LinksController {
     @Body() body: LinkRecordsDto,
   ) {
     await this.assertDb(req, db, 'editor');
+    await this.records.refuseIfAgentGated(req.membership.workspaceId, db, 'update', req.auth?.source ?? 'human', req.auth?.agentId, 'Changing relation links'); // #1104
     return this.narrowed(req, this.relationsService.removeLinks(
       req.membership.workspaceId,
       db,
