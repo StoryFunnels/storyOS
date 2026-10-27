@@ -209,7 +209,12 @@ export class MentionsService {
       where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
       columns: { id: true },
     });
-    if (!record) throw new NotFoundException('Record not found');
+    if (!record) {
+      // ticket #1098 — same rule as RecordsService.assertRecordAccess (this method replicates it): an absent record in a database the
+      // caller cannot read at all is "Database not found", so a restricted database is indistinguishable from one that is not there.
+      if ((await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
+      throw new NotFoundException('Record not found');
+    }
     const effective = await this.access.effectiveForRecord(membership, {
       id: recordId,
       databaseId: database.id,
