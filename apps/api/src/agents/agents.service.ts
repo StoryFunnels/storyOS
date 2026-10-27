@@ -1181,7 +1181,7 @@ export class AgentsService implements OnModuleInit {
               finished_at: new Date().toISOString(),
               steps: markdownToBlocks(
                 skillsMissing
-                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} listed on this agent's Skills field but ${missingSkills.length === 1 ? 'was' : 'were'} not found (removed, renamed, or not visible to the agent's owner). The run did not start — restore or rename the skill, or remove it from the agent's Skills field.`
+                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} attached to this agent but cannot be found (removed, renamed, or not visible to the agent's owner). The run did not start. To fix it: ${missingSkills.map((n) => `rename the skill back to "${n}" (agents find skills by name), or re-attach the skill you want by editing this agent's Skills field`).join('; ')}.`
                   : overAllowance
                   ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
                   : costCapExceeded

@@ -6,6 +6,7 @@ import { signUpUser } from './helpers/users';
 import { call } from './helpers/members';
 import { AgentsService } from '../src/agents/agents.service';
 import { EntitlementsService } from '../src/billing/entitlements.service';
+import { PACK_REGISTRY } from '../src/packs/registry';
 import { AiCreditsService } from '../src/billing/ai-credits.service';
 import { ManagedAiRuntime } from '../src/agents/agent-runtime';
 import type { ManagedAiClient } from '../src/agents/managed-ai-client';
@@ -213,6 +214,9 @@ describe('skills attached to a pack agent are loaded at run time (ticket #1106)'
     expect(run.status).toBe('Failed');
     expect(run.steps).toContain('Lead triage');
     expect(run.steps).toMatch(/skills\.missing/);
+    // Otto's ruling (b): it must say HOW to fix it, not just that it is missing.
+    expect(run.steps).toContain('rename the skill back to "Lead triage"');
+    expect(run.steps).toMatch(/re-attach/i);
   }, 60_000);
 
   it('a StoryOS-AI run puts the skill in the prompt the model reads', async () => {
@@ -283,14 +287,41 @@ describe('#977 pack updates still classify agents correctly now that mode and sk
     expect((await agentRecord(ws)).aiMode, "the person's own choice survives the update").toBe('Your own AI');
   }, 60_000);
 
-  it('an UNEDITED agent takes a newly declared mode as an update, and the preview names the field', async () => {
+  it('an UNEDITED agent is NEVER switched to a newly declared mode on its own: the preview offers a choice, the rest still updates', async () => {
     const ws = await workspace('977 new mode');
     await install(ws, v('new-mode', '1.0.0'));
-    const next = v('new-mode', '1.1.0', { ai_mode: 'storyos_ai' });
-    expect(await preview(ws, next)).toMatchObject({ status: 'will_update', changed_fields: ['ai_mode'] });
-    expect((await install(ws, next)).statusCode).toBe(201);
+    const next = v('new-mode', '1.1.0', { instructions: 'v2 text', ai_mode: 'storyos_ai' });
+    const u = await preview(ws, next);
+    expect(u).toMatchObject({
+      status: 'edited_needs_choice',
+      reason: 'ai_mode',
+      ai_mode_change: { current: null, proposed: 'storyos_ai' },
+    });
+    expect(u.changed_fields).toContain('ai_mode');
+
+    // No resolution (Keep mine): the mode is not touched, but the untouched rest of the agent comes up to date.
+    const kept = await install(ws, next);
+    expect(kept.statusCode, kept.body).toBe(201);
+    const after = await agentRecord(ws);
+    expect(after.aiMode, 'storyos_ai must never be applied unasked').toBeNull();
+    expect(textOf(after.values.instructions)).toContain('v2 text');
+  }, 60_000);
+
+  it('the person can TAKE the proposed mode in the update review (the same update resolution an edited agent uses)', async () => {
+    const ws = await workspace('977 take mode');
+    await install(ws, v('take-mode', '1.0.0'));
+    const next = v('take-mode', '1.1.0', { ai_mode: 'storyos_ai' });
+    const taken = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: next, resolutions: { 'Triage Agent': { action: 'update' } } });
+    expect(taken.statusCode, taken.body).toBe(201);
     expect((await agentRecord(ws)).aiMode).toBe('StoryOS AI');
     expect(await preview(ws, next)).toMatchObject({ status: 'unchanged' });
+  }, 60_000);
+
+  it('the update resolution is still refused for an agent that needs no choice', async () => {
+    const ws = await workspace('977 update refused');
+    await install(ws, v('no-choice', '1.0.0'));
+    const res = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: v('no-choice', '1.1.0', { instructions: 'v2 text' }), resolutions: { 'Triage Agent': { action: 'update' } } });
+    expect(res.statusCode, res.body).toBe(422);
   }, 60_000);
 
   it("a newly declared mode never silently replaces the mode a person already chose: it needs a choice", async () => {
@@ -317,4 +348,29 @@ describe('#977 pack updates still classify agents correctly now that mode and sk
     await install(ws, next);
     expect((await agentRecord(ws)).aiMode, 'kept: nothing was written').toBeNull();
   }, 60_000);
+});
+
+describe('the built-in packs bring your own AI (ticket #1106, Otto ruling)', () => {
+  const agents = PACK_REGISTRY.flatMap((e) => e.manifest.agents.map((a) => ({ pack: e.slug, agent: a })));
+
+  it('there are built-in agents to check, and EVERY one declares your_own_ai', () => {
+    expect(agents.length).toBeGreaterThan(0);
+    const wrong = agents.filter((x) => (x.agent as { ai_mode?: string }).ai_mode !== 'your_own_ai').map((x) => `${x.pack}/${x.agent.name}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it('installing a built-in pack gives its agent Your own AI, and its run is stamped that and never metered', async () => {
+    const entry = PACK_REGISTRY.find((e) => e.manifest.agents.length > 0)!;
+    const ws = await workspace('Built-in mode');
+    expect((await install(ws, entry.manifest)).statusCode).toBe(201);
+    const agent = await agentRecord(ws, entry.manifest.agents[0]!.name);
+    expect(agent.aiMode).toBe('Your own AI');
+    const can = vi.spyOn(app.get(EntitlementsService), 'can');
+    try {
+      expect((await runAgent(ws, agent.id)).runClass).toBe('Your own AI');
+      expect(can).not.toHaveBeenCalledWith(ws, 'automation_run');
+    } finally {
+      can.mockRestore();
+    }
+  }, 90_000);
 });

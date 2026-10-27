@@ -213,6 +213,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Clients', 'Projects'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -412,6 +414,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Tasks', 'Deliverables'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -639,6 +643,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['outward'],
           target_databases: ['Issues'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -827,6 +833,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['outward'],
           target_databases: ['Articles'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -1054,6 +1062,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['outward'],
           target_databases: ['Chapters', 'Research Notes'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -1260,6 +1270,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Sessions', 'Action Items'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [
@@ -1466,6 +1478,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Proposals', 'Clients'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [

@@ -77,6 +77,10 @@ interface AgentUpdatePlan {
   values: Record<string, unknown>;
   /** Hash of the PACK's content for this agent, in the same normalised form `source_hash` stores. */
   newHash: string;
+  /** ticket #1106: the hash when everything BUT a changed AI mode was applied (the person kept their mode). Set only with `ai_mode_change`. */
+  newHashWithoutMode?: string;
+  /** ticket #1106: nothing but the AI mode makes this agent need a choice. */
+  restUntouched?: boolean;
   /** What the install row held before this run — preserved when the person's edits are kept. */
   previous: { packVersion: string | null; sourceHash: string | null };
 }
@@ -1265,32 +1269,30 @@ export class PacksService {
       const record = live.get(norm(planned.name));
       if (!item || !record) continue;
       const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
-      const declared = { aiMode: 'ai_mode' in values, skills: 'skills' in values };
+      // ticket #1106 (Otto's ruling): an agent's AI mode is NEVER changed by an update on its own: a declared mode that differs from the live
+      // one is a CHOICE the person makes in the update review (the same `update` resolution an edited agent uses), and it is never applied
+      // unasked, least of all into StoryOS AI, which starts metering. So the mode is kept OUT of the classification below, which decides only
+      // whether the rest of the agent is untouched; the mode is then layered on as `ai_mode_change`.
+      const declaredFull = { aiMode: 'ai_mode' in values, skills: 'skills' in values };
+      const declared = { aiMode: false, skills: declaredFull.skills };
       const next = this.agentContent(values, declared);
       const now = this.agentContent(record.values as Record<string, unknown>, declared);
       const newHash = this.hashOf(next);
       const nowHash = this.hashOf(now);
-      const changed = AGENT_CONTENT_FIELDS.filter((f) => JSON.stringify(now[f]) !== JSON.stringify(next[f]));
+      const changed: Array<(typeof AGENT_CONTENT_FIELDS)[number]> = AGENT_CONTENT_FIELDS.filter((f) => f !== 'ai_mode' && JSON.stringify(now[f]) !== JSON.stringify(next[f]));
       let update: PackAgentUpdate;
-      // ticket #1106: the stored origin hash covers only the keys the PREVIOUS version declared, which we cannot see, so "untouched since the
-      // pack installed it" is: the live agent hashes to the origin under SOME key set. A key this version declares that the origin did not cover
-      // (a newly declared mode or skills) counts as touched when the person already put their own value there: never overwritten silently.
+      // The stored origin hash covers only the keys the PREVIOUS version declared, which we cannot see, so "untouched since the pack installed
+      // it" is: the live agent hashes to the origin under SOME key set. Skills the pack newly declares over skills the person already wrote
+      // count as touched: never overwritten silently.
       const keySets = [{}, { aiMode: true }, { skills: true }, { aiMode: true, skills: true }];
       const origin = item.sourceHash
         ? keySets.find((k) => this.hashOf(this.agentContent(record.values as Record<string, unknown>, k)) === item.sourceHash)
         : undefined;
-      const liveOwnValue = (key: 'ai_mode' | 'skills', covered: boolean | undefined) =>
-        declared[key === 'ai_mode' ? 'aiMode' : 'skills'] &&
-        !covered &&
-        now[key] !== '' &&
-        now[key] !== undefined &&
-        now[key] !== next[key];
-      const overwritesOwnValue =
-        liveOwnValue('ai_mode', (origin as { aiMode?: boolean } | undefined)?.aiMode) ||
-        liveOwnValue('skills', (origin as { skills?: boolean } | undefined)?.skills);
+      const overwritesOwnSkills =
+        declared.skills && !(origin as { skills?: boolean } | undefined)?.skills && now.skills !== '' && now.skills !== undefined && now.skills !== next.skills;
       if (nowHash === newHash) {
         update = { status: 'unchanged', changed_fields: [], installed_version: item.packVersion };
-      } else if (origin && !overwritesOwnValue) {
+      } else if (origin && !overwritesOwnSkills) {
         update = { status: 'will_update', changed_fields: [...changed], installed_version: item.packVersion };
       } else {
         update = {
@@ -1304,11 +1306,40 @@ export class PacksService {
           installed_version: item.packVersion,
         };
       }
+      const baseStatus = update.status;
+
+      // The mode, as a choice with both values stated.
+      let withoutModeHash: string | undefined;
+      if (declaredFull.aiMode) {
+        const modeField = ((await this.databases.get(membership, agentsDbId)).fields as unknown as LiveField[]).find((f) => f.apiName === 'ai_mode');
+        const labels = new Map((modeField?.options ?? []).map((o) => [o.id, o.label] as const));
+        const liveId = typeof record.values['ai_mode'] === 'string' ? (record.values['ai_mode'] as string) : null;
+        if (liveId !== (values['ai_mode'] as string)) {
+          const proposed = RUN_CLASS_BY_LABEL[labels.get(values['ai_mode'] as string) ?? ''];
+          const current = liveId ? RUN_CLASS_BY_LABEL[labels.get(liveId) ?? ''] ?? null : null;
+          if (proposed) {
+            withoutModeHash = newHash;
+            update = {
+              ...update,
+              status: 'edited_needs_choice',
+              reason: update.reason ?? 'ai_mode',
+              changed_fields: [...changed, 'ai_mode'],
+              ai_mode_change: { current, proposed },
+              installed_version: item.packVersion,
+            };
+          }
+        }
+      }
+      // Provenance after applying: with the mode when the change was taken or there was none, without it when only the rest was applied.
+      const fullHash = this.hashOf(this.agentContent(values, declaredFull));
       plans.set(norm(planned.name), {
         update,
         recordId: record.id,
         values,
-        newHash,
+        newHash: fullHash,
+        newHashWithoutMode: withoutModeHash,
+        // True when the ONLY reason this needs a choice is the mode: the rest of the agent is untouched, so Keep still brings it up to date.
+        restUntouched: baseStatus !== 'edited_needs_choice',
         previous: { packVersion: item.packVersion, sourceHash: item.sourceHash },
       });
     }
@@ -1342,10 +1373,20 @@ export class PacksService {
       }
       if (!plan) continue; // reused but never tracked (an adopted collision): origin unknown, stays null
       const apply = plan.update.status === 'will_update' || (plan.update.status === 'edited_needs_choice' && take.has(key));
+      // ticket #1106: only the AI mode needs the choice and the person kept theirs: bring the rest up to date WITHOUT the mode.
+      const keepModeOnly = !apply && plan.update.ai_mode_change !== undefined && plan.restUntouched === true;
       if (apply) {
         await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, plan.values, membership.userId);
         entry.action = 'updated';
         provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else if (keepModeOnly) {
+        const rest = { ...plan.values };
+        delete rest['ai_mode']; // the person kept their mode
+        if (plan.update.changed_fields.some((f) => f !== 'ai_mode')) {
+          await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, rest, membership.userId);
+          entry.action = 'updated';
+        }
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHashWithoutMode ?? plan.newHash });
       } else if (plan.update.status === 'unchanged') {
         provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
       } else {
@@ -1617,7 +1658,7 @@ export class PacksService {
       const agent = collisions.agents.find((a) => a.name === name);
       if (agent?.action !== 'reuse' || agent.agent_update?.status !== 'edited_needs_choice') {
         throw new UnprocessableEntityException(
-          `"update" is only valid for an installed agent whose content was edited since the pack installed it; "${name}" is not one. ` +
+          `"update" is only valid for an installed agent that needs a choice (edited since the pack installed it, or the pack proposes a different AI mode); "${name}" is not one. ` +
             `Preview shows which agents need that choice.`,
         );
       }

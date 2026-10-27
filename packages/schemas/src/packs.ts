@@ -501,7 +501,12 @@ export const packAgentUpdateSchema = z.object({
   status: z.enum(['will_update', 'edited_needs_choice', 'unchanged']),
   changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy', 'ai_mode', 'skills'])),
   /** Why it is `edited_needs_choice`: the person changed it, or it was installed before the origin was recorded (treated as changed). */
-  reason: z.enum(['edited', 'unknown_origin']).optional(),
+  reason: z.enum(['edited', 'unknown_origin', 'ai_mode']).optional(),
+  /**
+   * ticket #1106 — the pack proposes a DIFFERENT AI mode for this agent. Never applied on its own: it is a choice (`update`), and the
+   * rest of an otherwise untouched agent is brought up to date whichever way the person chooses. `current` is null when no mode was set.
+   */
+  ai_mode_change: z.object({ current: packAgentAiModeSchema.nullable(), proposed: packAgentAiModeSchema }).optional(),
   /** The line diff, current -> pack, for each changed TEXT field; present only for `edited_needs_choice`. */
   diff: z
     .object({
