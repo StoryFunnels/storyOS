@@ -215,9 +215,35 @@ actually stays true over time:
   admin-editable with a warning) so integrations don't break.
 - **Delete** — soft delete; orphaned values are ignored by reads and lazily cleaned up, so the
   action never blocks.
-- **Change type** — a small compatibility matrix converts in place (anything → text; text →
-  number/date best-effort; select ↔ multi_select). The API returns a **dry-run count** of lossy
-  conversions before applying. Everything else is an explicit "delete & create new".
+- **Change type** — a small compatibility matrix converts in place, and the same list drives the
+  app's dialog and the API. A text field can become a number, date, rich text, **select**,
+  **multi-select** or **workflow**; select, multi-select and workflow convert among themselves and
+  to text; rich text, number, checkbox and date convert to text; URL and email convert to text or to
+  each other. A person field has its own [Members conversion](#converting-a-person-field-into-a-members-relation),
+  and an attachment field can't be converted in or out. Every conversion has a **dry run**
+  ("Check impact") that reports what would happen and writes nothing. Everything else is an explicit
+  "delete & create new".
+
+### Turning a text field into choices
+
+After an import or a CSV, a text column is often really a list of statuses or categories.
+Converting it to **select**, **multi-select** or **workflow** turns the values into options:
+
+- **One option per distinct value.** Values are trimmed, so `" Todo"` and `"Todo"` are the same
+  option, but the comparison is case-sensitive, so `Todo` and `todo` stay two. Each record's value
+  becomes that option. Empty and whitespace-only values stay empty.
+- **A multi-select takes the whole value as one option.** There is no splitting on commas.
+- **Options come out in the order they first appear** reading the table, with positions numbered from
+  the first, and coloured from the palette in that order. Reorder them afterwards in Edit field; see
+  [sorting by a choice field](/concepts/views/#sorting-by-a-choice-field).
+- **More than 200 distinct values is refused**, in the dry run and in the real conversion, with a
+  message that names the count: that many values is free text or an ID column, not a list of choices.
+  Exactly 200 is allowed.
+- **The dry run lists the options it would create**, with how many records each covers and how many
+  records are empty. In the app, the Change type dialog shows that list before you confirm.
+- **A workflow target keeps the one-workflow-per-database rule**: if the database already has a
+  workflow field, converting to workflow is refused with a `409`.
+- Over MCP this is `change_field_type`. It needs the same access as any other field change.
 
 For the full canonical model and JSONB storage mechanics, see the
 [data model reference](/concepts/data-model/).
