@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import {
   compareSemver,
@@ -71,6 +77,7 @@ export class MarketplaceService {
   ): Promise<PackSubmission> {
     const manifest = this.parseManifest(rawManifest);
     const meta = this.parseMeta(rawMeta);
+    await this.assertSlugOwnedBy(manifest.slug, membership.workspaceId);
 
     const [row] = await this.db
       .insert(packSubmissions)
@@ -143,6 +150,10 @@ export class MarketplaceService {
       const existing = await this.db.query.publishedPacks.findFirst({
         where: eq(publishedPacks.slug, submission.slug),
       });
+      // Re-checked here, not only at submit (ticket #1072): a submission can
+      // sit pending while another workspace's submission for the same slug
+      // is approved first and claims it.
+      if (existing) this.assertOwner(existing, submission.workspaceId);
       if (existing && compareSemver(submission.version, existing.latestVersion) <= 0) {
         throw new UnprocessableEntityException(
           `"${submission.slug}" is already published at v${existing.latestVersion} — a new submission must ` +
@@ -254,6 +265,30 @@ export class MarketplaceService {
       where: eq(publishedPacks.slug, slug),
     });
     return row?.latestVersion ?? null;
+  }
+
+  // ── slug ownership (ticket #1072) ───────────────────────────────────────────
+
+  /**
+   * A published slug belongs to the workspace that first published it. Without
+   * this, any workspace could submit a "new version" of someone else's pack,
+   * and an approval that looks like a routine version bump would hand every
+   * new install the other workspace's content.
+   */
+  private async assertSlugOwnedBy(slug: string, workspaceId: string): Promise<void> {
+    const existing = await this.db.query.publishedPacks.findFirst({
+      where: eq(publishedPacks.slug, slug),
+    });
+    if (existing) this.assertOwner(existing, workspaceId);
+  }
+
+  private assertOwner(existing: PublishedPackRow, workspaceId: string): void {
+    if (existing.submittedByWorkspaceId !== workspaceId) {
+      throw new ConflictException(
+        `"${existing.slug}" is already published by another workspace — only that workspace can publish ` +
+          `new versions of it. Choose a different slug.`,
+      );
+    }
   }
 
   // ── mapping ──────────────────────────────────────────────────────────────
