@@ -14,6 +14,8 @@ import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { confirmRemoveMember, confirmRevokeInvite, confirmRoleChange, type WorkspaceRole } from '@/lib/settings-confirmations';
 import { Label } from '@/components/ui/label';
 import { FreeGuestTip } from '@/components/free-guest-tip';
 
@@ -67,6 +69,8 @@ function MembersPageContent() {
     },
     enabled: workspace.data?.role === 'admin',
   });
+
+  const confirm = useConfirm();
 
   const updateMember = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) => {
@@ -171,7 +175,11 @@ function MembersPageContent() {
                   <Select
                     size="sm"
                     value={member.role}
-                    onChange={(e) => updateMember.mutate({ id: member.id, role: e.target.value })}
+                    onChange={async (e) => {
+                      const to = e.target.value as WorkspaceRole;
+                      if (to === member.role) return;
+                      if (await confirm(confirmRoleChange(member.user.name, member.role as WorkspaceRole, to))) updateMember.mutate({ id: member.id, role: to });
+                    }}
                   >
                     <option value="admin">Admin</option>
                     <option value="member">Member</option>
@@ -189,7 +197,9 @@ function MembersPageContent() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => removeMember.mutate(member.id)}
+                    onClick={async () => {
+                      if (await confirm(confirmRemoveMember(member.user.name))) removeMember.mutate(member.id);
+                    }}
                     title="Remove: revoke their access to this workspace. Their comments and history stay, still attributed to them — you can re-invite them later."
                   >
                     Remove
@@ -213,7 +223,9 @@ function MembersPageContent() {
                 key={invite.id}
                 ws={ws}
                 invite={invite}
-                onRevoke={() => revokeInvite.mutate(invite.id)}
+                onRevoke={async () => {
+                  if (await confirm(confirmRevokeInvite(invite.email))) revokeInvite.mutate(invite.id);
+                }}
               />
             ))}
           </div>
