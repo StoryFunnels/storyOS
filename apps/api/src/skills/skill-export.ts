@@ -38,6 +38,23 @@ function toMarkdown(skill: SkillSummary): SkillExport {
 }
 
 /**
+ * #1078 — a frontmatter value is user text inside YAML. Written raw, a newline in the description started a new
+ * key (`allowed-tools: …` smuggled into a file another agent will load), and `: `, `#` or a leading quote broke the
+ * parse. Plain text stays plain so ordinary exports read exactly as before; anything else becomes a JSON string,
+ * which is also a valid YAML double-quoted scalar — every newline and quote inside it is an escape, never syntax.
+ */
+const YAML_SYNTAX = /[\p{Cc}\p{Zl}\p{Zp}:#"'\\`{}[\]|>&*!%@]/u;
+/** Plain scalars a YAML reader would turn into a bool/null/number rather than the string we meant. */
+const YAML_NON_STRING = /^(?:true|false|yes|no|on|off|y|n|null|~|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[\da-f]+|0o[0-7]+|[-+]?\.inf|\.nan)$/i;
+function yamlScalar(value: string): string {
+  const plain =
+    /^[\p{L}\p{N}]/u.test(value) && value === value.trimEnd() && !YAML_SYNTAX.test(value) && !YAML_NON_STRING.test(value);
+  if (plain) return value;
+  // JSON.stringify leaves NEL/LS/PS (and C1 controls) raw; YAML 1.1 and many line splitters treat them as breaks.
+  return JSON.stringify(value).replace(/[\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/**
  * The emerging Agent Skills on-disk convention: a `SKILL.md` whose YAML
  * frontmatter is exactly the two fields a skill picker matches a request
  * against (`name`, `description`) and whose body is everything else in plain
@@ -51,9 +68,9 @@ function toClaudeSkill(skill: SkillSummary): SkillExport {
   const frontmatter = [
     '---',
     `name: ${slugify(skill.name)}`,
-    `description: ${skill.description}`,
+    `description: ${yamlScalar(skill.description)}`,
     // #841: the version travels with the skill, so an export/import round trip keeps it.
-    `version: ${skill.version}`,
+    `version: ${yamlScalar(skill.version)}`,
     '---',
   ].join('\n');
   const content =

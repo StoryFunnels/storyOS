@@ -29,11 +29,15 @@ const MAX_DATASET_PAGES_PER_TICK = 5;
  * close enough for the "visible truncation marker" this exists for. */
 const RAW_TRUNCATE_CHARS = 32 * 1024;
 
+/** "username/actor-name", Apify's own "username~actor-name", or a bare 17-character actor id. Neither half may be
+ * only dots (`..`), so no spelling of it is a relative path. */
+const ACTOR_ID = /^(?!\.+[/~])[\w.-]+[/~](?!\.+$)[\w.-]+$|^[a-zA-Z0-9]{17}$/;
+
 export const apifyActorConfigSchema = z.object({
   actor_id: z
     .string()
     .trim()
-    .regex(/^[\w.-]+\/[\w.-]+$|^[a-zA-Z0-9]{17}$/, 'Use "username/actor-name" or a 17-character actor id')
+    .regex(ACTOR_ID, 'Use "username/actor-name" or a 17-character actor id')
     .describe('The Apify actor to run, e.g. "apify/website-content-crawler".'),
   input: z.record(z.string(), z.unknown()).default({}).describe('Raw JSON input passed to the actor run.'),
   memory_mbytes: z.number().int().min(128).max(4096).optional().describe('Overrides the actor\'s default run memory (MB).'),
@@ -67,9 +71,16 @@ function authKey(auth: unknown): string {
 }
 
 /** Apify addresses an actor by "username/actor-name" in a URL path with the
- * slash swapped for a tilde (or, for a bare 17-char id, used verbatim). */
+ * slash swapped for a tilde (or, for a bare 17-char id, used verbatim).
+ * #1078 — discover() runs on a config that may have failed the schema, so the id is checked HERE, on every path,
+ * and encoded as one segment: the workspace's API key must only ever reach `/acts/<one actor>/…`, never a path the
+ * id spells out (`x/../../users/me`). */
 function actorPathSegment(actorId: string): string {
-  return actorId.includes('/') ? actorId.replace('/', '~') : actorId;
+  const id = actorId.trim();
+  if (!ACTOR_ID.test(id)) {
+    throw new BadRequestException('Use "username/actor-name" or a 17-character actor id');
+  }
+  return encodeURIComponent(id.replace('/', '~'));
 }
 
 async function apifyFetch(

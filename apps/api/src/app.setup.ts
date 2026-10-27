@@ -147,7 +147,11 @@ function mountAuthHandler(app: NestFastifyApplication) {
       // MN-257: better-auth's routes bypass Nest's guard chain (ApiThrottlerGuard
       // included), so sign-in gets its own rate-limit check here — see
       // src/auth/auth-rate-limit.ts for the keying rationale.
-      const path = request.url.split('?')[0] ?? '';
+      // #1078 — every path check below runs on the WHATWG-normalized pathname, the same parse better-auth routes on.
+      // The raw string let `/auth/./sign-in/email`, `/auth/%2e/…` and `/auth/x/../…` skip the limiter (and the
+      // OAuth checks) while better-auth still served them as sign-in.
+      const url = new URL(request.raw.url ?? '/', env().API_URL);
+      const path = url.pathname;
       if (isSignInPath(path)) {
         const { allowed, retryAfterSeconds } = await checkSignInRateLimit(
           throttlerStorage,
@@ -165,7 +169,6 @@ function mountAuthHandler(app: NestFastifyApplication) {
         }
       }
 
-      const url = new URL(request.raw.url ?? '/', env().API_URL);
       // #1030 — the OAuth authorize step issues a code WITHOUT asking unless the request says prompt=consent, and the request is
       // the client's. So the server says it for them: whatever `prompt` came in, it leaves as `consent`, and the person is
       // always sent to the consent page before any code exists.
