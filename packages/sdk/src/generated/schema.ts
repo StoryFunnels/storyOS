@@ -6892,6 +6892,7 @@ export interface components {
             };
             /** Format: uuid */
             target_space_id?: string;
+            enable_automations?: string[];
         };
         SubmitDto: {
             /** @enum {string} */

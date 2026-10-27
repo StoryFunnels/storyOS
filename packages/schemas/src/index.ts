@@ -9,6 +9,7 @@ export * from './descriptions';
 export * from './workspaces';
 export * from './databases';
 export * from './fields';
+export * from './automation-reach';
 export * from './line-diff';
 export * from './ai-field-state';
 export * from './patch';

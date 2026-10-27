@@ -53,6 +53,12 @@ const installSchema = z.object({
    * makes lands in it and no space is created. Only for a manifest whose databases all sit in one space.
    */
   target_space_id: z.uuid().optional(),
+  /**
+   * #1107 — the "Database.Rule name" labels (the ones `preview` lists) of automations that send something outside the workspace or run an
+   * agent, which a pack installs switched OFF, that the person has chosen to switch ON. Only a person's list can do this; a manifest's own
+   * `enabled: true` on such a rule is ignored. A label that names no such rule is ignored.
+   */
+  enable_automations: z.array(z.string().min(1).max(400)).max(200).optional(),
 });
 class InstallDto extends createZodDto(installSchema) {}
 
@@ -153,7 +159,7 @@ export class PacksController {
   @Post('install')
   @ApiOperation({ summary: 'Install a pack manifest; idempotent' })
   install(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id);
+    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id, body.enable_automations);
   }
 
   /**
@@ -166,7 +172,7 @@ export class PacksController {
   @Post('preview')
   @ApiOperation({ summary: 'Preview what installing a manifest would do; creates nothing' })
   preview(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.preview(req.membership, body.manifest, body.target_space_id);
+    return this.packs.preview(req.membership, body.manifest, body.target_space_id, body.enable_automations);
   }
 
   /** Every pack tracked as installed in this workspace (MN-219 / #161). */
