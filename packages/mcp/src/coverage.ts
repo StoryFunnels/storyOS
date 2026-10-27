@@ -111,6 +111,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#542 Phase 2 — declaring, enabling/disabling or reconfiguring an action-class gate is the platform's own restraint on an agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could disable the very gate meant to constrain it — the same self-widening-blast-radius line #441 draws for grants. The read half is reachable (list_action_gates): an agent can see what applies to it, it just cannot change it.",
   },
   {
+    match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/agent-write-gates(\/\{id\})?/,
+    reason:
+      "#1104 — declaring, switching off or removing a gate on an agent's record writes is the platform's own restraint on that agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could lift the very gate meant to hold its writes for approval, so the API additionally refuses any token or connected AI for it (a person who is an admin only). The read half is reachable (list_agent_write_gates, admin only): an agent acting for an admin can see what applies to it and why a write answered pending_approval.",
+  },
+  {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
     reason:
       'Inbound receiver, unauthenticated by design and signature-verified. Something calls US here; there is nothing for an agent to invoke.',

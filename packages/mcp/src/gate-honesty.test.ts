@@ -130,3 +130,71 @@ describe('#542 — every MCP handler reaching a gate-able write checks for pendi
     });
   }
 });
+
+/**
+ * #1104 — the same invariant for the per-agent write gate, which HOLDS a record create/update and answers 202
+ * `{ pending_approval: true, approval_id }` (a thrown WriteHeldForApprovalException, not a PendingApprovalResult return,
+ * so the scan above cannot see it). Derived from the code like the block above, not hand-typed: the RecordsService methods
+ * whose body calls `holdIfAgentGated`, plus every method that calls one of them (upsert -> create/update, batchUpdate ->
+ * update), then the controller routes reaching those, then the MCP handlers calling those routes.
+ *
+ * A handler that reads the written record back (`id` of the response) would crash or lie on the held body, so it must go
+ * through `heldWrite(`; a handler that returns the REST body verbatim (`return text(res)`) already tells the truth.
+ */
+function holdingMethods(): Set<string> {
+  const lines = readFileSync(join(REPO, 'apps/api/src/records/records.service.ts'), 'utf8').split('\n');
+  const bodies = new Map<string, string>();
+  let current: string | null = null;
+  for (const line of lines) {
+    const decl = line.match(/^ {2}(?:(?:private|public|protected)\s+)?(?:async\s+)?(\w+)\s*\(/);
+    if (decl) {
+      current = decl[1]!;
+      bodies.set(current, '');
+    }
+    if (current) bodies.set(current, bodies.get(current)! + line + '\n');
+  }
+  const holding = new Set<string>(['createBatch', 'update']);
+  // The two direct holders are confirmed here, so a rename of the helper (or dropping the call) goes red.
+  for (const m of holding) {
+    if (!bodies.get(m)?.includes('holdIfAgentGated(')) throw new Error(`RecordsService.${m} no longer calls holdIfAgentGated`);
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [name, body] of bodies) {
+      // A method that REFUSES a gated agent (duplicate, restoreVersion) answers an error, not a 202: nothing to misreport.
+      if (holding.has(name) || name === 'holdIfAgentGated' || body.includes('refuseIfAgentGated(')) continue;
+      for (const h of [...holding]) {
+        if (body.includes(`this.${h}(`)) {
+          holding.add(name);
+          grew = true;
+          break;
+        }
+      }
+    }
+  }
+  return holding;
+}
+
+const holdRoutes = gatedRoutes(holdingMethods());
+
+describe('#1104 — every MCP handler reaching a per-agent-gated write reports a held write honestly', () => {
+  it('found the routes this test is supposed to be checking', () => {
+    expect(holdRoutes.length).toBeGreaterThan(3);
+  });
+
+  for (const route of holdRoutes) {
+    it(`${route.verb} ${route.path} (via RecordsService.${route.via}) handles a 202 pending_approval body`, () => {
+      const windows = mcpCallSites(route.verb, route.path);
+      // Not every route has a tool (see coverage.test.ts); a route with none has nothing to misreport.
+      for (const [i, w] of windows.entries()) {
+        const verbatim = w.includes('return text(res)');
+        expect(
+          verbatim || w.includes('heldWrite('),
+          `MCP call site #${i} for ${route.verb} ${route.path} neither returns the REST body verbatim nor checks heldWrite(): ` +
+            `a gated agent's write answers 202 { pending_approval }, so this handler would read back a record that was never written (#1104).`,
+        ).toBe(true);
+      }
+    });
+  }
+});

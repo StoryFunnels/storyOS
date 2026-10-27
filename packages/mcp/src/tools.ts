@@ -37,6 +37,25 @@ interface PendingApprovalResult {
   approval_id: string;
   message: string;
 }
+
+/**
+ * #1104 — a per-agent write gate can hold a record create/update (the API answers 202 with the same pending_approval
+ * body). The record was NOT written, so there is nothing to read back; report it as what it is instead of failing on a
+ * missing `id`.
+ */
+function heldWrite(res: unknown): PendingApprovalResult | null {
+  return res && typeof res === 'object' && (res as { pending_approval?: unknown }).pending_approval === true
+    ? (res as PendingApprovalResult)
+    : null;
+}
+function heldWriteResult(held: PendingApprovalResult) {
+  return text({
+    written: false,
+    pending_approval: true,
+    approval_id: held.approval_id,
+    message: `${held.message} Nothing was changed. A person approves or rejects it in the Approvals inbox; do not retry the write.`,
+  });
+}
 // Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
@@ -679,6 +698,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // platform stops the agent, not the prompt"). Declaring/changing a gate
   // is a human act, same line #441 draws for grants — see coverage.ts.
   list_action_gates: 'read',
+  // #1104 — read-only on purpose, same reasoning: the gate on an agent's own writes is not the agent's to lift (see coverage.ts).
+  list_agent_write_gates: 'admin', // an admin-role route: mirrors the API, which needs admin scope even to read (#1049)
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',
@@ -1660,6 +1681,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
         }),
       );
+      const heldCreate = heldWrite(row);
+      if (heldCreate) return heldWriteResult(heldCreate);
       // Read back rather than echoing the write response — that is what carries the
       // relation chips, so a record created WITH links shows them (#343).
       const record = await readRecord(detail, ws.id, db.id, row.id);
@@ -1715,6 +1738,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             } as never,
           }),
         );
+        const heldUpsert = heldWrite(result);
+        if (heldUpsert) return heldWriteResult(heldUpsert);
         // Read back rather than echoing the write response, same reasoning as
         // create_record — relation chips only show up on a fresh read.
         const record = await readRecord(detail, ws.id, db.id, result.record.id);
@@ -1741,12 +1766,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
         const rec = await resolveRecordId(ws.id, db.id, record);
-        await unwrap<RecordRow>(
+        const updated = await unwrap<RecordRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
             params: { path: { ws: ws.id, db: db.id, rec } },
             body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
           }),
         );
+        const heldUpdate = heldWrite(updated);
+        if (heldUpdate) return heldWriteResult(heldUpdate);
         // Read back: the PATCH response carries no relation chips, so echoing it
         // dropped `epic`/`parent`/… from an update that never touched them (#343).
         return text(await readRecord(detail, ws.id, db.id, rec));
@@ -2195,12 +2222,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // Same label→id / Markdown→blocks mapping every other write goes through,
         // so a kanban drop takes values:{state:"Done"} and not an option uuid.
         if (values) body.values = mapWriteValues(detail, values);
-        await unwrap(
+        const moved = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move', {
             params: { path: { ws: ws.id, db: db.id, rec } },
             body: body as never,
           }),
         );
+        // #1104 — with `values` this is an update, which a gate on this agent can hold (nothing, not even the reposition, happens).
+        const heldMove = heldWrite(moved);
+        if (heldMove) return heldWriteResult(heldMove);
         return text(await readRecord(detail, ws.id, db.id, rec));
       },
     ),
@@ -3024,7 +3054,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff).',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3044,9 +3074,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Names of installed agents a person EDITED whose content should be replaced with this pack version (preview marks them agent_update.status = edited_needs_choice). Agents not named stay as they are.',
           ),
+        enable_automations: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Labels ("Database.Rule name", as preview lists them) of automations that send something outside the workspace (email, Slack, webhook, HTTP, social post) or run an agent, which a pack installs SWITCHED OFF, that you want switched ON. Only name one when the person asked for it; a pack\'s own enabled:true on such a rule is ignored. Preview and the install result list every automation with enabled / enabled_on_install and, when off for what it does, switched_off_because.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[] }>(async ({ workspace, slug, preview, space, update_agents }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; enable_automations?: string[] }>(async ({ workspace, slug, preview, space, update_agents, enable_automations }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3063,6 +3099,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           ...(update_agents?.length
             ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
             : {}),
+          ...(enable_automations?.length ? { enable_automations } : {}),
         } as never,
       };
       return text(
@@ -3085,7 +3122,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create records (batch)',
       description:
-        'Create up to 100 records in ONE atomic call — all succeed or none do. Values are keyed by api_name exactly as create_record takes them. Use this instead of calling create_record in a loop.',
+        'Create up to 100 records in ONE atomic call — all succeed or none do. Values are keyed by api_name exactly as create_record takes them. Use this instead of calling create_record in a loop. If a gate on this agent holds creates, the whole batch is held as one approval and the response is { pending_approval, approval_id } with nothing created.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -3120,7 +3157,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update records (batch)',
       description:
-        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call. The response\'s `restorable` list (one {record_id, version_id} pair per record actually changed) can be passed straight to undo_batch_update to revert the whole call.',
+        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call; records whose update a gate on this agent held for approval are listed in `held` ({record_id, approval_id}) and were NOT changed. The response\'s `restorable` list (one {record_id, version_id} pair per record actually changed) can be passed straight to undo_batch_update to revert the whole call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -7412,6 +7449,29 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/action-gates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_write_gates',
+    {
+      title: 'List the gates on agents\' record writes',
+      description:
+        '#1104: the gates that hold an agent\'s record create and/or update for a person\'s approval, instead of applying it. Each has the agent_id (an Agents-database record), operations (create, update), database_id (null = every database), fields (null = any write; otherwise only a write that touches one of those api_names) and enabled. ' +
+        'When a gate holds your write, the write call answers { pending_approval: true, approval_id } and NOTHING is changed until a person approves it in the Approvals inbox; do not retry it. Pass agent_id to see one agent\'s gates (admin only, since a gate names databases and fields). Read-only: declaring, switching off or removing a gate is for a person who is an admin and not reachable via MCP, because an agent that could lift the gate meant to constrain it would defeat it.',
+      inputSchema: {
+        workspace: z.string(),
+        agent_id: z.string().optional().describe('Limit to one agent (its record uuid).'),
+      },
+    },
+    handle<{ workspace: string; agent_id?: string }>(async ({ workspace, agent_id }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agent-write-gates', {
+          params: { path: { ws: ws.id }, ...(agent_id ? { query: { agent_id } } : {}) },
+        } as never),
       );
       return text(res);
     }),

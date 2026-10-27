@@ -114,6 +114,27 @@ export const planStateSchema = z.object({
 });
 export type PlanState = z.infer<typeof planStateSchema>;
 
+/**
+ * #1104 — a gate on the writes an AGENT makes: its record creates and/or updates are held for a person's approval
+ * instead of being applied (the staged-action flow, in the Approvals inbox). Declared by NAME, like everything in a plan,
+ * and resolved to ids at install.
+ *
+ *  - `operations`: which writes are held (create, update, or both).
+ *  - `database`: limits the gate to one database of the plan (or one that already exists); omitted = every database.
+ *  - `fields`: limits it to a write that touches one of these fields (display names); omitted = any write. Needs `database`.
+ */
+export const planAgentWriteGateSchema = z
+  .object({
+    operations: z.array(z.enum(['create', 'update'])).min(1),
+    database: nameSchema.optional(),
+    fields: z.array(nameSchema).min(1).optional(),
+  })
+  .refine((g) => !g.fields || Boolean(g.database), {
+    message: 'a gate that names fields must name the database they belong to',
+    path: ['database'],
+  });
+export type PlanAgentWriteGate = z.infer<typeof planAgentWriteGateSchema>;
+
 /** An agent record the plan wants in the Agents database (ADR-0010 §1). */
 export const planAgentSchema = z.object({
   name: nameSchema,
@@ -127,6 +148,12 @@ export const planAgentSchema = z.object({
     .default([]),
   /** Names of the databases this agent may act on. */
   target_databases: z.array(nameSchema).default([]),
+  /**
+   * #1104 — the gates on this agent's record writes. Deliberately NO default: a key that is ABSENT means "this plan says
+   * nothing about gates" (install adds none, an export of an ungated agent omits it), while a key that is present and
+   * `[]` means "explicitly none". The two must stay distinguishable, as they are for the other optional lists in a pack.
+   */
+  write_gates: z.array(planAgentWriteGateSchema).optional(),
 });
 export type PlanAgent = z.infer<typeof planAgentSchema>;
 

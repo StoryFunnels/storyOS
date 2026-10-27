@@ -489,7 +489,13 @@ export const packInstallResultSchema = z.object({
   triggers: z.array(installedEntitySchema),
   derived_fields: z.array(installedEntitySchema),
   views: z.array(installedEntitySchema),
-  automations: z.array(installedEntitySchema),
+  /** #1107 — each `created` rule also says whether it was switched on and, if off for what it does, why (`outward` = leaves the workspace, `agent` = runs an agent). */
+  automations: z.array(
+    installedEntitySchema.extend({
+      enabled: z.boolean().optional(),
+      switched_off_because: z.enum(['outward', 'agent']).optional(),
+    }),
+  ),
   sample_records: z.array(installedEntitySchema),
   skills: z.array(installedEntitySchema),
   /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
@@ -583,6 +589,12 @@ export const packPreviewItemSchema = z.object({
   action: z.enum(['create', 'reuse', 'collision']),
   agent_update: packAgentUpdateSchema.optional(),
   gains: packDatabaseGainsSchema.optional(),
+  /**
+   * #1107 — automations only, and only when this install would CREATE the rule: whether it would be on (`enabled_on_install`), and, if it
+   * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
+   */
+  enabled_on_install: z.boolean().optional(),
+  switched_off_because: z.enum(['outward', 'agent']).optional(),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 

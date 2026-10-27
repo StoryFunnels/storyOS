@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ActionGatesModule } from '../action-gates/action-gates.module';
 import { AutomationsModule } from '../automations/automations.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
@@ -59,6 +60,7 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
  */
 @Module({
   imports: [
+    ActionGatesModule,
     AutomationsModule,
     BillingModule,
     CollaborationModule,

@@ -215,6 +215,20 @@ export class SpaceViewsService {
   }
 
   /**
+   * ticket #1101 — the door for a route keyed by the VIEW's id (`/views/:view`). A space the caller cannot see answers exactly as a view
+   * that does not exist ("View not found"), not "Space not found", which says there is a view in a space that exists. Space-keyed routes
+   * (`/spaces/:space/views`) keep "Space not found": there the space IS the id the caller sent. test/restricted-404-id-only-sweep.test.ts.
+   */
+  private async assertViewSpaceDoor(membership: Membership, spaceId: string) {
+    try {
+      return await this.access.assertSpaceDoor(membership, spaceId);
+    } catch (e) {
+      if (e instanceof NotFoundException) throw new NotFoundException('View not found');
+      throw e;
+    }
+  }
+
+  /**
    * #306 — the same door as `listForSpace`, factored out so create/get/move
    * cannot drift from list. Returns the space row once the viewer is cleared.
    */
@@ -300,7 +314,7 @@ export class SpaceViewsService {
       throw new NotFoundException('View not found');
     }
     if (view.spaceId) {
-      await this.assertVisibleSpace(membership, view.spaceId);
+      await this.assertViewSpaceDoor(membership, view.spaceId);
     } else if (view.databaseId) {
       const database = await this.db.query.databases.findFirst({
         where: and(
@@ -392,7 +406,7 @@ export class SpaceViewsService {
     if (!view.spaceId) throw new NotFoundException('View not found');
 
     // Same door as every other space-view operation.
-    await this.assertVisibleSpace(membership, view.spaceId);
+    await this.assertViewSpaceDoor(membership, view.spaceId);
     await this.access.assertSpace(membership, view.spaceId, 'editor').catch(() => {
       throw new ForbiddenException('You need edit access to this space.');
     });
@@ -432,7 +446,7 @@ export class SpaceViewsService {
       spaceId = database.spaceId;
     }
     if (!spaceId) throw new NotFoundException('View not found');
-    await this.assertVisibleSpace(membership, spaceId);
+    await this.assertViewSpaceDoor(membership, spaceId);
     await this.access.assertSpace(membership, spaceId, 'editor').catch(() => {
       throw new ForbiddenException('You need edit access to this space.');
     });
@@ -495,6 +509,8 @@ export class SpaceViewsService {
     }
     // #945: the database's door first, so a 422 below never confirms a view the caller cannot see.
     if (view.databaseId) await this.assertDatabaseOfView(membership, view.databaseId, 'editor');
+    // ticket #1101: the space's door before the 422, for the same reason as the database's door above.
+    if (!view.databaseId && view.spaceId) await this.assertViewSpaceDoor(membership, view.spaceId);
     if (!view.databaseId) {
       throw new UnprocessableEntityException('This view already lives in a space.');
     }
@@ -509,7 +525,7 @@ export class SpaceViewsService {
       columns: { id: true, spaceId: true, name: true },
     });
     if (!database) throw new NotFoundException('View not found');
-    await this.assertVisibleSpace(membership, database.spaceId);
+    await this.assertViewSpaceDoor(membership, database.spaceId);
     await this.access.assertSpace(membership, database.spaceId, 'editor').catch(() => {
       throw new ForbiddenException('You need edit access to this space.');
     });

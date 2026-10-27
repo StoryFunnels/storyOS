@@ -239,6 +239,81 @@ describe('#571 AI-computed field: fixed-choice output validation', () => {
   });
 });
 
+/**
+ * #1109 — a fake that behaves like the real provider at the seam: it records what was asked, answers a plain-text request with the
+ * bare answer, and answers a JSON-mode request (the client's DEFAULT) with a JSON document, as a real model does.
+ */
+function modelLikeClient(answer: string): ManagedAiClient & { asked: Array<{ prompt: string; options: unknown }> } {
+  const asked: Array<{ prompt: string; options: unknown }> = [];
+  return {
+    asked,
+    complete: async (prompt, options): Promise<ManagedAiCompletion> => {
+      asked.push({ prompt, options });
+      const text = options?.responseFormat === 'text' ? answer : JSON.stringify({ answer });
+      return { text, tokensIn: 10, tokensOut: 5 };
+    },
+  };
+}
+
+describe('#1109 AI field asks for a plain answer, so the stored value is the answer and not a JSON document', () => {
+  // A fresh database per run: every record create enqueues a job for EVERY ai field in the database, so sharing one would let
+  // an earlier field's job answer (and consume) this run's fake client.
+  async function run(output: Record<string, unknown>, answer: string) {
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const keepDbId = dbId;
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Plain ${suffix}` })).json().id;
+    try {
+      return await runIn(output, answer, suffix);
+    } finally {
+      dbId = keepDbId;
+    }
+  }
+
+  async function runIn(output: Record<string, unknown>, answer: string, suffix: string) {
+    const company = await addField(`Company AI8 ${suffix}`, 'text');
+    const field = await addField(`Out AI8 ${suffix}`, 'ai', { prompt: `Describe {Company AI8 ${suffix}}`, output });
+    expect(field.status, field.body).toBe(201);
+    const client = modelLikeClient(answer);
+    subscriber.client = client;
+    const rec = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'R', [company.apiName]: 'Acme Corp' },
+    });
+    await waitForJobAndTick(rec.json().id, field.id);
+    const after = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.json().id}`);
+    const row = await db.query.records.findFirst({ where: (r, { eq: eqOp }) => eqOp(r.id, rec.json().id) });
+    return {
+      value: after.json().values[field.apiName] as unknown,
+      error: (row!.computedValues as Record<string, unknown>)[`${field.id}:error`] as string | null | undefined,
+      client,
+    };
+  }
+  it('text output: the bare answer is stored, and the request was plain-text', async () => {
+    const r = await run({ kind: 'text' }, 'A solid enterprise lead.');
+    expect(r.value).toBe('A solid enterprise lead.');
+    expect(r.client.asked[0]!.options).toEqual({ responseFormat: 'text' });
+  });
+
+  it('choice output: the answer is stored as the option label, and the model was told the options', async () => {
+    const r = await run({ kind: 'choice', options: ['Enterprise', 'SMB'] }, 'Enterprise');
+    expect(r.value).toBe('Enterprise');
+    expect(r.client.asked[0]!.prompt).toContain('"Enterprise"');
+    expect(r.client.asked[0]!.prompt).toContain('"SMB"');
+  });
+
+  it('choice output: case, quotes and trailing punctuation are tolerated and the OPTION LABEL is stored', async () => {
+    const r = await run({ kind: 'choice', options: ['Enterprise', 'SMB'] }, ' "enterprise". ');
+    expect(r.value).toBe('Enterprise');
+    expect(r.error ?? null).toBeNull();
+  });
+
+  it('choice output: an answer that matches no option is an error on the field, never a wrong value', async () => {
+    const r = await run({ kind: 'choice', options: ['Enterprise', 'SMB'] }, 'Startup');
+    expect(r.value).toBeUndefined();
+    expect(r.error).toContain('not one of the configured choices');
+  });
+});
+
 describe('#571 AI-computed field: readable by a formula like any other field', () => {
   it('a formula referencing an ai field resolves its stored value', async () => {
     const company = await addField('Company AI7', 'text');

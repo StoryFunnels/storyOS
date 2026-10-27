@@ -1390,6 +1390,113 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agent-write-gates": {
+      "get": {
+        "operationId": "AgentWriteGatesController_list",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List the gates that hold an agent's record create/update for approval (optionally for one agent)",
+        "tags": [
+          "agent-write-gates"
+        ],
+        "x-min-role": "admin"
+      },
+      "post": {
+        "operationId": "AgentWriteGatesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentWriteGateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Gate an agent's record create and/or update for approval, optionally limited to one database and to named fields (a person who is an admin)",
+        "tags": [
+          "agent-write-gates"
+        ],
+        "x-min-role": "admin"
+      }
+    },
+    "/api/v1/workspaces/{ws}/agent-write-gates/{id}": {
+      "patch": {
+        "operationId": "AgentWriteGatesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentWriteGateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Switch an agent write gate on or off (a person who is an admin)",
+        "tags": [
+          "agent-write-gates"
+        ],
+        "x-min-role": "admin"
+      },
+      "delete": {
+        "operationId": "AgentWriteGatesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Remove an agent write gate (a person who is an admin)",
+        "tags": [
+          "agent-write-gates"
+        ],
+        "x-min-role": "admin"
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation": {
       "post": {
         "operationId": "FieldConversionController_toMembers",
@@ -12092,6 +12199,55 @@
           }
         }
       },
+      "CreateAgentWriteGateDto": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "operations": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "create",
+                "update"
+              ]
+            }
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "nullable": true
+          },
+          "fields": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "nullable": true
+          }
+        },
+        "required": [
+          "agent_id",
+          "operations"
+        ]
+      },
+      "UpdateAgentWriteGateDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "ToMembersDto": {
         "type": "object",
         "properties": {
@@ -19580,6 +19736,15 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "enable_automations": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            }
           }
         }
       },

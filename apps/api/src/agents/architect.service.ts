@@ -1,7 +1,8 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos/schemas';
-import type { PlanAgent } from '@storyos/schemas';
+import type { PlanAgent, PlanAgentWriteGate } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
+import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
 import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
@@ -78,6 +79,8 @@ export class ArchitectService {
     private readonly records: RecordsService,
     private readonly agents: AgentsService,
     private readonly aiCredits: AiCreditsService,
+    /** #1104 — creates the per-agent write gates a plan declares (and reads them back for an export). */
+    private readonly writeGates: AgentWriteGatesService,
   ) {}
 
   // ── #213: propose ───────────────────────────────────────────────────────────
@@ -175,6 +178,7 @@ export class ArchitectService {
       );
     }
     const plan = this.withPackAgentExtras(parsed.data, rawPlan);
+    this.assertWriteGateDatabasesDeclared(plan);
 
     const result: ArchitectBuildResult = {
       summary: plan.summary,
@@ -489,6 +493,85 @@ export class ArchitectService {
   }
 
   /**
+   * #1104 — a write gate is a safety feature, so one that cannot be resolved must refuse the build rather than be dropped
+   * quietly (an agent the author meant to be supervised would install unsupervised). Names are checked up front, before
+   * anything is created, so the refusal does not leave a half-built workspace behind.
+   */
+  private assertWriteGateDatabasesDeclared(plan: ArchitectPlan): void {
+    const declared = new Set(plan.databases.map((d) => norm(d.name)));
+    for (const agent of plan.agents) {
+      for (const gate of agent.write_gates ?? []) {
+        if (gate.database && !declared.has(norm(gate.database))) {
+          throw new UnprocessableEntityException(
+            `Agent "${agent.name}" has a write gate on database "${gate.database}", which this plan does not declare`,
+          );
+        }
+      }
+    }
+  }
+
+  /** Creates the gates a freshly created agent was declared with: names resolved to ids, replace-all, so a re-run cannot stack duplicates. */
+  private async installWriteGates(
+    membership: Membership,
+    agentId: string,
+    gates: PlanAgentWriteGate[],
+    dbIds: Map<string, string>,
+  ): Promise<void> {
+    const resolved: Array<{ operations: Array<'create' | 'update'>; databaseId: string | null; fields: string[] | null }> = [];
+    for (const gate of gates) {
+      const databaseId = gate.database ? (dbIds.get(norm(gate.database)) ?? null) : null;
+      if (gate.database && !databaseId) {
+        throw new UnprocessableEntityException(`Write gate database "${gate.database}" could not be resolved`);
+      }
+      let apiNames: string[] | null = null;
+      if (gate.fields && databaseId) {
+        const live = await this.liveFields(membership, databaseId);
+        apiNames = gate.fields.map((name) => {
+          const hit = live.find((f) => norm(f.displayName) === norm(name) || f.apiName === name);
+          if (!hit) throw new UnprocessableEntityException(`Write gate field "${name}" does not exist on database "${gate.database}"`);
+          return hit.apiName;
+        });
+      }
+      resolved.push({ operations: gate.operations, databaseId, fields: apiNames });
+    }
+    await this.writeGates.replaceForAgent(membership.workspaceId, agentId, resolved, membership.userId);
+  }
+
+  /**
+   * #1104 — the inverse, for an export: each agent's gates as plan gates, database and field NAMES instead of ids. A gate on
+   * a database outside `dbNames` (the slice being exported) cannot be expressed in this pack and is left out; a gated agent
+   * whose gates are all outside gets no key at all, exactly like an ungated one.
+   */
+  async exportWriteGates(
+    workspaceId: string,
+    agentIds: string[],
+    dbs: Map<string, { name: string; fields: Array<{ apiName: string; displayName: string }> }>,
+  ): Promise<Map<string, PlanAgentWriteGate[]>> {
+    const out = new Map<string, PlanAgentWriteGate[]>();
+    const all = (await this.writeGates.list(workspaceId)).filter((g) => g.enabled && agentIds.includes(g.agentId));
+    for (const g of all) {
+      let database: string | undefined;
+      let fieldNames: string[] | undefined;
+      if (g.databaseId) {
+        const db = dbs.get(g.databaseId);
+        if (!db) continue;
+        database = db.name;
+        if (g.fields) {
+          fieldNames = g.fields.map((api) => db.fields.find((f) => f.apiName === api)?.displayName ?? api);
+        }
+      }
+      const list = out.get(g.agentId) ?? [];
+      list.push({
+        operations: g.operations as Array<'create' | 'update'>,
+        ...(database ? { database } : {}),
+        ...(fieldNames ? { fields: fieldNames } : {}),
+      });
+      out.set(g.agentId, list);
+    }
+    return out;
+  }
+
+  /**
    * The agent records themselves (ADR-0010 §1) — created through the ordinary
    * records API on the Agents database, exactly as a person would create them.
    */
@@ -544,6 +627,8 @@ export class ArchitectService {
         0,
         'agent',
       );
+      // #1104 — only for an agent this build CREATED. An existing agent of that name (above) keeps whatever its owner set.
+      if (planned.write_gates !== undefined) await this.installWriteGates(membership, created.id, planned.write_gates, dbIds);
       result.agents.push({ name: planned.name, action: 'created', id: created.id });
       ids.set(norm(planned.name), created.id);
     }

@@ -46,6 +46,8 @@ import {
   STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS,
 } from '../billing/plans';
 import { asAgentRuntime } from '../records/runtime-owned-fields';
+import { asActingAgent } from '../records/agent-write-context';
+import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import type { AgentPrincipal } from './agent-principal';
 import { defaultManagedAiClient } from './managed-ai-client';
@@ -1286,13 +1288,17 @@ export class AgentsService implements OnModuleInit {
           // Ungated: the owner did not ask to be consulted about this class, so
           // it applies inline and the run continues. A failure here is a run
           // failure like any other — it falls through to the catch below.
+          // #1104 — this inline apply IS the agent writing, so RecordsService must know WHICH agent (its per-agent write gate
+          // keys on it). Deliberately only here: the approve path below applies a write a person already approved.
           attemptSteps.push(
-            await this.applyProposedAction(
-              workspaceId,
-              step.action,
-              principal,
-              owner.userId,
-              input.depth ?? 0,
+            await asActingAgent({ agentId: agent.id, agentName: agent.name }, () =>
+              this.applyProposedAction(
+                workspaceId,
+                step.action!,
+                principal,
+                owner.userId,
+                input.depth ?? 0,
+              ),
             ),
           );
         }
@@ -1669,22 +1675,36 @@ export class AgentsService implements OnModuleInit {
     }
 
     const record = await this.recordsService.get(payload.database_id, payload.record_id);
-    const effects = await this.actions.execute([payload.action], {
-      workspaceId,
-      databaseId: payload.database_id,
-      record,
-      actorId,
-      /*
-       * #390 — an AGENT applied this, not a rule.
-       *
-       * The executor is shared with automations, so without this every agent
-       * write would be stamped 'automation'. `actorId` above is still the
-       * OWNER: ADR-0010 §2 and #357's founder decision — "it's always a person
-       * that ran the AI agent, never the agent himself".
-       */
-      source: 'agent',
-      depth,
-    });
+    let effects: Awaited<ReturnType<typeof this.actions.execute>>;
+    try {
+      effects = await this.actions.execute([payload.action], {
+        workspaceId,
+        databaseId: payload.database_id,
+        record,
+        actorId,
+        /*
+         * #390 — an AGENT applied this, not a rule.
+         *
+         * The executor is shared with automations, so without this every agent
+         * write would be stamped 'automation'. `actorId` above is still the
+         * OWNER: ADR-0010 §2 and #357's founder decision — "it's always a person
+         * that ran the AI agent, never the agent himself".
+         */
+        source: 'agent',
+        depth,
+      });
+    } catch (error) {
+      // #1104 — a per-agent write gate held this record write. Nothing was applied: report that plainly, as the delete
+      // gate does above, rather than failing the run or claiming success. The approval is in the Inbox.
+      if (error instanceof WriteHeldForApprovalException) {
+        return {
+          tool: 'action.pending_approval',
+          summary: `Held for approval (${action.kind}): ${action.summary}`,
+          detail: `${error.detail} (approval ${error.approvalId})`,
+        };
+      }
+      throw error;
+    }
     return {
       tool: 'action.applied',
       summary: `Applied (${action.kind}): ${action.summary}`,

@@ -2,6 +2,7 @@ import { Catch, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ZodValidationException } from 'nestjs-zod';
+import { WriteHeldForApprovalException } from '../write-held-for-approval.exception';
 
 /** The single error envelope — docs/architecture/api-conventions.md. */
 interface ErrorEnvelope {
@@ -60,6 +61,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let details: ErrorEnvelope['error']['details'];
     let meta: ErrorEnvelope['error']['meta'];
     let code = 'internal_error';
+
+    // #1104 — not an error: the write is staged for approval. The body is the approval handle, not the error envelope.
+    if (exception instanceof WriteHeldForApprovalException) {
+      void reply.status(HttpStatus.ACCEPTED).send(exception.getResponse());
+      return;
+    }
 
     if (exception instanceof ZodValidationException) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
