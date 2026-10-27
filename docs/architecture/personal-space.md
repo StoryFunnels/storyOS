@@ -31,6 +31,12 @@ Two obligations follow, and they are not optional:
 - **Say so at the point of use.** The Personal section carries a one-line
   explanation ("Only you can see this. If your account is removed, this content is
   deleted with it."). Discovering this at offboarding is a support incident.
+  *2026-10-27 (#1097): the sentence is unchanged and no longer stands as a paragraph in
+  the sidebar. It now appears, word for word, at three points of use: the Personal page
+  header, the create dialog for a personal view, and the tooltip on the sidebar's
+  Personal row (`PERSONAL_PRIVACY_SENTENCE` in `apps/web/src/lib/personal-space-copy.ts`,
+  pinned by a test). Personal documents have no create dialog: one click makes the
+  document and opens it.*
 - **Deletion is real deletion.** When a member is removed, their personal content
   goes with them. Do not quietly retain it in the database while hiding it from the
   UI — that is the worst outcome: the privacy promise is broken *and* nobody can

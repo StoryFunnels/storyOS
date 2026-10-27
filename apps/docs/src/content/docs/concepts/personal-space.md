@@ -11,11 +11,11 @@ differently from an ordinary space on purpose:
 > Only you can see this. If your account is removed, this content is deleted with it.
 
 That's the actual copy — not paraphrased, since a wording drift here would be a support incident.
-**Empty**, the section is a single compact row (a lock icon, "Personal", and the same **+** menu
-described below) with that sentence as its hover tooltip rather than standing text — reclaiming the
-half-dozen rows a permanent explanatory card used to cost every workspace that hadn't touched this
-feature yet. Once it holds a document or view, the sentence renders as a standing line above the
-list, same as always. Nobody else can see into your Personal space, **including admins**, and
+The section looks the same **empty or not**: one row (a person icon, "Personal · only you", and the
+**+** menu described below), with a caret that collapses your documents and views nested beneath
+it. The sentence is no longer a standing paragraph in the sidebar; it sits where you would need it:
+as the tooltip on that row, at the top of the **Personal page** (click the name "Personal"), and in
+the dialog for a new personal view. Nobody else can see into your Personal space, **including admins**, and
 there is no restore path once your account is gone.
 
 ## What it can hold
@@ -27,7 +27,7 @@ nothing else.
 
 ## Creating one
 
-The section header's **+** becomes a **New…** dropdown once you have something in it:
+The **+** on the Personal row opens a **New…** dropdown:
 
 - **New document** — a document only you can see, the same editor as anywhere else in StoryOS.
 - **New view…** — opens a dialog: pick a **database** (grouped by space), give it a **name**
@@ -44,7 +44,10 @@ disables what the target database can't support: **Board** needs a select, user,
 relation field to group by; **Calendar** and **Timeline** both need a date field.
 
 Once created, a view lists in the Personal section next to your documents, each with its own icon,
-linking straight to `/w/{workspace}/d/{database}?view={id}`.
+linking straight to `/w/{workspace}/d/{database}?view={id}`. A personal view appears **only** under
+Personal. It is not repeated under the database it reads from, and it never carries a lock there: a
+lock in the sidebar means a space or database is restricted. The Personal page names the database
+each view is a lens on.
 
 ## Deleting your own personal view needs only viewer access
 
