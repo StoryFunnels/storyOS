@@ -1,14 +1,14 @@
 ---
 title: OAuth connector
-description: Let cloud clients connect the hosted StoryOS MCP endpoint with a one-click OAuth sign-in instead of pasting a personal access token.
+description: Let cloud clients connect the hosted StoryOS MCP endpoint with an OAuth sign-in and an Allow page instead of pasting a personal access token.
 sidebar:
   order: 5
 ---
 
 The [hosted MCP endpoint](/mcp/hosted/) accepts a personal access token in the `Authorization`
 header. For a smoother experience, StoryOS can also act as an **OAuth authorization server** so
-clients that support MCP connectors (claude.ai, ChatGPT) let a user **sign in once** and authorize
-the connector — no token to copy or paste.
+clients that support MCP connectors (claude.ai, ChatGPT) let a user **sign in and allow** the
+connector: no token to copy or paste, and nothing is connected until the person says so.
 
 ## How it works
 
@@ -16,24 +16,44 @@ When OAuth is enabled, the MCP endpoint advertises OAuth discovery metadata. A c
 then:
 
 1. Discovers the authorization server (your StoryOS app).
-2. Sends the user through a normal sign-in + consent flow.
-3. Receives a scoped token and calls `POST /mcp` with it — exactly like the PAT flow, but the
-   credential is minted by the authorization step instead of pasted by hand.
+2. Sends the user through sign-in and then **always** to an **Allow page**. It names the client, the
+   host the result is sent back to and what is being asked. By default the connection reaches **all
+   your workspaces**; the person can choose **One workspace** instead. Nothing is connected until
+   they click **Allow**; **Deny** tells the client `access_denied`. The server forces this step, so a
+   client cannot skip it.
+3. Receives a token and calls `POST /mcp` with it, exactly like the PAT flow, except the credential
+   is minted by the authorization step instead of pasted by hand.
 
-The authorization is still scoped to the user's [role and space grants](/concepts/access-and-roles/),
-so the connector can only touch what the user can.
+## What a connection can reach
 
-**A connected AI has no scope or resource ceiling, by design.** It acts with the full access of the
-person who connected it, so what it can do equals what you can do. It is your hands, not a separate
-party, and StoryOS does not narrow it. Its changes are recorded as coming from an AI (`mcp`), not as
-a person's.
+A connection is always an approved one, and it always has the full set of tools: **there is no
+read-only choice**. What the person approves is which workspaces it reaches, enforced on every
+request:
 
-- **To revoke it, disconnect it.**
+- **All your workspaces (the default).** Including any you join later. Your role and access in each
+  still apply.
+- **One workspace (optional).** The connection is bound to the workspace chosen; asking for any
+  other answers `404`, as if it did not exist.
+- **Tool limits are the client's job.** To stop an AI using certain tools, switch them off in the
+  client (for example in Claude's connector settings). StoryOS does not offer a read-only level.
+- **Still the person's access, never more.** The connection is limited by the person's own
+  [role and space grants](/concepts/access-and-roles/) as well, so it can only touch what both the
+  approval and the person allow.
 - **Approval gates still apply** to what a connected AI does, exactly as they do for a personal
   access token: an action a [gate](/concepts/approval-gates/) holds waits for a person.
-- **To narrow an AI on purpose, give it a personal access token instead.** A
-  [token](/api/authentication/) can be capped at read, write or admin power and bound to specific
-  spaces or databases. That is for delegating to a script or a tool, not for your own AI.
+- **Its changes are recorded as an AI's** (`mcp`), under the person's name, not as the person's own.
+
+**Seeing and removing connections.** Under **Settings → Connect your AI**, **Connected AI clients**
+lists each connection with what it reaches (**All your workspaces**, or the one workspace), and
+**Disconnect** ends it immediately. A client that connects again goes through the Allow page again.
+
+**Older connections** (made before the Allow page existed, or approved as read-only or bound to one
+workspace under the earlier rules) are refused until the client is reconnected and approved again.
+The list shows them as **Reconnect needed**.
+
+**To narrow an AI differently, or for a script or a tool, use a personal access token.** A
+[token](/api/authentication/) can be capped at read, write or admin power and bound to specific
+spaces or databases.
 
 ## Connect any other client
 
@@ -47,8 +67,7 @@ the same three things every client needs:
 2. **Name** it `StoryOS`, and paste the server **address** (`https://mcp.storyos.dev/mcp` on the cloud
    instance, or your own).
 3. **Sign in with OAuth** (recommended). StoryOS opens a page asking you to allow the connection:
-   choose the **one workspace** it may reach and whether it can **read only** or **read and write**,
-   then click **Allow**. If your client cannot open a sign-in page, use a
+   it reaches all your workspaces unless you choose **One workspace**; click **Allow**. If your client cannot open a sign-in page, use a
    [personal access token](/api/authentication/) instead, from **Settings → API tokens** (shown once),
    sent as `Authorization: Bearer …`. Never paste a token into a sign-in page.
 
@@ -73,8 +92,8 @@ On the cloud instance this is `https://mcp.storyos.dev` (endpoint) with
 ## Connect
 
 In a client that supports MCP connectors, add a connector pointing at
-`https://mcp.storyos.dev/mcp` (or your self-hosted URL) and complete the sign-in prompt. The client
-handles the token exchange for you.
+`https://mcp.storyos.dev/mcp` (or your self-hosted URL), sign in, and click Allow (all your workspaces,
+or choose One workspace). The client handles the token exchange for you.
 
 :::note
 Prefer the manual route, or using a client without connector support? The

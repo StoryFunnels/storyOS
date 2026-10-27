@@ -17,8 +17,8 @@ every response is scoped and validated server-side.
   Code, Claude Desktop). Best for a single user on their own machine.
 - **[Hosted (Streamable HTTP)](/mcp/hosted/)** — connect with just a URL and a token, no local
   process. Best for teammates and web clients (claude.ai / ChatGPT connectors, MCP Inspector).
-  Cloud users can connect via a one-click [OAuth connector](/mcp/oauth/) instead of pasting a
-  token.
+  Cloud users can connect via an [OAuth connector](/mcp/oauth/) (sign in, then choose which
+  workspaces it can reach on an Allow page) instead of pasting a token.
 
 ## Why it doesn't hallucinate
 

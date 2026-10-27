@@ -108,7 +108,7 @@ intended behaviour with #879 cited. Do not build a ceiling for the connector wit
 
 ## Amendment — 2026-10-26 (ticket #1079): no read-only level, all workspaces by default
 
-Ievgen, after using the consent screen in production: every MCP connection reads and writes. There is no read-only
+Ievgen, after using the consent screen in production (decided 2026-10-26, #1030 and #1079): consent is always required (authorization always stops on the Allow page, and a connection with no approval is refused until it is reconnected, #1232, #1229), and every MCP connection reads and writes. There is no read-only
 level; limiting which tools an AI may use is the client's job (Claude's per-tool toggles), not StoryOS's. A connection
 reaches **all of the person's workspaces** by default, with one workspace as an optional limit; role and grants still
 apply in each. "My AI, my rules" stands, and so does the rest of the 2026-10-17 amendment: no scope ceiling beyond what
@@ -122,3 +122,4 @@ pinned to `write`, which hid every schema and admin tool (create_database, add_f
 What it may do is now decided only by the person's role and grants in each workspace (a member's connection is refused an
 admin route by their role, an admin's is not); account-level, session-only routes stay a person's alone. An explicit
 read/write/admin scope remains the rule for personal access tokens and agent tokens.
+What stands from the 2026-10-17 amendment: approval gates still apply, and a personal access token remains the way to cap an AI by space, database or power.
