@@ -1,3 +1,4 @@
+import { asActingAgent } from '../records/agent-write-context';
 import { Controller, Inject, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -57,13 +58,20 @@ export class ButtonsController {
     // whoever/whatever pressed it, not 'automation' just because it's config-
     // driven like a rule. Threaded into ActionContext so every action this
     // press runs (set_values, create_record, …) carries the same source.
-    const effects = await this.actions.execute(config.actions, {
-      workspaceId: req.membership.workspaceId,
-      databaseId,
-      record,
-      actorId: req.user.id,
-      source,
-    });
+    const runActions = () =>
+      this.actions.execute(config.actions, {
+        workspaceId: req.membership.workspaceId,
+        databaseId,
+        record,
+        actorId: req.user.id,
+        source,
+      });
+    // #1104 — an agent pressing a button writes as that agent, so a per-agent write gate holds the button's record writes too
+    // (the press then answers 202 pending_approval). Without this a gated agent could do through a button what it may not do directly.
+    const effects =
+      source === 'agent' && req.auth?.agentId
+        ? await asActingAgent({ agentId: req.auth.agentId, agentName: req.auth.agentName ?? '' }, runActions)
+        : await runActions();
 
     await this.db.insert(activityEvents).values({
       workspaceId: req.membership.workspaceId,

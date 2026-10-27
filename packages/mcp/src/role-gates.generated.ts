@@ -26,6 +26,7 @@ export const TOOL_MIN_ROLE: Record<string, 'member' | 'admin'> = {
   import_skill: 'member',
   install_pack: 'admin',
   list_agent_activity: 'admin',
+  list_agent_write_gates: 'admin',
   list_audit_log: 'admin',
   list_credential_actions: 'admin',
   list_databases_trash: 'admin',

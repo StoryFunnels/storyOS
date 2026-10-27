@@ -220,7 +220,7 @@ export class RecordsController {
       body.records.map((r) => r.values),
       req.user.id,
       0,
-      { source: req.auth?.source ?? 'human', membership: req.membership }, // #1070
+      { source: req.auth?.source ?? 'human', agentId: req.auth?.agentId, agentName: req.auth?.agentName, membership: req.membership }, // #1070, #1104
     );
     return { data: await this.recordsService.narrowTitlesDeep(req.membership, created) };
   }
@@ -241,6 +241,8 @@ export class RecordsController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.membership, // #1070
+      req.auth?.agentId, // #1104
+      req.auth?.agentName,
     );
   }
 
@@ -260,6 +262,8 @@ export class RecordsController {
       body.restorable,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.auth?.agentId, // #1104
+      req.auth?.agentName,
     );
   }
 
@@ -277,6 +281,17 @@ export class RecordsController {
     @Body() body: BulkRecordJobDto,
   ) {
     await this.assertDb(req, databaseId, body.op === 'delete' ? 'editor' : 'contributor');
+    // #1104 — the worker writes later with no agent identity, so a gated agent could drain its gate through a job: refuse here.
+    if (body.op === 'update') {
+      await this.recordsService.refuseIfAgentGated(
+        req.membership.workspaceId,
+        databaseId,
+        'update',
+        req.auth?.source ?? 'human',
+        req.auth?.agentId,
+        'A bulk update job',
+      );
+    }
     // #1070 — the worker writes later, without the caller; check link targets now.
     if (body.op === 'update' && body.values) {
       await this.recordsService.assertLinkTargetsReadable(req.membership, databaseId, body.values);
@@ -445,6 +460,7 @@ export class RecordsController {
       recordId,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.auth?.agentId, // #1104
       ),
     );
   }
@@ -492,6 +508,8 @@ export class RecordsController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.membership, // #1070
+      req.auth?.agentId, // #1104
+      req.auth?.agentName,
       ),
     );
   }

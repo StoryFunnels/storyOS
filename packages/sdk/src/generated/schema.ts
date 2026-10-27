@@ -696,6 +696,42 @@ export interface paths {
         patch: operations["ActionGatesController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agent-write-gates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the gates that hold an agent's record create/update for approval (optionally for one agent) */
+        get: operations["AgentWriteGatesController_list"];
+        put?: never;
+        /** Gate an agent's record create and/or update for approval, optionally limited to one database and to named fields (a person who is an admin) */
+        post: operations["AgentWriteGatesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agent-write-gates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an agent write gate (a person who is an admin) */
+        delete: operations["AgentWriteGatesController_remove"];
+        options?: never;
+        head?: never;
+        /** Switch an agent write gate on or off (a person who is an admin) */
+        patch: operations["AgentWriteGatesController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/convert-to-members-relation": {
         parameters: {
             query?: never;
@@ -4954,6 +4990,17 @@ export interface components {
             enabled?: boolean;
             approver_id?: string;
         };
+        CreateAgentWriteGateDto: {
+            /** Format: uuid */
+            agent_id: string;
+            operations: ("create" | "update")[];
+            /** Format: uuid */
+            database_id?: string | null;
+            fields?: string[] | null;
+        };
+        UpdateAgentWriteGateDto: {
+            enabled?: boolean;
+        };
         ToMembersDto: {
             /** @default true */
             dry_run: boolean;
@@ -7993,6 +8040,88 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateGatePolicyDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWriteGatesController_list: {
+        parameters: {
+            query: {
+                agent_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWriteGatesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentWriteGateDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWriteGatesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWriteGatesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentWriteGateDto"];
             };
         };
         responses: {
