@@ -154,6 +154,27 @@ The check covers the view's filter at any depth (inside **and**/**or** groups) a
 a dashboard's tiles and widgets. A text filter whose value happens to be the word "me" is an
 ordinary value and is not affected.
 
+## Sorting by a choice field
+
+A **select**, **workflow** or **multi-select** field sorts by the order of its options, the order you
+set in **Edit field**. It is not alphabetical, and it is not arbitrary.
+
+- **The sort labels name the first and last option.** A Priority field with options Low, Medium, High,
+  Urgent reads **Low → Urgent** ascending and **Urgent → Low** descending, and a workflow reads
+  **Backlog → Done**. A choice field never says "A → Z". With fewer than two options there is nothing
+  to name, so it reads **Option order** and **Reverse option order**.
+- **A multi-select sorts by its first value.** The rank of the first option stored on the record
+  decides where it lands. Records with no value come last by default.
+- **The board uses the same order.** Its columns, when set to **Field order**, follow the same option
+  order as the sort, so changing the order moves both together.
+- **Options are numbered in Edit field and can be dragged.** Each option shows its position, with a
+  drag handle, and a line under the list says what the order means, for example *"Sorts Low → Urgent."*
+  The numbers appear only in that editor, never on records. Dragging an option changes the order for
+  every view that sorts or groups by the field.
+- **A view that sorts by a choice field may reorder once.** Before this was fixed, such a sort
+  followed an internal id and looked random. A saved view sorted by a choice field, especially one
+  whose options had tied positions, reorders to follow the option order. That is the fix, not a loss.
+
 ## Record ordering
 
 Manual order (table default and within-column kanban order) is stored as a fractional index per

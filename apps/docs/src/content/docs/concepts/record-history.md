@@ -152,14 +152,34 @@ history, not a workspace backup** — it won't bring back a deleted database; se
 ## Workspace-wide: the admin audit log
 
 Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the MCP
-`list_audit_log` tool) reads the **same** underlying data — admin-only, across every user and
-every record in the workspace, filterable by actor, by one entity, and by date range (default: the
-last 30 days).
+`list_audit_log` tool) reads the **same** underlying data, plus the events below. It is admin-only,
+across every user and every record in the workspace, and filterable by actor, by one entity (a record,
+space, database or view id), by event type, by the kind of actor (`source`: human, agent, automation
+or mcp), and by date range (default: the last 30 days).
 
-- **In the app: Settings → Audit log**, visible to admins only. Filter by **Actor**, by one record, and by a **From** / **To** date, and use **Load more** to page back. A non-admin who opens the address sees only "Only workspace admins can view the audit log", and the page makes no request for the data. It also reads from the same API and MCP tool above.
+- **In the app: Settings → Audit log**, visible to admins only. Filter by **Actor**, **Type**, a
+  **Record or object ID**, and a **From** / **To** date, and use **Load more** to page back. A
+  non-admin who opens the address sees only "Only workspace admins can view the audit log", and the
+  page makes no request for the data.
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
   whole page is built on.
-- **Known, stated gap: structural deletions aren't captured.** Deleting a database, a view, or a
-  space doesn't yet write a row here — only record-level create/update/delete/restore does. "Who
-  deleted this record" is answerable today; "who deleted this database" isn't yet, and that's a
-  named, separate piece of work, not an oversight quietly worked around.
+
+### Spaces, databases and views
+
+The log records **deleting, restoring, restricting and unrestricting** a space, a database or a view,
+whether it was done in the app, over the REST API or over MCP. The event types are
+`space`, `database` or `view` followed by `deleted`, `restored`, `restricted` or `unrestricted`, for
+example `database.deleted`. Pass them to the `type` filter as a comma list
+(`type=space.deleted,database.deleted`); the page's **Type** menu offers all activity, everything
+structural, deleted only, restored only, and restricted or opened to everyone.
+
+- **A row names the object and who did it**, with the same source badge as everywhere else (an
+  action made with a personal access token reads `mcp`).
+- **Deleting a space names the databases that went with it**, and restoring it names the ones that
+  came back.
+- **A repeated save of the same `restricted` value is not an event.** Only a change is recorded.
+- **A delete held for approval is logged when it is actually applied**, not when it is requested.
+- **Personal-space content is never logged.** A personal space or personal view writes no workspace
+  event, because it is private even from admins.
+- **There is no purge.** Spaces, databases and views are only ever soft-deleted and can be restored,
+  so there is no permanent-removal event to look for.

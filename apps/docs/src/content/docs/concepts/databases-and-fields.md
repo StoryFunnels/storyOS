@@ -112,7 +112,13 @@ Options for `select` / `multi_select` / `workflow` fields are **real rows with s
 inline strings. Records store option **ids**, which means:
 
 - Renaming an option is instant and O(1) — every record updates at once.
-- Kanban column order is just option order.
+- Kanban column order is just option order, and so is sort order: **one position per option** drives
+  the board's Field order, every sort by that field and every list of options. Positions are dense
+  (0 to n-1). Reorder them in **Edit field**, or over the API with
+  `POST /workspaces/{ws}/databases/{db}/fields/{field}/options/reorder` and
+  `{ "order": [optionId, ...] }` (MCP: `reorder_options`). The list must name **every** option exactly
+  once: a partial, duplicate or foreign id list is a `422` and nothing is written. It needs Creator
+  access on the database.
 - Deleting an option is an explicit, counted operation (with an optional "reassign to option X").
 
 **An option can carry an icon** (from a curated icon set, not a free-typed emoji) in addition to
