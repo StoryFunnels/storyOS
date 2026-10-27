@@ -70,6 +70,20 @@ export class SpaceDocumentsService {
     await this.access.assertSpace(membership, spaceId, min);
   }
 
+  /**
+   * ticket #1101 — a route keyed by the DOCUMENT's id: a space the caller cannot reach answers exactly as a document that does not exist
+   * ("Document not found"), never "Space not found", which says the document lives in a space that exists (ADR-0018 b). `create`/`list`
+   * are keyed by the space itself and keep `assertSpace`'s answer.
+   */
+  private async assertDocSpace(membership: Membership, spaceId: string, min: 'viewer' | 'editor') {
+    try {
+      await this.access.assertSpace(membership, spaceId, min);
+    } catch (e) {
+      if (e instanceof NotFoundException) throw new NotFoundException('Document not found');
+      throw e;
+    }
+  }
+
   private async row(workspaceId: string, docId: string) {
     const row = await this.db.query.spaceDocuments.findFirst({
       where: and(eq(spaceDocuments.id, docId), eq(spaceDocuments.workspaceId, workspaceId), isNull(spaceDocuments.deletedAt)),
@@ -120,7 +134,7 @@ export class SpaceDocumentsService {
 
   async get(membership: Membership, docId: string) {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    await this.assertDocSpace(membership, existing.spaceId, 'viewer');
     return this.project(existing);
   }
 
@@ -137,7 +151,7 @@ export class SpaceDocumentsService {
    */
   async exportMarkdown(membership: Membership, docId: string): Promise<{ title: string; markdown: string }> {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    await this.assertDocSpace(membership, existing.spaceId, 'viewer');
     const body = blocksToMarkdown(existing.content);
     const markdown = `# ${existing.title}\n\n${body}`.trim() + '\n';
     return { title: existing.title, markdown };
@@ -162,7 +176,7 @@ export class SpaceDocumentsService {
     docId: string,
   ): Promise<{ title: string; pdf: Buffer; skippedImages: number }> {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    await this.assertDocSpace(membership, existing.spaceId, 'viewer');
 
     let imageBytesLeft = MAX_PDF_IMAGE_BYTES;
     let inlinedImageChars = 0;
@@ -220,7 +234,7 @@ export class SpaceDocumentsService {
     },
   ) {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'editor');
+    await this.assertDocSpace(membership, existing.spaceId, 'editor');
     const patch: Partial<typeof spaceDocuments.$inferInsert> = {};
     if (input.folder_id !== undefined) {
       if (input.folder_id !== null) {
@@ -270,7 +284,7 @@ export class SpaceDocumentsService {
 
   async remove(membership: Membership, docId: string) {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'editor');
+    await this.assertDocSpace(membership, existing.spaceId, 'editor');
     await this.db.update(spaceDocuments).set({ deletedAt: new Date() }).where(eq(spaceDocuments.id, docId));
     return { deleted: docId };
   }
@@ -288,6 +302,7 @@ export class SpaceDocumentsService {
    */
   async moveToSpace(membership: Membership, docId: string, targetSpaceId: string, actorId: string) {
     const existing = await this.row(membership.workspaceId, docId);
+    await this.assertDocSpace(membership, existing.spaceId, 'editor');
     const source = await this.access.assertSpace(membership, existing.spaceId, 'editor');
     const target = await this.access.assertSpace(membership, targetSpaceId, 'editor');
     if (target.personal) {
@@ -328,7 +343,7 @@ export class SpaceDocumentsService {
    */
   async copyToPersonal(membership: Membership, docId: string, actorId: string) {
     const existing = await this.row(membership.workspaceId, docId);
-    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    await this.assertDocSpace(membership, existing.spaceId, 'viewer');
     const personalSpace = await this.spaces.getOrCreatePersonal(membership.workspaceId, actorId);
     const [last] = await this.db
       .select({ position: spaceDocuments.position })
