@@ -16,7 +16,7 @@ import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { CommentsService } from '../comments/comments.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
-import { SlackService } from '../integrations/slack.service';
+import { SlackService, escapeSlackText } from '../integrations/slack.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RecordsService } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
@@ -781,7 +781,7 @@ export class AutomationActionsService {
         };
       }
       case 'send_slack_message': {
-        const text = this.interpolate(action.text, ctx, displayToApi);
+        const text = this.interpolate(action.text, ctx, displayToApi, escapeSlackText);
         return {
           snapshot: { ...action, text },
           previewText: `Slack message${action.channel ? ` to ${action.channel}` : ''}: ${text.slice(0, 200)}`,
@@ -1321,7 +1321,9 @@ export class AutomationActionsService {
           });
         }
       } else if (action.type === 'send_slack_message') {
-        const text = this.interpolate(action.text, ctx, displayToApi);
+        // #1075 — the template is the automation author's mrkdwn and stays live; each substituted record value is user text, so it is
+        // escaped (a title of `<!channel>` must not ping the channel). Same escape as renderForApproval's snapshot above.
+        const text = this.interpolate(action.text, ctx, displayToApi, escapeSlackText);
         // External side-effect: don't let an unconfigured Slack or a network
         // blip roll back the triggering record write — record it and move on.
         try {
