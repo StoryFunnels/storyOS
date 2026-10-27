@@ -565,10 +565,19 @@ export class AutomationActionsService {
      */
     numeric?: { fields: ReadonlySet<string>; infos: FormulaFieldInfo[] },
   ): Record<string, unknown> {
+    const resolved = this.resolveTokens(values, ctx);
     const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(values)) {
+    for (const [key, value] of Object.entries(resolved)) {
       if (typeof value !== 'string') {
         out[key] = value;
+        continue;
+      }
+      // #1078 — a value resolveTokens() filled in ({payload.…}, {linked.…}, @me, @now) is DATA: a webhook body or
+      // another record's field, written by whoever controls that. Templating or formula-parsing it again let a payload
+      // of `{Salary}` copy a field the author never referenced, or `{Score} * 100` compute on this record. So it is
+      // taken as written; a number target only gets the literal read as a number.
+      if (value !== values[key]) {
+        out[key] = numeric?.fields.has(key) ? this.literalNumber(value, key) : value;
         continue;
       }
       if (numeric?.fields.has(key)) {
@@ -578,6 +587,15 @@ export class AutomationActionsService {
       out[key] = this.interpolate(value, ctx, displayToApi);
     }
     return out;
+  }
+
+  /** #1078 — a resolved token's text bound for a number field: a numeric literal or empty, never an expression. */
+  private literalNumber(value: string, fieldApiName: string): number | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) throw new Error(`"${fieldApiName}" expects a number and got "${trimmed.slice(0, 100)}"`);
+    return n;
   }
 
   /**
@@ -740,14 +758,14 @@ export class AutomationActionsService {
     switch (action.type) {
       case 'set_values': {
         // #339: same as create_record — every string value, not just `name`.
-        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
+        const values = this.interpolateValues(action.values, ctx, displayToApi);
         return {
           snapshot: { ...action, values },
           previewText: `Set ${Object.keys(values).join(', ') || 'no fields'} on "${ctx.record?.title ?? 'this record'}"`,
         };
       }
       case 'create_record': {
-        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
+        const values = this.interpolateValues(action.values, ctx, displayToApi);
         const named = typeof values.name === 'string' ? ` "${values.name}"` : '';
         // #230 — a gated create_record configured to upsert might actually
         // match and update (or skip) an existing record instead of creating
@@ -1066,7 +1084,7 @@ export class AutomationActionsService {
         const record = ctx.record!;
         // #339: every string value. #342: number targets are COMPUTED.
         const values = this.interpolateValues(
-          this.resolveTokens(action.values, ctx),
+          action.values,
           ctx,
           displayToApi,
           await this.numericContext(ctx.databaseId, ctx.databaseId),
@@ -1094,7 +1112,7 @@ export class AutomationActionsService {
         // only one of them would have made the preview honest and the write
         // still literal. #342: number targets are COMPUTED, not substituted.
         const values = this.interpolateValues(
-          this.resolveTokens(action.values, ctx),
+          action.values,
           ctx,
           displayToApi,
           await this.numericContext(ctx.databaseId, action.database_id),
@@ -1173,7 +1191,7 @@ export class AutomationActionsService {
           const itemCtx: ActionContext = { ...ctx, itemIndex: i + 1 };
           // #339: every string value, per item — so {index} and {changesSummary}
           // reach the batch's other fields, not only its name.
-          const values = this.interpolateValues(this.resolveTokens(action.values, itemCtx), itemCtx, displayToApi);
+          const values = this.interpolateValues(action.values, itemCtx, displayToApi);
           const created = await this.recordsService.create(
             ctx.workspaceId,
             action.database_id,

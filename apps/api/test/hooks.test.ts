@@ -295,3 +295,62 @@ describe('webhook_received rules (MN-254)', () => {
     expect(sawTooMany).toBe(true);
   });
 });
+
+/**
+ * #1078 — a whole-value {payload.…} token filled the field with the payload's text, and that text was then run through
+ * the template pass again (and, for a number field, the formula parser). So whoever can post to the hook decided which
+ * tokens and expressions the rule evaluated, not the rule's author. The resolved value is now taken as written.
+ */
+describe('webhook payload values are data, not templates (#1078)', () => {
+  let scoreDbId: string;
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    scoreDbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Scored leads' })).json().id;
+    await inject('POST', `/workspaces/${wsId}/databases/${scoreDbId}/fields`, { display_name: 'Score', type: 'number', config: {} });
+  });
+
+  async function runHook(values: Record<string, string>, payload: unknown) {
+    const rule = (
+      await inject('POST', `/workspaces/${wsId}/databases/${scoreDbId}/automations`, {
+        name: `t1078 ${Math.random()}`,
+        trigger: { type: 'webhook_received' },
+        actions: [{ type: 'create_record', database_id: scoreDbId, values }],
+      })
+    ).json();
+    const body = JSON.stringify(payload);
+    const res = await hook(wsSlug, rule.hookToken, body, sign(rule.hookSecret, body));
+    expect(res.statusCode, res.body).toBe(202);
+    await engine.settleHook(res.json().run_id);
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${scoreDbId}/automations/${rule.id}/runs`)).json();
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${scoreDbId}/records`)).json();
+    return { status: runs.data[0]?.status as string, records: records.data as Array<{ title: string; values: Record<string, unknown> }> };
+  }
+
+  it('a token inside a payload value is stored as text, not resolved against the payload', async () => {
+    const { status, records } = await runHook({ name: '{payload.name}' }, { name: 'Hi {payload.secret}', secret: 'LEAKED' });
+    expect(status).toBe('ok');
+    expect(records.some((r) => r.title === 'Hi {payload.secret}')).toBe(true);
+    expect(records.some((r) => r.title.includes('LEAKED'))).toBe(false);
+  });
+
+  it('an expression in a payload value is not computed into a number field', async () => {
+    const { status, records } = await runHook({ name: 'expr', score: '{payload.score}' }, { score: '6*7' });
+    expect(status).not.toBe('ok');
+    expect(records.some((r) => r.values.score === 42)).toBe(false);
+  });
+
+  it('a numeric payload value still lands in a number field, as a string or as a number', async () => {
+    const asText = await runHook({ name: 'text-num', score: '{payload.score}' }, { score: ' 17 ' });
+    expect(asText.status).toBe('ok');
+    expect(asText.records.find((r) => r.title === 'text-num')?.values.score).toBe(17);
+    const asNumber = await runHook({ name: 'real-num', score: '{payload.score}' }, { score: 23 });
+    expect(asNumber.status).toBe('ok');
+    expect(asNumber.records.find((r) => r.title === 'real-num')?.values.score).toBe(23);
+  });
+
+  it("the author's own expression on a number field still computes", async () => {
+    const { status, records } = await runHook({ name: 'authored', score: '6 * 7' }, {});
+    expect(status).toBe('ok');
+    expect(records.find((r) => r.title === 'authored')?.values.score).toBe(42);
+  });
+});
