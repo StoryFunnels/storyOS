@@ -139,6 +139,22 @@ describe('CommentsService — mention email send point (MN-103)', () => {
     expect(slackPosts[0]).toContain('/r/r1?comment=c1');
   });
 
+  it('#1075 — name, title and comment text reach Slack as literal text; only StoryOS\'s own record link stays a link', async () => {
+    const { service, slackPosts } = buildService({
+      mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
+      recordTitle: '<!here> Q&A',
+      authorName: '<@U999>',
+      slackConfigured: true,
+    });
+    await callNotifyMentions(service, 'r1', 'author1', [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }], '<!channel> see <https://evil.example|Click here>');
+    expect(slackPosts).toHaveLength(1);
+    const text = slackPosts[0]!;
+    expect(text).toContain('*&lt;@U999&gt;* mentioned you on *&lt;!here&gt; Q&amp;A*');
+    expect(text).toContain('> &lt;!channel&gt; see &lt;https://evil.example|Click here&gt;');
+    // Exactly one control sequence is left in the message: the deep link StoryOS builds itself.
+    expect(text.match(/<[^>]*>/g)).toEqual([expect.stringMatching(/^<https?:\/\/[^|]+\/r\/r1\?comment=c1\|Open in StoryOS>$/)]);
+  });
+
   it('never fails the comment when Slack is not configured (#268)', async () => {
     const { service, sent, slackPosts } = buildService({
       mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],

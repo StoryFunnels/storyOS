@@ -56,6 +56,16 @@ export function slackWebhookUrlProblem(raw: string): string | null {
   return null;
 }
 
+/**
+ * #1075 — make user-controlled text literal inside a Slack `text` (mrkdwn). Slack reads `<...>` as a control sequence
+ * (`<!channel>`, `<@U123>`, `<https://x|label>`), so a comment, title or name carrying one pinged the channel or showed a
+ * disguised link as the StoryOS bot. Slack's escaping rule is exactly these three characters, `&` first:
+ * https://api.slack.com/reference/surfaces/formatting#escaping. Text StoryOS writes itself (its own `<url|label>`) stays raw.
+ */
+export function escapeSlackText(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 const POST_MESSAGE_URL = 'https://slack.com/api/chat.postMessage';
 
 /**

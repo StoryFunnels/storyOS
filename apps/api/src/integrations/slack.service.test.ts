@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const lookupMock = vi.fn();
 vi.mock('node:dns/promises', () => ({ lookup: (...args: unknown[]) => lookupMock(...args) }));
 import type { Db } from '../db/client';
-import { SlackService, slackWebhookUrlProblem, type SlackFetcher } from './slack.service';
+import { SlackService, escapeSlackText, slackWebhookUrlProblem, type SlackFetcher } from './slack.service';
 
 beforeEach(() => {
   lookupMock.mockReset();
@@ -191,5 +191,22 @@ describe('#1034 the Slack webhook URL is a public https URL, and nothing the rem
     lookupMock.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
     const service = new SlackService(dbWithSlack({ webhook_url: 'https://hooks.example.com/services/T/B/x' }));
     await expect(service.sendMessage('ws1', { text: 'hi' })).rejects.toThrow(/resolves to private address 10\.0\.0\.5/);
+  });
+});
+
+describe('escapeSlackText (#1075)', () => {
+  it('turns every Slack control sequence into literal text', () => {
+    expect(escapeSlackText('<!channel> hi')).toBe('&lt;!channel&gt; hi');
+    expect(escapeSlackText('<https://evil.example|Click here>')).toBe('&lt;https://evil.example|Click here&gt;');
+    expect(escapeSlackText('<@U123> <#C1>')).toBe('&lt;@U123&gt; &lt;#C1&gt;');
+  });
+
+  it('escapes & first, so text that already looks like an entity stays literal too', () => {
+    expect(escapeSlackText('Q&A &lt;!here&gt;')).toBe('Q&amp;A &amp;lt;!here&amp;gt;');
+  });
+
+  it('leaves everything else alone, including mrkdwn characters Slack has no escape for', () => {
+    expect(escapeSlackText('Launch plan *v2* _draft_ ~old~ `x` 💬')).toBe('Launch plan *v2* _draft_ ~old~ `x` 💬');
+    expect(escapeSlackText('')).toBe('');
   });
 });

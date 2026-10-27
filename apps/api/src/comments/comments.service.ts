@@ -15,7 +15,7 @@ import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
-import { SlackService } from '../integrations/slack.service';
+import { SlackService, escapeSlackText } from '../integrations/slack.service';
 import { AccessService } from '../access/access.service';
 import { commentDeepLink, commentMentionIds, isBlocknoteCommentBody, renderCommentText, truncateForPreview } from './comment-render';
 
@@ -356,9 +356,10 @@ export class CommentsService {
     // and we swallow it — a comment must never fail because Slack is down/unset.
     // #880: a channel's membership is not ours to know, so a record of a restricted database (or space) is never mirrored to it.
     if (record?.databaseId && (await this.access.isClosedToSomeMembers(workspaceId, record.databaseId))) return;
+    // #1075 — the name, title and excerpt are user text: escaped, so `<!channel>` or `<https://evil|Click>` arrives as literal text.
     const slackText =
-      `💬 *${author?.name ?? 'Someone'}* mentioned you on *${record?.title ?? 'a record'}*\n` +
-      `> ${excerpt}\n<${commentDeepLink(env().WEB_URL, recordId, commentId)}|Open in StoryOS>`;
+      `💬 *${escapeSlackText(author?.name ?? 'Someone')}* mentioned you on *${escapeSlackText(record?.title ?? 'a record')}*\n` +
+      `> ${escapeSlackText(excerpt)}\n<${commentDeepLink(env().WEB_URL, recordId, commentId)}|Open in StoryOS>`;
     await this.slackService.sendMessage(workspaceId, { text: slackText }).catch(() => undefined);
   }
 
