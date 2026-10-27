@@ -163,6 +163,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; `human_gate: true` makes it stage its action for a person to approve. |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
+| `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |
 | `test_automation` / `get_automation_last_payload` | Dry-run a rule against one record before trusting it (no side effects unless you pass an `action_index`); the latest payload a webhook-triggered rule received. |
 
 ## Conveniences

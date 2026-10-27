@@ -3145,7 +3145,13 @@ export class RecordsService {
       ),
       columns: { id: true },
     });
-    if (!record) throw new NotFoundException('Record not found');
+    if (!record) {
+      // ticket #1098 / ADR-0018 (b) — a record that is not there, in a database the caller cannot read at all, is answered as the
+      // DATABASE not being there: "Record not found" would tell them the database exists (the same absent-record request against a
+      // database id that does not exist says "Database not found"). A caller who can read the database still hears "Record not found".
+      if ((await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
+      throw new NotFoundException('Record not found');
+    }
     const effective = await this.access.effectiveForRecord(membership, {
       id: recordId,
       databaseId: database.id,
