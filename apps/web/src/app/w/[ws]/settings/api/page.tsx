@@ -11,6 +11,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { confirmRevokeToken } from '@/lib/settings-confirmations';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
 
@@ -59,16 +60,17 @@ export default function ApiSettingsPage() {
   async function onRevoke(token: Token) {
     // A token from another workspace is somebody's automation, not this
     // workspace's — name both, because revoke is immediate and unrecoverable.
-    if (token.workspace_id !== currentId) {
-      const owner = workspaceLabel(token.workspace_id, workspaces.data);
-      const ok = await confirm({
-        title: `Revoke “${token.name}”?`,
-        message: `This token belongs to ${owner}, not ${currentName}. Anything using it stops working immediately, and it cannot be recovered — you would have to create a new token and update wherever it was used.`,
-        confirmLabel: 'Revoke token',
-        danger: true,
-      });
-      if (!ok) return;
-    }
+    // #1093 — a token of THIS workspace asks too (it used to revoke on one click); another workspace's token keeps its longer sentence.
+    const ok =
+      token.workspace_id !== currentId
+        ? await confirm({
+            title: `Revoke “${token.name}”?`,
+            message: `This token belongs to ${workspaceLabel(token.workspace_id, workspaces.data)}, not ${currentName}. Anything using it stops working immediately, and it cannot be recovered — you would have to create a new token and update wherever it was used.`,
+            confirmLabel: 'Revoke token',
+            danger: true,
+          })
+        : await confirm(confirmRevokeToken(token.name, currentName));
+    if (!ok) return;
     revoke.mutate(token.id);
   }
 

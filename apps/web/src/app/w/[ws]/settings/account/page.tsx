@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DELETE_ACCOUNT_BLOCKER, DELETE_ACCOUNT_CONSEQUENCES, ERASE_ME_BODY, emailConfirmMatches } from '@/lib/erase-account';
 import { Input } from '@/components/ui/input';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { confirmRemovePhoto, confirmRevokeSession } from '@/lib/settings-confirmations';
 import { Label } from '@/components/ui/label';
 
 /** Downscale to a 256px cover-crop PNG before upload (matches account-menu.tsx). */
@@ -94,7 +96,10 @@ function PhotoSection({
     }
   }
 
+  const confirm = useConfirm();
+
   async function remove() {
+    if (!(await confirm(confirmRemovePhoto()))) return;
     await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
     setOverride(null);
     onChange();
@@ -246,6 +251,7 @@ interface SessionRow {
 
 function SessionsSection({ currentToken }: { currentToken: string }) {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const fmt = useDateFormat();
   const sessions = useQuery({
     queryKey: ['auth-sessions'],
@@ -288,7 +294,13 @@ function SessionsSection({ currentToken }: { currentToken: string }) {
                 </p>
               </div>
               {!isCurrent && (
-                <Button variant="ghost" size="sm" onClick={() => revoke.mutate(s.token)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    if (await confirm(confirmRevokeSession(describeAgent(s.userAgent), s.ipAddress || 'unknown IP'))) revoke.mutate(s.token);
+                  }}
+                >
                   Revoke
                 </Button>
               )}
