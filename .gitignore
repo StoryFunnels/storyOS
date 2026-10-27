@@ -39,3 +39,7 @@ sbom.cdx.json
 # agent UAT environment (#460), which uploads a few hundred files — fills this
 # with binary blobs. They are workspace data, not source.
 apps/api/data/
+
+# Local corepack shim dir (symlinks into a machine-local path). It was committed by
+# accident once (ticket #1100) and broke every other checkout.
+.tmp-pm-bin/
