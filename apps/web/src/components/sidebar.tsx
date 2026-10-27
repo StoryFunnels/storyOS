@@ -67,6 +67,7 @@ import { SidebarAiSection } from '@/components/sidebar-ai-section';
 import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
+import { markNewDocument } from '@/lib/new-doc-focus';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -1355,6 +1356,7 @@ function SpaceSection({
     },
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] });
+      markNewDocument(d.id);
       router.push(`/w/${ws}/doc/${d.id}`);
     },
     onError: () => toast.error('Could not create document'),
