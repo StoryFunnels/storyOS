@@ -291,6 +291,36 @@ describe('Approve / Request changes / Comment (#43 AC 4)', () => {
   });
 });
 
+describe('only the repos the admin connected (#1073)', () => {
+  // The token (App installation or admin PAT) usually reaches more than
+  // `config.repos`; nothing outside that list may be read or written through it.
+  it('403s every route for a repo not in config.repos, without calling GitHub', async () => {
+    sent.length = 0;
+    const base = `/workspaces/${wsId}/integrations/github/reviews/acme/secret/7`;
+    const calls: Array<[string, string, unknown?]> = [
+      ['GET', base],
+      ['POST', `${base}/comments`, { path: 'a.ts', line: 1, side: 'RIGHT', body: 'x' }],
+      ['POST', `${base}/comments/1/replies`, { body: 'x' }],
+      ['POST', `${base}/comments/1/reactions`, { content: '+1' }],
+      ['POST', `${base}/comments/sync`],
+      ['POST', `${base}/reviews`, { event: 'APPROVE' }],
+    ];
+    for (const [method, url, payload] of calls) {
+      const res = await as(method, url, payload);
+      expect(res.statusCode, `${method} ${url}: ${res.body}`).toBe(403);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it('matches a configured repo case-insensitively and calls GitHub with the configured spelling', async () => {
+    sent.length = 0;
+    const res = await as('GET', `/workspaces/${wsId}/integrations/github/reviews/ACME/Site/42`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().repo).toBe('acme/site');
+    expect(sent[0]!.url).toBe('https://api.github.com/repos/acme/site/pulls/42');
+  });
+});
+
 describe('Code & reviews settings (#43 AC 5)', () => {
   it('defaults enabled, squash, auto theme/font', async () => {
     const res = await as('GET', `/workspaces/${wsId}/integrations/github/review-settings`);
