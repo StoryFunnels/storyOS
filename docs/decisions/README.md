@@ -40,3 +40,4 @@ Decisions we don't relitigate. If you want to change one, open a new ADR that su
 - [ADR-0016 — Tyron: the conversational agent runtime](ADR-0016-tyron-conversational-runtime.md)
 - [ADR-0017 — Members: workspace people as a projected system database](ADR-0017-members-people-model.md)
 - [ADR-0019 — Per-viewer state: one primitive for overlays](ADR-0019-per-viewer-state.md)
+- [ADR-0020 — Multi-source boards: one column set, per-source mapping](ADR-0020-multi-source-boards.md)
