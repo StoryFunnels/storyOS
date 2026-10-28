@@ -28,8 +28,10 @@ export function noValueLabelFor(groupType: string | undefined): string {
  * list only while grouping is on, because an ungrouped list has nothing to configure here (the
  * way to START grouping a list is Display → Group by).
  */
-export function showsGroupChip(viewType: string | undefined, config: Pick<ViewConfig, 'group_by_field_id'>): boolean {
-  return viewType === 'board' || (viewType === 'list' && Boolean(config.group_by_field_id));
+export function showsGroupChip(viewType: string | undefined): boolean {
+  // #1114 — a list offers Group beside Filter and Sort at all times: the control to START grouping
+  // must not hide until grouping is on (#964 had it appear only while grouped).
+  return viewType === 'board' || viewType === 'list';
 }
 
 const ROW =
@@ -92,23 +94,19 @@ export function GroupChip({
             None {!config.group_by_field_id && <Check className="h-3.5 w-3.5 text-accent-text" />}
           </button>
         )}
-        {fields.map((f) => {
-          const reason = reasonFor(f);
+        {/* Only the fields that can group this view, by name — a list of greyed-out
+            rows each carrying a sentence of explanation was a wall, not a choice. */}
+        {fields.filter((f) => reasonFor(f) === null).map((f) => {
           return (
             <button
               key={f.id}
               type="button"
-              disabled={reason !== null}
-              title={reason ?? undefined}
               className={ROW}
               onClick={() =>
                 onPatch(groupingPatch({ viewType, config, fieldId: f.id, isDateField: f.type === 'date' }))
               }
             >
-              <span className="min-w-0 flex-1 truncate">
-                {f.displayName}
-                {reason ? <span className="text-muted"> — {reason}</span> : null}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{f.displayName}</span>
               {config.group_by_field_id === f.id && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
             </button>
           );
