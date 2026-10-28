@@ -8,7 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { DESTRUCTIVE_TOAST_MS, pushUndo } from '@/lib/undo';
@@ -312,8 +312,12 @@ export function useRecordsInfinite(
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     // #620 — while any visible row has an AI recompute in flight (the API's `:pending_at` marker), re-read the pages so a
     // "computing" cell passes to "computed" without a reload. Stops by itself the moment no marker is left.
-    refetchInterval: (query) =>
-      query.state.data?.pages.some((pg) => pg.data.some((r) => recordHasPendingAi(r))) ? AI_POLL_MS : false,
+    // #1115 — a refetch of an infinite query replays EVERY loaded page, and a grouped view now loads them
+    // all, so the interval stretches with the page count: the poll stays at one page-request per AI_POLL_MS.
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? [];
+      return pages.some((pg) => pg.data.some((r) => recordHasPendingAi(r))) ? AI_POLL_MS * Math.max(1, pages.length) : false;
+    },
     // #306 — a space-level dashboard has no database until a tile names one, so
     // `db` can legitimately be empty. useDatabase already guards this way; this
     // one did not, and an empty id would POST to /databases//records/query.
@@ -614,4 +618,20 @@ export function useRecordMutations(ws: string, db: string) {
   });
 
   return { updateRecord, createRecord, deleteRecord };
+}
+
+/** #1115 — a grouped view is a census, not a feed: a group that shows 1 of its 65 rows
+ * misleads (#755's lower-bound label), so while a view is grouped the pages keep coming
+ * until the last one — capped, so a runaway database cannot pin the tab. */
+export const ALL_PAGES_CAP = 20;
+/** Whether a grouped view asks for its next page now: only while grouped, only while a page remains, one request at a time, and never past the cap. */
+export function shouldLoadNextPage(s: { enabled: boolean; hasNextPage: boolean; isFetchingNextPage: boolean; pages: number }): boolean {
+  return s.enabled && s.hasNextPage && !s.isFetchingNextPage && s.pages < ALL_PAGES_CAP;
+}
+export function useAllPages(records: ReturnType<typeof useRecordsInfinite>, enabled: boolean): void {
+  const pages = records.data?.pages.length ?? 0;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
+  useEffect(() => {
+    if (shouldLoadNextPage({ enabled, hasNextPage, isFetchingNextPage, pages })) void fetchNextPage();
+  }, [enabled, hasNextPage, isFetchingNextPage, pages, fetchNextPage]);
 }
