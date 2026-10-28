@@ -103,25 +103,42 @@ describe('Linear importer (MN-066)', () => {
     expect((eng1.values.labels ?? []).map((c: { title: string }) => c.title)).toEqual(['bug']);
   });
 
-  it('#957: the Projects State is a select of Linear\'s own project states, and a state the list lacks is ADDED, not dropped', async () => {
+  it('#957 / #1113: the Projects State is a select of Linear\'s project states under the names Linear shows, and a state the list lacks is ADDED, not dropped', async () => {
     const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
     const projectsDb = dbs.find((d: { name: string }) => d.name === 'Projects');
     const detail = async () => (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}`)).json();
     const stateField = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
     expect(stateField.type).toBe('select');
-    expect(stateField.options.map((o: { label: string }) => o.label)).toEqual(['backlog', 'planned', 'started', 'paused', 'completed', 'canceled']);
+    expect(stateField.options.map((o: { label: string }) => o.label)).toEqual(['Backlog', 'Planned', 'In Progress', 'Paused', 'Completed', 'Canceled']);
+    expect(stateField.options.map((o: { category?: string }) => o.category)).toEqual(['backlog', 'unstarted', 'started', 'started', 'completed', 'canceled']);
+    expect(stateField.options.map((o: { color: string }) => o.color), '#1113: Linear\'s own palette').toEqual(['gray', 'blue', 'gold', 'orange', 'green', 'red']);
     const project = async () => (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}/records?limit=50`)).json().data[0];
-    expect((await project()).values.state, 'the project value is its option id, not the label').toBe(stateField.options.find((o: { label: string }) => o.label === 'started').id);
+    expect((await project()).values.state, 'the project value is its option id, not the label').toBe(stateField.options.find((o: { label: string }) => o.label === 'In Progress').id);
 
     // A person converted a text State into a choice and the list lacks a state Linear now reports: the sync adds it.
-    const started = stateField.options.find((o: { label: string }) => o.label === 'started');
+    const started = stateField.options.find((o: { label: string }) => o.label === 'In Progress');
     const del = await inject('DELETE', `/workspaces/${wsId}/databases/${projectsDb.id}/fields/${stateField.id}/options/${started.id}`, { confirm: true });
     expect(del.statusCode, del.body).toBe(200);
     expect((await inject('POST', `/workspaces/${wsId}/integrations/linear/sync`)).statusCode).toBe(201);
     const after = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
-    const readded = after.options.find((o: { label: string }) => o.label === 'started');
-    expect(readded, 'the missing state was added back').toBeTruthy();
+    const readded = after.options.find((o: { label: string }) => o.label === 'In Progress');
+    expect(readded, 'the missing state was added back, under the name Linear shows').toBeTruthy();
     expect((await project()).values.state).toBe(readded.id);
+  });
+
+  it('#1113: a Projects database imported before the display names (option still called "started") keeps matching, and nothing is added', async () => {
+    const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
+    const projectsDb = dbs.find((d: { name: string }) => d.name === 'Projects');
+    const detail = async () => (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}`)).json();
+    const before = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
+    const inProgress = before.options.find((o: { label: string }) => o.label === 'In Progress');
+    const renamed = await inject('PATCH', `/workspaces/${wsId}/databases/${projectsDb.id}/fields/${before.id}/options/${inProgress.id}`, { label: 'started' });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect((await inject('POST', `/workspaces/${wsId}/integrations/linear/sync`)).statusCode).toBe(201);
+    const after = (await detail()).fields.find((f: { apiName: string }) => f.apiName === 'state');
+    expect(after.options.map((o: { label: string }) => o.label).sort()).toEqual([...before.options.map((o: { label: string }) => (o.label === 'In Progress' ? 'started' : o.label))].sort());
+    const project = (await inject('GET', `/workspaces/${wsId}/databases/${projectsDb.id}/records?limit=50`)).json().data[0];
+    expect(project.values.state, 'the project still points at the option under its old raw name').toBe(inProgress.id);
   });
 
   it('imports labels as their own database with colors + issue relations (MN-078)', async () => {
@@ -157,7 +174,7 @@ describe('Linear importer (MN-066)', () => {
   it('re-import never clobbers a description edited in StoryOS', async () => {
     const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
     const issuesDb = dbs.find((d: { name: string }) => d.name === 'Issues');
-    let list = (await inject('GET', `/workspaces/${wsId}/databases/${issuesDb.id}/records?limit=50`)).json();
+    const list = (await inject('GET', `/workspaces/${wsId}/databases/${issuesDb.id}/records?limit=50`)).json();
     const eng1 = list.data.find((r: { title: string }) => r.title === 'Share dialog loses focus');
 
     // user edits the description

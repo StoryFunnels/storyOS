@@ -346,9 +346,15 @@ const PROJECT_STATES = ['backlog', 'planned', 'started', 'paused', 'completed', 
 const PROJECT_STATE_CATEGORY: Record<(typeof PROJECT_STATES)[number], StateCategory> = {
   backlog: 'backlog', planned: 'unstarted', started: 'started', paused: 'started', completed: 'completed', canceled: 'canceled',
 };
+/** #1113 — Linear's own palette for these states (in progress yellow, paused orange, completed green), so an imported Projects list reads like Linear's; was green / gold / brown. */
 const PROJECT_STATE_COLOR: Record<(typeof PROJECT_STATES)[number], string> = {
-  backlog: 'gray', planned: 'blue', started: 'green', paused: 'gold', completed: 'brown', canceled: 'red',
+  backlog: 'gray', planned: 'blue', started: 'gold', paused: 'orange', completed: 'green', canceled: 'red',
 };
+/** #1113 — the option's label is the name Linear SHOWS for the state ('started' reads "In Progress"), so a grouped list reads like Linear's. Lookups accept the raw name too, for databases imported before this. */
+const PROJECT_STATE_LABEL: Record<(typeof PROJECT_STATES)[number], string> = {
+  backlog: 'Backlog', planned: 'Planned', started: 'In Progress', paused: 'Paused', completed: 'Completed', canceled: 'Canceled',
+};
+const projectStateLabel = (state: string): string => PROJECT_STATE_LABEL[state as keyof typeof PROJECT_STATE_LABEL] ?? state;
 
 /**
  * #904 — the option whose name IS the Linear status. There is no type fallback and no 'Backlog' default: an issue whose
@@ -729,7 +735,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     });
     for (const f of [
       // #957: Linear's project states are a fixed set, so State is a select, not free text. The names are Linear's own.
-      { display_name: 'State', type: 'select' as const, config: {}, options: PROJECT_STATES.map((st) => ({ label: st, color: PROJECT_STATE_COLOR[st], category: PROJECT_STATE_CATEGORY[st] })) },
+      { display_name: 'State', type: 'select' as const, config: {}, options: PROJECT_STATES.map((st) => ({ label: PROJECT_STATE_LABEL[st], color: PROJECT_STATE_COLOR[st], category: PROJECT_STATE_CATEGORY[st] })) },
       { display_name: 'Target Date', type: 'date' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
       { display_name: 'Linear ID', type: 'text' as const, config: {} },
@@ -1242,10 +1248,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     if (field.type !== 'select' && field.type !== 'workflow') return async (state) => state;
     const options = await this.selectLabelMap(projectsDbId, 'state');
     return async (state) => {
-      const known = pickOption(options, state);
+      const known = pickOption(options, projectStateLabel(state)) ?? pickOption(options, state);
       if (known) return known;
       const color = PROJECT_STATE_COLOR[state as keyof typeof PROJECT_STATE_COLOR] ?? 'gray';
-      const created = await this.fields.addOption(projectsDbId, field.id, { label: state, color, category: PROJECT_STATE_CATEGORY[state as keyof typeof PROJECT_STATE_CATEGORY] });
+      const created = await this.fields.addOption(projectsDbId, field.id, { label: projectStateLabel(state), color, category: PROJECT_STATE_CATEGORY[state as keyof typeof PROJECT_STATE_CATEGORY] });
       options.set(created.label, created.id);
       return created.id;
     };
