@@ -13,19 +13,23 @@
 # db.dump, unpacks attachments.tgz into the clone's volume, then runs
 # verify-restore.sh. Add --keep to leave the clone running for manual poking;
 # by default the clone (and its volumes) are torn down on exit.
+#
+# It never restores into the live project. Recovering production is a different
+# job with its own steps: "Real recovery" in docs/backup-restore.md.
 set -euo pipefail
 
-BACKUP_DIR="${1:?usage: restore.sh <backup-dir> [--project <name>] [--keep] [--force]}"
+BACKUP_DIR="${1:?usage: restore.sh <backup-dir> [--project <name>] [--keep]}"
 shift || true
 RESTORE_PROJECT="storyos_restore"
-LIVE_PROJECT="${COMPOSE_PROJECT_NAME:-storyos}"
 KEEP=0
-FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) RESTORE_PROJECT="${2:?}"; shift 2 ;;
     --keep)    KEEP=1; shift ;;
-    --force)   FORCE=1; shift ;;
+    # #1023 — --force used to let a rehearsal target the live project, whose
+    # teardown (`down -v`, on success AND on failure) then deleted the live
+    # database volume. There is no safe meaning for it, so it is gone.
+    --force)   echo "--force was removed (#1023): restore.sh only rehearses into an isolated clone. To recover production, follow 'Real recovery' in docs/backup-restore.md." >&2; exit 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -39,30 +43,50 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/manifest.sh"
 ATTACHMENTS_VOLUME="${RESTORE_PROJECT}_storyos_attachments"
 
+# Every name the live stack can be running under, as Compose resolves it: the
+# COMPOSE_PROJECT_NAME env var, the one in .env, and docker-compose.yml's own
+# `name: storyos`. Compose lowercases project names, so compare lowercased.
+LIVE_PROJECTS=("${COMPOSE_PROJECT_NAME:-}" storyos)
+if [ -f "$REPO_ROOT/.env" ]; then
+  env_name="$(sed -n 's/^[[:space:]]*COMPOSE_PROJECT_NAME[[:space:]]*=[[:space:]]*//p' "$REPO_ROOT/.env" | tail -n 1 | tr -d "\"'\r")"
+  LIVE_PROJECTS+=("$env_name")
+fi
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+is_live() {
+  local name
+  for name in "${LIVE_PROJECTS[@]}"; do
+    [ -n "$name" ] && [ "$(lower "$1")" = "$(lower "$name")" ] && return 0
+  done
+  return 1
+}
+
 log() { printf '\033[1;34m[restore]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[restore] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ -f "$BACKUP_DIR/db.dump" ] || die "no db.dump in $BACKUP_DIR"
 [ -f "$BACKUP_DIR/manifest.env" ] || die "no manifest.env in $BACKUP_DIR — not a StoryOS recovery point"
 
-# Safety: never let a rehearsal clobber the live stack (#322 requirement).
-if [ "$RESTORE_PROJECT" = "$LIVE_PROJECT" ] && [ "$FORCE" -ne 1 ]; then
-  die "refusing to restore into the LIVE project '$LIVE_PROJECT'. Use a different --project (default storyos_restore), or --force to override."
+# Safety: never let a rehearsal clobber the live stack (#322 requirement, no override since #1023).
+if is_live "$RESTORE_PROJECT"; then
+  die "refusing to restore into the LIVE project '$RESTORE_PROJECT'. Use a different --project (default storyos_restore). To recover production, follow 'Real recovery' in docs/backup-restore.md."
 fi
 
 dc() { docker compose -p "$RESTORE_PROJECT" "$@"; }
 
 cleanup() {
-  if [ "$KEEP" -eq 1 ]; then
+  # #1023 — `down -v` deletes the project's volumes, its database included. The
+  # check above already refuses the live project; this keeps the teardown safe
+  # even if a later change opens another way in.
+  if is_live "$RESTORE_PROJECT"; then
+    log "not tearing down '$RESTORE_PROJECT': it is the live project"
+  elif [ "$KEEP" -eq 1 ]; then
     log "clone left running as project '$RESTORE_PROJECT' (--keep). Tear down with: docker compose -p $RESTORE_PROJECT down -v"
   else
     log "tearing down clone '$RESTORE_PROJECT' (and its volumes)"
     dc down -v >/dev/null 2>&1 || true
     # The attachments volume is made by `docker run` below, not by compose, so
-    # `down -v` leaves it behind — with real customer files in it. Never the live one.
-    if [ "$RESTORE_PROJECT" != "$LIVE_PROJECT" ]; then
-      docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
-    fi
+    # `down -v` leaves it behind — with real customer files in it.
+    docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -120,9 +144,8 @@ if [ -s "$BACKUP_DIR/attachments.tgz" ] && [ "${STORAGE_DRIVER:-local}" != "s3" 
   log "restoring attachments into volume '$ATTACHMENTS_VOLUME'"
   # Start from an EMPTY clone volume: files left by an earlier rehearsal would let
   # verify-restore.sh's "every attachment has a file" pass for a backup that lacks them.
-  if [ "$RESTORE_PROJECT" != "$LIVE_PROJECT" ]; then
-    docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
-  fi
+  # (Never the live project's volume: that project is refused above.)
+  docker volume rm "$ATTACHMENTS_VOLUME" >/dev/null 2>&1 || true
   docker run --rm -v "$ATTACHMENTS_VOLUME":/data -v "$(cd "$BACKUP_DIR" && pwd)":/in:ro alpine \
     sh -c 'cd /data && tar xzf /in/attachments.tgz' || die "attachments unpack failed"
 fi
