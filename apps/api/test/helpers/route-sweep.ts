@@ -62,12 +62,14 @@ export interface IdSweepOptions {
   param: string;
   real: string[];
   fixed?: Record<string, string>;
+  /** ids for OTHER params, used on the hidden side only (the absent side keeps ABSENT): the real child ids inside the hidden resource. */
+  hiddenExtra?: Record<string, string>;
   bodies?: Array<Record<string, unknown>>;
 }
 
 /** One route, one caller: the answer for each real (hidden) id must equal the answer for an id that does not exist. */
 export async function compareRoute(o: IdSweepOptions): Promise<{ calls: number; leaks: string[] }> {
-  const { app, ws, token, route, param, real, fixed = {} } = o;
+  const { app, ws, token, route, param, real, fixed = {}, hiddenExtra = {} } = o;
   // DELETE too: `DELETE /relations/:rel` demands `{confirm:true}`, and a body-less call is refused by validation for BOTH ids, hiding the leak
   const writes = route.method !== 'GET';
   // a few GETs demand a query param (select-drift: record_id) and are refused identically for both ids without it
@@ -77,7 +79,7 @@ export async function compareRoute(o: IdSweepOptions): Promise<{ calls: number; 
   for (const body of writes ? o.bodies ?? BODIES : [undefined]) {
     const absent = await call(app, token, route.method, fill(ws, route.path, { ...fixed, [param]: ABSENT }) + q, body);
     for (const id of real) {
-      const hidden = await call(app, token, route.method, fill(ws, route.path, { ...fixed, [param]: id }) + q, body);
+      const hidden = await call(app, token, route.method, fill(ws, route.path, { ...fixed, ...hiddenExtra, [param]: id }) + q, body);
       calls++;
       // A per-route throttle answers 429 once earlier comparisons used its budget: not an answer about the id.
       if (hidden.statusCode === 429 || absent.statusCode === 429) continue;

@@ -3229,6 +3229,10 @@ export class RecordsService {
       databaseId: database.id,
       spaceId: database.spaceId,
     });
+    // ticket #1117 — the same rule for a record that DOES exist: a caller with no reach to the record AND none to its database (a guest
+    // granted a different database in the space, or a member without a grant on a restricted one) hears "Database not found", exactly
+    // what the same request against a database id that does not exist says. "Record not found" here confirmed the record exists.
+    if (effective === null && (await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
     this.access.assertRank(effective, min, 'Record');
   }
 

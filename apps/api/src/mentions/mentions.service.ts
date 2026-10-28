@@ -220,6 +220,9 @@ export class MentionsService {
       databaseId: database.id,
       spaceId: database.spaceId,
     });
+    // ticket #1117 — same rule for a record that exists (see RecordsService.assertRecordAccess): no reach to it AND none to its database
+    // is "Database not found", what a database id that does not exist says.
+    if (effective === null && (await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
     this.access.assertRank(effective, 'viewer', 'Record');
   }
 
