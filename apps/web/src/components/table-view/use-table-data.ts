@@ -3,6 +3,7 @@
 import type { StateCategory } from '@storyos/schemas';
 import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -298,6 +299,8 @@ export function useRecordsInfinite(
   return useInfiniteQuery({
     queryKey: [...recordsKey(ws, db), body],
     initialPageParam: undefined as string | undefined,
+    // #1116 — a new sort or filter is a new query; the rows already on screen stay until its first page lands, so the view never blanks and refills.
+    placeholderData: keepPreviousData,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/query',
