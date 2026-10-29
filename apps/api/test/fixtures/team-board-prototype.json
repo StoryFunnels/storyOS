@@ -1,0 +1,37 @@
+{
+  "_source": "dara-prototype-latest.html (md5 aaf479fb735332387ec89758d6c4b747): the PACKS row for 'team-board', PACK_WHY, PACK_ONTO and PACK_ITEMS['team-board'], transcribed. Frozen so 'the pack is the prototype' is a comparison, not a memory.",
+  "name": "Team Board",
+  "summary": "A shared board your team works from on day one: To Do, In Progress, Done, with owners, due dates and labels already there.",
+  "space": "Team",
+  "samples": 3,
+  "why": "Your team needs one place to see who is doing what this week.",
+  "can": [
+    "Drag a task from To Do to Done, and everyone sees it move",
+    "Open “Assigned to me” to see only your own work",
+    "Assign a task and the person is told straight away"
+  ],
+  "workflow": { "database": "Tasks", "field": "Status", "stages": [["To Do"], ["In Progress"], ["Done"]] },
+  "databases": {
+    "Tasks": { "fields": ["Status", "Assignee", "Due date", "Labels", "Project", "Sub-tasks"] },
+    "Projects": { "fields": ["Owner", "Target date", "Tasks"] }
+  },
+  "map": [
+    { "from": "Tasks", "to": "Projects" },
+    { "from": "Tasks", "to": "Tasks", "to_field": "Sub-tasks" }
+  ],
+  "states": [
+    { "label": "To Do", "category": "unstarted" },
+    { "label": "In Progress", "category": "started" },
+    { "label": "Done", "category": "completed" }
+  ],
+  "views": [
+    { "name": "Board", "database": "Tasks", "grouped_by": "Status", "opens": true },
+    { "name": "Assigned to me", "database": "Tasks", "only_mine": true }
+  ],
+  "automations": [{ "name": "Tell the assignee", "database": "Tasks", "notifies": "Assignee" }],
+  "sample_cards": [
+    { "title": "Drag me to In Progress", "status": "To Do" },
+    { "title": "Open me and set a due date", "status": "To Do" },
+    { "title": "Assign me to someone", "status": "To Do" }
+  ]
+}

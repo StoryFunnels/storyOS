@@ -70,5 +70,13 @@
       "Get told when a ticket’s status changes",
       "Let the Triage agent suggest a type and priority"
     ]
+  },
+  "team-board": {
+    "why": "Your team needs one place to see who is doing what this week.",
+    "can": [
+      "Drag a task from To Do to Done, and everyone sees it move",
+      "Open “Assigned to me” to see only your own work",
+      "Assign a task and the person is told straight away"
+    ]
   }
 }

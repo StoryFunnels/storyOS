@@ -2536,6 +2536,12 @@ export class PacksService {
         membership.userId,
       );
       result.views.push({ name: label, action: 'created', id: created.id });
+      // #1146 — the view a pack's database opens on. Only when this install made the database (a reused one keeps its default) and only
+      // when this install made the view (an existing view is never re-pointed). `ViewsService.setDefault` is the one place the
+      // "exactly one default per database" rule lives.
+      if (planned.default && result.databases.some((d) => norm(d.name) === norm(planned.database) && d.action === 'created')) {
+        await this.views.setDefault(dbId, created.id);
+      }
       hashes.set(
         `view:${created.id}`,
         this.hashOf({ name: targetName, type: planned.type, config }),
