@@ -127,6 +127,7 @@ export default defineConfig({
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Webhooks', slug: 'guides/webhooks' },
             { label: 'Run your work with an agent team', slug: 'guides/agent-team' },
+            { label: 'Writing a pack manifest', slug: 'guides/pack-manifest' },
             { label: 'Connecting GitHub', slug: 'guides/github' },
             { label: 'Sources', slug: 'guides/sources' },
             { label: 'Copying a record into another database', slug: 'guides/copy-record' },
