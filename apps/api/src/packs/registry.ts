@@ -39,6 +39,12 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
       slug: 'support-inbox',
       name: 'Support Inbox',
       version: '1.0.0',
+      why: 'People send you problems and you need to make sure none get lost.',
+      can: [
+        'Move every ticket from New to Done on a board',
+        'Get told when a ticket’s status changes',
+        'Let the Triage agent suggest a type and priority',
+      ],
       summary: 'A lightweight support ticket tracker with a workflow, a board view and a triage agent.',
       scenario: 'pack',
       requires: { connections: ['email'], ai: 'byo' },

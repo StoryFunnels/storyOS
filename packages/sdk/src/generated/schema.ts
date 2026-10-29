@@ -6912,6 +6912,8 @@ export interface components {
             /** @default Exported workspace slice */
             summary: string;
             upgrade_notes?: string;
+            why?: string;
+            can?: string[];
             /** @default All rights reserved */
             license: string;
             attribution?: string;
