@@ -1,0 +1,86 @@
+{
+  "_source": "dara-prototype-latest.html (md5 65afe5b05611ec32e4fe9448dae8958b, v50, 29 Oct 17:58): the PACKS row for 'dev-tracker', PACK_WHY, PACK_ONTO and PACK_ITEMS['dev-tracker'], transcribed; plus Dara's answers on ticket #1148 (16:58): Specs is out, Projects is in, the four views and their filters, the state/priority options copied from apps/api/src/integrations/linear.service.ts (PROJECT_STATE_*, the Priority options of the Issues database). Frozen so 'the pack is the prototype' is a comparison, not a memory. The prototype gives no sample-card TITLES, only their count and states; the titles are the builder's (see sample_cards).",
+  "name": "Dev Tracker",
+  "summary": "Issues that land in Triage, a board of active work, My issues, projects, sprints and releases: shaped like the Linear importer, so a team moving from Linear lands somewhere familiar.",
+  "space": "Product",
+  "samples": 4,
+  "why": "You build software and want bugs and features in one queue, next to the rest of your work.",
+  "can": [
+    "Drop in a bug and it lands in Triage for someone to sort",
+    "Put issues into projects and sprints, the way Linear does",
+    "Ship a release, and its page becomes the changelog"
+  ],
+  "counts": { "databases": 4, "views": 4, "automations": 1, "agents": 1 },
+  "workflow": {
+    "database": "Issues",
+    "field": "State",
+    "stages": [["Triage"], ["Backlog"], ["To Do"], ["In Progress"], ["In Review"], ["Done"], ["Canceled"]]
+  },
+  "databases": {
+    "Issues": { "fields": ["State", "Priority", "Assignee", "Labels", "Estimate", "Due date", "Project", "Sprint", "Release", "Parent issue", "Sub-issues"] },
+    "Projects": { "fields": ["State", "Lead", "Target date", "Issues"] },
+    "Sprints": { "fields": ["Number", "Start date", "End date", "Issues"] },
+    "Releases": { "fields": ["Status", "Release date", "Issues"] }
+  },
+  "map": [
+    { "from": "Issues", "to": "Projects", "to_field": "Issues" },
+    { "from": "Issues", "to": "Sprints", "to_field": "Issues" },
+    { "from": "Issues", "to": "Releases", "to_field": "Issues" },
+    { "from": "Issues", "to": "Issues", "to_field": "Sub-issues" }
+  ],
+  "states": {
+    "Issues.State": [
+      { "label": "Triage", "color": "gray", "category": "backlog" },
+      { "label": "Backlog", "color": "gray", "category": "backlog" },
+      { "label": "To Do", "color": "blue", "category": "unstarted" },
+      { "label": "In Progress", "color": "gold", "category": "started" },
+      { "label": "In Review", "color": "purple", "category": "started" },
+      { "label": "Done", "color": "green", "category": "completed" },
+      { "label": "Canceled", "color": "red", "category": "canceled" }
+    ],
+    "Projects.State": [
+      { "label": "Backlog", "color": "gray", "category": "backlog" },
+      { "label": "Planned", "color": "blue", "category": "unstarted" },
+      { "label": "In Progress", "color": "gold", "category": "started" },
+      { "label": "Paused", "color": "orange", "category": "started" },
+      { "label": "Completed", "color": "green", "category": "completed" },
+      { "label": "Canceled", "color": "red", "category": "canceled" }
+    ],
+    "Releases.Status": [
+      { "label": "Planned", "color": "gray", "category": "unstarted" },
+      { "label": "Released", "color": "green", "category": "completed" }
+    ]
+  },
+  "priority": [
+    { "label": "Urgent", "color": "red" },
+    { "label": "High", "color": "gold" },
+    { "label": "Medium", "color": "blue" },
+    { "label": "Low", "color": "gray" }
+  ],
+  "labels": ["Bug", "Feature", "Improvement"],
+  "views": [
+    { "name": "Active", "database": "Issues", "type": "board", "grouped_by": "State", "opens": true, "shows_states": ["To Do", "In Progress", "In Review"] },
+    { "name": "My issues", "database": "Issues", "type": "table", "grouped_by": "State", "only_mine": true, "hides_states": ["Done", "Canceled"] },
+    { "name": "Triage", "database": "Issues", "type": "table", "shows_states": ["Triage"], "newest_first": true },
+    { "name": "Projects", "database": "Projects", "type": "board", "grouped_by": "State" }
+  ],
+  "automations": [
+    { "name": "Tell the assignee", "database": "Issues", "notifies": "Assignee" }
+  ],
+  "agent": {
+    "name": "Triage",
+    "database": "Issues",
+    "ai_mode": "your_own_ai",
+    "suggests": ["Labels", "Priority"],
+    "never_suggests": ["Type"],
+    "flags": "a likely duplicate",
+    "gate": { "operations": ["update"], "database": "Issues" },
+    "fires_on_state": "Triage"
+  },
+  "sample_cards": [
+    { "title": "Triage me: set a priority, then move me out of Triage", "state": "Triage", "mine": false },
+    { "title": "Drag me to In Progress", "state": "To Do", "mine": true },
+    { "title": "Open me and add a project", "state": "In Progress", "mine": false },
+    { "title": "Move me to Done when you have checked me", "state": "In Review", "mine": false }
+  ]
+}
