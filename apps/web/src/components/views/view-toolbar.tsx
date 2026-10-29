@@ -78,6 +78,7 @@ import {
 import { DatePicker } from '@/components/ui/date-picker';
 import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
+import { MenuSelect } from '@/components/ui/menu-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
@@ -2568,7 +2569,9 @@ export function SortButton({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !sortDrag.activeId) {
+      // #1118 — a field/direction menu open inside this panel (Radix) has already claimed this Escape to close
+      // itself (defaultPrevented); the panel stays open under it, as it did when those were native selects.
+      if (e.key === 'Escape' && !sortDrag.activeId && !e.defaultPrevented) {
         // #834 — claim it, so the record behind this popover does not also close.
         e.preventDefault();
         setOpen(false);
@@ -2808,27 +2811,24 @@ function SortRow({
         </span>
         <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>
         <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
-        <select
-          className="h-[25px] w-20 shrink-0 truncate rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink"
+        {/* #1118 — the product's own menu (MenuSelect, #1114), not the browser's native select. */}
+        <MenuSelect
+          label="Sort field"
+          className="min-w-0 max-w-none flex-1"
           value={sort.field}
-          onChange={(e) => onChange({ ...sort, field: e.target.value })}
-          aria-label="Sort field"
-        >
-          {options.map((f) => (
-            <option key={f.id} value={f.apiName}>
-              {f.displayName}
-            </option>
-          ))}
-        </select>
-        <select
-          className="h-[25px] min-w-0 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-muted"
+          onChange={(v) => onChange({ ...sort, field: v })}
+          options={options.map((f) => ({ value: f.apiName, label: f.displayName }))}
+        />
+        <MenuSelect
+          label="Sort direction"
+          className="min-w-0 max-w-none flex-1"
           value={sort.direction}
-          onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
-          aria-label="Sort direction"
-        >
-          <option value="asc">{directionLabel(field?.type ?? 'text', 'asc', field?.options)}</option>
-          <option value="desc">{directionLabel(field?.type ?? 'text', 'desc', field?.options)}</option>
-        </select>
+          onChange={(v) => onChange({ ...sort, direction: v as 'asc' | 'desc' })}
+          options={[
+            { value: 'asc', label: directionLabel(field?.type ?? 'text', 'asc', field?.options) },
+            { value: 'desc', label: directionLabel(field?.type ?? 'text', 'desc', field?.options) },
+          ]}
+        />
         <button
           type="button"
           onClick={() => onMove(-1)}
