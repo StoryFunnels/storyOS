@@ -34,6 +34,15 @@ import type { ViewMenuHandlers, ViewMenuTarget } from './view-menu';
 import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
+import {
+  RELATIVE_DATE_KINDS,
+  buildRelativeDate,
+  describeRelativeDateCondition,
+  kindOf,
+  parseRelativeDate,
+  splitKind,
+} from './relative-date';
+import type { RelativeDateKind } from './relative-date';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -855,6 +864,18 @@ export function FilterValueEditor({
     );
   }
   if (activeOp.input === 'date') {
+    // #1155 — `before`/`after` also take a RELATIVE date ("90 days ago"); `on`/`is not` take a day, never a token (the API refuses it).
+    if (condition.op === 'before' || condition.op === 'after') {
+      return (
+        <DateOperandEditor
+          key={condition.op}
+          value={condition.value == null ? null : String(condition.value)}
+          boxed={boxed}
+          fill={fill}
+          onChange={(v) => onChange({ ...condition, value: v ?? '' })}
+        />
+      );
+    }
     return (
       <DateFilterInput
         value={condition.value == null ? null : String(condition.value)}
@@ -1040,7 +1061,7 @@ function DateFilterInput({
         className={cn(boxed, !value && 'text-muted', fill && 'flex items-center justify-between gap-2 text-left')}
         onClick={() => setEditing((v) => !v)}
       >
-        <span className="truncate">{value ? value.slice(0, 10) : fill ? 'Pick a date…' : 'pick date…'}</span>
+        <span className="truncate">{value ? (/^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value) : fill ? 'Pick a date…' : 'pick date…'}</span>
         {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
       </button>
       {editing && (
@@ -1057,11 +1078,104 @@ function DateFilterInput({
   );
 }
 
+/**
+ * #1155 — the value of a `before`/`after` date condition: an exact date (the app's own picker, as before) OR a relative one
+ * ("90 days ago", "3 weeks from now"), which is stored as the API's `$date:-90d` token and so keeps meaning "90 days before today"
+ * as the days pass. One select picks the kind; the control beside it is the date button or the amount. Both render through the same
+ * `boxed` look as the selects in the row (the caller's class), and the stored value is the only state that outlives the control —
+ * `kind`/`amount` are the mid-edit draft: a blank or invalid amount stores '' (an unfinished condition, dashed, never applied)
+ * rather than keeping a stale token the person can no longer see.
+ */
+function DateOperandEditor({
+  value,
+  boxed,
+  fill = false,
+  onChange,
+}: {
+  value: string | null;
+  boxed: string;
+  fill?: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const parsed = parseRelativeDate(value);
+  const [kind, setKind] = useState<RelativeDateKind>(kindOf(parsed));
+  const [amount, setAmount] = useState(parsed ? String(parsed.amount) : '');
+  // The stored value changed under us (undo, a reloaded view): adopt it. A token this control wrote itself is skipped — adopting it would
+  // re-read "14 days" as "2 weeks" under the person's fingers while they are still typing "140".
+  useEffect(() => {
+    const own = splitKind(kind);
+    if (own && value && value === buildRelativeDate(amount === '' ? NaN : Number(amount), own.unit, own.direction)) return;
+    const next = parseRelativeDate(value);
+    if (next) {
+      setKind(kindOf(next));
+      setAmount(String(next.amount));
+    } else if (value) {
+      setKind('date');
+    }
+  }, [value]);
+
+  const parts = splitKind(kind);
+  function commit(nextKind: RelativeDateKind, nextAmount: string) {
+    const p = splitKind(nextKind);
+    if (!p) return;
+    const n = nextAmount.trim() === '' ? NaN : Number(nextAmount);
+    onChange(buildRelativeDate(n, p.unit, p.direction));
+  }
+
+  return (
+    <span className={cn('flex min-w-0 items-center gap-1', fill ? 'w-full' : 'inline-flex')}>
+      <select
+        aria-label="Date kind"
+        className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : 'shrink-0'))}
+        value={kind}
+        onChange={(e) => {
+          const next = e.target.value as RelativeDateKind;
+          setKind(next);
+          if (next === 'date') {
+            onChange('');
+          } else {
+            // Keep a typed amount across a unit switch; start blank (unfinished) rather than inventing a number.
+            commit(next, amount);
+          }
+        }}
+      >
+        {RELATIVE_DATE_KINDS.map((k) => (
+          <option key={k.kind} value={k.kind}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {parts ? (
+        <input
+          aria-label="Amount"
+          // First in the line, so it reads "3 | days from now" — the number the person is here to type leads.
+          className={cn(boxed, 'order-first', fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
+          inputMode="numeric"
+          placeholder="N"
+          value={amount}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+            setAmount(digits);
+            commit(kind, digits);
+          }}
+        />
+      ) : (
+        <DateFilterInput
+          value={parsed ? null : value}
+          boxed={boxed}
+          fill={fill}
+          onChange={(v) => onChange(v ?? '')}
+        />
+      )}
+    </span>
+  );
+}
+
 /** Default, human-readable description of a condition — e.g. "State is none of
  * Done" — used as the pinned-chip label and the "Edit name" placeholder until the
  * user sets a custom one. Relation values aren't resolved here (that needs an
  * async title lookup — RecordPicker does that); they render as a count instead. */
-function describeCondition(
+export function describeCondition(
   field: Field,
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
@@ -1102,6 +1216,9 @@ function describeCondition(
   if (activeOp.input === 'relative') {
     return `${field.displayName} ${activeOp.label} ${String(condition.value ?? '').replaceAll('_', ' ')}`;
   }
+  // #1155 — a relative date reads in words: "Last reviewed more than 90 days ago", never "before $date:-90d".
+  const relative = activeOp.input === 'date' ? describeRelativeDateCondition(condition.op, condition.value) : null;
+  if (relative) return `${field.displayName} ${relative}`;
   const v = String(condition.value ?? '').trim();
   return v ? `${field.displayName} ${activeOp.label} ${v}` : `${field.displayName} ${activeOp.label}`;
 }
@@ -1948,6 +2065,9 @@ function ConditionRow({
   const defaultLabel = describeCondition(field, condition, members);
   const unfinished = isIncompleteCondition(condition) && !condition.disabled;
   const chipSet = usesChipSet(field, activeOp, members);
+  // #1155 — a `before`/`after` date value is a kind select + an amount or a date: too wide for the room beside the operator, so (like
+  // the phone layout) it takes its own line under the rule. Per OPERATOR, never per mode, so switching "exact date" / "days ago" does not move the row.
+  const wideValue = activeOp.input === 'date' && (condition.op === 'before' || condition.op === 'after');
   const dim = condition.disabled ? 'opacity-45' : '';
   // Inside a group the row is narrower, so its two selects give up width to the value.
   const nested = path.length > 1;
@@ -2005,7 +2125,7 @@ function ConditionRow({
           ))}
         </select>
         {/* A chip set renders UNDER the rule, so the value slot collapses to a spacer and the actions stay on the line. */}
-        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
+        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', wideValue ? 'order-4 basis-full' : 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
           <FilterValueEditor
             field={field}
             members={members}
@@ -2017,7 +2137,7 @@ function ConditionRow({
             unfinished={unfinished}
           />
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-px max-md:order-3">
+        <div className={cn('ml-auto flex shrink-0 items-center gap-px max-md:order-3', wideValue && 'order-3')}>
           {/*
             #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
             looks identical to an enabled one is SILENT WRONGNESS - the user
