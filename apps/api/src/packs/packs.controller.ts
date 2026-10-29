@@ -89,6 +89,19 @@ export class PacksRegistryController {
       const { manifest, ...card } = entry;
       return {
         ...card,
+        // #1145: why the pack exists and what a person can do with it, from the manifest. Absent on a pack that
+        // declares none (never invented here); the built-in gallery's test insists every built-in declares both.
+        why: manifest.why ?? null,
+        can: manifest.can ?? [],
+        // #1145: how the pack's databases link (from → to), so the web draws the database map instead of hard-coding it.
+        // The manifest's own rows, self-relations included (Tasks → Tasks is a real relation).
+        relations: manifest.relations.map((r) => ({
+          from: r.from,
+          to: r.to,
+          cardinality: r.cardinality,
+          from_field: r.from_field,
+          to_field: r.to_field,
+        })),
         // #824: the hero is the workflow, read from the pack's own manifest.
         workflow: packWorkflow(entry),
         // #824: the two marks that replaced boilerplate highlight copy. Derived from

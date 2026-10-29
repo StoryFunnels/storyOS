@@ -394,6 +394,8 @@ export class PacksService {
       name: request.name,
       version: request.version,
       upgrade_notes: request.upgrade_notes,
+      why: request.why,
+      can: request.can,
       summary: request.summary,
       license: request.license,
       attribution: request.attribution,
