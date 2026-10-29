@@ -175,6 +175,30 @@ describe('#1146 a real install creates everything the prototype shows', () => {
     expect(got.values[open.apiName] ?? got.computed_values?.[open.id] ?? got.computed_values?.[open.apiName]).toBe(2);
   });
 
+  it('Open tasks says "category is not completed or canceled", so a completed state added to Status LATER is not counted as open (ticket #1154)', async () => {
+    const ws = await newWs();
+    expect((await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest })).statusCode).toBe(201);
+    const projects = await detail(ws, 'Projects');
+    const tasks = await detail(ws, 'Tasks');
+    const open = projects.fields.find((f) => f.displayName === 'Open tasks')!;
+    const filter = (open.config as { filter: unknown }).filter;
+    expect(filter).toEqual({ field: 'status', op: 'category_is_not', value: ['completed', 'canceled'] });
+    const status = tasks.fields.find((f) => f.displayName === 'Status')!;
+    const proj = (await as('POST', `/workspaces/${ws}/databases/${projects.id}/records`, { values: { name: 'Later state' } })).json() as { id: string };
+    const mk = (name: string, st: string) => as('POST', `/workspaces/${ws}/databases/${tasks.id}/records`, { values: { name, status: st, project: [proj.id] } });
+    const todo = status.options!.find((o) => o.label === 'To Do')!.id;
+    // someone adds a second completed state AFTER the install
+    const added = (await as('POST', `/workspaces/${ws}/databases/${tasks.id}/fields/${status.id}/options`, { label: 'Shipped', color: 'purple', category: 'completed' })).json() as { id: string };
+    for (const [n, st] of [['a', todo], ['b', todo], ['c', added.id], ['d', added.id]] as const) expect((await mk(n, st)).statusCode).toBe(201);
+    let got: unknown;
+    for (let i = 0; i < 60 && got !== 2; i++) {
+      const rec = (await as('GET', `/workspaces/${ws}/databases/${projects.id}/records/${proj.id}`)).json() as { values: Record<string, unknown> };
+      got = rec.values[open.apiName];
+      if (got !== 2) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(got).toBe(2); // the two To Do tasks; the two Shipped ones are finished (the old option-list filter said 4)
+  });
+
   it('creates the automation switched on, aimed at Assignee', async () => {
     expect(result.automations.map((a) => `${a.name}:${a.action}`)).toEqual(['Tasks.Tell the assignee:created', 'Tasks.Tell the assignee of a new task:created']);
     expect(result.automations.every((a) => a.enabled === true)).toBe(true);

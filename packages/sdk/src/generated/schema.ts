@@ -5150,7 +5150,7 @@ export interface components {
         QueryRecordsDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -5205,7 +5205,7 @@ export interface components {
         AggregateRecordsDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -5229,7 +5229,7 @@ export interface components {
         GroupedAggregateRecordsDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -5431,7 +5431,7 @@ export interface components {
         CreateValidationRuleDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -5458,7 +5458,7 @@ export interface components {
         UpdateValidationRuleDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -6164,7 +6164,7 @@ export interface components {
         CreateViewDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -6367,7 +6367,7 @@ export interface components {
         CreatePersonalViewDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -6568,7 +6568,7 @@ export interface components {
         UpdateViewDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
@@ -6776,7 +6776,7 @@ export interface components {
         SetPersonalFilterDto__schema0: {
             field: string;
             /** @enum {string} */
-            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
             value?: unknown;
             disabled?: boolean;
             pinned?: boolean;
