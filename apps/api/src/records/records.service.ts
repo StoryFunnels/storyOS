@@ -74,6 +74,9 @@ import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { RUNTIME_OWNED_RUN_FIELDS, isAgentRuntimeWrite } from './runtime-owned-fields';
 import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
+import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
+import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
+import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
 // #434 — type only (erased at compile time): RecordsService does not take a
 // runtime dependency on CommentsService, so this can't create the module
 // cycle a value import would (comments.module.ts already imports records).
@@ -170,7 +173,70 @@ export class RecordsService {
     /** #231 — validation rules, evaluated INSIDE the write's own transaction (createBatch, update,
      *  restoreVersion) so a failing rule aborts it and every writer is covered by construction. */
     private readonly validation: ValidationEnforcer,
+    /** #1104 — the per-agent create/update gate, checked INSIDE create/update for the same reason as the delete gate:
+     *  REST, MCP and the run executor all arrive here, so no route can forget it. */
+    private readonly agentWriteGates: AgentWriteGatesService,
   ) {}
+
+  /**
+   * #1104 — hold a gated agent's create/update for approval instead of performing it.
+   *
+   * Applies only to `source === 'agent'` with a known agent (the token's agent id, or the run executor's acting agent);
+   * a person, an MCP client and an automation never reach the gate service. Skipped for the write a person just approved
+   * (asApprovedAgentWrite), which would otherwise be held again forever. Throws WriteHeldForApprovalException (the API
+   * answers 202); callers that run many writes (batchUpdate, the run executor) catch it.
+   */
+  private async holdIfAgentGated(
+    workspaceId: string,
+    databaseId: string,
+    operation: AgentWriteOperation,
+    source: ChangeSource,
+    agentId: string | undefined,
+    agentName: string | undefined,
+    actorId: string | null,
+    recordId: string | null,
+    inputs: Array<Record<string, unknown>>,
+  ): Promise<void> {
+    if (source !== 'agent' || isApprovedAgentWrite()) return;
+    const acting = agentId ? { agentId, agentName: agentName ?? '' } : currentActingAgent();
+    if (!acting) return;
+    const result = await this.agentWriteGates.check({
+      workspaceId,
+      databaseId,
+      operation,
+      source,
+      agentId: acting.agentId,
+      agentName: acting.agentName,
+      requesterActorId: actorId,
+      recordId,
+      inputs,
+    });
+    if (result.held) throw new WriteHeldForApprovalException(result.approvalId, result.message);
+  }
+
+  /**
+   * #1104 — for writes that cannot be staged as plain values (a duplicate, a version restore, a bulk job): when a gate
+   * would hold them, refuse with a clear 422 instead of letting them go through. Refusing is the safe direction; the agent
+   * is told to make the change as an ordinary create/update, which is held and shown to the approver in full.
+   */
+  async refuseIfAgentGated(
+    workspaceId: string,
+    databaseId: string,
+    operation: AgentWriteOperation,
+    source: ChangeSource,
+    agentId: string | undefined,
+    what: string,
+  ): Promise<void> {
+    if (source !== 'agent' || isApprovedAgentWrite()) return;
+    const acting = agentId ?? currentActingAgent()?.agentId;
+    if (!acting) return;
+    const gates = await this.agentWriteGates.matching(workspaceId, acting, databaseId, operation, 'all');
+    if (gates.length > 0) {
+      throw new UnprocessableEntityException(
+        `${what} is not available to this agent: its ${operation}s on this database need a person's approval, and this operation cannot be shown to the approver as a single write. Make the change with an ordinary ${operation}, which is held for approval.`,
+      );
+    }
+  }
 
   /**
    * #31 — days of history this workspace keeps. `0` means the feature is OFF
@@ -2651,7 +2717,10 @@ export class RecordsService {
     recordId: string,
     actorId: string,
     source: ChangeSource = 'human',
+    /** #1104 — see refuseIfAgentGated. */
+    agentId?: string,
   ): Promise<ProjectedRecord> {
+    await this.refuseIfAgentGated(workspaceId, databaseId, 'create', source, agentId, 'Duplicating a record');
     const src = await this.get(databaseId, recordId);
     const defs = await this.fieldDefs(databaseId);
     const SKIP = new Set([
@@ -2941,6 +3010,9 @@ export class RecordsService {
       withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
+    // #1104 — a gated agent's create is staged, never written. After validation (an invalid write is a 422 now, not an
+    // approval that can never apply) and before anything is inserted. The RAW inputs are staged: approval re-runs this path.
+    await this.holdIfAgentGated(workspaceId, databaseId, 'create', source, agentId, agentName, actorId, null, inputs);
     // #229 — before any record is inserted, same "resolve everything up front" shape as linkPlans below.
     await this.assertUniqueValuesOrThrow(
       databaseId,
@@ -3145,12 +3217,22 @@ export class RecordsService {
       ),
       columns: { id: true },
     });
-    if (!record) throw new NotFoundException('Record not found');
+    if (!record) {
+      // ticket #1098 / ADR-0018 (b) — a record that is not there, in a database the caller cannot read at all, is answered as the
+      // DATABASE not being there: "Record not found" would tell them the database exists (the same absent-record request against a
+      // database id that does not exist says "Database not found"). A caller who can read the database still hears "Record not found".
+      if ((await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
+      throw new NotFoundException('Record not found');
+    }
     const effective = await this.access.effectiveForRecord(membership, {
       id: recordId,
       databaseId: database.id,
       spaceId: database.spaceId,
     });
+    // ticket #1117 — the same rule for a record that DOES exist: a caller with no reach to the record AND none to its database (a guest
+    // granted a different database in the space, or a member without a grant on a restricted one) hears "Database not found", exactly
+    // what the same request against a database id that does not exist says. "Record not found" here confirmed the record exists.
+    if (effective === null && (await this.access.effectiveForDatabase(membership, database)) === null) throw new NotFoundException('Database not found');
     this.access.assertRank(effective, min, 'Record');
   }
 
@@ -3260,6 +3342,9 @@ export class RecordsService {
       defs,
       await this.resolveUserInputs(workspaceId, defs, input, actorId),
     );
+    // #1104 — a gated agent's update is staged, never written (see holdIfAgentGated). The RAW patch is staged, so an
+    // approval re-runs this whole path: validation, links, rules and history all apply at approval time as they would now.
+    await this.holdIfAgentGated(workspaceId, databaseId, 'update', source, agentId, agentName, actorId, recordId, [input]);
     /*
      * #391 — an attachment value may only point at files already on THIS record
      * and THIS field. Checked before the transaction, for the same reason link
@@ -3969,6 +4054,7 @@ export class RecordsService {
     agentId?: string,
     agentName?: string,
   ): Promise<ProjectedRecord> {
+    await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });
@@ -4092,8 +4178,15 @@ export class RecordsService {
     source: ChangeSource = 'human',
     /** #1070 — see createBatch's `options.membership`. */
     membership?: Membership,
+    /** #1104 — the acting agent: a drop that carries `values` is an UPDATE, so a gated agent's is held like any other. */
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
     await this.getRow(databaseId, recordId);
+    // #1104 — decided BEFORE the reposition below writes anything: a held drop must not move the card and then report "held".
+    if (input.values && Object.keys(input.values).length > 0) {
+      await this.holdIfAgentGated(workspaceId, databaseId, 'update', source, agentId, agentName, actorId, recordId, [input.values]);
+    }
 
     // #499 — a board grouped by a read-only-for-grouping field (text/lookup)
     // renders cards in columns but a drag can never change which one: the
@@ -4169,7 +4262,7 @@ export class RecordsService {
     }
 
     if (input.values && Object.keys(input.values).length > 0) {
-      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source, undefined, undefined, membership);
+      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source, agentId, agentName, membership);
     }
     return this.get(databaseId, recordId);
   }
@@ -4381,14 +4474,19 @@ export class RecordsService {
     source: ChangeSource = 'human',
     /** #1070 — see createBatch's `options.membership`. */
     membership?: Membership,
+    /** #1104 — the acting agent, so a gated agent's batch is held per record rather than slipping past the gate. */
+    agentId?: string,
+    agentName?: string,
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
+    // #1104 — records whose update a per-agent gate staged for approval: neither updated nor failed.
+    const held: Array<{ record_id: string; approval_id: string }> = [];
     const restorable: Array<{ record_id: string; version_id: string }> = [];
     let updated = 0;
     for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
       for (const recordId of batch) {
         try {
-          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source, undefined, undefined, membership);
+          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source, agentId, agentName, membership);
           updated++;
           // The version row (if any) was just committed inside update()'s own
           // transaction — a no-op patch (value already equal) creates none,
@@ -4401,6 +4499,10 @@ export class RecordsService {
             .limit(1);
           if (version) restorable.push({ record_id: recordId, version_id: version.id });
         } catch (error) {
+          if (error instanceof WriteHeldForApprovalException) {
+            held.push({ record_id: recordId, approval_id: error.approvalId });
+            continue;
+          }
           failed.push({
             record_id: recordId,
             message: error instanceof Error ? (error as { message: string }).message : 'failed',
@@ -4408,7 +4510,7 @@ export class RecordsService {
         }
       }
     }
-    return { updated, failed, restorable };
+    return { updated, failed, restorable, held };
   }
 
   /**
@@ -4427,13 +4529,16 @@ export class RecordsService {
     restorable: Array<{ record_id: string; version_id: string }>,
     actorId: string,
     source: ChangeSource = 'human',
+    /** #1104 — so a gated agent cannot undo its way around its gate (restoreVersion refuses it). */
+    agentId?: string,
+    agentName?: string,
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
     let restored = 0;
     for (const batch of chunk(restorable, RecordsService.BULK_OP_CHUNK_SIZE)) {
       for (const { record_id: recordId, version_id: versionId } of batch) {
         try {
-          await this.restoreVersion(workspaceId, databaseId, recordId, versionId, actorId, source);
+          await this.restoreVersion(workspaceId, databaseId, recordId, versionId, actorId, source, agentId, agentName);
           restored++;
         } catch (error) {
           failed.push({

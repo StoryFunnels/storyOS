@@ -133,6 +133,17 @@ refused, naming the existing one, rather than letting two "status" columns drift
 other. Reach for a plain `select` for any other list of choices; reach for Workflow specifically
 for the one field a view, an automation, or an agent should treat as *the* state of a record.
 
+### What a new Workflow field starts with
+
+Add a Workflow field without listing any options (in the add-field dialog, over the API, or with the
+MCP `add_field` tool) and it is created with three: **To do**, **In progress** and **Done**, coloured
+gray, blue and green, in the state categories *unstarted*, *started* and *completed*.
+
+- **Options you give are used exactly as given.** Nothing is added to your list, and an empty list
+  counts as giving none.
+- **A plain `select` field still starts empty.** The three defaults apply to the Workflow type only.
+- **Workflow fields that already exist are not changed.** The defaults apply when a field is created.
+
 ### Finding the status columns you already have
 
 Workspaces that predate the Workflow field usually have a plain select called "Status" in several
@@ -209,15 +220,55 @@ actually stays true over time:
   options are still local drafts without ids to point a default at. Configure the options first,
   save the field, then set the default from Edit.
 
+  **A workflow field with no default starts at its first state.** A record created without a value
+  for a Workflow (status) field gets the field's configured default, or else its **first** option in
+  the field's own order, so a new record is on a board column and in a queue from the moment it
+  exists. That holds on every way of creating a record: the app, REST, MCP, forms, CSV import and
+  automations. The rules:
+  - **A plain select is not filled.** An empty Priority or Type is a legitimate answer; an empty
+    State is not.
+  - **Passing a value is respected, including an explicit empty one.** Leaving the field out of the
+    request is what triggers the default; sending the field as `null` keeps it empty. In a batch
+    each record decides for itself.
+  - **Existing records are not changed**, and neither is a record you later edit. Changing the
+    default afterwards doesn't touch records that were already empty.
+  - A workflow field with no options has nothing to default to, and the record is still created.
+
 ## Field lifecycle
 
 - **Rename** — the `display_name` changes freely; the `api_name` is a stable slug (auto-generated,
   admin-editable with a warning) so integrations don't break.
 - **Delete** — soft delete; orphaned values are ignored by reads and lazily cleaned up, so the
   action never blocks.
-- **Change type** — a small compatibility matrix converts in place (anything → text; text →
-  number/date best-effort; select ↔ multi_select). The API returns a **dry-run count** of lossy
-  conversions before applying. Everything else is an explicit "delete & create new".
+- **Change type** — a small compatibility matrix converts in place, and the same list drives the
+  app's dialog and the API. A text field can become a number, date, rich text, **select**,
+  **multi-select** or **workflow**; select, multi-select and workflow convert among themselves and
+  to text; rich text, number, checkbox and date convert to text; URL and email convert to text or to
+  each other. A person field has its own [Members conversion](#converting-a-person-field-into-a-members-relation),
+  and an attachment field can't be converted in or out. Every conversion has a **dry run**
+  ("Check impact") that reports what would happen and writes nothing. Everything else is an explicit
+  "delete & create new".
+
+### Turning a text field into choices
+
+After an import or a CSV, a text column is often really a list of statuses or categories.
+Converting it to **select**, **multi-select** or **workflow** turns the values into options:
+
+- **One option per distinct value.** Values are trimmed, so `" Todo"` and `"Todo"` are the same
+  option, but the comparison is case-sensitive, so `Todo` and `todo` stay two. Each record's value
+  becomes that option. Empty and whitespace-only values stay empty.
+- **A multi-select takes the whole value as one option.** There is no splitting on commas.
+- **Options come out in the order they first appear** reading the table, with positions numbered from
+  the first, and coloured from the palette in that order. Reorder them afterwards in Edit field; see
+  [sorting by a choice field](/concepts/views/#sorting-by-a-choice-field).
+- **More than 200 distinct values is refused**, in the dry run and in the real conversion, with a
+  message that names the count: that many values is free text or an ID column, not a list of choices.
+  Exactly 200 is allowed.
+- **The dry run lists the options it would create**, with how many records each covers and how many
+  records are empty. In the app, the Change type dialog shows that list before you confirm.
+- **A workflow target keeps the one-workflow-per-database rule**: if the database already has a
+  workflow field, converting to workflow is refused with a `409`.
+- Over MCP this is `change_field_type`. It needs the same access as any other field change.
 
 For the full canonical model and JSONB storage mechanics, see the
 [data model reference](/concepts/data-model/).

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { architectPlanSchema, planAgentSchema } from './architect';
+import { stateCategorySchema } from './fields';
 import { skillExampleSchema } from './skills';
 import { viewTypeSchema } from './views';
 
@@ -307,16 +308,22 @@ export type PackSkill = z.infer<typeof packSkillSchema>;
  * opaque blobs (`packViewSchema.config`, `packAutomationSchema.trigger`/
  * `actions`) that bury ids at arbitrary, unknowable depth.
  *
- * There is no live agent↔skill relation in the product yet (an Agent record
- * has no `skills` column — see `skills.ts`'s header on why a skill is a plain
- * table, not a provisioned "pack" database), so this is honestly declarative
- * today: `PacksService.install` validates every name resolves to a bundled
- * skill, but nothing yet reads it at runtime. That is the same bargain the
- * rest of the format strikes elsewhere (`requires.ai` is a human-facing
- * declaration, not a runtime input) rather than a gap unique to this field.
+ * ticket #1106 — the names are now REAL: install records them on the agent's own
+ * "Skills" field, and every run resolves them by name at dispatch (an edited skill
+ * is used on the next run; a skill that no longer exists fails the run naming it).
+ * `PacksService.install` still validates every name resolves to a bundled skill.
+ *
+ * `ai_mode` (ticket #1106) is the agent's "AI mode": who drives its runs, which is also
+ * what decides whether a run is metered (MN-188). Omitted means the field is not written,
+ * exactly the behaviour every pack agent had before: it runs as Non-AI.
  */
+export const PACK_AGENT_AI_MODES = ['non_ai', 'your_own_ai', 'storyos_ai'] as const;
+export const packAgentAiModeSchema = z.enum(PACK_AGENT_AI_MODES);
+export type PackAgentAiMode = z.infer<typeof packAgentAiModeSchema>;
+
 export const packAgentSchema = planAgentSchema.extend({
   skills: z.array(nameSchema).default([]),
+  ai_mode: packAgentAiModeSchema.optional(),
 });
 export type PackAgent = z.infer<typeof packAgentSchema>;
 
@@ -385,6 +392,30 @@ export const packManifestSchema = architectPlanSchema.extend({
   suggested_sources: z.array(packSuggestedSourceSchema).default([]),
 });
 export type PackManifest = z.infer<typeof packManifestSchema>;
+
+/**
+ * The text of a manifest validation failure, for the 422 body. A path alone ("states.0.options.5.category") makes an author count array
+ * positions; where the issue is on an OPTION (ticket #1105: an unknown `category`), this also names that option by its label, read off the
+ * raw manifest that failed, so the error says which option is wrong.
+ */
+export function describeManifestIssues(raw: unknown, issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
+  return issues
+    .map((i) => {
+      const where = i.path.map(String).join('.') || '(root)';
+      // ticket #1106: an issue inside `agents[n]` names that agent too, because "agents.0.ai_mode" does not say which of ten it is.
+      if (i.path[0] === 'agents' && typeof i.path[1] === 'number') {
+        const name = (raw as { agents?: Array<{ name?: unknown }> } | null | undefined)?.agents?.[i.path[1]]?.name;
+        return typeof name === 'string' ? `${where} (agent "${name}") ${i.message}` : `${where} ${i.message}`;
+      }
+      const at = i.path.indexOf('options');
+      if (at < 0 || at + 1 >= i.path.length) return `${where} ${i.message}`;
+      let node: unknown = raw;
+      for (const key of i.path.slice(0, at + 2)) node = (node as Record<string, unknown> | null | undefined)?.[key as string];
+      const label = (node as { label?: unknown } | null | undefined)?.label;
+      return typeof label === 'string' ? `${where} (option "${label}") ${i.message}` : `${where} ${i.message}`;
+    })
+    .join('; ');
+}
 
 /**
  * One unmet requirement, as install reports it. `'source'` (#600) is
@@ -458,7 +489,13 @@ export const packInstallResultSchema = z.object({
   triggers: z.array(installedEntitySchema),
   derived_fields: z.array(installedEntitySchema),
   views: z.array(installedEntitySchema),
-  automations: z.array(installedEntitySchema),
+  /** #1107 — each `created` rule also says whether it was switched on and, if off for what it does, why (`outward` = leaves the workspace, `agent` = runs an agent). */
+  automations: z.array(
+    installedEntitySchema.extend({
+      enabled: z.boolean().optional(),
+      switched_off_because: z.enum(['outward', 'agent']).optional(),
+    }),
+  ),
   sample_records: z.array(installedEntitySchema),
   skills: z.array(installedEntitySchema),
   /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
@@ -493,9 +530,14 @@ export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
  */
 export const packAgentUpdateSchema = z.object({
   status: z.enum(['will_update', 'edited_needs_choice', 'unchanged']),
-  changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy'])),
+  changed_fields: z.array(z.enum(['goal', 'instructions', 'scopes', 'approval_policy', 'ai_mode', 'skills'])),
   /** Why it is `edited_needs_choice`: the person changed it, or it was installed before the origin was recorded (treated as changed). */
-  reason: z.enum(['edited', 'unknown_origin']).optional(),
+  reason: z.enum(['edited', 'unknown_origin', 'ai_mode']).optional(),
+  /**
+   * ticket #1106 — the pack proposes a DIFFERENT AI mode for this agent. Never applied on its own: it is a choice (`update`), and the
+   * rest of an otherwise untouched agent is brought up to date whichever way the person chooses. `current` is null when no mode was set.
+   */
+  ai_mode_change: z.object({ current: packAgentAiModeSchema.nullable(), proposed: packAgentAiModeSchema }).optional(),
   /** The line diff, current -> pack, for each changed TEXT field; present only for `edited_needs_choice`. */
   diff: z
     .object({
@@ -522,7 +564,14 @@ export type PackAgentUpdate = z.infer<typeof packAgentUpdateSchema>;
  */
 export const packDatabaseGainsSchema = z.object({
   fields: z.array(z.object({ name: z.string(), type: z.string() })),
-  options: z.array(z.object({ field: z.string(), labels: z.array(z.string()) })),
+  options: z.array(
+    z.object({
+      field: z.string(),
+      labels: z.array(z.string()),
+      /** #1105 — the state category the manifest DECLARES for an added option, by label; only the declared ones are listed. */
+      categories: z.record(z.string(), stateCategorySchema).optional(),
+    }),
+  ),
   views: z.array(z.string()),
   not_applied: z.array(
     z.object({
@@ -540,6 +589,12 @@ export const packPreviewItemSchema = z.object({
   action: z.enum(['create', 'reuse', 'collision']),
   agent_update: packAgentUpdateSchema.optional(),
   gains: packDatabaseGainsSchema.optional(),
+  /**
+   * #1107 — automations only, and only when this install would CREATE the rule: whether it would be on (`enabled_on_install`), and, if it
+   * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
+   */
+  enabled_on_install: z.boolean().optional(),
+  switched_off_because: z.enum(['outward', 'agent']).optional(),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 

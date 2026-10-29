@@ -76,7 +76,7 @@ personal view is only reachable from here today.
 |---|---|
 | `list_spaces` / `create_space` | List / create spaces. |
 | `create_database` / `update_database` / `delete_database` | Create, rename/move, or delete a database (delete needs `confirm` = name). |
-| `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label; convert a field's type (`dry_run` to preview). |
+| `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label (a `workflow` field added with no options starts as To do / In progress / Done); convert a field's type (`dry_run` to preview). |
 | `create_view` / `update_view` / `delete_view` | Manage views; accepts `group_by` / `card_fields` / date fields plus `filters` + `sorts`. |
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |
@@ -121,7 +121,7 @@ plan instead of cramming prose into a record or inventing a database for one pag
 |---|---|
 | `propose_schema` → `build_schema` | Turn a plain-language goal into a plan of databases, fields, relations and states (each create-new or reuse-existing) — creates nothing; then build the approved plan in one call. |
 | `list_templates` / `apply_template` | Single-database or small-space starter templates. They seed sample rows; `remove_sample_data` deletes exactly those and nothing a person added. |
-| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery; install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Check installed packs first — installing twice makes a second copy. |
+| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery; install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Install reuses what already exists by name, so installing a pack again reuses the databases it created before instead of making a second copy. |
 | `browse_pack_marketplace` / `list_pack_submissions` / `export_pack` | Community packs; your submissions' review status (read-only); turn part of this workspace into an installable pack manifest. |
 | `duplicate_database` / `duplicate_view` | Copy a database's schema, views and self-relations into a new independent database; copy a view with its filters, sorts and layout. |
 | `set_auto_link` / `run_auto_link` | Teach a relation to link itself from matching field pairs; apply the rules to records that already exist (use after an import). |
@@ -130,6 +130,28 @@ plan instead of cramming prose into a record or inventing a database for one pag
 | `create_records` | Create up to 100 records in one atomic call — all succeed or none do. |
 | `set_default_view` / `set_favorite` | Which view people land on; star a record or database for the calling identity. |
 | `list_icon_set` | The curated icon names usable as `icon` on databases and spaces. |
+
+### Installing a pack into an existing space
+
+By default `install_pack` creates the pack's own space. To put a pack in a space you already have, pass
+`space` (a name, slug or id from `list_spaces`). Over REST the same input is `target_space_id` (a space
+id) on the workspace's `packs/install` and `packs/preview` calls. Every database the pack creates, with its views, lands in that
+space, and the pack's own space is not created. With no `space` the install behaves as it did before.
+
+- **`preview` takes the same input** and applies the same checks, so a refusal shows up before anything is created.
+- **You need edit access to the space.** Someone with view-only access gets a 403. A space that does not
+  exist, is deleted, or belongs to another workspace (or is another member's personal space) is a 404.
+- **A personal space is refused (422).** A personal space holds documents and views, not databases.
+- **A pack whose databases sit in more than one space is refused (422)**, and the message names those spaces.
+  Install it without choosing a space.
+- **A pack whose databases already exist in a different space is refused (409)**, naming where each one lives.
+  Install reuses a database it finds by name anywhere in the workspace, so without the refusal the target
+  space would be left without it. Open the existing database, or rename it first.
+- **Installing twice into the same space reuses** what the first install made rather than creating it again.
+- **Uninstalling removes the pack's content, not the space** you installed it into.
+- **No second pack space is made, but a pack that includes agents or triggers still creates the
+  workspace's one shared *Agentic OS* space** they live in, if the workspace does not have it yet.
+  Only the pack's own space is skipped.
 
 ### Space-level views and groups
 
@@ -163,6 +185,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; `human_gate: true` makes it stage its action for a person to approve. |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
+| `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |
 | `test_automation` / `get_automation_last_payload` | Dry-run a rule against one record before trusting it (no side effects unless you pass an `action_index`); the latest payload a webhook-triggered rule received. |
 
 ## Conveniences

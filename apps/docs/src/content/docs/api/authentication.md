@@ -10,7 +10,9 @@ Two credentials work everywhere, sent as `Authorization: Bearer <token>`:
 1. **Session tokens** — returned in the `set-auth-token` response header on sign-in / sign-up. This
    is what the web app uses (as a cookie).
 2. **Personal access tokens** (`mn_pat_…`) — created in the app under **API tokens**, or via the
-   API. A PAT acts as its creator: same role, same [guest scoping](/concepts/access-and-roles/).
+   API. A PAT acts as its creator: same role, same [guest scoping](/concepts/access-and-roles/), and the
+   same [restricted](/concepts/access-and-roles/#restricting-a-space-or-database) spaces and
+   databases, checked on every request.
    **Shown once at creation.**
 
 **A personal access token belongs to one workspace.** It is created for a single workspace (note
@@ -55,6 +57,9 @@ curl -s -X POST $API/api/v1/me/tokens \
 - **Never wider than you.** Every listed space or database must be one you can reach yourself; one
   you cannot is refused with the same `404` as one that does not exist. A guest's token can never
   reach beyond that guest's own grants, and narrowing the guest narrows their token on the next call.
+  The same holds for a member: a token bound to a space opens a restricted database inside it only
+  if its owner holds a grant directly on that database, and removing that grant closes it on the
+  next call.
 - **A bound token behaves like a guest limited to the listed items.** It sees them in lists and
   search, follows no relation out of them, and is not served values read through one (a lookup or
   rollup over a database outside the boundary comes back empty when you read a record). That is
@@ -71,15 +76,37 @@ curl -s -X POST $API/api/v1/me/tokens \
   refused to a bound token, and so is any route added later until it is deliberately opened.
 - **Fixed at mint.** There is no way to widen or edit a token's scope. To narrow one, mint a new
   token and revoke the old. The revoked row is kept (and survives erasure of its owner, with the
-  person stripped from it), so the scope it carried is not lost. What is **not** built is the link
-  from a past *action* to the token that made it, and no endpoint returns a revoked token's scope,
-  so "what could the token behind this action reach" can today be answered only by reading the
-  table. Revoking takes effect on the very next request.
+  person stripped from it), so the scope it carried is not lost, and an admin can still read it:
+  see [Which token did that](#which-token-did-that). Revoking takes effect on the very next request.
 - `GET /api/v1/me` shows a credential its own boundary under `auth.resource_scope` (`null` =
   unrestricted), and `GET /api/v1/me/tokens` lists each token's.
 - Tokens minted before this existed are unrestricted and keep working unchanged. Over OAuth (the
   claude.ai connector) there is no equivalent yet.
 - Today it is set through the API only; the web token form does not offer it yet.
+
+## Which token did that
+
+When a script or an agent used a personal access token and something changed that nobody expected,
+an admin can trace the change back to the token, including after the token was revoked.
+
+- Every action made with a personal access token is stamped with that token's id: the activity
+  event, and the version and field-change rows behind record history. An action made by a signed-in
+  session, over OAuth or by an automation has no token id, and neither does anything recorded
+  before this existed.
+- The admin **audit log** (`GET /api/v1/workspaces/{ws}/audit-log`, MCP `list_audit_log`) shows it
+  on each row as `credential_id`, so you can spot a token's rows in the list.
+- `GET /api/v1/workspaces/{ws}/credentials/{id}` (MCP `get_credential`) returns what that token
+  was: its name, power scope, `resource_scope` (`null` = unrestricted), when it was created and
+  when it was revoked. It works for a revoked token and for a token whose owner has been erased.
+- `GET /api/v1/workspaces/{ws}/credentials/{id}/actions` (MCP `list_credential_actions`) lists
+  what that token did, newest first, 50 at a time with a `next_cursor`. Each row has the event
+  type, the record, the source and the time.
+- `GET /api/v1/workspaces/{ws}/activity-events/{id}` (MCP `get_activity_event`) takes one past
+  action and returns the `credential_id` it was made with.
+
+All three are **admin only**, and a token bound to specific spaces or databases is refused. They
+return no person: no user id, email or token hash. The person behind an action is the actor on the
+audit log row, which is a separate field. An id that is not in this workspace returns `404`.
 
 ## Errors and rate limits
 

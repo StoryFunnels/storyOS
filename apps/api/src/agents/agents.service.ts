@@ -46,6 +46,8 @@ import {
   STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS,
 } from '../billing/plans';
 import { asAgentRuntime } from '../records/runtime-owned-fields';
+import { asActingAgent } from '../records/agent-write-context';
+import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import type { AgentPrincipal } from './agent-principal';
 import { defaultManagedAiClient } from './managed-ai-client';
@@ -54,9 +56,11 @@ import {
   proposedActionPayloadSchema,
   RUN_CLASS_BY_LABEL,
   RUN_CLASS_LABEL,
+  skillsLoadStep,
   stepsToMarkdown,
 } from './agent-runtime';
-import type { AgentRuntime, AgentRunAgent, AgentStep, ProposedAction } from './agent-runtime';
+import type { AgentRuntime, AgentRunAgent, AgentRunSkill, AgentStep, ProposedAction } from './agent-runtime';
+import { SkillsService } from '../skills/skills.service';
 
 type Database = typeof databasesTable.$inferSelect;
 
@@ -200,7 +204,35 @@ export class AgentsService implements OnModuleInit {
      * already imports AutomationsModule (one-way), so this needs no new
      * module wiring. */
     private readonly approvals: ApprovalsService,
+    /** ticket #1106: resolves the skills an agent names, at run time, as its owner sees them. */
+    private readonly skillsService: SkillsService,
   ) {}
+
+  /**
+   * ticket #1106 — the skills an agent's "Skills" field names (one name per line), resolved by
+   * name AT RUN TIME as the agent's owner. `missing` lists every named skill that cannot be found, so the caller fails the run naming it.
+   */
+  private async resolveAgentSkills(
+    workspaceId: string,
+    ownerUserId: string,
+    raw: string,
+  ): Promise<{ loaded: AgentRunSkill[]; missing: string[] }> {
+    const names = raw
+      .split('\n')
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) return { loaded: [], missing: [] };
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, ownerUserId)),
+    });
+    // dispatch only runs for an active owner (resolveAgentOwner), so this is defensive: with no membership nothing is visible.
+    if (!membership) return { loaded: [], missing: names };
+    const { loaded, missing } = await this.skillsService.resolveByNames(membership, ownerUserId, names);
+    return {
+      loaded: loaded.map((k) => ({ name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
+      missing,
+    };
+  }
 
   /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
    * this runs, actions.service.ts's execute() routes any `run_agent` action
@@ -264,6 +296,19 @@ export class AgentsService implements OnModuleInit {
       runsDb: all.find((d) => d.systemKey === 'agent_runs'),
       triggersDb: all.find((d) => d.systemKey === 'agent_triggers'),
     };
+  }
+
+  /**
+   * Ticket #1096 — the pack for a caller that ACTS ON an existing agent or run (run, delegate, approve/reject, activity, bindings).
+   * Provisioning belongs to whatever creates the first agent (`ensurePack`: setup_agents, a pack/Architect build with agents). A
+   * workspace with no Agents database cannot hold an agent, so the answer is the same 404 a missing agent gives, WITHOUT
+   * creating a space and three databases as a side effect of asking. With an Agents database it is exactly `ensurePack`, which
+   * still back-fills Runs / Agent Triggers on an older workspace.
+   */
+  private async ensurePackForExisting(membership: Membership, what = 'Agent'): Promise<{ agentsDb: Database; runsDb: Database; triggersDb: Database; created: boolean }> {
+    const { agentsDb, runsDb } = await this.findPackDbs(membership.workspaceId);
+    if (!agentsDb && !runsDb) throw new NotFoundException(`${what} not found`);
+    return this.ensurePack(membership);
   }
 
   /** Add a field to a pack database if it isn't there yet, found by api_name. */
@@ -485,6 +530,14 @@ export class AgentsService implements OnModuleInit {
         { label: 'Your own AI', color: 'green' },
         { label: 'StoryOS AI', color: 'purple' },
       ],
+    });
+
+    // ticket #1106: the skills (by name) an agent loads at run time. A plain text field rather than a relation: a skill is a workspace-wide
+    // table row, not a record in a pack database, and the pack manifest names skills the same way. Back-filled like "AI mode" above.
+    await this.ensureField(agentsDb.id, 'skills', {
+      display_name: 'Skills',
+      type: 'text',
+      config: { multiline: true },
     });
 
     let runsDb = existing.runsDb;
@@ -828,7 +881,7 @@ export class AgentsService implements OnModuleInit {
     agentRef: string,
     range: { from?: string; to?: string } = {},
   ) {
-    const { agentsDb } = await this.ensurePack(membership);
+    const { agentsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     const from = range.from ? new Date(range.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -1036,6 +1089,14 @@ export class AgentsService implements OnModuleInit {
     );
     const aiMode = aiModeLabel ? RUN_CLASS_BY_LABEL[aiModeLabel] : undefined;
 
+    // ticket #1106: the skills this agent loads, resolved NOW (at run time) by name from the skills table, never copied at install —
+    // so an edited skill is what the next run uses, and one that was removed or renamed is reported instead of silently skipped.
+    const { loaded: loadedSkills, missing: missingSkills } = await this.resolveAgentSkills(
+      workspaceId,
+      owner.userId,
+      (agentRecord.values['skills'] as string | undefined) ?? '',
+    );
+
     const agent: AgentRunAgent = {
       id: agentRecord.id,
       name: agentRecord.title,
@@ -1053,6 +1114,7 @@ export class AgentsService implements OnModuleInit {
       scopes: effectiveScopes,
       targetDatabases: (agentRecord.values['target_databases'] as string | undefined) ?? undefined,
       aiMode,
+      skills: loadedSkills,
     };
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
@@ -1100,8 +1162,12 @@ export class AgentsService implements OnModuleInit {
       runtime.requiresManagedAiCredits === true &&
       !(await this.aiCredits.canUseManagedAi(workspaceId));
 
+    // ticket #1106: a run that was supposed to use a skill that is gone must not quietly run without it. The Run is still created and
+    // stamped (visible where the owner looks) and fails before any runtime starts, naming each skill.
+    const skillsMissing = missingSkills.length > 0;
+
     const blockedBeforeExecution =
-      overAllowance || costCapExceeded || managedCreditsUnavailable;
+      overAllowance || costCapExceeded || managedCreditsUnavailable || skillsMissing;
 
     let run = await asAgentRuntime(() => this.recordsService.create(
       workspaceId,
@@ -1116,7 +1182,9 @@ export class AgentsService implements OnModuleInit {
           ? {
               finished_at: new Date().toISOString(),
               steps: markdownToBlocks(
-                overAllowance
+                skillsMissing
+                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} attached to this agent but cannot be found (removed, renamed, or not visible to the agent's owner). The run did not start. To fix it: ${missingSkills.map((n) => `rename the skill back to "${n}" (agents find skills by name), or re-attach the skill you want by editing this agent's Skills field`).join('; ')}.`
+                  : overAllowance
                   ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
                   : costCapExceeded
                     ? `- **guardrail.cost_cap** — Estimated run cost exceeds the configured max_cost_cents (${input.guardrails?.maxCostCents})`
@@ -1146,6 +1214,8 @@ export class AgentsService implements OnModuleInit {
     // the dead-letter (ADR-0010 §5) — visible where the user already looks.
     const attempts = (input.retries ?? 0) + 1;
     const steps: AgentStep[] = [];
+    // ticket #1106: say in the run record which skills this run loaded (and that the instructions are what the runtime is given).
+    if (loadedSkills.length > 0) steps.push(skillsLoadStep(loadedSkills, runtime.runClass));
     let failure: string | null = null;
     let staged: ProposedAction | null = null;
     let backoffMs = input.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -1218,13 +1288,17 @@ export class AgentsService implements OnModuleInit {
           // Ungated: the owner did not ask to be consulted about this class, so
           // it applies inline and the run continues. A failure here is a run
           // failure like any other — it falls through to the catch below.
+          // #1104 — this inline apply IS the agent writing, so RecordsService must know WHICH agent (its per-agent write gate
+          // keys on it). Deliberately only here: the approve path below applies a write a person already approved.
           attemptSteps.push(
-            await this.applyProposedAction(
-              workspaceId,
-              step.action,
-              principal,
-              owner.userId,
-              input.depth ?? 0,
+            await asActingAgent({ agentId: agent.id, agentName: agent.name }, () =>
+              this.applyProposedAction(
+                workspaceId,
+                step.action!,
+                principal,
+                owner.userId,
+                input.depth ?? 0,
+              ),
             ),
           );
         }
@@ -1372,7 +1446,7 @@ export class AgentsService implements OnModuleInit {
    */
   async run(membership: Membership, agentRef: string): Promise<ProjectedRecord> {
     // Idempotent, and it back-fills Runs/Agent Triggers for older workspaces.
-    const { agentsDb, runsDb } = await this.ensurePack(membership);
+    const { agentsDb, runsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     // A disabled agent is a definition, not a runnable thing. An unset checkbox
@@ -1420,7 +1494,7 @@ export class AgentsService implements OnModuleInit {
     agentRef: string,
     recordId: string,
   ): Promise<ProjectedRecord> {
-    const { agentsDb, runsDb } = await this.ensurePack(membership);
+    const { agentsDb, runsDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     if (agentRecord.values['enabled'] !== true) {
@@ -1601,22 +1675,36 @@ export class AgentsService implements OnModuleInit {
     }
 
     const record = await this.recordsService.get(payload.database_id, payload.record_id);
-    const effects = await this.actions.execute([payload.action], {
-      workspaceId,
-      databaseId: payload.database_id,
-      record,
-      actorId,
-      /*
-       * #390 — an AGENT applied this, not a rule.
-       *
-       * The executor is shared with automations, so without this every agent
-       * write would be stamped 'automation'. `actorId` above is still the
-       * OWNER: ADR-0010 §2 and #357's founder decision — "it's always a person
-       * that ran the AI agent, never the agent himself".
-       */
-      source: 'agent',
-      depth,
-    });
+    let effects: Awaited<ReturnType<typeof this.actions.execute>>;
+    try {
+      effects = await this.actions.execute([payload.action], {
+        workspaceId,
+        databaseId: payload.database_id,
+        record,
+        actorId,
+        /*
+         * #390 — an AGENT applied this, not a rule.
+         *
+         * The executor is shared with automations, so without this every agent
+         * write would be stamped 'automation'. `actorId` above is still the
+         * OWNER: ADR-0010 §2 and #357's founder decision — "it's always a person
+         * that ran the AI agent, never the agent himself".
+         */
+        source: 'agent',
+        depth,
+      });
+    } catch (error) {
+      // #1104 — a per-agent write gate held this record write. Nothing was applied: report that plainly, as the delete
+      // gate does above, rather than failing the run or claiming success. The approval is in the Inbox.
+      if (error instanceof WriteHeldForApprovalException) {
+        return {
+          tool: 'action.pending_approval',
+          summary: `Held for approval (${action.kind}): ${action.summary}`,
+          detail: `${error.detail} (approval ${error.approvalId})`,
+        };
+      }
+      throw error;
+    }
     return {
       tool: 'action.applied',
       summary: `Applied (${action.kind}): ${action.summary}`,
@@ -1643,7 +1731,7 @@ export class AgentsService implements OnModuleInit {
     verdict: 'approve' | 'reject',
     reason?: string,
   ): Promise<ProjectedRecord> {
-    const { runsDb } = await this.ensurePack(membership);
+    const { runsDb } = await this.ensurePackForExisting(membership, 'Run');
     const run = await this.resolveRun(runsDb.id, runRef);
 
     const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
@@ -1836,7 +1924,7 @@ export class AgentsService implements OnModuleInit {
     membership: Membership,
     runRef: string,
   ): Promise<{ action: ProposedAction; steps: AgentStep[] } | null> {
-    const { runsDb } = await this.ensurePack(membership);
+    const { runsDb } = await this.ensurePackForExisting(membership, 'Run');
     const run = await this.resolveRun(runsDb.id, runRef);
     // #1029 — show what the SERVER staged (the approvals row), not the editable display copy: what a person is asked to
     // approve must be what would actually run.
@@ -1978,7 +2066,7 @@ export class AgentsService implements OnModuleInit {
     },
     source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
-    const { agentsDb, triggersDb } = await this.ensurePack(membership);
+    const { agentsDb, triggersDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
     const { database, field, option } = await this.validateBinding(membership.workspaceId, input);
 

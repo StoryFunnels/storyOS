@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ActionGatesModule } from '../action-gates/action-gates.module';
 import { AutomationsModule } from '../automations/automations.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
@@ -8,6 +9,7 @@ import { FieldsModule } from '../fields/fields.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
+import { SkillsModule } from '../skills/skills.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AgentsController } from './agents.controller';
 import { AgentsService } from './agents.service';
@@ -58,6 +60,7 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
  */
 @Module({
   imports: [
+    ActionGatesModule,
     AutomationsModule,
     BillingModule,
     CollaborationModule,
@@ -67,6 +70,7 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
     NotificationsModule,
     RecordsModule,
     RelationsModule,
+    SkillsModule,
     WorkspacesModule,
   ],
   controllers: [AgentsController, ArchitectController, TyronThreadsController],

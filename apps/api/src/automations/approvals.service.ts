@@ -3,7 +3,7 @@ import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
@@ -15,6 +15,10 @@ import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
 import { JobRunnerService } from './job-runner.service';
 import type { ActionEffect } from './actions.service';
 import { maskUserinfoInText, presentActionHeaders } from '../common/webhook-headers';
+import type { AgentWriteGateSnapshot } from '../action-gates/agent-write-gates.service';
+import { resolveAgentIdentity } from '../agents/agent-identity';
+import { assertDatabaseInWorkspace } from '../records/database-scope';
+import { asApprovedAgentWrite } from '../records/agent-write-context';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
@@ -153,7 +157,7 @@ export interface SkillPublishPublicSnapshot {
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot;
   /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
   ctx: { workspaceId: string; databaseId: string | null; recordId: string | null; actorId: string };
 }
@@ -244,6 +248,12 @@ export class ApprovalsService implements OnModuleInit {
    * when `resolve()` below approves an 'action_class_gate' snapshot — same
    * registration pattern TyronService uses for 'tyron_tool_call'. */
   onModuleInit(): void {
+    // #1104 — a per-agent record create/update held by AgentWriteGatesService. Same executor registry as the other gates:
+    // approving enqueues it from the server-side snapshot (never from anything the approver or the agent sends).
+    this.jobs.registerExecutor('agent_write_gate', async (payload) => {
+      const { action, ctx } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      await this.applyAgentWriteGate(action, ctx.workspaceId);
+    });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
       // #542 — a database-cascade delete was held whole (records, fields,
@@ -269,6 +279,45 @@ export class ApprovalsService implements OnModuleInit {
         // deleting anything.
         true,
       );
+    });
+  }
+
+  /**
+   * #1104 — apply an APPROVED per-agent write gate: exactly the staged inputs, nothing the agent adds later.
+   *
+   * The ids in the snapshot are data, not authority, so before writing anything this re-checks, against the approval's own
+   * workspace and the world as it is NOW: the database still belongs to the workspace (#1029), the agent record is still
+   * live and its owner is still an active member, and that owner can still write to the database (and the record, for an
+   * update). Any failure leaves the record untouched and fails the job. The write then goes through RecordsService with
+   * source 'agent' (provenance survives the approval) and the one-shot bypass that keeps it from being held again.
+   */
+  private async applyAgentWriteGate(action: AgentWriteGateSnapshot, workspaceId: string): Promise<void> {
+    await assertDatabaseInWorkspace(this.db, workspaceId, action.database_id);
+    const identity = await resolveAgentIdentity(this.db, workspaceId, action.agent_id);
+    if (!identity) {
+      throw new UnprocessableEntityException('This agent no longer exists or its owner is no longer an active member; the held write was not applied');
+    }
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, identity.ownerId), eq(memberships.status, 'active')),
+    });
+    if (!membership) {
+      throw new UnprocessableEntityException('The agent\'s owner is no longer an active member; the held write was not applied');
+    }
+    await this.databases.assertAccess(membership, action.database_id, 'contributor');
+    await asApprovedAgentWrite(async () => {
+      if (action.operation === 'update') {
+        const recordId = action.record_id;
+        if (!recordId) throw new UnprocessableEntityException('This held update names no record');
+        await this.records.assertRecordAccess(membership, action.database_id, recordId, 'contributor');
+        await this.records.update(workspaceId, action.database_id, recordId, action.inputs[0] ?? {}, identity.ownerId, 0, 'agent', action.agent_id, identity.agentName, membership);
+      } else {
+        await this.records.createBatch(workspaceId, action.database_id, action.inputs, identity.ownerId, 0, {
+          source: 'agent',
+          agentId: action.agent_id,
+          agentName: identity.agentName,
+          membership,
+        });
+      }
     });
   }
 

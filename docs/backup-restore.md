@@ -62,8 +62,12 @@ without risk:
 ./scripts/backup-restore/restore.sh backups/<label> --keep --project storyos_restore
 ```
 
-It refuses to restore into the live project name unless you pass `--force`, so a
-rehearsal can't clobber production. By default the clone and its volumes are torn
+It always refuses to restore into the live project (the `COMPOSE_PROJECT_NAME`
+in your environment or `.env`, or `storyos`), so a rehearsal can't clobber
+production. There is no override: `--force` was removed because the clone's
+teardown (`down -v`) would have deleted the live database volume. To restore into
+production, follow [Real recovery](#real-recovery-restoring-into-production)
+below. By default the clone and its volumes are torn
 down when the script exits; `--keep` leaves them running.
 
 ### Real recovery (restoring into production)
@@ -205,8 +209,9 @@ service from this repo's `docker-compose.yml` as its own Compose project, seeds
 it and its attachments volume, then runs the real `backup.sh` → `restore.sh` →
 `verify-restore.sh`. Besides the passing restore, it proves each check can
 **fail**: a drifted count in `counts.tsv`, an attachment file missing from the
-archive, a corrupted `db.dump`, and a restore aimed at the live project without
-`--force`. It also restores a `manifest.env` in the old unquoted format, so
+archive, a corrupted `db.dump`, and a restore aimed at the live project (with or
+without the removed `--force`, after which the live database must still be
+there). It also restores a `manifest.env` in the old unquoted format, so
 recovery points made before that fix still restore.
 
 What CI does **not** spin up is the rest of the Compose stack (api / web / caddy)

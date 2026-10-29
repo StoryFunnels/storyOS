@@ -12,9 +12,12 @@ import {
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
+  describeManifestIssues,
   packManifestSchema,
   resolveSampleDate,
+  installedEnabledState,
   SAMPLE_ME,
+  type PlanOption,
 } from '@storyos/schemas';
 import type {
   PackAgent,
@@ -52,6 +55,7 @@ import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SkillsService } from '../skills/skills.service';
+import { RUN_CLASS_BY_LABEL } from '../agents/agent-runtime';
 import { ViewsService } from '../views/views.service';
 import { AccessService } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -76,6 +80,10 @@ interface AgentUpdatePlan {
   values: Record<string, unknown>;
   /** Hash of the PACK's content for this agent, in the same normalised form `source_hash` stores. */
   newHash: string;
+  /** ticket #1106: the hash when everything BUT a changed AI mode was applied (the person kept their mode). Set only with `ai_mode_change`. */
+  newHashWithoutMode?: string;
+  /** ticket #1106: nothing but the AI mode makes this agent need a choice. */
+  restUntouched?: boolean;
   /** What the install row held before this run — preserved when the person's edits are kept. */
   previous: { packVersion: string | null; sourceHash: string | null };
 }
@@ -83,7 +91,7 @@ interface AgentUpdatePlan {
 /** `pack_install_items` provenance for an agent, keyed by normalised agent name. */
 type AgentProvenance = Map<string, { packVersion: string | null; sourceHash: string | null }>;
 
-const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy'] as const;
+const AGENT_CONTENT_FIELDS = ['goal', 'instructions', 'scopes', 'approval_policy', 'ai_mode', 'skills'] as const;
 
 /** #266 — every `$db:`/`$field:`/`$option:` ref anywhere inside a value,
  *  walked the same generic way `refify`/`deref` do (any string, any depth,
@@ -173,7 +181,7 @@ interface LiveField {
   type: string;
   isSystem?: boolean;
   config?: Record<string, unknown>;
-  options?: Array<{ id: string; label: string; color?: string }>;
+  options?: Array<{ id: string; label: string; color?: string; category?: string | null }>;
 }
 
 interface LiveView {
@@ -263,8 +271,10 @@ export class PacksService {
     const slice = await this.readSlice(membership, request);
 
     const idToRef = this.buildExportRefs(slice);
-    const { agentsDb, triggersDb } = await this.agents.ensurePack(membership);
-    const bindings = await this.records.list(triggersDb.id, { limit: MAX_SCAN });
+    // Ticket #1096: an EXPORT reads the workspace, it must not provision the Agentic OS pack. A workspace that never had one has
+    // no agents and no bindings, so the manifest simply carries none.
+    const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
+    const bindings = triggersDb ? await this.records.list(triggersDb.id, { limit: MAX_SCAN }) : { data: [] as Array<{ id: string; values: Record<string, unknown> }> };
 
     // Which selects are workflow states, and which are ordinary columns? A state
     // is a select the workflow *binds to* (ADR-0010 §5: "a state is a select;
@@ -315,6 +325,8 @@ export class PacksService {
             options: (field.options ?? []).map((o) => ({
               label: o.label,
               color: o.color as PlanState['options'][number]['color'],
+              // #1105 — round-trips: an exported manifest keeps the categories its options carry (a select option without one stays without)
+              ...(o.category ? { category: o.category as PlanOption['category'] } : {}),
             })),
           });
           continue;
@@ -325,6 +337,8 @@ export class PacksService {
           options: field.options?.map((o) => ({
             label: o.label,
             color: o.color as PlanState['options'][number]['color'],
+            // #1105 — a workflow field's categories round-trip too (a person may have changed them after install)
+            ...(o.category ? { category: o.category as PlanOption['category'] } : {}),
           })),
           // Configs of plain types carry no refs (precision, multiline,
           // include_time), but they are schema and dropping them would make the
@@ -337,18 +351,15 @@ export class PacksService {
     }
 
     const relations = await this.exportRelations(slice);
-    const { agents, triggers } = await this.exportAgents(
-      membership,
-      slice,
-      agentsDb.id,
-      bindings.data,
-    );
+    const { agents, triggers } = agentsDb
+      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data)
+      : { agents: [], triggers: [] };
     const views = this.exportViews(slice, idToRef);
     const automations = await this.exportAutomations(slice, idToRef);
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
-    const skills = await this.exportSkills(membership, request.skill_ids);
+    const skills = await this.exportSkills(membership, [...request.skill_ids, ...(await this.agentSkillIds(membership, agents, request.skill_ids))]);
 
     const manifest: PackManifest = packManifestSchema.parse({
       format_version: 1,
@@ -638,6 +649,32 @@ export class PacksService {
    * service is used), and the result is #40's own portable shape, unchanged —
    * a skill carries no ids to rewrite.
    */
+  /**
+   * ticket #1106 — the ids of skills the exported agents NAME that the caller did not already list in `skill_ids`, so an agent's skills
+   * travel with it (the manifest would otherwise fail install's "every agent skill is bundled" rule). A named skill the caller cannot
+   * see is a 422 naming it: exporting without it would produce an agent that fails every run.
+   */
+  private async agentSkillIds(membership: Membership, agents: PackAgent[], alreadyIds: string[]): Promise<string[]> {
+    const wanted = [...new Set(agents.flatMap((a) => a.skills.map((n) => norm(n))))];
+    if (wanted.length === 0) return [];
+    const { data: visible } = await this.skills.list(membership, membership.userId);
+    const have = new Set(alreadyIds);
+    const have_names = new Set(visible.filter((s) => have.has(s.id)).map((s) => norm(s.name)));
+    const out: string[] = [];
+    for (const name of wanted) {
+      if (have_names.has(name)) continue;
+      const found = visible.find((s) => norm(s.name) === name);
+      if (!found) {
+        throw new UnprocessableEntityException(
+          `An exported agent uses the skill "${name}", which this workspace cannot see (removed, renamed, or someone else's personal skill). ` +
+            `Restore it, or take it off the agent's Skills field, then export again.`,
+        );
+      }
+      out.push(found.id);
+    }
+    return out;
+  }
+
   private async exportSkills(membership: Membership, ids: string[]): Promise<PackSkill[]> {
     const out: PackSkill[] = [];
     const seenNames = new Set<string>();
@@ -809,6 +846,12 @@ export class PacksService {
    * Only agents whose bindings target the slice come along — an agent that
    * watches a database the pack does not contain is not part of this pack.
    */
+  /** `{ ai_mode }` for a live "AI mode" label, or `{}` when it is unset (or not one of the three). */
+  private exportedAiMode(label: string | null): { ai_mode?: PackAgent['ai_mode'] } {
+    const mode = label ? RUN_CLASS_BY_LABEL[label] : undefined;
+    return mode ? { ai_mode: mode } : {};
+  }
+
   private async exportAgents(
     membership: Membership,
     slice: SliceDb[],
@@ -852,6 +895,13 @@ export class PacksService {
       });
     }
 
+    // #1104 — the per-agent write gates, by database/field NAME. Absent for an agent with none, so an ungated agent exports exactly as before.
+    const gatesByAgent = await this.architect.exportWriteGates(
+      membership.workspaceId,
+      [...wantedAgentIds],
+      new Map([...byId].map(([id, d]) => [id, { name: d.name, fields: d.fields }])),
+    );
+
     const agents: PackAgent[] = [];
     for (const id of wantedAgentIds) {
       const row = agentById.get(id)!;
@@ -876,12 +926,15 @@ export class PacksService {
             ['delete', 'webhook', 'email', 'run_button', 'outward'].includes(l ?? ''),
           ),
         target_databases: targets,
-        // No live agent↔skill relation exists yet (see packAgentSchema's
-        // doc) — an Agent record has nowhere to have recorded this, so it is
-        // always empty coming out of export. Hand-editing the manifest to
-        // add names here (matched against `skills[].name`) is what the field
-        // is for; install validates them either way.
-        skills: [],
+        ...(gatesByAgent.has(id) ? { write_gates: gatesByAgent.get(id) } : {}),
+        // ticket #1106: the agent's own "Skills" field, one name per line. `export` bundles each named skill (below) so the manifest
+        // still satisfies install's "every agent skill is bundled" rule.
+        skills: String(row.values['skills'] ?? '')
+          .split('\n')
+          .map((n) => n.trim())
+          .filter(Boolean),
+        // The mode only when one is SET: an unset mode exports as omitted, so a round trip leaves an agent the pack never configured alone.
+        ...this.exportedAiMode(labelOf('ai_mode', row.values['ai_mode'])),
       });
     }
     return { agents, triggers };
@@ -1056,12 +1109,28 @@ export class PacksService {
    * provisioned, every agent in the manifest previews as `create` — which is
    * correct, since that is exactly what installing it would do.
    */
-  async preview(membership: Membership, rawManifest: unknown, targetSpaceId?: string): Promise<PackPreviewResult> {
+  async preview(
+    membership: Membership,
+    rawManifest: unknown,
+    targetSpaceId?: string,
+    /** #1107 — see `install`. A preview that ignored it would show the rules off that the install then turns on. */
+    enableAutomations: string[] = [],
+  ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
     const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
+    const turnedOn = this.labelSet(enableAutomations);
+    const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
+    for (const item of automations) {
+      const planned = plannedByLabel.get(item.name);
+      if (!planned || item.action === 'reuse') continue;
+      const state = installedEnabledState(planned.actions, planned.enabled, turnedOn.has(norm(item.name)));
+      item.enabled_on_install = state.enabled;
+      if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
+    }
     return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
   }
 
@@ -1188,10 +1257,20 @@ export class PacksService {
    * live record and the manifest go through it — the manifest side after `agentContentValues` turned it into blocks — so "did this
    * agent change" can never be a question about how the editor happens to normalise whitespace or block structure.
    */
-  private agentContent(values: Record<string, unknown>) {
+  private agentContent(values: Record<string, unknown>, declared: { aiMode?: boolean; skills?: boolean } = {}) {
     const text = (v: unknown) => (Array.isArray(v) ? blocksToMarkdown(v as never).trim() : '');
     const ids = (v: unknown) => (Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string').sort() : []);
-    return { goal: text(values.goal), instructions: text(values.instructions), scopes: ids(values.scopes), approval_policy: ids(values.approval_policy) };
+    return {
+      goal: text(values.goal),
+      instructions: text(values.instructions),
+      scopes: ids(values.scopes),
+      approval_policy: ids(values.approval_policy),
+      // ticket #1106: part of an agent's pack content ONLY when the pack declares it. Absent keys keep every hash an earlier install
+      // recorded valid (so no existing agent flips to "edited"), and a person who set the mode or skills by hand on an agent the pack
+      // never configured is not reported as having edited it.
+      ...(declared.aiMode ? { ai_mode: typeof values.ai_mode === 'string' ? values.ai_mode : '' } : {}),
+      ...(declared.skills ? { skills: typeof values.skills === 'string' ? values.skills.trim() : '' } : {}),
+    };
   }
 
   /**
@@ -1221,15 +1300,30 @@ export class PacksService {
       const record = live.get(norm(planned.name));
       if (!item || !record) continue;
       const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
-      const next = this.agentContent(values);
-      const now = this.agentContent(record.values as Record<string, unknown>);
+      // ticket #1106 (Otto's ruling): an agent's AI mode is NEVER changed by an update on its own: a declared mode that differs from the live
+      // one is a CHOICE the person makes in the update review (the same `update` resolution an edited agent uses), and it is never applied
+      // unasked, least of all into StoryOS AI, which starts metering. So the mode is kept OUT of the classification below, which decides only
+      // whether the rest of the agent is untouched; the mode is then layered on as `ai_mode_change`.
+      const declaredFull = { aiMode: 'ai_mode' in values, skills: 'skills' in values };
+      const declared = { aiMode: false, skills: declaredFull.skills };
+      const next = this.agentContent(values, declared);
+      const now = this.agentContent(record.values as Record<string, unknown>, declared);
       const newHash = this.hashOf(next);
       const nowHash = this.hashOf(now);
-      const changed = AGENT_CONTENT_FIELDS.filter((f) => JSON.stringify(now[f]) !== JSON.stringify(next[f]));
+      const changed: Array<(typeof AGENT_CONTENT_FIELDS)[number]> = AGENT_CONTENT_FIELDS.filter((f) => f !== 'ai_mode' && JSON.stringify(now[f]) !== JSON.stringify(next[f]));
       let update: PackAgentUpdate;
+      // The stored origin hash covers only the keys the PREVIOUS version declared, which we cannot see, so "untouched since the pack installed
+      // it" is: the live agent hashes to the origin under SOME key set. Skills the pack newly declares over skills the person already wrote
+      // count as touched: never overwritten silently.
+      const keySets = [{}, { aiMode: true }, { skills: true }, { aiMode: true, skills: true }];
+      const origin = item.sourceHash
+        ? keySets.find((k) => this.hashOf(this.agentContent(record.values as Record<string, unknown>, k)) === item.sourceHash)
+        : undefined;
+      const overwritesOwnSkills =
+        declared.skills && !(origin as { skills?: boolean } | undefined)?.skills && now.skills !== '' && now.skills !== undefined && now.skills !== next.skills;
       if (nowHash === newHash) {
         update = { status: 'unchanged', changed_fields: [], installed_version: item.packVersion };
-      } else if (item.sourceHash && nowHash === item.sourceHash) {
+      } else if (origin && !overwritesOwnSkills) {
         update = { status: 'will_update', changed_fields: [...changed], installed_version: item.packVersion };
       } else {
         update = {
@@ -1243,11 +1337,40 @@ export class PacksService {
           installed_version: item.packVersion,
         };
       }
+      const baseStatus = update.status;
+
+      // The mode, as a choice with both values stated.
+      let withoutModeHash: string | undefined;
+      if (declaredFull.aiMode) {
+        const modeField = ((await this.databases.get(membership, agentsDbId)).fields as unknown as LiveField[]).find((f) => f.apiName === 'ai_mode');
+        const labels = new Map((modeField?.options ?? []).map((o) => [o.id, o.label] as const));
+        const liveId = typeof record.values['ai_mode'] === 'string' ? (record.values['ai_mode'] as string) : null;
+        if (liveId !== (values['ai_mode'] as string)) {
+          const proposed = RUN_CLASS_BY_LABEL[labels.get(values['ai_mode'] as string) ?? ''];
+          const current = liveId ? RUN_CLASS_BY_LABEL[labels.get(liveId) ?? ''] ?? null : null;
+          if (proposed) {
+            withoutModeHash = newHash;
+            update = {
+              ...update,
+              status: 'edited_needs_choice',
+              reason: update.reason ?? 'ai_mode',
+              changed_fields: [...changed, 'ai_mode'],
+              ai_mode_change: { current, proposed },
+              installed_version: item.packVersion,
+            };
+          }
+        }
+      }
+      // Provenance after applying: with the mode when the change was taken or there was none, without it when only the rest was applied.
+      const fullHash = this.hashOf(this.agentContent(values, declaredFull));
       plans.set(norm(planned.name), {
         update,
         recordId: record.id,
         values,
-        newHash,
+        newHash: fullHash,
+        newHashWithoutMode: withoutModeHash,
+        // True when the ONLY reason this needs a choice is the mode: the rest of the agent is untouched, so Keep still brings it up to date.
+        restUntouched: baseStatus !== 'edited_needs_choice',
         previous: { packVersion: item.packVersion, sourceHash: item.sourceHash },
       });
     }
@@ -1274,15 +1397,27 @@ export class PacksService {
       const plan = plans.get(key);
       if (entry.action === 'created') {
         const record = await this.records.get(agentsDb.id, entry.id);
-        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>)) });
+        const planned = manifest.agents.find((a) => norm(a.name) === key);
+        const declared = { aiMode: Boolean(planned?.ai_mode), skills: (planned?.skills.length ?? 0) > 0 };
+        provenance.set(key, { packVersion: manifest.version, sourceHash: this.hashOf(this.agentContent(record.values as Record<string, unknown>, declared)) });
         continue;
       }
       if (!plan) continue; // reused but never tracked (an adopted collision): origin unknown, stays null
       const apply = plan.update.status === 'will_update' || (plan.update.status === 'edited_needs_choice' && take.has(key));
+      // ticket #1106: only the AI mode needs the choice and the person kept theirs: bring the rest up to date WITHOUT the mode.
+      const keepModeOnly = !apply && plan.update.ai_mode_change !== undefined && plan.restUntouched === true;
       if (apply) {
         await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, plan.values, membership.userId);
         entry.action = 'updated';
         provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
+      } else if (keepModeOnly) {
+        const rest = { ...plan.values };
+        delete rest['ai_mode']; // the person kept their mode
+        if (plan.update.changed_fields.some((f) => f !== 'ai_mode')) {
+          await this.records.update(membership.workspaceId, agentsDb.id, plan.recordId, rest, membership.userId);
+          entry.action = 'updated';
+        }
+        provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHashWithoutMode ?? plan.newHash });
       } else if (plan.update.status === 'unchanged') {
         provenance.set(key, { packVersion: manifest.version, sourceHash: plan.newHash });
       } else {
@@ -1360,7 +1495,14 @@ export class PacksService {
           blocks_install: true,
         });
       } else if (decision.options_to_add.length > 0) {
-        gains.get(norm(st.database))!.options.push({ field: st.field, labels: decision.options_to_add });
+        const declared = Object.fromEntries(
+          st.options.filter((o) => o.category && decision.options_to_add.includes(o.label)).map((o) => [o.label, o.category!]),
+        );
+        gains.get(norm(st.database))!.options.push({
+          field: st.field,
+          labels: decision.options_to_add,
+          ...(Object.keys(declared).length > 0 ? { categories: declared } : {}),
+        });
         const existing = fields.find((f) => norm(f.displayName) === norm(st.field));
         if (existing) existing.options = [...(existing.options ?? []), ...decision.options_to_add.map((label) => ({ label }))];
       }
@@ -1385,9 +1527,7 @@ export class PacksService {
     const parsed = packManifestSchema.safeParse(rawManifest);
     if (!parsed.success) {
       throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
+        `This is not a valid pack manifest: ${describeManifestIssues(rawManifest, parsed.error.issues)}`,
       );
     }
     return parsed.data;
@@ -1436,6 +1576,11 @@ export class PacksService {
     resolutions: PackInstallResolutions = {},
     /** #1095 — an existing space to install INTO instead of creating the manifest's own. */
     targetSpaceId?: string,
+    /**
+     * #1107 — "Database.Rule name" labels of automations that act outward or run an agent (installed switched OFF) the person chose to
+     * switch ON in the review. The only way such a rule installs on: the manifest's own `enabled: true` is ignored for them.
+     */
+    enableAutomations: string[] = [],
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
     const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
@@ -1501,6 +1646,7 @@ export class PacksService {
       result,
       automationResolutions,
       hashes,
+      this.labelSet(enableAutomations),
     );
     await this.installSampleRecords(membership, working, dbIds, refToId, result);
     await this.installSkills(membership, working, result, hashes);
@@ -1548,7 +1694,7 @@ export class PacksService {
       const agent = collisions.agents.find((a) => a.name === name);
       if (agent?.action !== 'reuse' || agent.agent_update?.status !== 'edited_needs_choice') {
         throw new UnprocessableEntityException(
-          `"update" is only valid for an installed agent whose content was edited since the pack installed it; "${name}" is not one. ` +
+          `"update" is only valid for an installed agent that needs a choice (edited since the pack installed it, or the pack proposes a different AI mode); "${name}" is not one. ` +
             `Preview shows which agents need that choice.`,
         );
       }
@@ -2174,6 +2320,10 @@ export class PacksService {
     }
   }
 
+  private labelSet(labels: readonly string[]): Set<string> {
+    return new Set(labels.map((l) => norm(l)));
+  }
+
   private async installAutomations(
     membership: Membership,
     manifest: PackManifest,
@@ -2182,6 +2332,7 @@ export class PacksService {
     result: PackInstallResult,
     resolutions: Map<string, PackInstallResolutions[string]> = new Map(),
     hashes: Map<string, string> = new Map(),
+    turnedOn: Set<string> = new Set(),
   ): Promise<void> {
     for (const planned of manifest.automations) {
       const label = `${planned.database}.${planned.name}`;
@@ -2214,6 +2365,8 @@ export class PacksService {
       const trigger = deref(planned.trigger, refToId, where);
       const condition = planned.condition ? deref(planned.condition, refToId, where) : undefined;
       const actions = deref(planned.actions, refToId, where);
+      // #1107 — decided on the pack's own planned actions (what the rule DOES), never on the manifest's `enabled` alone.
+      const state = installedEnabledState(planned.actions, planned.enabled, turnedOn.has(norm(label)));
       const created = await this.automations.create(
         membership.workspaceId,
         dbId,
@@ -2222,14 +2375,22 @@ export class PacksService {
           trigger: trigger as never,
           condition,
           actions: actions as never,
-          enabled: planned.enabled,
+          enabled: state.enabled,
         },
         membership.userId,
       );
-      result.automations.push({ name: label, action: 'created', id: created.id });
+      result.automations.push({
+        name: label,
+        action: 'created',
+        id: created.id,
+        enabled: state.enabled,
+        ...(state.switched_off_because ? { switched_off_because: state.switched_off_because } : {}),
+      });
+      // The EFFECTIVE flag, so uninstall's modified-since-install check does not call a rule installed off "edited".
       hashes.set(
         `automation:${created.id}`,
-        this.hashOf({ name: targetName, trigger, condition, actions, enabled: planned.enabled }),
+        // `condition ?? null`: a live rule without one reads back `null`, and `undefined` would hash differently, so every unconditioned rule read as edited.
+        this.hashOf({ name: targetName, trigger, condition: condition ?? null, actions, enabled: state.enabled }),
       );
     }
   }

@@ -64,13 +64,13 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
           // StoryOS's own internal issue tracker (see the Backlog-style select
           // fields throughout starter-packs.ts), colors included.
           options: [
-            { label: 'New', color: 'gray' },
-            { label: 'To Do', color: 'blue' },
-            { label: 'In Progress', color: 'gold' },
-            { label: 'Review', color: 'purple' },
-            { label: 'Done', color: 'green' },
-            { label: 'Blocked', color: 'red' },
-            { label: 'Canceled', color: 'brown' },
+            { label: 'New', color: 'gray', category: 'unstarted' },
+            { label: 'To Do', color: 'blue', category: 'unstarted' },
+            { label: 'In Progress', color: 'gold', category: 'started' },
+            { label: 'Review', color: 'purple', category: 'started' },
+            { label: 'Done', color: 'green', category: 'completed' },
+            { label: 'Blocked', color: 'red', category: 'started' },
+            { label: 'Canceled', color: 'brown', category: 'canceled' },
           ],
         },
       ],
@@ -84,6 +84,8 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
           approval_policy: ['email', 'outward'],
           target_databases: ['Tickets'],
           skills: [],
+          // "StoryOS doesn't sell AI, bring yours": a built-in pack's agents run on the owner's own AI (never metered, MN-188) unless a person picks otherwise.
+          ai_mode: 'your_own_ai',
         },
       ],
       triggers: [

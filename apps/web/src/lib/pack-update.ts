@@ -109,11 +109,16 @@ export function itemEffect(
 /** What a person decides for an agent they changed: keep their version, or take the pack's. Keep mine is the default. */
 export type AgentChoice = 'keep' | 'update';
 
+const MODE_TEXT = { non_ai: 'Non-AI', your_own_ai: 'Your own AI', storyos_ai: 'StoryOS AI' } as const;
+const modeText = (m: keyof typeof MODE_TEXT | null): string => (m ? MODE_TEXT[m] : 'not set');
+
 const FIELD_LABEL: Record<PackAgentUpdate['changed_fields'][number], string> = {
   goal: 'goal',
   instructions: 'instructions',
   scopes: 'what it may access',
   approval_policy: 'when it asks for approval',
+  ai_mode: 'AI mode',
+  skills: 'skills',
 };
 
 /** "goal and instructions", "instructions, what it may access and when it asks for approval". */
@@ -148,6 +153,16 @@ export function agentEffect(update: PackAgentUpdate): AgentEffect {
       headline: `Agent: will be updated to this version (${changedFieldsText(update.changed_fields)} change).`,
       detail: 'You haven’t changed it since the pack installed it.',
       needsChoice: false,
+    };
+  }
+  if (update.reason === 'ai_mode' && update.ai_mode_change) {
+    const { current, proposed } = update.ai_mode_change;
+    return {
+      headline: `The pack proposes a different AI mode for this agent: ${modeText(current)} → ${modeText(proposed)}. Keep yours, or take the pack’s.`,
+      detail:
+        (proposed === 'storyos_ai' ? 'StoryOS AI is metered; your own AI is not. ' : '') +
+        'The mode only changes if you take the update. Anything else in the pack’s version that you haven’t changed is brought up to date either way.',
+      needsChoice: true,
     };
   }
   return {

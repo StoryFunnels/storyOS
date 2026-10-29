@@ -213,7 +213,7 @@ describe('#1014 the Linear import sets it from Linear\'s state type', () => {
     expect((await stateOf('Issues', 'state')).options.map((o) => o.category)).toEqual(expect.arrayContaining(['backlog', 'unstarted', 'started', 'completed', 'canceled']));
     expect((await stateOf('Issues', 'state')).options.every((o) => o.category !== null)).toBe(true);
     const project = await stateOf('Projects', 'state');
-    expect(Object.fromEntries(project.options.map((o) => [o.label, o.category]))).toEqual({ backlog: 'backlog', planned: 'unstarted', started: 'started', paused: 'started', completed: 'completed', canceled: 'canceled' });
+    expect(Object.fromEntries(project.options.map((o) => [o.label, o.category]))).toEqual({ Backlog: 'backlog', Planned: 'unstarted', 'In Progress': 'started', Paused: 'started', Completed: 'completed', Canceled: 'canceled' }); // #1113: options carry the names Linear shows
   });
 });
 

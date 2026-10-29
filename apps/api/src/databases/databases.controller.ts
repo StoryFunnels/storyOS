@@ -83,11 +83,14 @@ export class DatabasesController {
     if (body.space_id !== undefined || body.position !== undefined) {
       await this.databases.assertCanMove(req.membership, body.space_id);
     }
+    // ticket #1098 — access FIRST: a caller who cannot see the database is told it is not there (404, ADR-0018 (b)), and only someone
+    // who can see it is told, below, that sharing is an admin decision. Asked the other way round a 403 named a database the
+    // caller was not allowed to know about.
+    await this.databases.assertAccess(req.membership, databaseId, 'creator');
     // #943 — who a database is shared with is an admin decision (ADR-0018 §6), even for someone holding creator on it.
     if (body.restricted !== undefined && req.membership.role !== 'admin') {
       throw new ForbiddenException('Only an admin can change who a database is shared with');
     }
-    await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.update(req.membership, databaseId, body);
   }
 

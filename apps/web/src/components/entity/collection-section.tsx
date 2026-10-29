@@ -3,7 +3,7 @@
 import { Tooltip } from '@/components/ui/tooltip';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronRight, List, Palette, Plus } from 'lucide-react';
 import { arrayMove } from '@dnd-kit/sortable';
@@ -44,8 +44,10 @@ import { SelectDriftBanner } from './select-drift-banner';
 import { collectionControlsVisible } from './collection-empty';
 import { useOpenInSplit } from './split-panel-context';
 import { databaseColor } from '@/lib/entity-color';
+import { StateGlyph } from '@/components/views/state-glyph';
+import { collectionQueryView } from './collection-query';
 
-const COLLECTION_CAP = 20;
+const COLLECTION_CAP = 50;
 
 /** Field types worth showing inline in a relation section (MN-206). */
 const INLINE_COLUMN_TYPES = new Set([
@@ -157,8 +159,12 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   const setCv = (patch: Partial<CollectionView>) =>
     setOverride.mutate({ fieldId: field.id, config: { ...cv, ...patch } });
 
+  // #1116 — colour-by only changes how rows are PAINTED, so it stays out of the key (collection-query.ts):
+  // switching it used to mint a new query, blank the list and fetch the same rows again. And while
+  // a real change (filter, sort) is in flight the previous rows stay on screen instead of a loading gap.
   const linked = useQuery({
-    queryKey: ['collection', ws, targetDbId, rec, field.id, cv],
+    queryKey: ['collection', ws, targetDbId, rec, field.id, collectionQueryView(cv)],
+    placeholderData: keepPreviousData,
     enabled: Boolean(targetDbId && inverseApi) && !collapsed,
     queryFn: async () => {
       // Only apply conditions that are actually complete — a half-built filter (no value yet) must not 422.
@@ -210,9 +216,16 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     return [status, person].filter((f): f is Field => Boolean(f)).map((f) => f.apiName);
   }, [columnCandidates]);
   const columnApiNames = cv.fields ?? defaultColumns;
+  // #1116 — the target's state (its workflow field, else the first categorised select) is drawn as a glyph
+  // before the title, the way an issue list reads, so it leaves the column chips on the right (the state
+  // pill was an inline editor; the state is edited on the record).
+  const stateField =
+    targetFields.find((f) => f.type === 'workflow') ??
+    targetFields.find((f) => f.type === 'select' && (f.options ?? []).some((o) => o.category));
+  const stateOf = (row: RecordRow) => stateField?.options?.find((o) => o.id === row.values[stateField.apiName]);
   const columns = columnApiNames
     .map((name) => targetFields.find((f) => f.apiName === name))
-    .filter((f): f is Field => f !== undefined && INLINE_COLUMN_TYPES.has(f.type));
+    .filter((f): f is Field => f !== undefined && INLINE_COLUMN_TYPES.has(f.type) && f.id !== stateField?.id);
 
   return (
     <div className="group mb-5">
@@ -324,12 +337,13 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             )}
             {shown.map((row) => {
               const color = dotColor(row);
+              const state = stateOf(row);
               return (
                 // Only the TITLE area navigates — the column cells are interactive
                 // editors and must never live inside the anchor (MN-206 pt 2).
                 <div
                   key={row.id}
-                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-body text-ink last:border-b-0 hover:bg-hover"
+                  className="flex h-10 items-center gap-2.5 border-b border-border-default px-3 text-prose text-ink last:border-b-0 hover:bg-hover-soft"
                 >
                   <Link
                     href={recordHref(ws, targetDbId, row)}
@@ -350,8 +364,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                       /* #669 — the record number STAYS faint. #326 names it as its
                          first example of genuinely decorative text, so this is the
                          rule working, not an exception to it. */
-                      <span className="mr-1 shrink-0 tabular-nums text-faint">#{row.number}</span>
+                      <span className="w-12 shrink-0 tabular-nums text-body text-faint">#{row.number}</span>
                     )}
+                    {state && <StateGlyph category={state.category ?? null} color={OPTION_COLORS[state.color] ?? OPTION_COLORS.gray!} size={15} />}
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
                   </Link>
                   {columns.map((col) => {

@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { GripVertical, Plus, SlidersHorizontal, X } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, GripVertical, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
@@ -12,6 +13,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MenuSelect } from '@/components/ui/menu-select';
+import type { MenuOption } from '@/components/ui/menu-select';
 import {
   DragPreview,
   useDragPresentation,
@@ -29,7 +32,9 @@ import {
 } from '../table-view/number-column';
 import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
 import { isCoverField } from './cover-fields';
-import { listGroupDisabledReason } from './groupable-fields';
+import { canGroupBoardBy, canGroupListBy } from './groupable-fields';
+import { directionLabel, pickPrimarySort, sortableFields } from './sort-config';
+import { optionsFromChildren } from './menu-options';
 import { FieldsMenu } from './fields-menu';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
@@ -52,9 +57,7 @@ function GalleryNoCoverFieldNotice() {
 
 const SECTION =
   'block px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted';
-const FIELD_SELECT =
-  'h-7 min-w-0 max-w-[10rem] rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink';
-
+/** #1114 — a labelled row whose `<option>` children become the menu's items (value, label, disabled). */
 function SelectRow({
   label,
   value,
@@ -65,19 +68,15 @@ function SelectRow({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  children: React.ReactNode;
+  children: ReactNode;
   title?: string;
 }) {
+  const options = optionsFromChildren(children);
   return (
-    <label
-      className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink"
-      title={title}
-    >
+    <div className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink" title={title}>
       <span className="shrink-0">{label}</span>
-      <select className={FIELD_SELECT} value={value} onChange={(e) => onChange(e.target.value)}>
-        {children}
-      </select>
-    </label>
+      <MenuSelect label={label} value={value} onChange={onChange} options={options} />
+    </div>
   );
 }
 
@@ -156,6 +155,16 @@ export function DisplayMenu({
   // #702 — list and feed render the permanent number inline; board, calendar and gallery render it nowhere.
   const gutterEntry = viewType === 'list' || viewType === 'feed' ? numberEntry : undefined;
 
+  // #1114 — Ordering: the primary sort as one choice plus a direction flip, the way a
+  // tracker's Display panel offers it; the Sort chip keeps the full multi-key panel.
+  const hasOrdering = ['table', 'list', 'board', 'gallery', 'feed'].includes(viewType);
+  const sorts = config.sorts ?? [];
+  const primarySort = sorts[0];
+  const primaryField = fields.find((f) => f.apiName === primarySort?.field);
+  const orderOptions = useMemo<MenuOption[]>(
+    () => [{ value: '', label: 'Manual' }, ...sortableFields(fields).map((f) => ({ value: f.apiName, label: f.displayName }))],
+    [fields],
+  );
   const nothingToConfigure = !isTable && !hasCards && !showsColorBy && !(viewType === 'gallery');
   if (viewType === 'form' || viewType === 'dashboard' || nothingToConfigure) return null;
 
@@ -313,16 +322,75 @@ export function DisplayMenu({
                 }
               >
                 <option value="">None</option>
-                {fields.map((f) => {
-                  const reason = listGroupDisabledReason(f);
-                  return (
-                    <option key={f.id} value={f.id} disabled={reason !== null}>
-                      {f.displayName}
-                      {reason ? ` — ${reason}` : ''}
-                    </option>
-                  );
-                })}
+                {/* #1114 — only the fields a list can group by, by name — not every field with a sentence on why not. */}
+                {fields.filter(canGroupListBy).map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.displayName}
+                  </option>
+                ))}
               </SelectRow>
+            </>
+          )}
+
+          {viewType === 'board' && (
+            <>
+              <span className={SECTION}>Grouping</span>
+              <SelectRow
+                label="Group by"
+                value={config.group_by_field_id ?? ''}
+                onChange={(v) =>
+                  onPatch(
+                    groupingPatch({
+                      viewType,
+                      config,
+                      fieldId: v,
+                      isDateField: fields.find((f) => f.id === v)?.type === 'date',
+                    }),
+                  )
+                }
+              >
+                {fields.filter(canGroupBoardBy).map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.displayName}
+                  </option>
+                ))}
+              </SelectRow>
+            </>
+          )}
+
+          {hasOrdering && (
+            <>
+              <span className={SECTION}>Ordering</span>
+              <div className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink">
+                <span className="flex items-center gap-1">
+                  <span className="shrink-0">Order by</span>
+                  {primarySort && (
+                    <button
+                      type="button"
+                      aria-label="Flip direction"
+                      title={directionLabel(primaryField?.type ?? 'text', primarySort.direction, primaryField?.options)}
+                      className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+                      onClick={() =>
+                        onPatch({
+                          sorts: [{ ...primarySort, direction: primarySort.direction === 'asc' ? 'desc' : 'asc' }, ...sorts.slice(1)],
+                        })
+                      }
+                    >
+                      {primarySort.direction === 'asc' ? (
+                        <ArrowUpNarrowWide className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowDownWideNarrow className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+                </span>
+                <MenuSelect
+                  label="Order by"
+                  value={primarySort?.field ?? ''}
+                  options={orderOptions}
+                  onChange={(v) => onPatch({ sorts: pickPrimarySort(sorts, v, { keepRest: true }) })}
+                />
+              </div>
             </>
           )}
 

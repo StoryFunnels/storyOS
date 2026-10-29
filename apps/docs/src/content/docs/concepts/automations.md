@@ -27,8 +27,6 @@ Eleven actions, all available to buttons and rules alike.
 | **Add a comment** | Posts a comment on the record. |
 | **Notify a person** | An in-app notification to a person field's value, `@me`, or a [specific workspace member](#notifying-a-specific-member). |
 | **Update linked records** | Sets fields on every record linked through a chosen relation. |
-
-**What a "field to set" can be.** For both of the actions above the picker offers the record's **title** (a plain text box) and **relation** fields (a record search, to choose which records to link), as well as ordinary fields. Lookups, rollups, buttons, rich text and the automatic fields (created at, updated at, created by) are not offered, because they can't be set by hand.
 | **Send a Slack message** | Posts to a channel, or the workspace's default channel. |
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
 | **Send an email** | A templated 1:1 email through a Resend or SMTP connection. See below. |
@@ -37,6 +35,16 @@ Eleven actions, all available to buttons and rules alike.
 
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
+
+**What a "field to set" can be.** For both **Set fields on this record** and **Update linked records** the picker offers the record's **title** (a plain text box) and **relation** fields (a record search, to choose which records to link), as well as ordinary fields. Lookups, rollups, buttons, rich text and the automatic fields (created at, updated at, created by) are not offered, because they can't be set by hand.
+
+### Setting a select, workflow or multi-select field by its label
+
+In **Set fields on this record**, **Create a record**, **Create many records** and **Update linked records**, a value for a select, workflow or multi-select field can be the option's **label** (`Done`) or its id. A label is matched ignoring case, so `in review` finds `In review`. For a multi-select field, give a list of labels or ids; each entry is matched on its own. This is what you want when a rule is written over [MCP](#building-a-rule-over-mcp) or the API, where an agent knows the label and not the option's id.
+
+A value that is neither an option id nor the label of an option fails the run. The message names the field, what was given and every valid label, for example `"Status" has no option "Shipped". Valid options: New, In review, Done.` The failing action writes nothing. Actions that ran before it in the same rule are not undone, and in **Create many records** the records already created for earlier items stay.
+
+A token is expanded first and the result is then matched, so a token such as `{payload.status}` can supply a label. In **Update linked records** only a token that is the whole value is expanded (such as `{payload.status}` or `@me`); a `{Field Name}` placeholder inside text is not, so it is looked up as written.
 
 ### Running an agent on a schedule
 

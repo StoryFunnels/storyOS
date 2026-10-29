@@ -138,6 +138,8 @@ function makeService(db: Db) {
     { check: vi.fn().mockResolvedValue({ held: false }) } as never,
     // #231: these unit tests never define a validation rule.
     { enforce: vi.fn().mockResolvedValue(undefined) } as never,
+    // #1104: no per-agent write gate is declared in these unit tests.
+    { check: vi.fn().mockResolvedValue({ held: false }), matching: vi.fn().mockResolvedValue([]) } as never,
   );
 }
 

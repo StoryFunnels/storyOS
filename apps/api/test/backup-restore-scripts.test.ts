@@ -187,9 +187,33 @@ describe('backup.sh → restore.sh → verify-restore.sh (#891, #892)', () => {
     expect(res.code).not.toBe(0);
   }, 60_000);
 
-  it('refuses to restore into the live project without --force', async () => {
+  it('refuses to restore into the live project, whatever its case', async () => {
     const res = await restore(join(tmp, 'backups', LABEL), SOURCE);
     expect(res.out).toContain(`refusing to restore into the LIVE project '${SOURCE}'`);
     expect(res.code).not.toBe(0);
+
+    const upper = await restore(join(tmp, 'backups', LABEL), SOURCE.toUpperCase());
+    expect(upper.out).toContain(`refusing to restore into the LIVE project '${SOURCE.toUpperCase()}'`);
+    expect(upper.code).not.toBe(0);
+  }, 60_000);
+
+  // #1023 — `--force` used to let a rehearsal target the live project, and the
+  // teardown then ran `down -v` on it, even when the restore failed. Last on
+  // purpose: on the old script this deletes the source project's volumes.
+  it('has no --force: a forced restore into the live project is refused and the live database survives', async () => {
+    const dir = await copyPoint('forced');
+    await writeFile(join(dir, 'db.dump'), Buffer.concat([await readFile(join(dir, 'db.dump')), Buffer.from('x')]));
+
+    const res = await run('bash', [join(SCRIPTS, 'restore.sh'), dir, '--project', SOURCE, '--force']);
+
+    // The live database first: that is the harm, the message is the explanation.
+    expect((await run('docker', ['volume', 'inspect', `${SOURCE}_storyos_pg`])).code).toBe(0);
+    const records = await mustRun('docker', [
+      'compose', '-p', SOURCE, 'exec', '-T', 'postgres',
+      'psql', '-U', 'storyos', '-d', 'storyos', '-tAc', 'select count(*) from records',
+    ]);
+    expect(records.trim()).toBe('2');
+    expect(res.out).toContain('--force was removed (#1023)');
+    expect(res.code).toBe(2);
   }, 60_000);
 });

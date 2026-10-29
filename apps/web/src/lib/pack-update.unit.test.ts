@@ -158,6 +158,19 @@ describe('#978 AC3 — agent effects come from the preview API', () => {
     expect(legacy.detail).toMatch(/your version is kept/);
   });
 
+  it('a proposed AI mode is a choice that states current and proposed, and warns when it is metered (ticket #1106)', () => {
+    const e = agentEffect(
+      upd({ status: 'edited_needs_choice', reason: 'ai_mode', ai_mode_change: { current: null, proposed: 'storyos_ai' } }),
+    );
+    expect(e.needsChoice).toBe(true);
+    expect(e.headline).toContain('not set → StoryOS AI');
+    expect(e.detail).toMatch(/StoryOS AI is metered/);
+    expect(e.detail).toMatch(/only changes if you take the update/);
+    const own = agentEffect(upd({ status: 'edited_needs_choice', reason: 'ai_mode', ai_mode_change: { current: 'non_ai', proposed: 'your_own_ai' } }));
+    expect(own.headline).toContain('Non-AI → Your own AI');
+    expect(own.detail).not.toMatch(/metered/);
+  });
+
   it('lists changed fields in plain words, and calls out the ones that change what the agent may do', () => {
     expect(changedFieldsText(['instructions', 'scopes', 'approval_policy'])).toBe(
       'instructions, what it may access and when it asks for approval',

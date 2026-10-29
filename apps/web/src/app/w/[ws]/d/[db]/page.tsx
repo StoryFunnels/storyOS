@@ -472,7 +472,7 @@ function DatabasePageInner() {
         ) : activeView?.type === 'gallery' ? (
           <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'list' ? (
-          <ListView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <ListView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} onPatch={patch} />
         ) : activeView?.type === 'feed' ? (
           <FeedView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'timeline' ? (

@@ -1,7 +1,8 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
-import type { PlanAgent } from '@storyos/schemas';
+import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos/schemas';
+import type { PlanAgent, PlanAgentWriteGate } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
+import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
 import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
@@ -10,6 +11,7 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { RUN_CLASS_LABEL } from './agent-runtime';
 import type { RunClass } from './agent-runtime';
 import { AgentsService } from './agents.service';
 import { knownScenarios, pickProposer } from './architect-proposer';
@@ -77,6 +79,8 @@ export class ArchitectService {
     private readonly records: RecordsService,
     private readonly agents: AgentsService,
     private readonly aiCredits: AiCreditsService,
+    /** #1104 — creates the per-agent write gates a plan declares (and reads them back for an export). */
+    private readonly writeGates: AgentWriteGatesService,
   ) {}
 
   // ── #213: propose ───────────────────────────────────────────────────────────
@@ -173,7 +177,8 @@ export class ArchitectService {
           .join('; ')}`,
       );
     }
-    const plan = parsed.data;
+    const plan = this.withPackAgentExtras(parsed.data, rawPlan);
+    this.assertWriteGateDatabasesDeclared(plan);
 
     const result: ArchitectBuildResult = {
       summary: plan.summary,
@@ -187,13 +192,13 @@ export class ArchitectService {
       triggers: [],
     };
 
-    // The pack has to exist before an agent record can: this is the ONE
-    // provisioning call, and it belongs to build, not propose.
+    // The pack has to exist before an agent record can: this is the ONE provisioning call, and it belongs to build, not propose.
     //
-    // #1095 — it also makes the "Agentic OS" SPACE if the workspace has none, for EVERY build. Installing a pack into a space the
-    // person already has must not leave that second space behind, so with a target it is provisioned only when the plan has
-    // something to put in it (agents or triggers). Without a target nothing changes: it is always provisioned, as before.
-    const needsAgentOs = !options.targetSpace || plan.agents.length > 0 || plan.triggers.length > 0;
+    // Ticket #1096 — the Agentic OS space and its Agents/Runs/Agent Triggers databases exist because SOMETHING NEEDS THEM, so a
+    // build provisions them only when the plan has an agent or a trigger. A pack of databases and views alone must not leave a
+    // space and three databases the install never asked for. (#1095 made this so for installs that target a space; this is every
+    // install.) Anything that later needs the databases goes through `AgentsService.ensurePack` itself.
+    const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
     const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace);
@@ -390,7 +395,8 @@ export class ArchitectService {
           display_name: planned.field,
           type: 'select',
           config: {},
-          options: planned.options.map((o) => ({ label: o.label, color: o.color })),
+          // #1105 — a declared category is stored; omitted stays undefined, which a plain select keeps as none (as before)
+          options: planned.options.map((o) => ({ label: o.label, color: o.color, category: o.category })),
         })) as unknown as LiveField;
         result.states.push({ name: label, action: 'created', id: created.id });
         continue;
@@ -421,8 +427,27 @@ export class ArchitectService {
       await this.fields.addOption(databaseId, field.id, {
         label: option.label,
         color: option.color ?? 'gray',
+        category: option.category, // #1105 — only for an option that is MISSING; an existing one is never rewritten
       });
     }
+  }
+
+  /**
+   * ticket #1106 — `architectPlanSchema` is the Architect's own shape and has no `ai_mode` or `skills` on an agent, so parsing a pack
+   * manifest as a plan strips them. A manifest IS a plan (see packs.ts), so rather than widen the Architect's schema this puts back, by
+   * position, exactly the two keys a PACK agent adds, validated by the pack's own agent schema. A plain Architect plan has neither: no-op.
+   */
+  private withPackAgentExtras(plan: ArchitectPlan, rawPlan: unknown): ArchitectPlan {
+    const rawAgents = (rawPlan as { agents?: unknown } | null)?.agents;
+    if (!Array.isArray(rawAgents)) return plan;
+    const extras = packAgentSchema.pick({ ai_mode: true, skills: true });
+    return {
+      ...plan,
+      agents: plan.agents.map((agent, i) => {
+        const parsed = extras.safeParse(rawAgents[i]);
+        return parsed.success ? { ...agent, ...parsed.data } : agent;
+      }),
+    };
   }
 
   /**
@@ -436,7 +461,27 @@ export class ArchitectService {
       instructions: planned.instructions ? markdownToBlocks(planned.instructions) : null,
       scopes: planned.scopes.map((s) => optionId('scopes', s)).filter((id): id is string => Boolean(id)),
       approval_policy: planned.approval_policy.map((p) => optionId('approval_policy', p)).filter((id): id is string => Boolean(id)),
+      ...this.packAgentRuntimeValues(planned, optionId),
     };
+  }
+
+  /**
+   * ticket #1106 — the two pack-declared parts that decide HOW an agent runs: its AI mode and the skills it loads at run time.
+   * Written only when the manifest DECLARES them: an omitted `ai_mode` or an empty `skills` list leaves the key out entirely, so an agent
+   * a pack author said nothing about keeps what it had (unset mode = Non-AI, as before) and a person's own choice is never overwritten by a
+   * pack that never mentioned it. A plain `PlanAgent` (the Architect's) carries neither, so for it this is `{}`.
+   */
+  private packAgentRuntimeValues(
+    planned: PlanAgent & { ai_mode?: keyof typeof RUN_CLASS_LABEL; skills?: string[] },
+    optionId: (apiName: string, label: string) => string | null,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (planned.ai_mode) {
+      const id = optionId('ai_mode', RUN_CLASS_LABEL[planned.ai_mode]);
+      if (id) out['ai_mode'] = id;
+    }
+    if (planned.skills && planned.skills.length > 0) out['skills'] = planned.skills.join('\n');
+    return out;
   }
 
   /** The values to write onto an EXISTING agent record to bring it to `planned` (a pack update, #977). */
@@ -445,6 +490,85 @@ export class ArchitectService {
     const optionId = (apiName: string, label: string): string | null =>
       agentFields.find((f) => f.apiName === apiName)?.options?.find((o) => o.label === label)?.id ?? null;
     return this.agentContentValues(planned, optionId);
+  }
+
+  /**
+   * #1104 — a write gate is a safety feature, so one that cannot be resolved must refuse the build rather than be dropped
+   * quietly (an agent the author meant to be supervised would install unsupervised). Names are checked up front, before
+   * anything is created, so the refusal does not leave a half-built workspace behind.
+   */
+  private assertWriteGateDatabasesDeclared(plan: ArchitectPlan): void {
+    const declared = new Set(plan.databases.map((d) => norm(d.name)));
+    for (const agent of plan.agents) {
+      for (const gate of agent.write_gates ?? []) {
+        if (gate.database && !declared.has(norm(gate.database))) {
+          throw new UnprocessableEntityException(
+            `Agent "${agent.name}" has a write gate on database "${gate.database}", which this plan does not declare`,
+          );
+        }
+      }
+    }
+  }
+
+  /** Creates the gates a freshly created agent was declared with: names resolved to ids, replace-all, so a re-run cannot stack duplicates. */
+  private async installWriteGates(
+    membership: Membership,
+    agentId: string,
+    gates: PlanAgentWriteGate[],
+    dbIds: Map<string, string>,
+  ): Promise<void> {
+    const resolved: Array<{ operations: Array<'create' | 'update'>; databaseId: string | null; fields: string[] | null }> = [];
+    for (const gate of gates) {
+      const databaseId = gate.database ? (dbIds.get(norm(gate.database)) ?? null) : null;
+      if (gate.database && !databaseId) {
+        throw new UnprocessableEntityException(`Write gate database "${gate.database}" could not be resolved`);
+      }
+      let apiNames: string[] | null = null;
+      if (gate.fields && databaseId) {
+        const live = await this.liveFields(membership, databaseId);
+        apiNames = gate.fields.map((name) => {
+          const hit = live.find((f) => norm(f.displayName) === norm(name) || f.apiName === name);
+          if (!hit) throw new UnprocessableEntityException(`Write gate field "${name}" does not exist on database "${gate.database}"`);
+          return hit.apiName;
+        });
+      }
+      resolved.push({ operations: gate.operations, databaseId, fields: apiNames });
+    }
+    await this.writeGates.replaceForAgent(membership.workspaceId, agentId, resolved, membership.userId);
+  }
+
+  /**
+   * #1104 — the inverse, for an export: each agent's gates as plan gates, database and field NAMES instead of ids. A gate on
+   * a database outside `dbNames` (the slice being exported) cannot be expressed in this pack and is left out; a gated agent
+   * whose gates are all outside gets no key at all, exactly like an ungated one.
+   */
+  async exportWriteGates(
+    workspaceId: string,
+    agentIds: string[],
+    dbs: Map<string, { name: string; fields: Array<{ apiName: string; displayName: string }> }>,
+  ): Promise<Map<string, PlanAgentWriteGate[]>> {
+    const out = new Map<string, PlanAgentWriteGate[]>();
+    const all = (await this.writeGates.list(workspaceId)).filter((g) => g.enabled && agentIds.includes(g.agentId));
+    for (const g of all) {
+      let database: string | undefined;
+      let fieldNames: string[] | undefined;
+      if (g.databaseId) {
+        const db = dbs.get(g.databaseId);
+        if (!db) continue;
+        database = db.name;
+        if (g.fields) {
+          fieldNames = g.fields.map((api) => db.fields.find((f) => f.apiName === api)?.displayName ?? api);
+        }
+      }
+      const list = out.get(g.agentId) ?? [];
+      list.push({
+        operations: g.operations as Array<'create' | 'update'>,
+        ...(database ? { database } : {}),
+        ...(fieldNames ? { fields: fieldNames } : {}),
+      });
+      out.set(g.agentId, list);
+    }
+    return out;
   }
 
   /**
@@ -503,6 +627,8 @@ export class ArchitectService {
         0,
         'agent',
       );
+      // #1104 — only for an agent this build CREATED. An existing agent of that name (above) keeps whatever its owner set.
+      if (planned.write_gates !== undefined) await this.installWriteGates(membership, created.id, planned.write_gates, dbIds);
       result.agents.push({ name: planned.name, action: 'created', id: created.id });
       ids.set(norm(planned.name), created.id);
     }

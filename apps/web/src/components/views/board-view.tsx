@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { arrangeBoardColumns } from './board-columns';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { StateCategory } from '@storyos/schemas';
 import type { MouseEvent } from 'react';
 import {
   DndContext,
@@ -22,10 +23,12 @@ import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
+import { StateGlyph } from './state-glyph';
 import { API_URL } from '@/lib/api';
 import { coverImageUrl, isUrlCoverField } from './cover-fields';
 import { Avatar } from '@/components/ui/avatar';
-import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
+import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue, formatNumberValue } from '../table-view/cells';
+import { isPercentField } from '../table-view/cell-text';
 import {
   bucketColumnsFor,
   bucketLabel,
@@ -38,6 +41,7 @@ import { RelationChip } from '../table-view/relation-cell';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
   recordCountKey,
+  useAllPages,
   useDatabase,
   useGroupedRecordCount,
   useMembers,
@@ -114,8 +118,13 @@ export function BoardView({
   const hasSorts = config.sorts.length > 0;
 
   const search = useViewSearch(db);
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
+  // #1115 — a grouped board loads every page; the API's largest page halves the round trips.
+  const queryBody = useMemo<Record<string, unknown>>(
+    () => ({ ...queryBodyFromConfig(config, personalFilter, search), ...(config.group_by_field_id ? { limit: 200 } : {}) }),
+    [config, personalFilter, search],
+  );
   const records = useRecordsInfinite(ws, db, queryBody);
+  useAllPages(records, Boolean(config.group_by_field_id));
   const { createRecord } = useRecordMutations(ws, db);
 
   const memberQuery = useMembers(ws, !readOnly);
@@ -185,7 +194,7 @@ export function BoardView({
     if (!groupField) return [];
     // #215: `icon` is optional because only select/workflow columns have an
     // option to take one from — a date bucket or a member column has none.
-    const defs: Array<{ id: string; label: string; color: string; icon?: string | null }> =
+    const defs: Array<{ id: string; label: string; color: string; icon?: string | null; category?: StateCategory | null }> =
       // #307: a date axis has no schema to enumerate — columns come from the data,
       // chronologically. Emitting every period between min and max would explode
       // into empty columns the moment one record has a far-future date.
@@ -207,6 +216,8 @@ export function BoardView({
             // select/workflow columns have one — a date bucket or a member column
             // has no option to take an icon from, hence undefined elsewhere.
             icon: o.icon,
+            // #1115 — the option's state category, so the header draws the state's glyph (dashed, pie, tick) and not only a dot.
+            category: o.category ?? null,
           }))
         : groupField.type === 'user'
           ? (memberQuery.data ?? []).map((m) => ({
@@ -661,7 +672,7 @@ function BoardColumn({
   onOpen,
   onAdd,
 }: {
-  column: { id: string; label: string; color: string; icon?: string | null; rows: RecordRow[] };
+  column: { id: string; label: string; color: string; icon?: string | null; category?: StateCategory | null; rows: RecordRow[] };
   /** #755 — while more pages remain unloaded, this column's row count can only
    *  ever be a lower bound; the header must say so rather than read as final. */
   hasMore: boolean;
@@ -706,6 +717,8 @@ function BoardColumn({
             <span className="flex items-center" style={{ color: column.color }}>
               <OptionIcon icon={column.icon} />
             </span>
+          ) : column.category ? (
+            <StateGlyph category={column.category} color={column.color} size={13} />
           ) : (
             <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: column.color }} />
           )}
@@ -951,11 +964,14 @@ export function CardFieldChip({
   value,
   memberNames,
   memberImages,
+  status,
 }: {
   field: Field;
   value: unknown;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
+  /** #1115 — the row's state (or the group's), so a percent draws that state's glyph (a pie while in progress) in its colour. */
+  status?: { color: string; category?: StateCategory | null };
 }) {
   if (field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow') {
     return <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />;
@@ -1006,6 +1022,30 @@ export function CardFieldChip({
         ))}
       </>
     );
+  }
+
+  // #1115 — a number is a quantity, not a category: it reads as a plain tabular figure
+  // rather than a field-hued pill. A percent (the one rule cell-text.ts's isPercentField
+  // states, shared with the record page's bar) also draws the state glyph with the percent
+  // as its pie, so a list of projects scans like a progress report (Issues · 95%).
+  if (field.type === 'number' || field.type === 'formula' || field.type === 'rollup') {
+    const n = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(n)) {
+      const percent = isPercentField(field);
+      return (
+        <span className="inline-flex items-center gap-1.5 tabular-nums text-body text-ink-secondary">
+          {percent && <StateGlyph category={status?.category ?? null} color={status?.color} percent={n} size={15} />}
+          {/* A percent keeps a fixed slot after its glyph, so glyphs line up down a column instead of drifting with the digits. */}
+          <span className={percent ? 'inline-block w-10 text-left' : undefined}>{formatNumberValue(field, value)}</span>
+        </span>
+      );
+    }
+  }
+
+  // #1115 — text is a value, not a category: an identifier such as SF-521 or a person's
+  // name reads as plain secondary text, not a field-hued pill.
+  if (field.type === 'text') {
+    return <span className="truncate text-body text-ink-secondary">{String(value)}</span>;
   }
 
   const color = fieldColor(field.id);

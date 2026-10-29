@@ -116,6 +116,9 @@ token, for something like posting "Status: To Do → In Progress" into a Slack m
 moves.
 
 This respects the same **notification preferences** as everything else on this page — turning off
+**Record changes** in **Settings → Notifications** stops the emails, the same as the other four
+event types (assigned, mentions, comments, status changes) on that page. It defaults **on**.
+
 **Notifications follow your current access.** A notification about a record you can no longer read
 (your grant was revoked, or the database or space became restricted) is hidden from your Inbox, shows
 no title, snippet or database name, and isn't counted in the unread badge. If the access comes back,
@@ -123,9 +126,6 @@ so do the notifications. Emails to watchers and to mentioned people are only sen
 read the record at send time, and the Slack mirror of a mention is **never posted for a record in a
 restricted database or space**, because the channel's membership isn't known. A notification an
 automation's *send email* action sends is chosen by the automation's author and isn't filtered.
-
-**Record changes** in **Settings → Notifications** stops the emails, the same as the other four
-event types (assigned, mentions, comments, status changes) on that page. It defaults **on**.
 
 ## Over the API and MCP
 

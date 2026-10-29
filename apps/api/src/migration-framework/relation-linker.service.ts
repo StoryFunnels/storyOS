@@ -29,4 +29,28 @@ export class RelationLinkerService {
       return `link failed: ${(error as Error).message}`;
     }
   }
+
+  /**
+   * #1103 — make a record's links on one field EQUAL `targetIds` (removing what is no longer wanted), for a source that
+   * owns the field. Writes nothing when the set is already equal, so a re-sync of an unchanged record adds no link events.
+   * `link()` above only adds, which left a dropped label or a changed cycle linked forever.
+   */
+  async set(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    fieldId: string,
+    targetIds: string[],
+    actorId: string,
+  ): Promise<string | null> {
+    try {
+      const current = (await this.relationsService.listLinks(databaseId, recordId, fieldId)).data.map((r) => r.id);
+      const want = new Set(targetIds);
+      if (current.length === want.size && current.every((id) => want.has(id))) return null;
+      await this.relationsService.replaceLinks(workspaceId, databaseId, recordId, fieldId, [...want], actorId);
+      return null;
+    } catch (error) {
+      return `link failed: ${(error as Error).message}`;
+    }
+  }
 }

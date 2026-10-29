@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { creatableFieldTypeSchema, OPTION_COLORS } from './fields';
+import { creatableFieldTypeSchema, OPTION_COLORS, stateCategorySchema } from './fields';
 import { relationCardinalitySchema } from './relations';
 
 /**
@@ -26,14 +26,29 @@ import { relationCardinalitySchema } from './relations';
 
 const nameSchema = z.string().min(1).max(200);
 
+/**
+ * One option of a select / workflow field in a plan or pack manifest (ticket #1105).
+ *
+ * `category` is OPTIONAL, so every manifest written before it stays valid, and it is the #1014 state category
+ * (backlog | unstarted | started | completed | canceled): the author's word on what KIND of state this option is. Omitted, install
+ * behaves exactly as it did before: a `workflow` field infers one from the label and position, a plain `select` keeps none. Declared,
+ * it wins over inference. An unknown value is refused at validation, naming the option (see `planOptionSchema`'s refine below).
+ *
+ * THE ONE PLACE to extend a manifest option (the `fields[].options` and `states[].options` shapes below both use it).
+ */
+export const planOptionSchema = z.object({
+  label: nameSchema,
+  color: z.enum(OPTION_COLORS).optional(),
+  category: stateCategorySchema.optional(),
+});
+export type PlanOption = z.infer<typeof planOptionSchema>;
+
 /** A field the plan wants on a database, in the terms a reviewer reads. */
 export const planFieldSchema = z.object({
   name: nameSchema,
   type: creatableFieldTypeSchema,
   /** For select/multi_select fields. Ignored for other types. */
-  options: z
-    .array(z.object({ label: nameSchema, color: z.enum(OPTION_COLORS).optional() }))
-    .optional(),
+  options: z.array(planOptionSchema).optional(),
   /**
    * The field's type config — number precision, `include_time`, `multiline`.
    *
@@ -95,9 +110,30 @@ export type PlanRelation = z.infer<typeof planRelationSchema>;
 export const planStateSchema = z.object({
   database: nameSchema,
   field: nameSchema,
-  options: z.array(z.object({ label: nameSchema, color: z.enum(OPTION_COLORS).optional() })).min(1),
+  options: z.array(planOptionSchema).min(1),
 });
 export type PlanState = z.infer<typeof planStateSchema>;
+
+/**
+ * #1104 — a gate on the writes an AGENT makes: its record creates and/or updates are held for a person's approval
+ * instead of being applied (the staged-action flow, in the Approvals inbox). Declared by NAME, like everything in a plan,
+ * and resolved to ids at install.
+ *
+ *  - `operations`: which writes are held (create, update, or both).
+ *  - `database`: limits the gate to one database of the plan (or one that already exists); omitted = every database.
+ *  - `fields`: limits it to a write that touches one of these fields (display names); omitted = any write. Needs `database`.
+ */
+export const planAgentWriteGateSchema = z
+  .object({
+    operations: z.array(z.enum(['create', 'update'])).min(1),
+    database: nameSchema.optional(),
+    fields: z.array(nameSchema).min(1).optional(),
+  })
+  .refine((g) => !g.fields || Boolean(g.database), {
+    message: 'a gate that names fields must name the database they belong to',
+    path: ['database'],
+  });
+export type PlanAgentWriteGate = z.infer<typeof planAgentWriteGateSchema>;
 
 /** An agent record the plan wants in the Agents database (ADR-0010 §1). */
 export const planAgentSchema = z.object({
@@ -112,6 +148,12 @@ export const planAgentSchema = z.object({
     .default([]),
   /** Names of the databases this agent may act on. */
   target_databases: z.array(nameSchema).default([]),
+  /**
+   * #1104 — the gates on this agent's record writes. Deliberately NO default: a key that is ABSENT means "this plan says
+   * nothing about gates" (install adds none, an export of an ungated agent omits it), while a key that is present and
+   * `[]` means "explicitly none". The two must stay distinguishable, as they are for the other optional lists in a pack.
+   */
+  write_gates: z.array(planAgentWriteGateSchema).optional(),
 });
 export type PlanAgent = z.infer<typeof planAgentSchema>;
 
