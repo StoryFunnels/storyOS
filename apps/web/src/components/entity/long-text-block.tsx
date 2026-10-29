@@ -124,7 +124,7 @@ export function MarkdownBody({ source, className }: { source: string; className?
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-accent underline underline-offset-2"
+              className="text-primary-text underline underline-offset-2"
             >
               {children}
             </a>

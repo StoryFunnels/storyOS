@@ -192,7 +192,7 @@ export function WorkspaceHomeBlocks({
                 href={favoriteHref(ws, f)}
                 className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-border-default bg-card px-2 py-1 text-label text-ink hover:bg-hover"
               >
-                <Star className="h-3 w-3 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+                <Star className="h-3 w-3 shrink-0 fill-primary-text text-primary-text" />
                 <span className="max-w-[16rem] truncate">{f.title}</span>
               </Link>
             ))}

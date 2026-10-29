@@ -320,9 +320,9 @@ export function SkillEditor({
               <p className="text-label text-muted">Write the “when to use” sentence and it will be set beside its nearest rivals here.</p>
             ) : (
               <>
-                <div className="mb-2 border-l-2 border-accent py-1 pl-2.5">
+                <div className="mb-2 border-l-2 border-primary-text py-1 pl-2.5">
                   <p className="text-label font-bold text-ink">
-                    {draft.name.trim() || 'This skill'} <span className="font-mono text-micro tracking-wider text-accent">YOU</span>
+                    {draft.name.trim() || 'This skill'} <span className="font-mono text-micro tracking-wider text-primary-text">YOU</span>
                   </p>
                   <p className="mt-0.5 text-label leading-normal text-muted">
                     <MarkedText segments={comparison.mine} />

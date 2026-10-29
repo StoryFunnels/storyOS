@@ -177,7 +177,7 @@ function EmailSection({ email, verified }: { email: string; verified: boolean })
         {email}
         <span
           className={`rounded-[var(--radius-pill,9999px)] px-2 py-0.5 text-meta font-medium ${
-            verified ? 'bg-accent-soft text-warning' : 'bg-hover text-muted'
+            verified ? 'border border-border-default bg-hover text-warning' : 'bg-hover text-muted'
           }`}
         >
           {verified ? 'Verified' : 'Unverified'}

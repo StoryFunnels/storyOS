@@ -40,13 +40,13 @@ export function FreeGuestTip({
   if (dismissed) return null;
 
   return (
-    <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-3 py-2 text-label text-ink">
+    <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover px-3 py-2 text-label text-ink">
       <span className="flex-1">
         {children}
         {href && (
           <>
             {' '}
-            <Link href={href} className="font-medium text-accent underline-offset-2 hover:underline">
+            <Link href={href} className="font-medium text-primary-text underline underline-offset-2">
               Invite a guest →
             </Link>
           </>

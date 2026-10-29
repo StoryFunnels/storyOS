@@ -391,7 +391,7 @@ export function AddFieldDialog({
                 <button
                   key={c}
                   type="button"
-                  className={cn('flex h-7 w-7 items-center justify-center rounded hover:bg-hover', c === buttonColor && 'ring-1 ring-[var(--accent)]')}
+                  className={cn('flex h-7 w-7 items-center justify-center rounded hover:bg-hover', c === buttonColor && 'ring-1 ring-primary-text')}
                   onClick={() => setButtonColor(c)}
                 >
                   <span className="h-4 w-4 rounded-full" style={{ backgroundColor: OPTION_COLORS[c] }} />

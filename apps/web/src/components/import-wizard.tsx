@@ -479,7 +479,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       <p className="truncate text-meta text-faint">
                         {/* #379 — say when the choice was made automatically. */}
                         {autoMatched.has(c.column) && to.kind === 'existing' ? (
-                          <span className="text-accent">matched to an existing field · </span>
+                          <span className="text-primary-text">matched to an existing field · </span>
                         ) : null}
                         {sample}
                       </p>

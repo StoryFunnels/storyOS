@@ -160,12 +160,12 @@ export default function GitHubIntegrationPage() {
         <GitBranch className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">GitHub</h1>
         {connected ? (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
+          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
             connected · installation {config.data?.installation_id}
           </span>
         ) : (
           config.data?.has_token && (
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
+            <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
               token set
             </span>
           )
@@ -526,7 +526,7 @@ function RepoPicker({
         {repos.map((r) => (
           <label
             key={r.full_name}
-            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body text-ink hover:bg-accent-soft"
+            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body text-ink hover:bg-hover"
           >
             <input
               type="checkbox"

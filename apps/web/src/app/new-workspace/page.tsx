@@ -92,7 +92,7 @@ function PackChoice({
            as a rendering bug rather than "scroll for more". Fixed height + the
            line-clamp below makes the cut land between rows by construction. */
         'flex h-[196px] flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border p-2 text-left transition-colors',
-        selected ? 'border-[var(--accent)] bg-accent-soft' : 'border-border-default hover:bg-hover',
+        selected ? 'border-primary-text bg-active' : 'border-border-default hover:bg-hover',
       )}
       onClick={onClick}
     >
@@ -485,7 +485,7 @@ export default function NewWorkspacePage() {
               className={cn(
                 'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
                 choice === 'blank'
-                  ? 'border-[var(--accent)] bg-accent-soft'
+                  ? 'border-primary-text bg-active'
                   : 'border-border-default hover:bg-hover',
               )}
               onClick={() => setChoice('blank')}
@@ -504,7 +504,7 @@ export default function NewWorkspacePage() {
               className={cn(
                 'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
                 choice === 'marketplace'
-                  ? 'border-[var(--accent)] bg-accent-soft'
+                  ? 'border-primary-text bg-active'
                   : 'border-border-default hover:bg-hover',
               )}
               onClick={() => setChoice('marketplace')}

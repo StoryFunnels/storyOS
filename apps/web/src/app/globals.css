@@ -53,6 +53,8 @@
   /* #994 (Otto's ruling) — the same navy for TEXT and GLYPHS. A fill and a text colour are different jobs in dark mode:
      --primary is a mid blue that clears AA under a label but is 3.45:1 as text on a card, so text uses its own token. */
   --primary-text: #2f3b63;
+  /* #1163 — GOLD MARKS AGENTS: where they live, who they are, what they are doing, what they ask of you. Not selection,
+     favourites, toggles, human tasks or setup nudges. gold-agents-only.unit.test.ts allow-lists the files that may use it. */
   --accent: #d4a017;
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
@@ -510,7 +512,8 @@ html[data-embed] body {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  /* #1163 — text selection is not an agent acting: the neutral selected-row fill, not gold. */
+  background: var(--bg-active);
 }
 
 /*

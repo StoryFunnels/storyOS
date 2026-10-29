@@ -545,7 +545,7 @@ function FormBuilder({
         <Share2 className="h-4 w-4 text-muted" />
         Configure &amp; share
         {token && access !== 'members' && (
-          <span className="ml-auto rounded-full bg-accent-soft px-2 py-0.5 text-meta text-accent">Live</span>
+          <span className="ml-auto rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-primary-text">Live</span>
         )}
       </button>
 
@@ -593,7 +593,7 @@ function FormBuilder({
                 <CopyRow label="Link" value={link} onCopy={() => copy(link, 'Link')} />
                 <CopyRow label="Embed" value={embed} onCopy={() => copy(embed, 'Embed snippet')} />
                 {embedChanged && (
-                  <p role="status" className="rounded-[var(--radius-control)] bg-accent-soft px-2 py-1.5 text-label text-ink">
+                  <p role="status" className="rounded-[var(--radius-control)] border border-border-default bg-hover px-2 py-1.5 text-label text-ink">
                     The embed code changed. Copy it again and replace the one on your site — a snippet you
                     already pasted keeps its old setting.
                   </p>

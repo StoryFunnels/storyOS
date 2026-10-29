@@ -116,7 +116,7 @@ function ConnectedCard({ onAnother }: { onAnother: () => void }) {
           </div>
         ))}
       </div>
-      <button type="button" className="text-label font-medium text-accent-text hover:underline" onClick={onAnother}>
+      <button type="button" className="text-label font-medium text-primary-text underline" onClick={onAnother}>
         Connect another AI →
       </button>
     </>
@@ -256,7 +256,7 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
           deployment, use your own address ending in <code className="font-mono text-[11px]">/mcp</code>. Do
           not paste a token into the hosted sign-in flow.{' '}
           <Link
-            className="font-medium text-accent-text hover:underline"
+            className="font-medium text-primary-text underline"
             href={`/w/${ws}/settings/api`}
             onClick={() => posthog.capture('mcp_setup_started', { client: 'advanced', auth_path: 'pat' })}
           >

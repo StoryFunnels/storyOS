@@ -204,7 +204,7 @@ export default function LinearIntegrationPage() {
         <ArrowDownToLine className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Linear (import &amp; mirror)</h1>
         {cfg?.has_key && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
+          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
             connected
           </span>
         )}
@@ -262,7 +262,7 @@ export default function LinearIntegrationPage() {
           field below looks empty (write-only, never round-trips), so without this
           it's easy to assume there's more setup to do before anything can happen. */}
       {cfg?.has_key && !preview && !imported && (
-        <div className="mb-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-4 sm:flex-row sm:items-center">
+        <div className="mb-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-hover p-4 sm:flex-row sm:items-center">
           <Sparkles className="h-5 w-5 shrink-0 text-ink" />
           <div className="flex-1">
             <p className="text-body font-semibold text-ink">You&apos;re already connected.</p>
