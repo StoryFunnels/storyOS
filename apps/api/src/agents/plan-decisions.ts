@@ -9,6 +9,14 @@
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+/**
+ * #1166 — is this a SYSTEM database (Members, Agents, Agent Triggers, Agent Runs, or any other the product provisions)? By the `is_system`
+ * flag (and `system_key`, which only a system database can carry), NEVER by name (ADR-0017): a user's or a pack's own database called
+ * "Members" is an ordinary one. The ONE question every place that matches a database for a pack install asks, so a pack never matches,
+ * reuses, adopts or writes into one however it is asked.
+ */
+export const isSystemDatabase = (d: { isSystem?: boolean | null; systemKey?: string | null }): boolean => Boolean(d.isSystem || d.systemKey);
+
 /** The part of a live field these decisions read. */
 export interface DecidableField {
   displayName: string;
