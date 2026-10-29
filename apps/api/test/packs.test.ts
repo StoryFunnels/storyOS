@@ -1640,19 +1640,14 @@ describe('#568 pack install: a reused database\'s missing option is a skip, not 
 
     await installOk(wsId, agency.manifest);
 
-    // #1156 — a pack matches databases only within ITS OWN space, so Consulting OS adopts Agency OS's Clients only when it is installed
-    // where Clients already is. (Installed into its own space it now creates its own Clients: see pack-install-name-scope.test.ts.)
-    const agencyClientsSpace = (agency.manifest.databases.find((d) => d.name === 'Clients') as { space: string }).space;
-    const consultingManifest = {
-      ...consulting.manifest,
-      databases: consulting.manifest.databases.map((d) => ({ ...d, space: agencyClientsSpace })),
-    } as PackManifest;
-
-    const preview = await previewOk(wsId, consultingManifest);
+    // #1156 — matching is per space, so Clients (kept in Agency OS's space) is not a collision for Consulting OS (its own space); the
+    // preview offers it, and the person's explicit `reuse` below is what adopts it across spaces.
+    const preview = await previewOk(wsId, consulting.manifest);
     const clients = preview.databases.find((d: { name: string }) => d.name === 'Clients');
-    expect(clients?.action, 'Clients must collide — that is the whole scenario').toBe('collision');
+    expect(clients?.action).toBe('create');
+    expect(clients?.existing_elsewhere?.adopted, 'the review can offer the existing Clients').toBe(false);
 
-    const res = await installWith(wsId, consultingManifest, { Clients: { action: 'reuse' } });
+    const res = await installWith(wsId, consulting.manifest, { Clients: { action: 'reuse' } });
     expect(res.statusCode, res.body).toBe(201); // NOT a 422
     const result = res.json();
 

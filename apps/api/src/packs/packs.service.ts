@@ -70,7 +70,8 @@ import { RelationsService } from '../relations/relations.service';
 import { SkillsService } from '../skills/skills.service';
 import { RUN_CLASS_BY_LABEL } from '../agents/agent-runtime';
 import { ViewsService } from '../views/views.service';
-import { AccessService } from '../access/access.service';
+import { ACCESS_RANK, AccessService } from '../access/access.service';
+import type { EffectiveRole } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
@@ -1115,6 +1116,65 @@ export class PacksService {
   }
 
   /**
+   * #1156 — which databases in OTHER spaces this install adopts, and which it could.
+   *
+   * Matching is per space, so a database of the same name elsewhere is ignored by default. Sharing one across packs (a Clients list for
+   * Agency OS, Consulting OS and a portal) is a deliberate act, so it happens only when
+   *  - the person chose `reuse` for that database in the review (`resolutions`), or
+   *  - this pack adopted it on an earlier install (tracked as `reused`), so a re-install keeps using it instead of making a duplicate.
+   * Either way the person must be able to EDIT it (`my_access`, from the same list that hides what they cannot see). A `reuse` that finds
+   * no such database says the same thing whether it does not exist, is not visible or is not editable, so the refusal cannot be used to
+   * probe for databases. A same-named database in the home space always wins and never reaches this.
+   */
+  private async planAdoptions(
+    membership: Membership,
+    manifest: PackManifest,
+    targetSpaceId: string | undefined,
+    resolutions: PackInstallResolutions,
+    existingInstall: { id: string } | undefined,
+  ): Promise<{ adopt: Map<string, { id: string; name: string }>; hints: Map<string, { database_id: string; space_name: string; adopted: boolean }> }> {
+    const adopt = new Map<string, { id: string; name: string }>();
+    const hints = new Map<string, { database_id: string; space_name: string; adopted: boolean }>();
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
+    const live = await this.databases.list(membership);
+    const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
+    const where = (spaceId: string) => spaceNames.get(spaceId) ?? 'another space';
+    const trackedReused = existingInstall
+      ? await this.db.query.packInstallItems.findMany({
+          where: and(eq(packInstallItems.packInstallId, existingInstall.id), eq(packInstallItems.kind, 'database'), eq(packInstallItems.action, 'reused')),
+        })
+      : [];
+    const canEdit = (d: { my_access: string | null }) => d.my_access !== null && ACCESS_RANK[d.my_access as EffectiveRole] >= ACCESS_RANK.editor;
+    for (const d of manifest.databases) {
+      if (inHomeSpace(d.name, d.space)) continue;
+      const earlier = trackedReused.find((t) => norm(t.name) === norm(d.name));
+      const kept = earlier ? live.find((x) => x.id === earlier.entityId && canEdit(x)) : undefined;
+      if (kept) {
+        adopt.set(norm(d.name), { id: kept.id, name: kept.name });
+        hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true });
+        continue;
+      }
+      const candidates = live.filter((x) => norm(x.name) === norm(d.name) && !x.isSystem && canEdit(x));
+      if (resolutions[d.name]?.action === 'reuse') {
+        if (candidates.length === 0) {
+          throw new UnprocessableEntityException(`Cannot reuse "${d.name}": there is no database with that name that you can edit.`);
+        }
+        if (candidates.length > 1) {
+          throw new UnprocessableEntityException(
+            `Cannot reuse "${d.name}": ${candidates.length} databases with that name (in ${candidates.map((c) => `"${where(c.spaceId)}"`).join(', ')}) can be edited, so it is not clear which one is meant. Rename the ones you do not mean first.`,
+          );
+        }
+        const only = candidates[0]!;
+        adopt.set(norm(d.name), { id: only.id, name: only.name });
+        hints.set(norm(d.name), { database_id: only.id, space_name: where(only.spaceId), adopted: true });
+      } else if (candidates.length === 1) {
+        hints.set(norm(d.name), { database_id: candidates[0]!.id, space_name: where(candidates[0]!.spaceId), adopted: false });
+      }
+    }
+    return { adopt, hints };
+  }
+
+  /**
    * What `install` would do, without doing it (MN-219 / #161).
    *
    * The same split `ArchitectService` already draws between `propose` (reads,
@@ -1132,12 +1192,19 @@ export class PacksService {
     targetSpaceId?: string,
     /** #1107 — see `install`. A preview that ignored it would show the rules off that the install then turns on. */
     enableAutomations: string[] = [],
+    /** #1156 — the same `resolutions` install takes: a `reuse` the person chose for a database in another space is shown as adopted. */
+    resolutions: PackInstallResolutions = {},
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
-    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId);
+    const plan = await this.planAdoptions(membership, manifest, targetSpaceId, resolutions, await this.findExistingInstall(membership.workspaceId, manifest.slug));
+    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId, plan.adopt);
+    for (const item of databases) {
+      const hint = plan.hints.get(norm(item.name));
+      if (hint) item.existing_elsewhere = hint;
+    }
     // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
     const turnedOn = this.labelSet(enableAutomations);
     const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
@@ -1163,6 +1230,7 @@ export class PacksService {
     membership: Membership,
     manifest: PackManifest,
     targetSpaceId?: string,
+    adopt?: Map<string, { id: string; name: string }>,
   ): Promise<{
     databases: PackPreviewItem[];
     views: PackPreviewItem[];
@@ -1189,7 +1257,7 @@ export class PacksService {
     const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
     const liveByName = new Map<string, NonNullable<ReturnType<typeof inHomeSpace>>>();
     for (const d of manifest.databases) {
-      const found = inHomeSpace(d.name, d.space);
+      const found = inHomeSpace(d.name, d.space) ?? (adopt?.get(norm(d.name)) as ReturnType<typeof inHomeSpace>);
       if (found) liveByName.set(norm(d.name), found);
     }
 
@@ -1616,7 +1684,8 @@ export class PacksService {
     const unmet = await this.checkRequirements(membership, manifest);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
-    const collisions = await this.computeCollisions(membership, manifest, targetSpace?.id);
+    const { adopt } = await this.planAdoptions(membership, manifest, targetSpace?.id, resolutions, existingInstall);
+    const collisions = await this.computeCollisions(membership, manifest, targetSpace?.id, adopt);
     const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
@@ -1635,7 +1704,7 @@ export class PacksService {
       // Databases, fields, relations, states, agents and bindings — all of it,
       // through the walk #214 already ships. Nothing about that walk is
       // reimplemented, adapted or wrapped here.
-      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, progress: ledger.built });
+      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, progress: ledger.built });
 
       const result: PackInstallResult = {
         slug: manifest.slug,

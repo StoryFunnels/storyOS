@@ -590,6 +590,14 @@ export const packPreviewItemSchema = z.object({
   agent_update: packAgentUpdateSchema.optional(),
   gains: packDatabaseGainsSchema.optional(),
   /**
+   * #1156 — databases only. A database of this name the person can EDIT lives in ANOTHER space than the one this pack installs into.
+   * Matching is per space, so by default the pack ignores it and creates its own; `adopted: true` means the install WILL use it instead
+   * (the person chose `reuse` for this database, or this pack adopted it on an earlier install), `false` that it could, were `reuse` chosen.
+   * Names the database and its space so the review can say which one. Absent when there is none, when there are several, or when the
+   * person cannot edit it, so it never reveals a database they have no business seeing.
+   */
+  existing_elsewhere: z.object({ database_id: z.string(), space_name: z.string(), adopted: z.boolean() }).optional(),
+  /**
    * #1107 — automations only, and only when this install would CREATE the rule: whether it would be on (`enabled_on_install`), and, if it
    * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
    */

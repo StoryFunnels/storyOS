@@ -181,6 +181,11 @@ export class ArchitectService {
        */
       scopeToHomeSpace?: boolean;
       /**
+       * #1156 — with `scopeToHomeSpace`: databases (by normalised name) the person EXPLICITLY chose to reuse from another space. Looked up
+       * only after the home space has no match, so it never overrides the default.
+       */
+      adopt?: Map<string, { id: string }>;
+      /**
        * #1112 — filled IN PLACE as the build creates things, so a caller still holds the partial ledger when the build throws partway.
        * Without it the result only exists once the whole build has returned, and a failure leaves the caller no way to know what the
        * build had already created.
@@ -224,7 +229,7 @@ export class ArchitectService {
     const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
-    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace, options.scopeToHomeSpace);
+    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace, options.scopeToHomeSpace, options.adopt);
     await this.buildRelations(membership, plan, dbIds, result);
     await this.buildStates(membership, plan, dbIds, result);
     const agentIds = await this.buildAgents(membership, plan, agentOs?.agentsDb.id ?? '', dbIds, result);
@@ -317,6 +322,7 @@ export class ArchitectService {
     result: ArchitectBuildResult,
     targetSpace?: { id: string; name: string },
     scopeToHomeSpace = false,
+    adopt?: Map<string, { id: string }>,
   ): Promise<Map<string, string>> {
     const live = await this.databases.list(membership);
     const byName = new Map(live.map((d) => [norm(d.name), d]));
@@ -324,7 +330,7 @@ export class ArchitectService {
     const ids = new Map<string, string>();
 
     for (const planned of plan.databases) {
-      const existing = inHomeSpace ? inHomeSpace(planned.name, planned.space) : byName.get(norm(planned.name));
+      const existing = inHomeSpace ? (inHomeSpace(planned.name, planned.space) ?? (adopt?.get(norm(planned.name)) as (typeof live)[number] | undefined)) : byName.get(norm(planned.name));
 
       if (planned.action === 'reuse' && !existing) {
         // The plan was written against a workspace that no longer looks like
