@@ -770,7 +770,7 @@ export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
  * eye finds the control that is missing its value.
  */
 const FILTER_CTL =
-  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong focus-visible:border-accent';
+  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong';
 const unfinishedCtl = (on: boolean) => (on ? 'border-dashed' : '');
 /** A row's inline action (eye, pin, ⋯, ✕): 22px, resting at --faint, never hover-only (#900). */
 const ROW_ICON_BTN =

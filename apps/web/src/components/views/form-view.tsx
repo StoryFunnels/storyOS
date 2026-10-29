@@ -269,7 +269,6 @@ function OptionToggle({
       aria-pressed={selected}
       className={cn(
         'rounded-[var(--radius-chip)] outline-none transition-opacity',
-        'focus-visible:ring-2 focus-visible:ring-border-strong',
         selected ? 'opacity-100' : 'opacity-45 hover:opacity-80',
       )}
     >

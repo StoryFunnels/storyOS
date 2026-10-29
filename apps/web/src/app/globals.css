@@ -75,22 +75,23 @@
   --text-on-accent: #2a2205;
 
   /*
-   * #633 — THE FOCUS RING, as a token at last. design-system.md has promised a
-   * `--focus-ring` since MN-014 and it never existed, which is exactly why the
-   * value ended up hardcoded in the rule below.
+   * #1160 — THE FOCUS RING: ONE token, ONE rule, every theme, never gold.
    *
-   * Derived from --accent rather than restating it, because the hardcoded
-   * rgba(212, 160, 23, 0.25) was --accent's LIGHT value: in dark mode --accent
-   * lifts to #e0af2b and the ring stayed light-mode gold, making it the one
-   * element in the product that ignored the theme — on the single affordance
-   * that exists for keyboard users.
+   * The ring is `--primary-text` (light #2f3b63, dark #7a92d6): 8.3:1 or better on every light surface and 4.4:1 or better
+   * on every dark one, against the 3:1 non-text bar (WCAG 1.4.11). It replaces #633's gold at 25% opacity, which measured
+   * 1.2:1 in light AND 1.7:1 in dark (the ticket's "8.5:1 in dark" was solid gold, which is not what shipped). Gold is
+   * reserved for agent actions (#831), so a focus ring must not borrow it.
    *
-   * 25% and 3px reproduce the previous appearance exactly in light mode, so
-   * this commit changes the MECHANISM and dark mode, not the look. The doc also
-   * asks for a 2px offset; that is a value change and it is not in here.
+   * The 2px offset is load-bearing, not decoration: on a filled primary button the ring colour is nearly the button's own
+   * (1.00:1 light), so without the gap the ring would vanish into the fill. With it, the SURFACE shows between button and
+   * ring and the ring is read against that surface, which is what the ratios above measure.
+   *
+   * Do not restate this colour in a component. A component that paints its own focus colour (`focus:border-accent`,
+   * `focus-visible:ring-…`, `focus-visible:outline-accent`) is what drifted before; focus-ring.unit.test.ts fails on it.
    */
-  --focus-ring-width: 3px;
-  --focus-ring-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--primary-text);
   --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
 
   /* Status */
@@ -522,8 +523,7 @@ html[data-embed] body {
  * keyboard user tabbing onto any floating surface made it go flat.
  *
  * `outline` is a separate property, so the ring and the elevation now coexist.
- * It also draws outside the border box like the old 0 0 0 3px spread did, so
- * with offset 0 the appearance is unchanged in light mode.
+ * It draws outside the border box; #1160 gives it a 2px offset (see the token).
  *
  * NOTE ON THE ~21 `outline-none` UTILITIES in components: Tailwind emits
  * utilities into a CSS layer and this rule is unlayered, so unlayered wins
@@ -536,7 +536,14 @@ html[data-embed] body {
  */
 *:focus-visible {
   outline: var(--focus-ring);
-  outline-offset: 0;
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* #1160 — High Contrast / forced colours replaces authored colours; name the system colour so the ring survives it. */
+@media (forced-colors: active) {
+  :root {
+    --focus-ring-color: Highlight;
+  }
 }
 
 /* #1018 — a ring is for the keyboard. After a mouse/touch press (`data-modality`, lib/input-modality.ts) it is hidden
@@ -553,7 +560,7 @@ html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [conte
 }
 [data-sidebar-row]:has(:is(a, button).flex-1:focus-visible) {
   outline: var(--focus-ring);
-  outline-offset: 0;
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* #726 AC3 — components/ui/file-input.tsx layers a real (but invisible,
@@ -566,7 +573,7 @@ html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [conte
    just subtle. */
 .file-input-root:has(> input:focus-visible) > button {
   outline: var(--focus-ring);
-  outline-offset: 0;
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* Command palette (⌘K) indeterminate search bar */
