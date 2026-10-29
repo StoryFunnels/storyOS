@@ -29,6 +29,7 @@ config.
 | `relation` | A link to another database — see [relations](/concepts/relations/). |
 | `lookup`, `rollup` | Derived from a relation — see [lookups & rollups](/concepts/lookups-and-rollups/). |
 | `formula` | Computed from other fields — see [formulas](/concepts/formulas/). |
+| `ai` | AI field: fills a value from a prompt; details coming. |
 | `button` | Runs actions on click — see [automations & buttons](/concepts/automations/). |
 | `created_at`, `updated_at`, `created_by` | System, read-only. Filterable and sortable like any other field, with the operators each type supports. |
 
