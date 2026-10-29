@@ -82,8 +82,12 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
 
 - **Identity** — icon, name, and its [description](#every-level-can-say-what-it-is-for) if it has
   one.
-- **Access** — three groups: workspace members, space-level grants, and database-scoped grants
-  within the space, and for an admin a **Manage access** button that opens the dialog described in
+- **Access** — who can open the space. In an unrestricted space it lists three groups: workspace
+  members, space-level grants, and database-scoped grants within the space. In a
+  [restricted](/concepts/access-and-roles/#restricting-a-space-or-database) space an admin sees a
+  note that only admins and the people added can see it, then the workspace admins and the grants;
+  a member sees the note and no names, since only admins can read who has access. For an admin there
+  is also a **Manage access** button that opens the dialog described in
   [restricting a space or database](/concepts/access-and-roles/#restricting-a-space-or-database). A guest sees an honest one-line explanation instead of this section, since the
   underlying endpoints refuse a non-member anyway — never a silently empty section or a doomed
   "Manage access" button.
