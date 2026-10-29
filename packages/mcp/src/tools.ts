@@ -3041,7 +3041,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List packs',
       description:
-        'The built-in Business Pack gallery — ready-made workspaces (databases, fields, relations, views, sample data). Installing one is the fastest possible "build me a workspace"; check here before planning a schema from scratch.',
+        'The built-in Business Pack gallery — ready-made workspaces (databases, fields, relations, views, sample data). Each pack carries `why` (the situation it is for, one sentence), `can` (up to three things you can do once it is in) and `relations` (from → to database links, with cardinality), so you can say why a pack fits before installing it. Installing one is the fastest possible "build me a workspace"; check here before planning a schema from scratch.',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () =>
