@@ -1642,12 +1642,16 @@ describe('#568 pack install: a reused database\'s missing option is a skip, not 
 
     // #1156 — matching is per space, so Clients (kept in Agency OS's space) is not a collision for Consulting OS (its own space); the
     // preview offers it, and the person's explicit `reuse` below is what adopts it across spaces.
-    const preview = await previewOk(wsId, consulting.manifest);
+    // Consulting OS's own Clients.Status is a workflow, which Agency OS's select cannot be reused as (#1156 says so in the preview); this
+    // scenario is about a reused database missing an OPTION, so give it the same Status type.
+    const consultingFits = JSON.parse(JSON.stringify(consulting.manifest)) as PackManifest;
+    (consultingFits.databases.find((d) => d.name === 'Clients')!.fields.find((f) => f.name === 'Status') as { type: string }).type = 'select';
+    const preview = await previewOk(wsId, consultingFits);
     const clients = preview.databases.find((d: { name: string }) => d.name === 'Clients');
     expect(clients?.action).toBe('create');
     expect(clients?.existing_elsewhere?.adopted, 'the review can offer the existing Clients').toBe(false);
 
-    const res = await installWith(wsId, consulting.manifest, { Clients: { action: 'reuse' } });
+    const res = await installWith(wsId, consultingFits, { Clients: { action: 'reuse' } });
     expect(res.statusCode, res.body).toBe(201); // NOT a 422
     const result = res.json();
 

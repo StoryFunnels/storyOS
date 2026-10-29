@@ -235,6 +235,9 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
   interface PackM { slug: string; name: string; databases: Array<{ name: string; space: string }>; relations: Array<{ from: string; to: string; from_field: string }> }
   let agency: PackM;
   let consulting: PackM;
+  /** Consulting OS with Clients.Status a select, like Agency OS's: every field fits, so Clients is reusable. */
+  let compat: PackM;
+  const notFound = (db: string) => `There is no ${db} database you can edit.`;
   const norm = (s: string) => s.trim().toLowerCase();
   const reuseClients = { Clients: { action: 'reuse' } };
   const withResolutions = (ws: string, manifest: unknown, resolutions?: unknown) =>
@@ -246,6 +249,10 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
     const get = async (slug: string) => ((await as('GET', `/packs/registry/${slug}`)).json() as { manifest: PackM }).manifest;
     agency = await get('agency-os');
     consulting = await get('consulting-os');
+    compat = JSON.parse(JSON.stringify(consulting)) as PackM;
+    const status = (compat.databases.find((d) => d.name === 'Clients') as unknown as { fields: Array<{ name: string; type: string }> }).fields.find((f) => f.name === 'Status')!;
+    expect(status.type, 'the real Consulting OS needs a workflow here').toBe('workflow');
+    status.type = 'select';
     expect(agency.databases.find((d) => d.name === 'Clients')).toBeTruthy();
     expect(consulting.databases.find((d) => d.name === 'Clients')).toBeTruthy();
     expect(norm(agency.databases.find((d) => d.name === 'Clients')!.space), 'the two packs keep Clients in different spaces').not.toBe(norm(consulting.databases.find((d) => d.name === 'Clients')!.space));
@@ -260,12 +267,12 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
 
   it('by explicit choice, Consulting OS adopts Agency OS\'s Clients across spaces: one Clients, relations point at it', async () => {
     const { ws, agencyClients } = await agencyThenConsulting();
-    const res = await withResolutions(ws, consulting, reuseClients);
+    const res = await withResolutions(ws, compat, reuseClients);
     expect(res.statusCode, res.body).toBe(201);
     const clients = await clientsOf(ws);
     expect(clients.map((d) => d.id), 'no duplicate Clients').toEqual([agencyClients.id]);
     expect((res.json().databases as Array<{ name: string; action: string; id: string }>).find((d) => d.name === 'Clients')).toMatchObject({ action: 'reused', id: agencyClients.id });
-    const rel = consulting.relations.find((r) => r.to === 'Clients' || r.from === 'Clients');
+    const rel = compat.relations.find((r) => r.to === 'Clients' || r.from === 'Clients');
     expect(rel, 'Consulting OS has a relation on Clients').toBeTruthy();
     const all = await dbsOf(ws);
     const other = (name: string) => all.find((d) => d.name === name && d.spaceId !== agencyClients.spaceId)!.id;
@@ -279,12 +286,12 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
     const { ws, agencyClients } = await agencyThenConsulting();
     const spaces = (await as('GET', `/workspaces/${ws}/spaces`)).json() as Array<{ id: string; name: string }>;
     const space = spaces.find((s) => s.id === agencyClients.spaceId)!.name;
-    const plain = (await preview(ws, consulting)).json().databases.find((d: { name: string }) => d.name === 'Clients');
+    const plain = (await preview(ws, compat)).json().databases.find((d: { name: string }) => d.name === 'Clients');
     expect(plain.action).toBe('create');
-    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false });
-    const chosen = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: consulting, resolutions: reuseClients });
+    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false, reusable: true });
+    const chosen = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: compat, resolutions: reuseClients });
     expect(chosen.statusCode, chosen.body).toBe(201);
-    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true });
+    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true, reusable: true });
   });
 
   it('without the explicit choice nothing is adopted: Consulting OS gets its own Clients and Agency OS\'s is untouched', async () => {
@@ -313,7 +320,8 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
       expect(viewerOnly.body).not.toContain(agencyClients.id);
       expect(viewerOnly.body).not.toContain(agency.databases.find((d) => d.name === 'Clients')!.space);
       const pv = (await preview(ws, consulting)).json().databases.find((d: { name: string }) => d.name === 'Clients');
-      expect(pv.existing_elsewhere, 'the preview does not mention it either').toBeUndefined();
+      expect(pv.existing_elsewhere, 'the preview says only what it says for a database that is not there: no id, no space').toEqual({ adopted: false, reusable: false, reason: notFound('Clients') });
+      expect(viewerOnly.json().error.message).toBe(notFound('Clients'));
       expect((await clientsOf(ws)).length, 'nothing was created or adopted').toBe(1);
     } finally {
       spy.mockRestore();
@@ -326,16 +334,16 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
     await as('POST', `/workspaces/${ws}/databases`, { space_id: other, name: 'Clients' });
     const res = await withResolutions(ws, consulting, reuseClients);
     expect(res.statusCode, res.body).toBe(422);
-    expect(res.body).toContain('not clear which');
+    expect(res.json().error.message).toBe("Can't use one: you have more than one Clients database (in Client Work and Second clients list). Create a new one here.");
   });
 
   it('uninstalling the adopting pack never deletes the adopted database or its data', async () => {
     const { ws, agencyClients, records } = await agencyThenConsulting();
-    expect((await withResolutions(ws, consulting, reuseClients)).statusCode).toBe(201);
+    expect((await withResolutions(ws, compat, reuseClients)).statusCode).toBe(201);
     const withBoth = await recordCount(ws, agencyClients.id);
     expect(withBoth, 'the adopting pack added its sample client').toBeGreaterThanOrEqual(records);
     const installed = (await as('GET', `/workspaces/${ws}/packs/installed`)).json() as Array<{ id: string; slug: string }>;
-    const un = await as('POST', `/workspaces/${ws}/packs/${installed.find((i) => i.slug === consulting.slug)!.id}/uninstall`, {});
+    const un = await as('POST', `/workspaces/${ws}/packs/${installed.find((i) => i.slug === compat.slug)!.id}/uninstall`, {});
     expect(un.statusCode, un.body).toBeLessThan(300);
     expect((await clientsOf(ws)).map((d) => d.id)).toEqual([agencyClients.id]);
     expect(await recordCount(ws, agencyClients.id), 'no record of the adopted database was deleted').toBe(withBoth);
@@ -343,13 +351,130 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
 
   it('re-installing the adopting pack is idempotent, with or without repeating the choice', async () => {
     const { ws, agencyClients } = await agencyThenConsulting();
-    expect((await withResolutions(ws, consulting, reuseClients)).statusCode).toBe(201);
+    expect((await withResolutions(ws, compat, reuseClients)).statusCode).toBe(201);
     const first = (await dbsOf(ws)).map((d) => d.id).sort();
     for (const resolutions of [reuseClients, undefined]) {
-      const again = await withResolutions(ws, consulting, resolutions);
+      const again = await withResolutions(ws, compat, resolutions);
       expect(again.statusCode, again.body).toBe(201);
       expect((await dbsOf(ws)).map((d) => d.id).sort(), 'nothing duplicated').toEqual(first);
       expect((await clientsOf(ws)).map((d) => d.id)).toEqual([agencyClients.id]);
+    }
+  });
+});
+
+/** The wording Dara and Iris show next to a disabled "use existing". */
+describe('#1156 existing_elsewhere says whether the database can be reused, and why not', () => {
+  const pvClients = (body: { databases: Array<{ name: string; existing_elsewhere?: Record<string, unknown> }> }) => body.databases.find((d) => d.name === 'Clients');
+  async function consultingManifest() {
+    return ((await as('GET', '/packs/registry/consulting-os')).json() as { manifest: { slug: string; databases: Array<{ name: string; space: string; fields: Array<{ name: string; type: string }> }> } }).manifest;
+  }
+  async function agencyManifest() {
+    return ((await as('GET', '/packs/registry/agency-os')).json() as { manifest: unknown }).manifest;
+  }
+  /** Make the installer's access to the named databases read-only, or hide them from the installer altogether. */
+  function limitAccess(ids: string[], mode: 'viewer' | 'hidden') {
+    const dbs = app.get(DatabasesService, { strict: false });
+    const real = dbs.list.bind(dbs);
+    return vi.spyOn(dbs, 'list').mockImplementation((async (...a: Parameters<typeof dbs.list>) => {
+      const all = await real(...a);
+      if (mode === 'hidden') return all.filter((d) => !ids.includes(d.id));
+      return all.map((d) => (ids.includes(d.id) ? { ...d, my_access: 'viewer' as const } : d));
+    }) as never);
+  }
+  async function threeClients() {
+    const ws = await newWs('Three Clients');
+    const made: Record<string, string> = {};
+    for (const space of ['Alpha', 'Bravo', 'Hidden Charlie']) {
+      const sid = await newSpace(ws, space);
+      made[space] = (await as('POST', `/workspaces/${ws}/databases`, { space_id: sid, name: 'Clients' })).json().id as string;
+    }
+    return { ws, made };
+  }
+
+  it('a field of another type makes it not reusable: the reason names the field and BOTH types, and an install with reuse says the same', async () => {
+    const ws = await newWs('Type mismatch');
+    expect((await install(ws, await agencyManifest())).statusCode).toBe(201); // Agency OS's Clients.Status is a select
+    const consulting = await consultingManifest(); // Consulting OS needs Clients.Status to be a workflow
+    const reason = 'Status is a select here but this pack needs a workflow.';
+    const plain = pvClients((await preview(ws, consulting)).json());
+    expect(plain!.existing_elsewhere).toMatchObject({ adopted: false, reusable: false, reason });
+    const chosen = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: consulting, resolutions: { Clients: { action: 'reuse' } } });
+    expect(chosen.statusCode, 'the preview reports it, it does not refuse').toBe(201);
+    expect(pvClients(chosen.json())!.existing_elsewhere).toMatchObject({ adopted: false, reusable: false, reason });
+    const before = (await dbsOf(ws)).length;
+    const res = await install(ws, consulting);
+    expect(res.statusCode, 'without the choice it still installs its own').toBe(201);
+    const ws2 = await newWs('Type mismatch install');
+    expect((await install(ws2, await agencyManifest())).statusCode).toBe(201);
+    const refused = await as('POST', `/workspaces/${ws2}/packs/install`, { manifest: consulting, resolutions: { Clients: { action: 'reuse' } } });
+    expect(refused.statusCode, refused.body).toBe(422);
+    expect(refused.json().error.message).toBe(reason);
+    expect((await dbsOf(ws2)).filter((d) => d.name === 'Clients').length, 'nothing adopted, nothing created').toBe(1);
+    expect(before).toBeGreaterThan(0);
+  });
+
+  it('reusable is true, with no reason, when every field fits', async () => {
+    const ws = await newWs('Reusable');
+    expect((await install(ws, await agencyManifest())).statusCode).toBe(201);
+    const consulting = JSON.parse(JSON.stringify(await consultingManifest()));
+    consulting.databases.find((d: { name: string }) => d.name === 'Clients').fields.find((f: { name: string }) => f.name === 'Status').type = 'select';
+    const hint = pvClients((await preview(ws, consulting)).json())!.existing_elsewhere!;
+    expect(hint.reusable).toBe(true);
+    expect(hint.reason).toBeUndefined();
+  });
+
+  it('two editable databases of that name: not reusable, and the reason names exactly their spaces in Dara\'s words', async () => {
+    const { ws, made } = await threeClients();
+    const spy = limitAccess([made['Hidden Charlie']!], 'viewer');
+    try {
+      const res = await preview(ws, await consultingManifest());
+      const hint = pvClients(res.json())!.existing_elsewhere!;
+      expect(hint).toEqual({ adopted: false, reusable: false, reason: "Can't use one: you have more than one Clients database (in Alpha and Bravo). Create a new one here." });
+      // the leak check: the database the installer cannot edit is neither named nor counted, and nothing identifies any database
+      expect(res.body).not.toContain('Charlie');
+      expect(res.body).not.toContain(made['Hidden Charlie']);
+      const refused = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: await consultingManifest(), resolutions: { Clients: { action: 'reuse' } } });
+      expect(refused.statusCode).toBe(422);
+      expect(refused.json().error.message).toBe(hint.reason);
+      expect(refused.body).not.toContain('Charlie');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('three editable names read "A, B and C"; two editable become reusable once only one can be edited', async () => {
+    const { ws, made } = await threeClients();
+    const all = pvClients((await preview(ws, await consultingManifest())).json())!.existing_elsewhere!;
+    expect(all.reason).toBe("Can't use one: you have more than one Clients database (in Alpha, Bravo and Hidden Charlie). Create a new one here.");
+    const spy = limitAccess([made['Hidden Charlie']!, made['Bravo']!], 'viewer');
+    try {
+      const one = pvClients((await preview(ws, await consultingManifest())).json())!.existing_elsewhere!;
+      expect(one.reason ?? '', 'one editable match is not ambiguous').not.toContain('more than one');
+      expect(one.database_id).toBe(made['Alpha']);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('without edit access: the wording is the one for a database that is not there, and one the installer cannot even read leaves no trace', async () => {
+    const { ws, made } = await threeClients();
+    const spy = limitAccess(Object.values(made), 'viewer');
+    try {
+      const hint = pvClients((await preview(ws, await consultingManifest())).json())!.existing_elsewhere!;
+      expect(hint).toEqual({ adopted: false, reusable: false, reason: 'There is no Clients database you can edit.' });
+      const empty = await newWs('No Clients anywhere');
+      const absent = await as('POST', `/workspaces/${empty}/packs/install`, { manifest: await consultingManifest(), resolutions: { Clients: { action: 'reuse' } } });
+      expect(absent.json().error.message, 'identical to the refusal for a database that does not exist').toBe(hint.reason);
+    } finally {
+      spy.mockRestore();
+    }
+    const hidden = limitAccess(Object.values(made), 'hidden');
+    try {
+      const res = await preview(ws, await consultingManifest());
+      expect(pvClients(res.json())!.existing_elsewhere, 'not even the object appears').toBeUndefined();
+      expect(res.body).not.toContain('Hidden Charlie');
+    } finally {
+      hidden.mockRestore();
     }
   });
 });

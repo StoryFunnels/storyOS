@@ -257,6 +257,27 @@ interface AgentOsSnapshot {
  * install's `ref → id` — are built by the same rules from the same names, which
  * is what makes the round trip closed rather than merely hopeful.
  */
+/** #1156 — what the preview says about a same-named database in another space (see `packPreviewItemSchema.existing_elsewhere`). */
+type ExistingElsewhere = { database_id?: string; space_name?: string; adopted: boolean; reusable: boolean; reason?: string };
+
+/** "A", "A and B", "A, B and C": the names, once each, in a stable order. */
+function readableList(names: string[]): string {
+  const uniq = [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  return uniq.length <= 1 ? (uniq[0] ?? '') : `${uniq.slice(0, -1).join(', ')} and ${uniq[uniq.length - 1]}`;
+}
+/** The words for a field type in a sentence: `multi_select` -> "a multi select", `email` -> "an email". */
+function typeWords(type: string): string {
+  const t = type.replace(/_/g, ' ');
+  return `${/^[aeiou]/i.test(t) ? 'an' : 'a'} ${t}`;
+}
+const typeClash = (field: string, liveType: string, plannedType: string) =>
+  `${field} is ${typeWords(liveType)} here but this pack needs ${typeWords(plannedType)}`;
+/** Said for a database that does not exist, that the person cannot read, AND one they can read but not edit: one wording, so none is confirmed. */
+const notFoundReason = (dbName: string) => `There is no ${dbName} database you can edit.`;
+/** Only databases the person can EDIT are counted and named, so a hidden or read-only one never appears here. */
+const ambiguousReason = (dbName: string, spaceNames: string[]) =>
+  `Can't use one: you have more than one ${dbName} database (in ${readableList(spaceNames)}). Create a new one here.`;
+
 @Injectable()
 export class PacksService {
   private readonly logger = new Logger(PacksService.name);
@@ -1116,15 +1137,19 @@ export class PacksService {
   }
 
   /**
-   * #1156 — which databases in OTHER spaces this install adopts, and which it could.
+   * #1156 — which databases in OTHER spaces this install adopts, and what the review should say about each.
    *
    * Matching is per space, so a database of the same name elsewhere is ignored by default. Sharing one across packs (a Clients list for
    * Agency OS, Consulting OS and a portal) is a deliberate act, so it happens only when
    *  - the person chose `reuse` for that database in the review (`resolutions`), or
    *  - this pack adopted it on an earlier install (tracked as `reused`), so a re-install keeps using it instead of making a duplicate.
-   * Either way the person must be able to EDIT it (`my_access`, from the same list that hides what they cannot see). A `reuse` that finds
-   * no such database says the same thing whether it does not exist, is not visible or is not editable, so the refusal cannot be used to
-   * probe for databases. A same-named database in the home space always wins and never reaches this.
+   * It must also be REUSABLE: the person can EDIT exactly one database of that name, and its fields fit the pack (same type where the
+   * pack declares a field; a workflow state is a select). Why not is worded for a person (`reuseReasons`).
+   *
+   * Only what the person can READ is ever looked at (`my_access` comes from the visibility-filtered list). A database they can read but
+   * not edit gets the not-found wording, with no id or space; one they cannot read leaves no trace at all. The ambiguity reason counts and
+   * names only databases they can edit. `strict` (install) refuses an explicit `reuse` that is not reusable with the reason as the
+   * message; the preview (not strict) reports the same reason instead, so the review can show it and the install agrees with it.
    */
   private async planAdoptions(
     membership: Membership,
@@ -1132,9 +1157,10 @@ export class PacksService {
     targetSpaceId: string | undefined,
     resolutions: PackInstallResolutions,
     existingInstall: { id: string } | undefined,
-  ): Promise<{ adopt: Map<string, { id: string; name: string }>; hints: Map<string, { database_id: string; space_name: string; adopted: boolean }> }> {
+    strict = true,
+  ): Promise<{ adopt: Map<string, { id: string; name: string }>; hints: Map<string, ExistingElsewhere> }> {
     const adopt = new Map<string, { id: string; name: string }>();
-    const hints = new Map<string, { database_id: string; space_name: string; adopted: boolean }>();
+    const hints = new Map<string, ExistingElsewhere>();
     const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
     const live = await this.databases.list(membership);
     const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
@@ -1151,27 +1177,47 @@ export class PacksService {
       const kept = earlier ? live.find((x) => x.id === earlier.entityId && canEdit(x)) : undefined;
       if (kept) {
         adopt.set(norm(d.name), { id: kept.id, name: kept.name });
-        hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true });
+        hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true, reusable: true });
         continue;
       }
-      const candidates = live.filter((x) => norm(x.name) === norm(d.name) && !x.isSystem && canEdit(x));
-      if (resolutions[d.name]?.action === 'reuse') {
-        if (candidates.length === 0) {
-          throw new UnprocessableEntityException(`Cannot reuse "${d.name}": there is no database with that name that you can edit.`);
-        }
-        if (candidates.length > 1) {
-          throw new UnprocessableEntityException(
-            `Cannot reuse "${d.name}": ${candidates.length} databases with that name (in ${candidates.map((c) => `"${where(c.spaceId)}"`).join(', ')}) can be edited, so it is not clear which one is meant. Rename the ones you do not mean first.`,
-          );
-        }
-        const only = candidates[0]!;
-        adopt.set(norm(d.name), { id: only.id, name: only.name });
-        hints.set(norm(d.name), { database_id: only.id, space_name: where(only.spaceId), adopted: true });
-      } else if (candidates.length === 1) {
-        hints.set(norm(d.name), { database_id: candidates[0]!.id, space_name: where(candidates[0]!.spaceId), adopted: false });
+      const same = live.filter((x) => norm(x.name) === norm(d.name) && !x.isSystem);
+      const editable = same.filter(canEdit);
+      const chose = resolutions[d.name]?.action === 'reuse';
+      let hint: ExistingElsewhere | undefined;
+      if (editable.length > 1) {
+        hint = { adopted: false, reusable: false, reason: ambiguousReason(d.name, editable.map((x) => where(x.spaceId))) };
+      } else if (editable.length === 1) {
+        const only = editable[0]!;
+        const reason = await this.incompatibility(membership, manifest, d.name, only.id);
+        hint = { database_id: only.id, space_name: where(only.spaceId), adopted: chose && !reason, reusable: !reason, ...(reason ? { reason } : {}) };
+        if (chose && !reason) adopt.set(norm(d.name), { id: only.id, name: only.name });
+      } else if (same.length > 0) {
+        hint = { adopted: false, reusable: false, reason: notFoundReason(d.name) };
       }
+      if (chose && strict) {
+        if (!hint) throw new UnprocessableEntityException(notFoundReason(d.name));
+        if (!hint.reusable) throw new UnprocessableEntityException(hint.reason);
+      }
+      if (hint) hints.set(norm(d.name), hint);
     }
     return { adopt, hints };
+  }
+
+  /** #1156 — why the pack's version of `dbName` cannot use the live database `liveId` as it is, in plain language; undefined when it can. */
+  private async incompatibility(membership: Membership, manifest: PackManifest, dbName: string, liveId: string): Promise<string | undefined> {
+    const detail = await this.databases.get(membership, liveId);
+    const fields = ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options }));
+    const planned = manifest.databases.find((x) => norm(x.name) === norm(dbName));
+    const problems: string[] = [];
+    for (const f of planned?.fields ?? []) {
+      const decision = decideField(fields, f.name, f.type);
+      if (decision.action === 'reuse' && decision.clash) problems.push(typeClash(f.name, decision.clash.live_type, decision.clash.planned_type));
+    }
+    for (const st of manifest.states.filter((x) => norm(x.database) === norm(dbName))) {
+      const decision = decideState(fields, st.field, st.options);
+      if (decision.action === 'blocked') problems.push(typeClash(st.field, decision.live_type, 'select'));
+    }
+    return problems.length > 0 ? `${problems.join('; ')}.` : undefined;
   }
 
   /**
@@ -1199,7 +1245,7 @@ export class PacksService {
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
-    const plan = await this.planAdoptions(membership, manifest, targetSpaceId, resolutions, await this.findExistingInstall(membership.workspaceId, manifest.slug));
+    const plan = await this.planAdoptions(membership, manifest, targetSpaceId, resolutions, await this.findExistingInstall(membership.workspaceId, manifest.slug), false);
     const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId, plan.adopt);
     for (const item of databases) {
       const hint = plan.hints.get(norm(item.name));
