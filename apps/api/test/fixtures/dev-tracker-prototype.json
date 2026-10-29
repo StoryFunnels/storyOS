@@ -1,5 +1,5 @@
 {
-  "_source": "dara-prototype-latest.html (md5 65afe5b05611ec32e4fe9448dae8958b, v50, 29 Oct 17:58): the PACKS row for 'dev-tracker', PACK_WHY, PACK_ONTO and PACK_ITEMS['dev-tracker'], transcribed; plus Dara's answers on ticket #1148 (16:58): Specs is out, Projects is in, the four views and their filters, the state/priority options copied from apps/api/src/integrations/linear.service.ts (PROJECT_STATE_*, the Priority options of the Issues database). Frozen so 'the pack is the prototype' is a comparison, not a memory. The prototype gives no sample-card TITLES, only their count and states; the titles are the builder's (see sample_cards).",
+  "_source": "dara-prototype-latest.html (md5 65afe5b05611ec32e4fe9448dae8958b, v50, 29 Oct 17:58): the PACKS row for 'dev-tracker', PACK_WHY, PACK_ONTO and PACK_ITEMS['dev-tracker'], transcribed; plus Dara's answers on ticket #1148 (16:58): Specs is out, Projects is in, the four views and their filters, the state/priority options copied from apps/api/src/integrations/linear.service.ts (PROJECT_STATE_*, the Priority options of the Issues database). Frozen so 'the pack is the prototype' is a comparison, not a memory. The prototype gives no sample-card TITLES, only their count and states; the titles live on ticket #1148 (Dara reviewed them 29 Oct).",
   "name": "Dev Tracker",
   "summary": "Issues that land in Triage, a board of active work, My issues, projects, sprints and releases: shaped like the Linear importer, so a team moving from Linear lands somewhere familiar.",
   "space": "Product",
@@ -80,7 +80,7 @@
   "sample_cards": [
     { "title": "Triage me: set a priority, then move me out of Triage", "state": "Triage", "mine": false },
     { "title": "Drag me to In Progress", "state": "To Do", "mine": true },
-    { "title": "Open me and add a project", "state": "In Progress", "mine": false },
-    { "title": "Move me to Done when you have checked me", "state": "In Review", "mine": false }
+    { "title": "Open me and put me in a project", "state": "In Progress", "mine": false },
+    { "title": "Review me, then move me to Done", "state": "In Review", "mine": false }
   ]
 }

@@ -243,8 +243,8 @@ export const DEV_TRACKER_PACK: PackRegistryEntry = {
     sample_records: [
       { database: 'Issues', values: { name: 'Triage me: set a priority, then move me out of Triage', state: optionRef('Issues', 'State', 'Triage') } },
       { database: 'Issues', values: { name: 'Drag me to In Progress', state: optionRef('Issues', 'State', 'To Do'), assignee: SAMPLE_ME } },
-      { database: 'Issues', values: { name: 'Open me and add a project', state: optionRef('Issues', 'State', 'In Progress') } },
-      { database: 'Issues', values: { name: 'Move me to Done when you have checked me', state: optionRef('Issues', 'State', 'In Review') } },
+      { database: 'Issues', values: { name: 'Open me and put me in a project', state: optionRef('Issues', 'State', 'In Progress') } },
+      { database: 'Issues', values: { name: 'Review me, then move me to Done', state: optionRef('Issues', 'State', 'In Review') } },
     ],
     skills: [],
     suggested_sources: [],
