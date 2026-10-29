@@ -1004,6 +1004,7 @@ function RuleEditor({
                 // `$date:-90d` token, which a rule's condition compiles like any filter). Not a second editor for the same value.
                 <DateOperandEditor
                   key={conditionOp}
+                  nativeDate
                   value={conditionValue || null}
                   boxed="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-label text-ink outline-none focus-visible:border-accent"
                   onChange={(v) => setConditionValue(v ?? '')}

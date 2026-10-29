@@ -35,11 +35,12 @@ import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import {
-  MAX_RELATIVE_DAYS,
   RELATIVE_DATE_KINDS,
+  amountProblem,
   buildRelativeDate,
   describeRelativeDateCondition,
   kindOf,
+  maxAmountFor,
   parseRelativeDate,
   splitKind,
 } from './relative-date';
@@ -1102,11 +1103,18 @@ export function DateOperandEditor({
   value,
   boxed,
   fill = false,
+  nativeDate = false,
   onChange,
 }: {
   value: string | null;
   boxed: string;
   fill?: boolean;
+  /**
+   * The exact-date arrangement uses the browser's own `<input type=date>` instead of the app's popover picker. For a host that is a modal
+   * dialog (the automations panel): the picker is a Radix Popover, and inside a modal Dialog it closes the moment it opens (the
+   * dialog's focus trap pulls focus back to the button), which was live-verified — so there the native control stays, as it was.
+   */
+  nativeDate?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const parsed = parseRelativeDate(value);
@@ -1131,8 +1139,15 @@ export function DateOperandEditor({
   // #1155 — a blank amount, or one past the API's 9999 days, is an unfinished condition (value ''): say so to a screen reader
   // (aria-invalid + a described-by hint with the allowed range) as well as by the dashed border, so it never rests on colour or style alone.
   const unit = parts?.unit === 'weeks' ? 'weeks' : 'days';
-  const maxAmount = unit === 'weeks' ? Math.floor(MAX_RELATIVE_DAYS / 7) : MAX_RELATIVE_DAYS;
+  const maxAmount = maxAmountFor(unit);
+  const problem = parts ? amountProblem(amount, unit) : null;
   const amountInvalid = Boolean(parts) && value === '';
+  const tooLarge = problem === 'too-large';
+  const hintText = tooLarge
+    ? `Too large: the most is ${maxAmount} ${unit}${unit === 'weeks' ? ' (9999 days)' : ''}`
+    : amountInvalid
+      ? `Not set yet: enter a whole number of ${unit}, 1 to ${maxAmount}`
+      : `A whole number of ${unit}, 1 to ${maxAmount}`;
   function commit(nextKind: RelativeDateKind, nextAmount: string) {
     const p = splitKind(nextKind);
     if (!p) return;
@@ -1143,7 +1158,9 @@ export function DateOperandEditor({
   const unitSelect = (
     <select
       aria-label="Date unit"
-      className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : 'shrink-0'))}
+      // Exact-date arrangement: `boxed` carries `w-full` for a lone control, so the unit select must OPT OUT (`!w-auto`) or it fills the
+      // row and the date button beside it collapses to 14px (the defect measured at 1270 and 390).
+      className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : '!w-auto shrink-0 !px-1'))}
       value={kind}
       onChange={(e) => {
         const next = e.target.value as RelativeDateKind;
@@ -1168,31 +1185,42 @@ export function DateOperandEditor({
   // person is here to type leads — and an exact date reads "exact date | 2026-07-31". The unit select sits in the SAME slot of both
   // arrangements (the others are `false` placeholders), so switching kind with the keyboard does not remount it and drop focus.
   return (
-    <span className={cn('flex min-w-0 items-center gap-1', fill ? 'w-full' : 'inline-flex')}>
+    <span className={cn('flex min-w-0 flex-col gap-0.5', fill ? 'w-full' : 'inline-flex')}>
+      <span className="flex min-w-0 items-center gap-1">
+        {parts && (
+          <input
+            aria-label={`Amount of ${unit}`}
+            aria-invalid={amountInvalid || undefined}
+            aria-describedby={hintId}
+            className={cn(boxed, fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
+            inputMode="numeric"
+            placeholder="N"
+            value={amount}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+              setAmount(digits);
+              commit(kind, digits);
+            }}
+          />
+        )}
+        {unitSelect}
+        {!parts &&
+          (nativeDate ? (
+            <input
+              type="date"
+              aria-label="Date"
+              className={boxed}
+              value={parsed || !value ? '' : value.slice(0, 10)}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          ) : (
+            <DateFilterInput value={parsed ? null : value} boxed={boxed} fill={fill} onChange={(v) => onChange(v ?? '')} />
+          ))}
+      </span>
       {parts && (
-        <input
-          aria-label={`Amount of ${unit}`}
-          aria-invalid={amountInvalid || undefined}
-          aria-describedby={hintId}
-          className={cn(boxed, fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
-          inputMode="numeric"
-          placeholder="N"
-          value={amount}
-          onChange={(e) => {
-            const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
-            setAmount(digits);
-            commit(kind, digits);
-          }}
-        />
-      )}
-      {parts && (
-        <span id={hintId} className="sr-only">
-          {amountInvalid ? `Not set yet: enter a whole number of ${unit}, 1 to ${maxAmount}` : `A whole number of ${unit}, 1 to ${maxAmount}`}
+        <span id={hintId} className={tooLarge ? 'text-micro text-warning' : 'sr-only'}>
+          {hintText}
         </span>
-      )}
-      {unitSelect}
-      {!parts && (
-        <DateFilterInput value={parsed ? null : value} boxed={boxed} fill={fill} onChange={(v) => onChange(v ?? '')} />
       )}
     </span>
   );

@@ -50,6 +50,25 @@ export function buildRelativeDate(amount: number, unit: RelativeDateUnit, direct
   return sampleDate(direction === 'ago' ? -days : days);
 }
 
+/** The largest amount of a unit the API's token can hold: 9999 days, or 1428 weeks (1428 x 7 = 9996; 1429 weeks would be 10003 days). */
+export function maxAmountFor(unit: RelativeDateUnit): number {
+  return unit === 'weeks' ? Math.floor(MAX_RELATIVE_DAYS / 7) : MAX_RELATIVE_DAYS;
+}
+
+/**
+ * What is wrong with a typed amount, or null when it builds a token. `blank` and `zero` are the unfinished states; `too-large` is
+ * a number the API's 4-digit day limit cannot hold, so it is flagged (never silently clamped to a different filter than the one typed).
+ * Re-run on every unit switch: 5000 is fine as days and too large as weeks.
+ */
+export function amountProblem(amount: string, unit: RelativeDateUnit): 'blank' | 'zero' | 'too-large' | null {
+  const t = amount.trim();
+  if (t === '') return 'blank';
+  const n = Number(t);
+  if (!Number.isInteger(n) || n < 0) return 'blank';
+  if (n === 0) return 'zero';
+  return n > maxAmountFor(unit) ? 'too-large' : null;
+}
+
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** "90 days ago", "3 days from now", "2 weeks ago", "today". Null when the value is not a relative date. */

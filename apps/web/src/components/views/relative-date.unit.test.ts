@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveSampleDate } from '@storyos/schemas';
 import {
   MAX_RELATIVE_DAYS,
+  amountProblem,
+  maxAmountFor,
   buildRelativeDate,
   describeRelativeDateCondition,
   formatRelativeDate,
@@ -119,6 +121,38 @@ describe('the authoring menu', () => {
     for (const t of ['$date:-90d', '$date:+3d', '$date:-14d', '$date:+14d']) {
       const r = parseRelativeDate(t)!;
       expect(splitKind(kindOf(r))).toEqual({ unit: r.unit, direction: r.direction });
+    }
+  });
+});
+
+describe('the amount cap (the API holds 4 digits of days)', () => {
+  it('the most is 9999 days or 1428 weeks; 1428 weeks is 9996 days and 1429 would be 10003', () => {
+    expect(maxAmountFor('days')).toBe(9999);
+    expect(maxAmountFor('weeks')).toBe(1428);
+    expect(1428 * 7).toBeLessThanOrEqual(MAX_RELATIVE_DAYS);
+    expect(1429 * 7).toBeGreaterThan(MAX_RELATIVE_DAYS);
+  });
+  it('classifies a typed amount: blank, zero, too large, or fine', () => {
+    expect(amountProblem('', 'days')).toBe('blank');
+    expect(amountProblem('  ', 'days')).toBe('blank');
+    expect(amountProblem('0', 'days')).toBe('zero');
+    expect(amountProblem('1', 'days')).toBeNull();
+    expect(amountProblem('9999', 'days')).toBeNull();
+    expect(amountProblem('10000', 'days')).toBe('too-large');
+    expect(amountProblem('1428', 'weeks')).toBeNull();
+    expect(amountProblem('1429', 'weeks')).toBe('too-large');
+  });
+  it('re-validates on a unit switch: 5000 is fine as days and too large as weeks', () => {
+    expect(amountProblem('5000', 'days')).toBeNull();
+    expect(amountProblem('5000', 'weeks')).toBe('too-large');
+    expect(buildRelativeDate(5000, 'days', 'ago')).toBe('$date:-5000d');
+    expect(buildRelativeDate(5000, 'weeks', 'ago')).toBeNull();
+  });
+  it('agrees with buildRelativeDate: a problem-free amount builds a token, a flagged one does not', () => {
+    for (const unit of ['days', 'weeks'] as const) {
+      for (const n of [0, 1, 7, 1428, 1429, 5000, 9999]) {
+        expect(amountProblem(String(n), unit) === null).toBe(buildRelativeDate(n, unit, 'ago') !== null);
+      }
     }
   });
 });

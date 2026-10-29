@@ -94,4 +94,30 @@ describe('the date value editor', () => {
     expect(render('after', '')).toContain('aria-label="Pick a date"');
     expect(render('before', '2026-07-31')).toContain('aria-expanded="false"');
   });
+
+  /**
+   * LAYOUT GUARD (ticket #1155, send-back). The repo has no DOM test setup (vitest runs in node with static markup, no jsdom), so this
+   * cannot MEASURE a rendered width; it pins the class contract that decides it, and the rendered measurement is a live Playwright
+   * script whose output is in the PR body. The defect: `boxed` (the fill look) carries `w-full min-w-0`, so the unit select in the
+   * exact-date arrangement filled the row and the date button beside it collapsed to 14px. The select must opt out of that width.
+   */
+  it('exact-date arrangement: the unit select opts out of the full-width look and shares the row with the date button', () => {
+    for (const op of ['before', 'after']) {
+      const html = render(op, '2026-09-14');
+      const select = /<select aria-label="Date unit" class="([^"]*)"/.exec(html);
+      expect(select).not.toBeNull();
+      expect(select![1]).toContain('!w-auto');
+      expect(select![1]).toContain('shrink-0');
+      // select and date button sit in the SAME single-row flex container (no wrap, no column)
+      const row = /<span class="flex min-w-0 items-center gap-1">(.*?)<\/span><span id|<span class="flex min-w-0 items-center gap-1">(.*)$/s.exec(html);
+      expect(row).not.toBeNull();
+      expect(html.indexOf('aria-label="Date unit"')).toBeLessThan(html.indexOf('aria-haspopup="dialog"'));
+      expect(html).toContain('2026-09-14');
+    }
+  });
+  it('relative arrangement: the select grows (flex-1) and the amount keeps its fixed width, so neither collapses', () => {
+    const html = render('before', '$date:-90d');
+    expect(/<select aria-label="Date unit" class="([^"]*)"/.exec(html)![1]).toContain('flex-1');
+    expect(/aria-label="Amount of days"[^>]*class="([^"]*)"/.exec(html)![1]).toMatch(/w-\[42px\].*shrink-0|shrink-0.*w-\[42px\]/);
+  });
 });
