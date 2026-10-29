@@ -21,7 +21,7 @@ is the whole contract. Details for each line follow below.
 |---|---|---|
 | **Linear → StoryOS** | Teams, issues, cycles, projects, labels, workflow statuses and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
 | **StoryOS → Linear** | **Comments only**, and only if an admin turned write-back on. Each is signed `<author> · via StoryOS`. | A comment is queued once, picked up within about a minute, and retried only if delivery fails (30 seconds, 2 minutes, 10 minutes, 1 hour, then it is marked as not delivered). |
-| **Everything else** | Nothing. The write-back's only call to Linear is "create a comment"; it never edits an issue's title, status, assignee or any other field. | |
+| **Everything else** | Nothing. The only thing the write-back writes to Linear is a new comment; it never edits an issue's title, status, assignee or any other field. (A retry also reads the issue's comments, see below.) | |
 
 - **Linear owns the fields it maps.** Every sync writes them again from Linear (the exact list is
   under [What a sync overwrites, and what it never writes](#what-a-sync-overwrites-and-what-it-never-writes)),
@@ -66,7 +66,7 @@ Everything below is **off until an admin switches it on**, on the same Linear pa
   anything but comments. It posts under the identity of the connected API key, which therefore
   needs permission to write comments; the page asks you to confirm this before it turns on. A
   comment that can't be delivered after five attempts is marked as such on the comment itself, and
-  the page counts those still waiting and those given up on. A comment is sent once unless the server stops in the middle of sending it: that push goes back in the queue, so in that case Linear could receive it twice. The comment you wrote in StoryOS is never imported back as a second copy.
+  the page counts those still waiting and those given up on. Every pushed comment ends with a small marker line naming the StoryOS comment it came from (`storyos-comment-<id>`), visible in Linear under the text. Before any retry (a send cut off by a server stop, or one whose answer was lost), StoryOS reads the Linear issue's comments and looks for that marker. If it finds the comment, it records it as sent and does not send it again. If that lookup itself fails, the comment waits for its next retry rather than being sent blind. The comment you wrote in StoryOS is never imported back as a second copy.
 - **Edited descriptions are flagged, not overwritten.** If an issue's description changes in
   Linear after it was imported, StoryOS keeps the description it has, stores Linear's new text in
   the **Linear Description** field and ticks **Description Drift**. **Linear Description** is
@@ -96,9 +96,12 @@ Linear (no priority, no assignee, no estimate) is written as empty. So an edit i
 those fields lasts only until Linear's copy of that issue is next read (on a scheduled run, an
 issue Linear has not changed is not read, so it is not rewritten until the daily full read).
 
-**Added to, never removed from:** the Labels, Sprint, Project and Parent Issue links. A sync adds
-the links Linear reports and removes none, so a label dropped or a cycle changed in Linear does not
-remove the old link in StoryOS.
+**Set to Linear's, on every issue the sync reads:** the Labels, Sprint, Project and Parent Issue
+links. A label dropped, or a cycle, project or parent changed or cleared in Linear, is unlinked in
+StoryOS on that issue's next read, and a link someone added in StoryOS that Linear does not have is
+removed with it. The exception is a link Linear reports to something that was not imported (for
+example a parent outside the chosen teams): the existing link is left as it was rather than
+cleared. A record whose links already match is not written again.
 
 **Not written by a sync once they exist:**
 
@@ -129,7 +132,7 @@ reports. It adds options and never deletes them.
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
 | Cycle | Record in **Sprints** (number, start/end dates) + Sprint relation on the issue |
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
-| Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled. A database imported earlier keeps its raw-named options; the sync still matches them. |
+| Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled, coloured like Linear's (gray, blue, gold, orange, green, red in that order). A database imported earlier keeps its raw-named options as they are; the sync still matches them. |
 | Issue ID (internal) | Linear ID text field — the idempotency key; don't edit it |
 
 ## Comments

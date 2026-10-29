@@ -43,6 +43,12 @@ export const SOCIAL_COMMAND_CENTER_PACK: PackRegistryEntry = {
     slug: 'social-command-center',
     name: 'Social Command Center',
     version: '1.0.0',
+    why: 'You post on LinkedIn or X and want plans, replies and results in one place.',
+    can: [
+      'Plan posts on a calendar',
+      'Sort replies on a board so none are missed',
+      'Log how each post performed',
+    ],
     scenario: 'pack',
     summary:
       'A content calendar, a reply triage board and a metrics log for social posts. Publishing requires ' +

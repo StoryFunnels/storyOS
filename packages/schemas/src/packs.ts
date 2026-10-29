@@ -328,6 +328,22 @@ export const packAgentSchema = planAgentSchema.extend({
 export type PackAgent = z.infer<typeof packAgentSchema>;
 
 /**
+ * #1145 — the two lines a pack leads with: WHY a person would want it, and what they can DO once it is in.
+ *
+ * `why` is ONE sentence naming the situation the pack is for. The refinement rejects a sentence terminator followed by more
+ * text (so a second sentence fails) and anything over 400 characters. `can` is one to three concrete lines, each at most 300.
+ * Both are optional on the manifest: a community or exported manifest that has never heard of them must keep validating and
+ * installing, and the built-in gallery's own test (not this schema) is what insists every built-in carries them.
+ */
+export const packWhySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(400)
+  .refine((v) => !/[.!?]["')\]\u2019\u201d]*\s+\S/.test(v), { message: 'why must be a single sentence' });
+export const packCanSchema = z.array(z.string().trim().min(1).max(300)).min(1).max(3);
+
+/**
  * The manifest.
  *
  * `format_version` is the *envelope* version and is not the pack's `version`:
@@ -357,6 +373,10 @@ export const packManifestSchema = architectPlanSchema.extend({
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with dashes'),
   name: z.string().min(1).max(200),
   version: packVersionSchema,
+  /** #1145 — why a person would want this pack: one sentence naming the situation it is for. */
+  why: packWhySchema.optional(),
+  /** #1145 — what they can do once it is installed: one to three concrete lines. */
+  can: packCanSchema.optional(),
   /** What changed since the previous version, for the human deciding to upgrade. */
   upgrade_notes: z.string().max(5000).optional(),
   requires: packRequiresSchema.default({ connections: [], ai: 'none' }),
@@ -891,6 +911,9 @@ export const packExportRequestSchema = z
     version: packVersionSchema.default('1.0.0'),
     summary: z.string().min(1).max(2000).default('Exported workspace slice'),
     upgrade_notes: z.string().max(5000).optional(),
+    /** #1145 — carried straight onto the manifest; see `packWhySchema`. */
+    why: packWhySchema.optional(),
+    can: packCanSchema.optional(),
     /** MN-220 — carried straight onto the manifest; see its own doc there. */
     license: z.string().min(1).max(100).default('All rights reserved'),
     attribution: z.string().max(200).optional(),
