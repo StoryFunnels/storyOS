@@ -24,6 +24,30 @@ only the people added to it can. **Space scoping** lets you invite a guest into 
 - The **last admin** cannot demote or remove themselves.
 - Removed or deactivated users keep their historical authorship in comments and activity.
 
+## Admin-only Settings pages
+
+**Members**, **Billing**, **Integrations**, **Connections** and **Webhooks** are for workspace
+admins. The Settings menu leaves them out for a member or a guest, and a member or guest who opens
+one by its address, from a bookmark or a link someone sent, gets a short notice in place of the
+page: *"Billing is for workspace admins"*, with a line saying their role and to ask an admin. The
+page's own controls and data requests are not loaded, so nothing on it looks usable and then fails.
+
+## Settings asks before the consequential actions
+
+Eight actions in Settings stop for a confirmation that names who or what is affected. Cancelling
+leaves everything as it was.
+
+- **Settings → Members:** changing a member's role (moving someone off admin, or onto it, is stated
+  first), removing a member, and revoking a pending invite.
+- **Settings → Account:** removing your photo, and signing out one of your other devices.
+- **Settings → API tokens:** revoking a token.
+- **Settings → Webhooks:** enabling or disabling a webhook.
+- **Settings → Integrations → Google Calendar:** removing a database's calendar mapping.
+
+Each dialog says what happens next: for example that a removed member loses access right away but
+their comments and history stay, that a revoked invite link stops working, or that a revoked token
+stops working immediately and cannot be recovered.
+
 ## Restricting a space or database
 
 By default every member can open every shared space and database, as a creator. An admin can
@@ -148,7 +172,7 @@ than left to look like a discrepancy.
 ## Pending invitations
 
 An invite that hasn't been accepted shows a **Pending** badge on Settings → Members, with
-**Resend invitation** and **Revoke**.
+**Resend invitation** and **Revoke**. Revoke asks first, naming the email address.
 
 **Resending mints a fresh link — the old one stops working.** It's not a reminder email pointing
 at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the
