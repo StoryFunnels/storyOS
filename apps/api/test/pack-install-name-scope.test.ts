@@ -478,3 +478,77 @@ describe('#1156 existing_elsewhere says whether the database can be reused, and 
     }
   });
 });
+
+/**
+ * Vera's send-back of #1338 (data loss): a same-named database the install did NOT create must never be written to just because this pack
+ * was installed once somewhere else. A tracked database is the one whose id the install recorded, not the one whose name matches.
+ */
+describe('#1156 a database is "the pack\'s own" only by the id the install recorded', () => {
+  const NAME = () => pack.databases[0]!.name;
+  const records = async (ws: string, id: string) => ((await as('GET', `/workspaces/${ws}/databases/${id}/records?limit=200`)).json() as { data: unknown[] }).data.length;
+  /** The user's OWN database of the pack's first database's name, in a space of their own, with one field and one record. */
+  async function foreignIn(ws: string, spaceName: string) {
+    const space = await newSpace(ws, spaceName);
+    const id = (await as('POST', `/workspaces/${ws}/databases`, { space_id: space, name: NAME() })).json().id as string;
+    await as('POST', `/workspaces/${ws}/databases/${id}/fields`, { display_name: 'Mine only', type: 'text' });
+    await as('POST', `/workspaces/${ws}/databases/${id}/records`, { values: { name: 'My own row' } });
+    return { space, id, fields: (await detail(ws, id)).fields.length, records: await records(ws, id) };
+  }
+  const unchanged = async (ws: string, f: Awaited<ReturnType<typeof foreignIn>>) => {
+    expect((await detail(ws, f.id)).fields.length, 'no pack field was added to the user\'s database').toBe(f.fields);
+    expect(await records(ws, f.id), 'no sample record was written into the user\'s database').toBe(f.records);
+  };
+
+  it('Vera\'s repro: installed once, then re-installed into a space holding the user\'s own same-named database: refused, theirs untouched', async () => {
+    const ws = await newWs('Foreign after install');
+    expect((await install(ws, pack)).statusCode).toBe(201);
+    const mine = await foreignIn(ws, 'Same');
+    const res = await install(ws, pack, mine.space);
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.body).toContain(NAME());
+    await unchanged(ws, mine);
+    const pv = (await preview(ws, pack, mine.space)).json().databases.find((d: { name: string }) => d.name === NAME());
+    expect(pv.action, 'the preview agrees: a collision, not a reuse').toBe('collision');
+  });
+
+  it('a tracked database is matched by its id even after the user renamed it: re-install reuses it and creates no second one', async () => {
+    const ws = await newWs('Renamed tracked');
+    const target = await newSpace(ws, 'Renamed target');
+    expect((await install(ws, pack, target)).statusCode).toBe(201);
+    const mine = (await dbsOf(ws)).find((d) => d.name === NAME() && d.spaceId === target)!;
+    expect((await as('PATCH', `/workspaces/${ws}/databases/${mine.id}`, { name: 'Renamed by the user' })).statusCode).toBeLessThan(300);
+    const before = (await dbsOf(ws)).map((d) => d.id).sort();
+    const again = await install(ws, pack, target);
+    expect(again.statusCode, again.body).toBe(201);
+    expect((await dbsOf(ws)).map((d) => d.id).sort(), 'nothing duplicated').toEqual(before);
+    expect((again.json().databases as Array<{ name: string; id: string; action: string }>).find((d) => d.name === NAME())).toMatchObject({ id: mine.id, action: 'reused' });
+  });
+
+  it('with an explicit reuse AND edit access the user\'s database is adopted (and only then)', async () => {
+    const ws = await newWs('Foreign explicit reuse');
+    expect((await install(ws, pack)).statusCode).toBe(201);
+    const mine = await foreignIn(ws, 'Same');
+    const res = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: pack, target_space_id: mine.space, resolutions: { [NAME()]: { action: 'reuse' } } });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((res.json().databases as Array<{ name: string; id: string; action: string }>).find((d) => d.name === NAME())).toMatchObject({ id: mine.id, action: 'reused' });
+    expect((await detail(ws, mine.id)).fields.length, 'the chosen adoption adds the pack\'s fields').toBeGreaterThan(mine.fields);
+  });
+
+  it('with an explicit reuse but NO edit access: the same refusal as for a database that is not there, and nothing is written', async () => {
+    const ws = await newWs('Foreign no edit');
+    expect((await install(ws, pack)).statusCode).toBe(201);
+    const mine = await foreignIn(ws, 'Same');
+    const dbs = app.get(DatabasesService, { strict: false });
+    const real = dbs.list.bind(dbs);
+    const spy = vi.spyOn(dbs, 'list').mockImplementation((async (...a: Parameters<typeof dbs.list>) =>
+      (await real(...a)).map((d) => (d.id === mine.id ? { ...d, my_access: 'viewer' as const } : d))) as never);
+    try {
+      const res = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: pack, target_space_id: mine.space, resolutions: { [NAME()]: { action: 'reuse' } } });
+      expect(res.statusCode, res.body).toBe(422);
+      expect(res.json().error.message).toBe(`There is no ${NAME()} database you can edit.`);
+    } finally {
+      spy.mockRestore();
+    }
+    await unchanged(ws, mine);
+  });
+});

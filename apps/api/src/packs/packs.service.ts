@@ -1163,7 +1163,8 @@ export class PacksService {
   ): Promise<{ adopt: Map<string, { id: string; name: string }>; hints: Map<string, ExistingElsewhere> }> {
     const adopt = new Map<string, { id: string; name: string }>();
     const hints = new Map<string, ExistingElsewhere>();
-    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
+    const trackedDbIds = existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : new Map<string, string>();
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined, trackedDbIds);
     const live = await this.databases.list(membership);
     const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
     const where = (spaceId: string) => spaceNames.get(spaceId) ?? 'another space';
@@ -1174,7 +1175,16 @@ export class PacksService {
       : [];
     const canEdit = (d: { my_access: string | null }) => d.my_access !== null && ACCESS_RANK[d.my_access as EffectiveRole] >= ACCESS_RANK.editor;
     for (const d of manifest.databases) {
-      if (inHomeSpace(d.name, d.space)) continue;
+      const homeDb = inHomeSpace(d.name, d.space);
+      if (homeDb) {
+        // A same-named database the install did not create, in the space it installs into: written to only on the person's explicit
+        // `reuse`, and then only if they can edit it, worded as for a database that is not there.
+        const foreign = trackedDbIds.get(norm(d.name)) !== homeDb.id;
+        if (foreign && strict && resolutions[d.name]?.action === 'reuse' && !canEdit(homeDb)) {
+          throw new UnprocessableEntityException(notFoundReason(d.name));
+        }
+        continue;
+      }
       const earlier = trackedReused.find((t) => norm(t.name) === norm(d.name));
       const kept = earlier ? live.find((x) => x.id === earlier.entityId && canEdit(x)) : undefined;
       if (kept) {
@@ -1302,17 +1312,20 @@ export class PacksService {
 
     // #1156 — a planned database is matched only among the databases of the space it goes into (see `homeSpaceMatcher`), exactly as
     // `ArchitectService.buildDatabases` does for the install, so this never reports a collision with a database the install would not touch.
-    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
+    const trackedDbIds = existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : new Map<string, string>();
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined, trackedDbIds);
     const liveByName = new Map<string, NonNullable<ReturnType<typeof inHomeSpace>>>();
     for (const d of manifest.databases) {
       const found = inHomeSpace(d.name, d.space) ?? (adopt?.get(norm(d.name)) as ReturnType<typeof inHomeSpace>);
       if (found) liveByName.set(norm(d.name), found);
     }
 
-    const databases: PackPreviewItem[] = manifest.databases.map((d) => ({
-      name: d.name,
-      action: classify('database', d.name, liveByName.has(norm(d.name))),
-    }));
+    // #1156 — a live database is `reuse` only if it IS the one this install recorded (same id); a same-named one the install did not create
+    // is a `collision` needing the person's explicit choice, however many times the pack was installed elsewhere.
+    const databases: PackPreviewItem[] = manifest.databases.map((d) => {
+      const found = liveByName.get(norm(d.name));
+      return { name: d.name, action: !found ? 'create' : trackedDbIds.get(norm(d.name)) === found.id ? 'reuse' : 'collision' };
+    });
 
     // Views/automations only exist once their database does — a planned
     // database that isn't live yet previews all of its views and automations
@@ -1683,6 +1696,17 @@ export class PacksService {
     });
   }
 
+  /**
+   * #1156 — the database id each planned database name was installed as, per the install's own record. A database is "this pack's own" by
+   * THIS id and no other: a same-named database the install did not create is somebody else's, however alike its name.
+   */
+  private async trackedDatabaseIds(packInstallId: string): Promise<Map<string, string>> {
+    const rows = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, 'database')),
+    });
+    return new Map(rows.map((r) => [norm(r.name), r.entityId] as const));
+  }
+
   private async trackedNames(
     packInstallId: string,
     kind: 'database' | 'view' | 'automation' | 'agent' | 'skill',
@@ -1752,7 +1776,7 @@ export class PacksService {
       // Databases, fields, relations, states, agents and bindings — all of it,
       // through the walk #214 already ships. Nothing about that walk is
       // reimplemented, adapted or wrapped here.
-      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, progress: ledger.built });
+      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, trackedIds: existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : undefined, progress: ledger.built });
 
       const result: PackInstallResult = {
         slug: manifest.slug,
