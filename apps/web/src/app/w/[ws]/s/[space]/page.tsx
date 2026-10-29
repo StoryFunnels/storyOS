@@ -2,10 +2,10 @@
 import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { FileText, Layers, Lock, Users } from 'lucide-react';
+import { Database, FileText, Layers, Lock, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { apiErrorMessage } from '@/lib/api';
 import { useDatabases, useSpaces, useSidebarMutations, useWorkspace } from '@/lib/queries';
@@ -22,10 +22,13 @@ import {
   useSpaceContents,
   useSpaceCreators,
 } from '@/components/space-start';
-import { canAddToSpace, canInstallPacks, isSpaceEmpty } from '@/lib/space-start';
+import { adminAskLine, canAddToSpace, canInstallPacks, isSpaceEmpty } from '@/lib/space-start';
+import { LetterMark } from '@/components/sidebar';
+import { RestrictedLock } from '@/components/restricted-lock';
+import { consumeNewSpace } from '@/lib/new-space-focus';
 import { Textarea } from '@/components/ui/textarea';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
-import { canManageAccess } from '@/lib/access-model';
+import { canManageAccess, showsLock } from '@/lib/access-model';
 import {
   RESTRICTED_PRIVATE_NOTE,
   RESTRICTED_SUMMARY,
@@ -144,6 +147,24 @@ export default function SpacePage() {
   const [packPicker, setPackPicker] = useState(false);
   const [installSlug, setInstallSlug] = useState<string | null>(null);
 
+  // #1094 — a space made by one click opens with its NAME in edit mode, once (the creator marks the id; see new-space-focus.ts).
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState<string | null>(null); // null = untouched: show the space's own name
+  const [savingName, setSavingName] = useState<string | null>(null); // shown until the save lands, so the old name never flashes back
+  const nameRef = useRef<HTMLInputElement>(null);
+  const haveSpace = Boolean(space);
+  useEffect(() => {
+    // Consume once per space id. The name field shows the space's own name until typed over, so it does not matter that the
+    // spaces list may not have caught up with a space created a moment ago.
+    if (consumeNewSpace(spaceId)) setEditingName(true);
+  }, [spaceId]);
+  useEffect(() => {
+    if (editingName && haveSpace) {
+      nameRef.current?.focus();
+      nameRef.current?.select();
+    }
+  }, [editingName, haveSpace]);
+
   const [descValue, setDescValue] = useState<string | null>(null);
   const [editingDesc, setEditingDesc] = useState(false);
   const [iconing, setIconing] = useState(false);
@@ -156,7 +177,8 @@ export default function SpacePage() {
   // never resolves reads the same as "this does not exist", which tells a guest
   // nothing about WHY. Loading first; only once the list has actually returned
   // do we say the space cannot be seen.
-  if (spaces.isLoading) {
+  // A space created a moment ago is not in the cached list until the refetch lands: that is "loading", not "not visible".
+  if (spaces.isLoading || (!space && spaces.isFetching)) {
     return <div className="p-4 sm:p-8 text-body text-muted">Loading…</div>;
   }
   if (!space) {
@@ -189,6 +211,20 @@ export default function SpacePage() {
     (members.data ?? []).find((m) => m.user_id === userId)?.user.name ?? userId.slice(0, 8);
   const dbNameOf = (id: string) => spaceDatabases.find((d) => d.id === id)?.name ?? 'a database';
 
+  const commitName = () => {
+    const next = (nameValue ?? space.name).trim();
+    setEditingName(false);
+    if (!next || next === space.name) return;
+    setSavingName(next);
+    updateSpace.mutate(
+      { id: space.id, name: next },
+      {
+        onError: (e) => toast.error(apiErrorMessage(e, 'Could not rename — try again')),
+        onSettled: () => setSavingName(null),
+      },
+    );
+  };
+
   const saveDescription = () => {
     if (draft.over) return;
     updateSpace.mutate(
@@ -211,88 +247,99 @@ export default function SpacePage() {
       <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-0 flex-1">
       {/* Identity */}
-      <div className="mb-1 flex items-center gap-3">
+      <div className="flex items-start gap-3">
         {/*
-          #449 — a REAL fallback glyph, not null. The sidebar's own space icon
-          can render nothing when unset (#305: unconfigured is not invalid,
-          decorative there); this one is the BUTTON itself, and a null fallback
-          made it a zero-width, invisible-but-technically-present control —
-          caught live by trying to click it, not in review. Shape matches the
-          established "change icon" trigger in view-toolbar.tsx: a fixed-size
-          bordered square with a real fallback icon, not a shared component
-          (there isn't one for this), but the same proportions rather than an
-          invented one.
+          #1094 — the space's mark, as the sidebar draws it (LetterMark: the colour, with the chosen icon inside or the two
+          initials), 34px, and still the "Change icon" button it has been since #449 (a real control, never a null fallback).
         */}
         <Tooltip label="Change icon">
-        <button
-          type="button"
-          onClick={() => setIconing(true)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
-          aria-label="Change icon"
-        >
-          <EntityIcon
-            icon={space.icon}
-            color={space.color}
-            size={20}
-            fallback={
-              // #706 — KEEPS faint: this is the icon-only fallback shown when a
-              // space has no icon of its own. A non-text graphic, judged at 3:1,
-              // which faint clears. The space NAME beside it carries the meaning.
-              <Layers className="h-4 w-4 text-faint" />
-            }
-          />
-        </button>
+          <button
+            type="button"
+            onClick={() => setIconing(true)}
+            className="shrink-0 rounded-[var(--radius-card)] hover:opacity-90"
+            aria-label="Change icon"
+          >
+            <LetterMark
+              name={space.name}
+              color={space.color}
+              icon={space.icon}
+              iconClassName="text-[18px]"
+              className="mr-0 h-[34px] w-[34px] rounded-[var(--radius-card)] text-[13px]"
+            />
+          </button>
         </Tooltip>
-        <h1 className="text-xl font-semibold text-ink">{space.name}</h1>
-      </div>
-
-      {editingDesc ? (
-        <div className="flex max-w-xl flex-col gap-2">
-          <Textarea
-            autoFocus
-            rows={2}
-            size="default"
-            value={descValue ?? space.description ?? ''}
-            onChange={(e) => setDescValue(e.target.value)}
-            placeholder="What is this space for?"
-            className={cn('min-h-0 w-full resize-none', draft.over && 'border-error')}
-          />
-          <div className="flex items-center gap-2">
-            <span
-              className={cn('text-label tabular-nums', draft.over ? 'text-error' : 'text-muted')}
-            >
-              {draft.hint}
-            </span>
-            <div className="ml-auto flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  setEditingDesc(false);
-                  setDescValue(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={saveDescription}
-                disabled={draft.over || updateSpace.isPending}
-              >
-                {updateSpace.isPending ? 'Saving…' : 'Save'}
-              </Button>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {editingName ? (
+            // #1094 — a space made by one click opens with its name here, selected: the first keystroke replaces it. Enter or
+            // leaving the field saves; Escape keeps the old name. Renaming later stays where it always was (the sidebar's ⋯).
+            <input
+              ref={nameRef}
+              aria-label="Space name"
+              value={nameValue ?? space.name}
+              onChange={(e) => setNameValue(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitName();
+                if (e.key === 'Escape') {
+                  setNameValue(null);
+                  setEditingName(false);
+                }
+              }}
+              maxLength={100}
+              className="w-full border-0 bg-transparent p-0 text-xl font-semibold text-ink focus:outline-none focus:shadow-[inset_0_-2px_0_var(--primary)]"
+            />
+          ) : (
+            <h1 className="text-xl font-semibold text-ink">{savingName ?? space.name}</h1>
+          )}
+          {editingDesc ? (
+            <div className="flex max-w-xl flex-col gap-2">
+              <Textarea
+                autoFocus
+                rows={2}
+                size="default"
+                value={descValue ?? space.description ?? ''}
+                onChange={(e) => setDescValue(e.target.value)}
+                placeholder="What is this space for?"
+                className={cn('min-h-0 w-full resize-none', draft.over && 'border-error')}
+              />
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn('text-label tabular-nums', draft.over ? 'text-error' : 'text-muted')}
+                >
+                  {draft.hint}
+                </span>
+                <div className="ml-auto flex gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditingDesc(false);
+                      setDescValue(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={saveDescription}
+                    disabled={draft.over || updateSpace.isPending}
+                  >
+                    {updateSpace.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingDesc(true)}
+              className="block max-w-xl text-left text-body text-muted hover:text-ink"
+            >
+              {space.description || 'Add a description…'}
+            </button>
+          )}
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditingDesc(true)}
-          className="block max-w-xl text-left text-body text-muted hover:text-ink"
-        >
-          {space.description || 'Add a description…'}
-        </button>
-      )}
+      </div>
 
       </div>
       {/* #1094 — the header's two actions. Access is a jump to the Access section below (nothing about it moved out of the page),
@@ -323,7 +370,9 @@ export default function SpacePage() {
         <p className="text-body text-muted">Loading…</p>
       ) : empty ? (
         <>
-          <StartFromScratchBar packs={packsOk} busy={creators.busy} onDatabase={creators.addDatabase} onDocument={creators.addDocument} />
+          <StartFromScratchBar
+            note={packsOk ? 'or pick a ready-made setup below' : adminAskLine(members.data)}
+            busy={creators.busy} onDatabase={creators.addDatabase} onDocument={creators.addDocument} />
           {packsOk && (
             <section>
               <h2 className="mb-2 text-label font-semibold text-muted">What is this space for?</h2>
@@ -340,15 +389,17 @@ export default function SpacePage() {
         {spaceDatabases.length + contents.documents.length + contents.views.length === 0 ? (
           <p className="text-body text-muted">No databases here that you can access.</p>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col divide-y divide-border-default overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
             {spaceDatabases.map((d) => (
               <li key={d.id}>
                 <a
                   href={`/w/${ws}/d/${d.id}`}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                  className="flex min-h-[42px] items-center gap-2.5 px-3 py-1.5 text-body text-ink hover:bg-hover"
                 >
-                  <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={null} />
+                  <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={<Database className="h-3.5 w-3.5" />} />
                   <span className="truncate">{d.name}</span>
+                  {/* #924 — a lock means RESTRICTED and nothing else; personal items never reach this page (#1097). */}
+                  {showsLock(d) && <RestrictedLock />}
                   <span className="ml-auto text-label text-muted">database</span>
                 </a>
               </li>
@@ -357,7 +408,7 @@ export default function SpacePage() {
               <li key={d.id}>
                 <a
                   href={`/w/${ws}/doc/${d.id}`}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                  className="flex min-h-[42px] items-center gap-2.5 px-3 py-1.5 text-body text-ink hover:bg-hover"
                 >
                   <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
                   <span className="truncate">{d.title || 'Untitled'}</span>
@@ -369,7 +420,7 @@ export default function SpacePage() {
               <li key={v.id}>
                 <a
                   href={`/w/${ws}/v/${v.id}`}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                  className="flex min-h-[42px] items-center gap-2.5 px-3 py-1.5 text-body text-ink hover:bg-hover"
                 >
                   <Layers className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
                   <span className="truncate">{v.name}</span>

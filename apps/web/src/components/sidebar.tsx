@@ -9,7 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, Lock, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -68,6 +68,8 @@ import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
 import { markNewDocument } from '@/lib/new-doc-focus';
+import { markNewSpace, UNTITLED_SPACE } from '@/lib/new-space-focus';
+import { RestrictedLock } from '@/components/restricted-lock';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -495,17 +497,19 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
         {canEdit && (
           <NewSpaceButton
-            ws={ws}
-            // #1094 — New opens what it made. The space page now has a way to add (database, document, pack), so it is no
-            // longer a dead end to land on; before, the new space was created and the person left looking at the old page.
-            onCreate={(name) =>
+            disabled={mutations.createSpace.isPending}
+            // #1094 — ONE click: the space is made as "Untitled space" and opens on its page with the name in edit mode
+            // (marked before navigating, consumed once by the page). New opens what it made.
+            onCreate={() =>
               mutations.createSpace.mutate(
-                { name },
+                { name: UNTITLED_SPACE },
                 {
                   onSuccess: (created) => {
+                    markNewSpace(created.id);
                     router.push(`/w/${ws}/s/${created.id}`);
                     onCloseMobile?.();
                   },
+                  onError: () => toast.error('Could not create space'),
                 },
               )
             }
@@ -1819,15 +1823,7 @@ function SpaceSection({
             {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
             <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
-              {showsLock(space) && (
-                <Lock
-                  className="h-[11px] w-[11px] shrink-0 text-faint"
-                  aria-label="Restricted"
-                  role="img"
-                >
-                  <title>Restricted — only the people added can see it</title>
-                </Lock>
-              )}
+              {showsLock(space) && <RestrictedLock />}
           </Link>
         )}
         {/* #805 AC6 — the artifact's database count on the space header, shown
@@ -2903,15 +2899,7 @@ function DatabaseRow({
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
-          {showsLock(db) && (
-                <Lock
-                  className="h-[11px] w-[11px] shrink-0 text-faint"
-                  aria-label="Restricted"
-                  role="img"
-                >
-                  <title>Restricted — only the people added can see it</title>
-                </Lock>
-              )}
+          {showsLock(db) && <RestrictedLock />}
         </Link>
         </>
       )}
@@ -3142,17 +3130,20 @@ const SPACE_ACT =
 
 const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
 
-function LetterMark({
+export function LetterMark({
   name,
   color,
   icon,
   className,
+  iconClassName,
 }: {
   name: string;
   color?: string | null;
   /** #994 — a CHOSEN icon sits inside the mark instead of the two letters, so no icon a person picked is lost. */
   icon?: string | null;
   className?: string;
+  /** #1094 — the chosen icon's size inside a larger mark (the space page's 34px header mark). */
+  iconClassName?: string;
 }) {
   const letter = markInitials(name);
   return (
@@ -3167,7 +3158,7 @@ function LetterMark({
       style={{ backgroundColor: color ? (OPTION_COLORS[color] ?? color) : 'var(--text-faint)' }}
       aria-hidden
     >
-      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className="text-[12px]" /> : letter}
+      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className={iconClassName ?? 'text-[12px]'} /> : letter}
     </span>
   );
 }
@@ -3302,50 +3293,16 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
+function NewSpaceButton({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover max-md:min-h-11">
-          <Plus className="h-3.5 w-3.5" /> New space
-        </button>
-      </DialogTrigger>
-      <DialogContent title="New space" unsaved>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) onCreate(name.trim());
-            setName('');
-            setOpen(false);
-          }}
-        >
-          <Input
-            autoFocus
-            placeholder="e.g. Client Work"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <div className="flex items-center justify-between gap-2">
-            {/* #967 — a space can also start from a business pack; the whole Packs page (Installed,
-                Gallery, Marketplace) is one click away from here as well as from the AI section. */}
-            <Link href={`/w/${ws}/packs`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
-              Start from a pack…
-            </Link>
-            <div className="flex gap-2">
-              <DialogClose asChild>
-                <Button type="button" variant="secondary">
-                  Cancel
-                </Button>
-              </DialogClose>
-              <Button type="submit">Create space</Button>
-            </div>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <button
+      type="button"
+      onClick={onCreate}
+      disabled={disabled}
+      className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted disabled:opacity-60 hover:bg-hover max-md:min-h-11"
+    >
+      <Plus className="h-3.5 w-3.5" /> New space
+    </button>
   );
 }
 

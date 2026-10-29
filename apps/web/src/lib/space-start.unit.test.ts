@@ -5,6 +5,7 @@ import {
   ALL_PACKS,
   ANY_TEAM,
   FEATURED_SPACE_PACKS,
+  adminAskLine,
   canAddToSpace,
   canInstallPacks,
   isSpaceEmpty,
@@ -44,6 +45,26 @@ describe('canAddToSpace (#1094)', () => {
   it('withholds them from a guest, and while the role has not loaded', () => {
     expect(canAddToSpace('guest')).toBe(false);
     expect(canAddToSpace(undefined)).toBe(false);
+  });
+});
+
+describe('adminAskLine (#1094)', () => {
+  const m = (...names: string[]) => names.map((name) => ({ role: 'admin', user: { name } }));
+  it('names the admins naturally: one, two, three', () => {
+    expect(adminAskLine(m('Ada'))).toBe('Only admins can add packs. Ask Ada to add one.');
+    expect(adminAskLine(m('Ada', 'Bo'))).toBe('Only admins can add packs. Ask Ada or Bo to add one.');
+    expect(adminAskLine(m('Ada', 'Bo', 'Cy'))).toBe('Only admins can add packs. Ask Ada, Bo or Cy to add one.');
+  });
+  it('caps at three names and counts the rest', () => {
+    expect(adminAskLine(m('Ada', 'Bo', 'Cy', 'Di', 'Ed'))).toBe('Only admins can add packs. Ask Ada, Bo, Cy and 2 more to add one.');
+  });
+  it('names ONLY admins: members and guests in the list are never named', () => {
+    const list = [...m('Ada'), { role: 'member', user: { name: 'Mia' } }, { role: 'guest', user: { name: 'Gus' } }];
+    expect(adminAskLine(list)).not.toMatch(/Mia|Gus/);
+  });
+  it('never invents a name: no list, or no admin in it, says a workspace admin', () => {
+    expect(adminAskLine(undefined)).toBe('Only admins can add packs. Ask a workspace admin to add one.');
+    expect(adminAskLine([{ role: 'member', user: { name: 'Mia' } }])).toBe('Only admins can add packs. Ask a workspace admin to add one.');
   });
 });
 
@@ -129,7 +150,26 @@ describe('the space page wiring (#1094)', () => {
     expect(page).toContain('id="space-access"');
     expect(page).toContain('RESTRICTED_PRIVATE_NOTE');
   });
-  it('New space opens the page it made', () => {
-    expect(sidebar).toMatch(/createSpace\.mutate\([\s\S]*router\.push\(`\/w\/\$\{ws\}\/s\/\$\{created\.id\}`\)/);
+  it('New space is ONE click: no name dialog, "Untitled space", marked for edit mode, then opened', () => {
+    expect(sidebar).toMatch(/createSpace\.mutate\(\s*\{ name: UNTITLED_SPACE \}/);
+    expect(sidebar).toMatch(/markNewSpace\(created\.id\);\s*router\.push\(`\/w\/\$\{ws\}\/s\/\$\{created\.id\}`\)/);
+    const button = sidebar.slice(sidebar.indexOf('function NewSpaceButton('), sidebar.indexOf('export function NewDatabaseDialog'));
+    expect(button).not.toMatch(/Dialog/);
+    // the only creator of a space in the web app
+    expect(sidebar.match(/createSpace\.mutate\(/g)?.length).toBe(1);
+  });
+  it('the space page consumes the one-shot mark and puts the name in edit mode, selected', () => {
+    expect(page).toContain('consumeNewSpace(spaceId)');
+    expect(page).toMatch(/nameRef\.current\?\.focus\(\);\s*nameRef\.current\?\.select\(\);/);
+  });
+  it('draws the space mark with the sidebar LetterMark, and a lock on a restricted database only, via showsLock', () => {
+    expect(page).toContain('<LetterMark');
+    expect(page).toContain('{showsLock(d) && <RestrictedLock />}');
+    // the sidebar draws its locks through the same component, so the two cannot differ
+    expect(sidebar).toContain('{showsLock(space) && <RestrictedLock />}');
+    expect(sidebar).toContain('{showsLock(db) && <RestrictedLock />}');
+  });
+  it('tells a member who can add a pack, from the members list it already reads', () => {
+    expect(page).toContain('adminAskLine(members.data)');
   });
 });

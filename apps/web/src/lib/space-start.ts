@@ -51,6 +51,24 @@ export function canInstallPacks(workspaceRole: string | undefined): boolean {
   return workspaceRole === 'admin';
 }
 
+/**
+ * What a member who cannot install a pack is told instead: who CAN. Names come from the members list the page already has
+ * (never invented): one name, "A or B", "A, B or C", and past three "A, B, C and N more". With no admin names to give (the list
+ * has not loaded, or came back with no admin) it says "a workspace admin" rather than guessing.
+ */
+export function adminAskLine(members: ReadonlyArray<{ role: string; user: { name: string } }> | undefined): string {
+  const names = [...new Set((members ?? []).filter((m) => m.role === 'admin').map((m) => m.user.name.trim()).filter(Boolean))];
+  const who =
+    names.length === 0
+      ? 'a workspace admin'
+      : names.length === 1
+        ? names[0]!
+        : names.length <= 3
+          ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+          : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+  return `Only admins can add packs. Ask ${who} to add one.`;
+}
+
 const isFeatured =(slug: string) => FEATURED_SPACE_PACKS.includes(slug);
 
 /**

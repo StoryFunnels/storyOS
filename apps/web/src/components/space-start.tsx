@@ -161,13 +161,13 @@ export function SpaceNewMenu({
 export function StartFromScratchBar({
   onDatabase,
   onDocument,
-  packs,
+  note,
   busy,
 }: {
   onDatabase: () => void;
   onDocument: () => void;
-  /** Whether the pack cards are shown below (admins), which decides what the bar's right-hand line may promise. */
-  packs: boolean;
+  /** The bar's right-hand line: an invitation to the cards below (admins), or who can add a pack (everyone else). */
+  note: string;
   busy: boolean;
 }) {
   return (
@@ -179,9 +179,7 @@ export function StartFromScratchBar({
       <Button type="button" variant="secondary" disabled={busy} onClick={onDocument}>
         <FileText className="h-3.5 w-3.5" aria-hidden /> New document
       </Button>
-      <span className="ml-auto text-label text-muted">
-        {packs ? 'or pick a ready-made setup below' : 'Ready-made setups are installed by a workspace admin.'}
-      </span>
+      <span className="ml-auto text-label text-muted">{note}</span>
     </div>
   );
 }
