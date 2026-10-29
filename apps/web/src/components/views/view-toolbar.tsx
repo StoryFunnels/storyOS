@@ -116,6 +116,7 @@ import type { NullsPlacement } from './sort-config';
 import { meConditionText } from '@/lib/me-label';
 import { SYSTEM_FIELD_OPS, SYSTEM_USER_TYPES, isPickableField, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionChip, OptionIcon } from '../table-view/cells';
+import { CATEGORY_CHOICES, describeCategoryCondition, normalizeCategories, parseCategoryValue } from './category-filter';
 
 /**
  * Op menu per field type — mirrors the API op×type matrix.
@@ -142,9 +143,13 @@ import { OPTION_COLORS, OptionChip, OptionIcon } from '../table-view/cells';
 export type OpsEntry = {
   op: string;
   label: string;
-  input: 'text' | 'number' | 'date' | 'options' | 'option' | 'relative' | 'boolean' | 'records' | 'none';
+  input: 'text' | 'number' | 'date' | 'options' | 'option' | 'categories' | 'relative' | 'boolean' | 'records' | 'none';
 };
 
+// #1159 — `category_is` / `category_is_not` (select + workflow only) mirror the API's authority, query-compiler.ts `compileCategory`
+// (#1154), which refuses them on multi_select (an option there has no category) and on every other type. Their order and the
+// workflow list staying identical to select's are the MCP's OPS_BY_FIELD_TYPE (packages/mcp/src/tools.ts). Their value is a state
+// category, not an option id, so their input kind is 'categories' (category-filter.ts), never 'options'.
 export const OPS_BY_TYPE: Record<string, OpsEntry[]> = {
   title: [
     { op: 'contains', label: 'contains', input: 'text' },
@@ -212,6 +217,8 @@ export const OPS_BY_TYPE: Record<string, OpsEntry[]> = {
     { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
+    { op: 'category_is', label: 'is in category', input: 'categories' },
+    { op: 'category_is_not', label: 'is not in category', input: 'categories' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
@@ -226,6 +233,8 @@ export const OPS_BY_TYPE: Record<string, OpsEntry[]> = {
     { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
+    { op: 'category_is', label: 'is in category', input: 'categories' },
+    { op: 'category_is_not', label: 'is not in category', input: 'categories' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
@@ -652,7 +661,7 @@ export function ColorByButton({
 }
 
 export function defaultValueFor(input: string): unknown {
-  if (input === 'options' || input === 'records') return [];
+  if (input === 'options' || input === 'records' || input === 'categories') return [];
   if (input === 'boolean') return true;
   if (input === 'relative') return 'next_7_days';
   if (input === 'number') return 0;
@@ -891,6 +900,20 @@ export function FilterValueEditor({
       </select>
     );
   }
+  // #1159 — a category condition's value is state categories (five fixed words), never the field's own options: a short list as chips
+  // under the rule (the row draws them, like options), the compact chip's popover as the same searchable multi-pick.
+  if (activeOp.input === 'categories') {
+    if (fill) return null;
+    return (
+      <OptionMultiPick
+        options={CATEGORY_CHOICES}
+        selected={parseCategoryValue(condition.value).categories}
+        onChange={(ids) => onChange({ ...condition, value: normalizeCategories(ids) })}
+        fill={fill}
+        unfinished={unfinished}
+      />
+    );
+  }
   if (activeOp.input === 'options') {
     // A short list shows EVERY option as a toggleable chip under the rule (rendered by the row, `OptionChipSet`),
     // so the person clicks options directly; a long one is a searchable picker that fills the row.
@@ -945,6 +968,7 @@ export function FilterValueEditor({
 
 /** #991 — whether a condition's value is a row of chips UNDER the rule rather than a control IN it. */
 export function usesChipSet(field: Field, activeOp: { input: string }, members: Array<{ id: string; name: string }>): boolean {
+  if (activeOp.input === 'categories') return true;
   return activeOp.input === 'options' && optionSourceFor(field, members).length <= OPTION_CHIP_LIMIT;
 }
 
@@ -1061,7 +1085,7 @@ function DateFilterInput({
  * Done" — used as the pinned-chip label and the "Edit name" placeholder until the
  * user sets a custom one. Relation values aren't resolved here (that needs an
  * async title lookup — RecordPicker does that); they render as a count instead. */
-function describeCondition(
+export function describeCondition(
   field: Field,
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
@@ -1075,6 +1099,9 @@ function describeCondition(
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0];
   if (!activeOp) return field.displayName;
   if (activeOp.input === 'none') return `${field.displayName} ${activeOp.label}`;
+  // #1159 — "State is done or canceled", "State is not done": the category words, never the option labels they would otherwise be read as.
+  const category = describeCategoryCondition(condition.op, condition.value);
+  if (category) return `${field.displayName} ${category}`;
   if (activeOp.input === 'options') {
     const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
     if (ids.length === 0) return `${field.displayName} ${activeOp.label}`;
@@ -2063,9 +2090,9 @@ function ConditionRow({
       {chipSet && (
         <div className={cn('mt-1 pl-[45px]', dim)}>
           <OptionChipSet
-            options={optionSourceFor(field, members)}
-            selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
-            onChange={(ids) => onChange({ ...condition, value: ids })}
+            options={activeOp.input === 'categories' ? CATEGORY_CHOICES : optionSourceFor(field, members)}
+            selected={activeOp.input === 'categories' ? parseCategoryValue(condition.value).categories : Array.isArray(condition.value) ? (condition.value as string[]) : []}
+            onChange={(ids) => onChange({ ...condition, value: activeOp.input === 'categories' ? normalizeCategories(ids) : ids })}
             unfinished={unfinished}
           />
         </div>
