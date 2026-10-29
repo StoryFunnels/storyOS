@@ -1,7 +1,7 @@
-import { ConflictException, Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, HttpException, Inject, Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { stripPublicSharing } from '../views/view-sharing';
 import { createHash } from 'node:crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
   blocksToMarkdown,
   compareSemver,
@@ -44,10 +44,23 @@ import type {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields as fieldsTable, packInstallItems, packInstalls, sources, workspaces } from '../db/schema';
+import {
+  agentWriteGates,
+  automations as automationsTable,
+  databases as databasesTable,
+  fields as fieldsTable,
+  packInstallItems,
+  packInstalls,
+  records as recordsTable,
+  selectOptions,
+  sources,
+  spaces as spacesTable,
+  views as viewsTable,
+  workspaces,
+} from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
-import { ArchitectService } from '../agents/architect.service';
+import { ArchitectService, type ArchitectBuildProgress } from '../agents/architect.service';
 import { decideField, decideState, relationExists } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
 import { DatabasesService } from '../databases/databases.service';
@@ -60,7 +73,7 @@ import { ViewsService } from '../views/views.service';
 import { AccessService } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
-import { trackSampleRecords } from '../workspaces/sample-records';
+import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
 import { deref, findRawUuids, refify } from './pack-refs';
 
@@ -206,6 +219,18 @@ interface SliceDb {
   views: LiveView[];
 }
 
+/** #1112 — everything an install has created so far; `result` exists once the architect walk has returned. */
+interface InstallLedger {
+  built: ArchitectBuildProgress;
+  result?: PackInstallResult;
+}
+
+/** #1112 — what existed before an install could provision the Agentic OS space and databases. */
+interface AgentOsSnapshot {
+  databaseIds: Set<string>;
+  spaceIds: Set<string>;
+}
+
 /**
  * Business Packs (MN-218 / #160, ADR-0010 §6).
  *
@@ -233,6 +258,8 @@ interface SliceDb {
  */
 @Injectable()
 export class PacksService {
+  private readonly logger = new Logger(PacksService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly spaces: SpacesService,
@@ -1596,65 +1623,255 @@ export class PacksService {
     const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
-    // ── The reuse: a PackManifest IS an ArchitectPlan ────────────────────────
-    // Databases, fields, relations, states, agents and bindings — all of it,
-    // through the walk #214 already ships. Nothing about that walk is
-    // reimplemented, adapted or wrapped here.
-    const built = await this.architect.build(membership, working, { targetSpace });
+    // ── All-or-nothing (ticket #1112) ────────────────────────────────────────
+    // Everything from here on creates things, and the services that create them each use the shared pool and take no transaction handle,
+    // so ONE database transaction cannot cover the walk. Instead every entity the install creates is recorded (`ledger`, filled in place
+    // by `architect.build` and by each step below), and a failure at ANY point removes exactly the entries marked `created`, then
+    // reports the step that failed. Nothing the install merely REUSED is touched.
+    const needsAgentOs = working.agents.length > 0 || working.triggers.length > 0;
+    const agentOsBefore = needsAgentOs ? await this.snapshotAgentOs(membership.workspaceId) : undefined;
+    const ledger: InstallLedger = { built: {} as ArchitectBuildProgress };
+    let step = 'building the databases, fields, relations, agents and triggers';
 
-    const result: PackInstallResult = {
-      slug: manifest.slug,
-      name: manifest.name,
-      version: manifest.version,
-      unmet,
-      spaces: built.spaces,
-      databases: built.databases,
-      fields: built.fields,
-      relations: built.relations,
-      states: built.states,
-      agents: [...built.agents, ...skippedAgents.map((name) => ({ name, action: 'skipped' as const, id: '' }))],
-      triggers: built.triggers,
-      derived_fields: [],
-      views: [],
-      automations: [],
-      sample_records: [],
-      skills: [],
-      skipped_sample_field_values: [],
+    try {
+      // ── The reuse: a PackManifest IS an ArchitectPlan ──────────────────────
+      // Databases, fields, relations, states, agents and bindings — all of it,
+      // through the walk #214 already ships. Nothing about that walk is
+      // reimplemented, adapted or wrapped here.
+      const built = await this.architect.build(membership, working, { targetSpace, progress: ledger.built });
+
+      const result: PackInstallResult = {
+        slug: manifest.slug,
+        name: manifest.name,
+        version: manifest.version,
+        unmet,
+        spaces: built.spaces,
+        databases: built.databases,
+        fields: built.fields,
+        relations: built.relations,
+        states: built.states,
+        agents: [...built.agents, ...skippedAgents.map((name) => ({ name, action: 'skipped' as const, id: '' }))],
+        triggers: built.triggers,
+        derived_fields: [],
+        views: [],
+        automations: [],
+        sample_records: [],
+        skills: [],
+        skipped_sample_field_values: [],
+      };
+      ledger.result = result;
+
+      const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
+
+      // Derived fields go in before the ref table the views use is built: a view
+      // may size or show a rollup column, so the rollup has to exist first.
+      step = 'adding the lookup and rollup fields';
+      await this.installDerivedFields(membership, working, dbIds, result);
+
+      const refToId = await this.readInstallRefs(membership, working, dbIds);
+      const hashes = new Map<string, string>();
+      // Entity ids never worth a `pack_install_items` row — currently just a
+      // database's default view (see `installViews`'s doc). `recordInstall`
+      // filters these out so `uninstall` never learns about them at all.
+      const untracked = new Set<string>();
+      step = 'adding the views';
+      await this.installViews(membership, working, dbIds, refToId, result, viewResolutions, hashes, untracked);
+      step = 'adding the automations';
+      await this.installAutomations(
+        membership,
+        working,
+        dbIds,
+        refToId,
+        result,
+        automationResolutions,
+        hashes,
+        this.labelSet(enableAutomations),
+      );
+      step = 'adding the sample records';
+      await this.installSampleRecords(membership, working, dbIds, refToId, result);
+      step = 'adding the skills';
+      await this.installSkills(membership, working, result, hashes);
+
+      // #977 — bring reused agents up to this version, BEFORE their content is hashed for uninstall's modified check below. Last among the
+      // steps that change anything: it edits agents that already existed, which a rollback cannot give back, so nothing after it may fail.
+      step = 'updating the agents that were already installed';
+      const agentProvenance = await this.updateReusedAgents(membership, manifest, collisions.agentPlans, takeAgents, result);
+      step = 'recording the install';
+      await this.hashInstalledAgents(membership, result, hashes);
+
+      await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
+
+      return result;
+    } catch (error) {
+      const problems = await this.rollbackInstall(membership, ledger, agentOsBefore);
+      throw this.installFailure(manifest, step, error, problems);
+    }
+  }
+
+  /** Ids that exist BEFORE an install provisions the Agentic OS space, so a failed install removes only what it made. */
+  private async snapshotAgentOs(workspaceId: string): Promise<AgentOsSnapshot> {
+    const { agentsDb, runsDb, triggersDb } = await this.agents.findPackDbs(workspaceId);
+    const spaceRows = await this.db.select({ id: spacesTable.id }).from(spacesTable).where(eq(spacesTable.workspaceId, workspaceId));
+    return {
+      databaseIds: new Set([agentsDb?.id, runsDb?.id, triggersDb?.id].filter((id): id is string => Boolean(id))),
+      spaceIds: new Set(spaceRows.map((r) => r.id)),
     };
+  }
 
-    // #977 — bring reused agents up to this version, BEFORE their content is hashed for uninstall's modified check below.
-    const agentProvenance = await this.updateReusedAgents(membership, manifest, collisions.agentPlans, takeAgents, result);
-
-    const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
-
-    // Derived fields go in before the ref table the views use is built: a view
-    // may size or show a rollup column, so the rollup has to exist first.
-    await this.installDerivedFields(membership, working, dbIds, result);
-
-    const refToId = await this.readInstallRefs(membership, working, dbIds);
-    const hashes = new Map<string, string>();
-    // Entity ids never worth a `pack_install_items` row — currently just a
-    // database's default view (see `installViews`'s doc). `recordInstall`
-    // filters these out so `uninstall` never learns about them at all.
-    const untracked = new Set<string>();
-    await this.installViews(membership, working, dbIds, refToId, result, viewResolutions, hashes, untracked);
-    await this.installAutomations(
-      membership,
-      working,
-      dbIds,
-      refToId,
-      result,
-      automationResolutions,
-      hashes,
-      this.labelSet(enableAutomations),
+  /**
+   * The error a failed install raises: the original status (500 for anything unexpected), the step that failed, and a plain statement of
+   * what state the workspace was left in — including anything the cleanup itself could not remove, never silently.
+   */
+  private installFailure(manifest: PackManifest, step: string, error: unknown, problems: string[]): HttpException {
+    const cleanup =
+      problems.length === 0
+        ? 'Nothing was installed.'
+        : `The cleanup could not remove everything the install had made (${problems.join('; ')}) — delete those by hand before installing again.`;
+    if (error instanceof HttpException) {
+      const status = error.getStatus() >= 400 ? error.getStatus() : 500;
+      const response = error.getResponse();
+      const reason =
+        typeof response === 'string'
+          ? response
+          : (() => {
+              const m = (response as { message?: string | string[] }).message;
+              return Array.isArray(m) ? m.join('; ') : (m ?? error.message);
+            })();
+      return new HttpException(`Installing "${manifest.name}" failed at the step "${step}": ${reason} ${cleanup}`, status);
+    }
+    this.logger.error(`Pack install "${manifest.slug}" failed at "${step}"`, error instanceof Error ? error.stack : String(error));
+    return new HttpException(
+      `Installing "${manifest.name}" failed at the step "${step}" because of an unexpected error (it has been logged). ${cleanup}`,
+      500,
     );
-    await this.installSampleRecords(membership, working, dbIds, refToId, result);
-    await this.installSkills(membership, working, result, hashes);
-    await this.hashInstalledAgents(membership, result, hashes);
+  }
 
-    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
+  /**
+   * Remove exactly what a failed install CREATED, newest first — hard deletes, because a soft delete would leave the names (and the trash
+   * rows) behind and the re-install would collide again. Entries marked `reused` are never touched, and neither is anything the install did
+   * not record: the ledger is the whole list. Returns what could NOT be removed (empty on success).
+   */
+  private async rollbackInstall(
+    membership: Membership,
+    ledger: InstallLedger,
+    agentOsBefore: AgentOsSnapshot | undefined,
+  ): Promise<string[]> {
+    const problems: string[] = [];
+    const attempt = async (what: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Pack install rollback: ${what} failed: ${reason}`);
+        problems.push(`${what}: ${reason}`);
+      }
+    };
+    const created = (entries: Array<{ action: string; id: string }> | undefined) =>
+      (entries ?? []).filter((e) => e.action === 'created' && e.id).map((e) => e.id);
 
-    return result;
+    const built = ledger.built;
+    const result = ledger.result;
+    const workspaceId = membership.workspaceId;
+    const createdDbIds = created(built.databases);
+    // Views, rules and fields inside a database this install created go with the database; only the ones in databases that already existed
+    // need removing one by one.
+    const inSurvivingDb = <T extends { databaseId: string }>(rows: T[]) => rows.filter((r) => !createdDbIds.includes(r.databaseId));
+
+    // 1. Skills.
+    for (const id of created(result?.skills).reverse()) {
+      await attempt(`skill ${id}`, () => this.skills.remove(membership, membership.userId, id));
+    }
+
+    // 2. Sample records, and their entries in the sample-data registry.
+    const sampleIds = created(result?.sample_records);
+    if (sampleIds.length > 0) {
+      await attempt('sample records', () => this.db.delete(recordsTable).where(inArray(recordsTable.id, sampleIds)));
+      await attempt('sample-data registry', () => untrackSampleRecords(this.db, workspaceId, sampleIds));
+    }
+
+    // 3. Automations, then views, in databases that already existed.
+    const automationIds = created(result?.automations);
+    if (automationIds.length > 0) {
+      const rows = await this.db
+        .select({ id: automationsTable.id, databaseId: automationsTable.databaseId })
+        .from(automationsTable)
+        .where(inArray(automationsTable.id, automationIds));
+      for (const row of inSurvivingDb(rows)) await attempt(`automation ${row.id}`, () => this.automations.remove(row.databaseId, row.id));
+    }
+    const viewIds = created(result?.views);
+    if (viewIds.length > 0) {
+      const rows = await this.db
+        .select({ id: viewsTable.id, databaseId: viewsTable.databaseId })
+        .from(viewsTable)
+        .where(inArray(viewsTable.id, viewIds));
+      for (const row of inSurvivingDb(rows.filter((r): r is { id: string; databaseId: string } => r.databaseId !== null))) {
+        await attempt(`view ${row.id}`, () => this.views.remove(row.databaseId, row.id));
+      }
+    }
+
+    // 4. Trigger bindings, then agents (and the write gates a created agent was given). The Agents/Triggers databases may be reused ones.
+    const triggerIds = created(built.triggers);
+    if (triggerIds.length > 0) await attempt('agent triggers', () => this.db.delete(recordsTable).where(inArray(recordsTable.id, triggerIds)));
+    const agentIds = created(built.agents);
+    if (agentIds.length > 0) {
+      await attempt('agent write gates', () =>
+        this.db.delete(agentWriteGates).where(and(eq(agentWriteGates.workspaceId, workspaceId), inArray(agentWriteGates.agentId, agentIds))),
+      );
+      await attempt('agents', () => this.db.delete(recordsTable).where(inArray(recordsTable.id, agentIds)));
+    }
+
+    // 5. Fields this install added to databases that already existed — newest first, relations before plain fields (a relation's paired field
+    //    goes with it).
+    const removeFields = async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const rows = await this.db.select({ id: fieldsTable.id, databaseId: fieldsTable.databaseId }).from(fieldsTable).where(inArray(fieldsTable.id, ids));
+      const byId = new Map(rows.map((r) => [r.id, r.databaseId]));
+      for (const id of ids) {
+        const databaseId = byId.get(id);
+        if (!databaseId || createdDbIds.includes(databaseId)) continue; // gone already, or goes with its database
+        await attempt(`field ${id}`, () => this.fields.remove(databaseId, id));
+      }
+    };
+    await removeFields(created(result?.derived_fields).reverse());
+    await removeFields(created(built.states).reverse());
+    for (const id of created(built.relations).reverse()) await attempt(`relation ${id}`, () => this.relations.remove(workspaceId, id));
+    await removeFields(created(built.fields).reverse());
+
+    // 6. Options this install added to a field that was already there.
+    const addedOptions = built.addedOptions ?? [];
+    if (addedOptions.length > 0) {
+      await attempt('added options', () =>
+        this.db.delete(selectOptions).where(inArray(selectOptions.id, addedOptions.map((o) => o.optionId))),
+      );
+    }
+
+    // 7. Databases this install created (a hard delete cascades to everything left inside them), then the Agentic OS databases and space IF this
+    //    install is what provisioned them, then the spaces it created.
+    if (createdDbIds.length > 0) {
+      await attempt('databases', () =>
+        this.db.delete(databasesTable).where(and(eq(databasesTable.workspaceId, workspaceId), inArray(databasesTable.id, createdDbIds))),
+      );
+    }
+    const doomedSpaces = new Set(created(built.spaces));
+    if (agentOsBefore) {
+      await attempt('Agentic OS databases', async () => {
+        const now = await this.agents.findPackDbs(workspaceId);
+        const fresh = [now.agentsDb, now.runsDb, now.triggersDb].filter(
+          (d): d is NonNullable<typeof d> => d !== undefined && !agentOsBefore.databaseIds.has(d.id),
+        );
+        if (fresh.length > 0) await this.db.delete(databasesTable).where(inArray(databasesTable.id, fresh.map((d) => d.id)));
+      });
+      const rows = await this.db.select({ id: spacesTable.id, name: spacesTable.name }).from(spacesTable).where(eq(spacesTable.workspaceId, workspaceId));
+      for (const row of rows) if (!agentOsBefore.spaceIds.has(row.id) && row.name === 'Agentic OS') doomedSpaces.add(row.id);
+    }
+    for (const id of doomedSpaces) {
+      await attempt(`space ${id}`, async () => {
+        // Only an EMPTY space goes: if anything else now lives in it, it is not this install's to delete.
+        const left = await this.db.select({ id: databasesTable.id }).from(databasesTable).where(eq(databasesTable.spaceId, id)).limit(1);
+        if (left.length === 0) await this.db.delete(spacesTable).where(and(eq(spacesTable.workspaceId, workspaceId), eq(spacesTable.id, id)));
+      });
+    }
+    return problems;
   }
 
   /**
@@ -1846,71 +2063,75 @@ export class PacksService {
     untracked: Set<string> = new Set(),
     agentProvenance: AgentProvenance = new Map(),
   ): Promise<void> {
-    let installId: string;
-    if (existingInstall) {
-      installId = existingInstall.id;
-    } else {
-      const [inserted] = await this.db
-        .insert(packInstalls)
-        .values({
-          workspaceId: membership.workspaceId,
-          slug: manifest.slug,
-          name: manifest.name,
-          version: manifest.version,
-          installedBy: membership.userId,
-        })
-        .returning({ id: packInstalls.id });
-      installId = inserted!.id;
-    }
-
-    if (existingInstall) {
-      await this.db
-        .update(packInstalls)
-        .set({ name: manifest.name, version: manifest.version, installedBy: membership.userId })
-        .where(eq(packInstalls.id, installId));
-      await this.db.delete(packInstallItems).where(eq(packInstallItems.packInstallId, installId));
-    }
-
-    type Kind =
-      | 'database' | 'field' | 'relation' | 'state' | 'agent' | 'trigger'
-      | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill';
-    const rows: Array<{
-      packInstallId: string;
-      kind: Kind;
-      name: string;
-      entityId: string;
-      action: 'created' | 'reused';
-      contentHash: string | null;
-      packVersion?: string | null;
-      sourceHash?: string | null;
-    }> = [];
-    const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
-      for (const entry of entries) {
-        if (entry.action === 'skipped' || !entry.id || untracked.has(entry.id)) continue;
-        rows.push({
-          packInstallId: installId,
-          kind,
-          name: entry.name,
-          entityId: entry.id,
-          action: (entry.action === 'updated' ? 'reused' : entry.action) as 'created' | 'reused',
-          contentHash: hashes.get(`${kind}:${entry.id}`) ?? null,
-          ...(kind === 'agent' ? (agentProvenance.get(norm(entry.name)) ?? { packVersion: null, sourceHash: null }) : {}),
-        });
+    // #1112 — one real transaction: the install row and ALL its item rows land together or not at all, so a failure here can never
+    // leave an install that uninstall only half knows about.
+    await this.db.transaction(async (tx) => {
+      let installId: string;
+      if (existingInstall) {
+        installId = existingInstall.id;
+      } else {
+        const [inserted] = await tx
+          .insert(packInstalls)
+          .values({
+            workspaceId: membership.workspaceId,
+            slug: manifest.slug,
+            name: manifest.name,
+            version: manifest.version,
+            installedBy: membership.userId,
+          })
+          .returning({ id: packInstalls.id });
+        installId = inserted!.id;
       }
-    };
-    add('database', result.databases);
-    add('field', result.fields);
-    add('relation', result.relations);
-    add('state', result.states);
-    add('agent', result.agents);
-    add('trigger', result.triggers);
-    add('derived_field', result.derived_fields);
-    add('view', result.views);
-    add('automation', result.automations);
-    add('sample_record', result.sample_records);
-    add('skill', result.skills);
 
-    if (rows.length > 0) await this.db.insert(packInstallItems).values(rows);
+      if (existingInstall) {
+        await tx
+          .update(packInstalls)
+          .set({ name: manifest.name, version: manifest.version, installedBy: membership.userId })
+          .where(eq(packInstalls.id, installId));
+        await tx.delete(packInstallItems).where(eq(packInstallItems.packInstallId, installId));
+      }
+
+      type Kind =
+        | 'database' | 'field' | 'relation' | 'state' | 'agent' | 'trigger'
+        | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill';
+      const rows: Array<{
+        packInstallId: string;
+        kind: Kind;
+        name: string;
+        entityId: string;
+        action: 'created' | 'reused';
+        contentHash: string | null;
+        packVersion?: string | null;
+        sourceHash?: string | null;
+      }> = [];
+      const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
+        for (const entry of entries) {
+          if (entry.action === 'skipped' || !entry.id || untracked.has(entry.id)) continue;
+          rows.push({
+            packInstallId: installId,
+            kind,
+            name: entry.name,
+            entityId: entry.id,
+            action: (entry.action === 'updated' ? 'reused' : entry.action) as 'created' | 'reused',
+            contentHash: hashes.get(`${kind}:${entry.id}`) ?? null,
+            ...(kind === 'agent' ? (agentProvenance.get(norm(entry.name)) ?? { packVersion: null, sourceHash: null }) : {}),
+          });
+        }
+      };
+      add('database', result.databases);
+      add('field', result.fields);
+      add('relation', result.relations);
+      add('state', result.states);
+      add('agent', result.agents);
+      add('trigger', result.triggers);
+      add('derived_field', result.derived_fields);
+      add('view', result.views);
+      add('automation', result.automations);
+      add('sample_record', result.sample_records);
+      add('skill', result.skills);
+
+      if (rows.length > 0) await tx.insert(packInstallItems).values(rows);
+    });
   }
 
   /**

@@ -33,6 +33,12 @@ interface LiveField {
 const norm = (s: string) => s.trim().toLowerCase();
 
 /**
+ * #1112 — what a build has created SO FAR. `ArchitectBuildResult` plus the one kind of change it has no list for: options added to a field
+ * that already existed. Filled in place while the build runs, so a caller that catches a failure still sees everything built before it.
+ */
+export type ArchitectBuildProgress = ArchitectBuildResult & { addedOptions?: Array<{ fieldId: string; optionId: string }> };
+
+/**
  * The Architect (#213 propose / #214 build, ADR-0010 §6 —
  * docs/decisions/ADR-0010-agentic-os-engine.md).
  *
@@ -165,7 +171,15 @@ export class ArchitectService {
     membership: Membership,
     rawPlan: unknown,
     /** #1095 — build every planned database into THIS existing space; none is created and the plan's own space names are ignored. */
-    options: { targetSpace?: { id: string; name: string } } = {},
+    options: {
+      targetSpace?: { id: string; name: string };
+      /**
+       * #1112 — filled IN PLACE as the build creates things, so a caller still holds the partial ledger when the build throws partway.
+       * Without it the result only exists once the whole build has returned, and a failure leaves the caller no way to know what the
+       * build had already created.
+       */
+      progress?: ArchitectBuildProgress;
+    } = {},
   ): Promise<ArchitectBuildResult> {
     const parsed = architectPlanSchema.safeParse(rawPlan);
     if (!parsed.success) {
@@ -180,7 +194,9 @@ export class ArchitectService {
     const plan = this.withPackAgentExtras(parsed.data, rawPlan);
     this.assertWriteGateDatabasesDeclared(plan);
 
-    const result: ArchitectBuildResult = {
+    const result: ArchitectBuildProgress = options.progress ?? ({} as ArchitectBuildProgress);
+    Object.assign(result, {
+      addedOptions: [],
       summary: plan.summary,
       scenario: plan.scenario,
       spaces: [],
@@ -190,7 +206,7 @@ export class ArchitectService {
       states: [],
       agents: [],
       triggers: [],
-    };
+    });
 
     // The pack has to exist before an agent record can: this is the ONE provisioning call, and it belongs to build, not propose.
     //
@@ -411,7 +427,7 @@ export class ArchitectService {
 
       // Reused: add only the states it is missing. Untouched existing options
       // matter — this is somebody's live workflow, and the plan is additive.
-      await this.ensureOptions(databaseId, existing!, planned);
+      await this.ensureOptions(databaseId, existing!, planned, result);
       result.states.push({ name: label, action: 'reused', id: existing!.id });
     }
   }
@@ -420,15 +436,18 @@ export class ArchitectService {
     databaseId: string,
     field: LiveField,
     planned: PlanState,
+    result: ArchitectBuildProgress,
   ): Promise<void> {
     const missing = new Set(optionsMissing(field.options, planned.options).map(norm));
     for (const option of planned.options) {
       if (!missing.has(norm(option.label))) continue;
-      await this.fields.addOption(databaseId, field.id, {
+      const added = await this.fields.addOption(databaseId, field.id, {
         label: option.label,
         color: option.color ?? 'gray',
         category: option.category, // #1105 — only for an option that is MISSING; an existing one is never rewritten
       });
+      // #1112 — an option added to somebody's EXISTING field is a change to something this build did not create: remembered so a failed install can take it back out.
+      result.addedOptions?.push({ fieldId: field.id, optionId: added.id });
     }
   }
 
@@ -627,10 +646,11 @@ export class ArchitectService {
         0,
         'agent',
       );
-      // #1104 — only for an agent this build CREATED. An existing agent of that name (above) keeps whatever its owner set.
-      if (planned.write_gates !== undefined) await this.installWriteGates(membership, created.id, planned.write_gates, dbIds);
+      // Recorded BEFORE the gates are written: a gate that fails to install must not hide an agent this build already created (#1112).
       result.agents.push({ name: planned.name, action: 'created', id: created.id });
       ids.set(norm(planned.name), created.id);
+      // #1104 — only for an agent this build CREATED. An existing agent of that name (above) keeps whatever its owner set.
+      if (planned.write_gates !== undefined) await this.installWriteGates(membership, created.id, planned.write_gates, dbIds);
     }
     return ids;
   }
