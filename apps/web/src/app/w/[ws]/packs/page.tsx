@@ -250,7 +250,7 @@ function collisionEntries(preview: PreviewResult): CollisionEntry[] {
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
   const style =
     action === 'collision'
-      ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning,#92400e)]'
+      ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning-text,#92400e)]'
       : action === 'create'
         ? 'bg-primary text-on-dark'
         : 'bg-hover text-muted';
@@ -393,7 +393,7 @@ function AgentChoiceControl({
         )}
       </span>
       {changesWhatItMayDo(update.changed_fields) && (
-        <span className="mt-1 block text-label text-warning">
+        <span className="mt-1 block text-label text-warning-text">
           Taking the update also changes what this agent is allowed to do:{' '}
           {changedFieldsText(
             update.changed_fields.filter((f) => f === 'scopes' || f === 'approval_policy'),

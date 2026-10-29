@@ -269,7 +269,7 @@ export default function ConnectionsSettingsPage() {
                       <p className="text-label text-muted">
                         {c.error_count_24h > 0 && (
                           <span
-                            className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}
+                            className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning-text'}
                           >
                             {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in
                             the last 24h

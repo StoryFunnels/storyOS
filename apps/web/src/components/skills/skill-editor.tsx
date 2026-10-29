@@ -414,7 +414,7 @@ function Field({
         )}
         <span className="flex-1" />
         {count !== undefined && max !== undefined && (
-          <span className={cn('font-normal tabular-nums text-muted', count > max * 0.9 && 'text-warning')}>
+          <span className={cn('font-normal tabular-nums text-muted', count > max * 0.9 && 'text-warning-text')}>
             {count.toLocaleString()}/{max.toLocaleString()}
           </span>
         )}

@@ -273,7 +273,7 @@ export function CopyToDialog({
                             <span className="text-error"> · {p.reason ?? 'no matching field'}</span>
                           )}
                           {p.ambiguousWith && p.ambiguousWith.length > 0 && (
-                            <span className="text-warning"> · ambiguous with {p.ambiguousWith.join(', ')}</span>
+                            <span className="text-warning-text"> · ambiguous with {p.ambiguousWith.join(', ')}</span>
                           )}
                         </p>
                       </div>

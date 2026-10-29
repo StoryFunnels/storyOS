@@ -186,7 +186,7 @@ function CreateTokenDialog({ ws }: { ws: string }) {
       <DialogContent title="Create API token">
         {created ? (
           <div className="flex flex-col gap-4">
-            <p className="text-body text-warning">
+            <p className="text-body text-warning-text">
               Copy it now — this token is shown only once.
             </p>
             <div className="flex gap-2">

@@ -2121,7 +2121,7 @@ function ConditionRow({
         legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
         #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
       */}
-      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning">not applied yet — needs a value</p>}
+      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning-text">not applied yet — needs a value</p>}
       {condition.label && !editingLabel && (
         <p className="mt-0.5 pl-[45px] text-meta text-muted">named “{condition.label}”</p>
       )}

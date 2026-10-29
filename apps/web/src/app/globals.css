@@ -71,7 +71,7 @@
   --c7: #c9701f;
   --c8: #9a7b4f;
   /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
-     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened to 4.56:1. */
+     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened. */
   --accent-text: #8a6700;
   /* #967 — text ON a gold fill (a count badge): 6.65:1 on --accent, where the off-white --text-on-dark is ~2.2:1. */
   --text-on-accent: #2a2205;
@@ -100,6 +100,9 @@
   --success: #2d7a4f;
   --error: #c0392b;
   --warning: #b8860b;
+  /* #1164 — --warning is a FILL / ICON colour (3.25:1 on white: fails AA as text). Warning TEXT uses this token: 4.89:1 or
+     better on every light bg token (lowest on --bg-active). Hue 34° (orange), not gold's 43-45°: a warning is not an agent. */
+  --warning-text: #8c5000;
   --info: #3d5296;
 
   /* Dashboard chart categorical palette (MN-225 / #168, Phase 2). Eight hues
@@ -337,6 +340,8 @@
   --success: #57b37f;
   --error: #e2705f;
   --warning: #d8ad3e;
+  /* #1164 — warning TEXT in dark: 6.24:1 or better on every dark bg token (lowest on --bg-active); hue 32°, not gold. */
+  --warning-text: #eda24a;
   --info: #7a92d6;
 
   /* Chart palette — lifted for contrast on the darker canvas (MN-225 / #168). */
@@ -377,6 +382,7 @@
   --color-success: var(--success);
   --color-error: var(--error);
   --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
   --color-info: var(--info);
   --font-sans: var(--font-figtree), -apple-system, 'Segoe UI', sans-serif;
 
