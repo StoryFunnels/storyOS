@@ -10978,6 +10978,177 @@
         ]
       }
     },
+    "/api/v1/runner/v1/claim": {
+      "post": {
+        "operationId": "RunnerApiController_claim",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WakeClaimDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Long-poll for wakes for the agents assigned to this Runner. 200 with the claimed wakes (each with a 90-second lease and a nonce), or 204 when there is nothing. Atomic: a wake is handed to exactly one claim. 409 wake_already_claimed if wake_id names one that is taken.",
+        "tags": [
+          "runner"
+        ]
+      }
+    },
+    "/api/v1/runner/v1/wakes/{id}/heartbeat": {
+      "post": {
+        "operationId": "RunnerApiController_leaseHeartbeat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WakeLeaseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Renew the lease on a wake this Runner holds (every 30 s). Also a liveness signal. 409 lease_lost if the lease lapsed, the run was cancelled or the wake was taken back: kill the session and discard its result.",
+        "tags": [
+          "runner"
+        ]
+      }
+    },
+    "/api/v1/runner/v1/wakes/{id}/complete": {
+      "post": {
+        "operationId": "RunnerApiController_complete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WakeCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Report the adapter result for a wake this Runner holds. Idempotent on (id, nonce): a retry after a dropped response gets the same answer. Writes the Run, ends the wake, and enqueues one fresh wake if a repeat arrived mid-run.",
+        "tags": [
+          "runner"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agent-wakes": {
+      "get": {
+        "operationId": "AgentWakesController_list",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "record",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 400,
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted.",
+        "tags": [
+          "agent-wakes"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agent-wakes/summary": {
+      "get": {
+        "operationId": "AgentWakesController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted.",
+        "tags": [
+          "agent-wakes"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -19782,6 +19953,11 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "relation_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "human_gate": {
             "type": "boolean"
           },
@@ -19791,9 +19967,7 @@
         },
         "required": [
           "agent",
-          "database_id",
-          "state_field_id",
-          "state_option_id"
+          "database_id"
         ]
       },
       "DelegateToAgentDto": {
@@ -20054,6 +20228,103 @@
           "tools",
           "runner_version",
           "protocol_version"
+        ]
+      },
+      "WakeClaimDto": {
+        "type": "object",
+        "properties": {
+          "max": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 25
+          },
+          "wake_id": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "WakeLeaseDto": {
+        "type": "object",
+        "properties": {
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "nonce"
+        ]
+      },
+      "WakeCompleteDto": {
+        "type": "object",
+        "properties": {
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "exit": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "limit_reached",
+              "aborted",
+              "timeout"
+            ]
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "tokens_in": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tokens_out": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "tokens_in",
+              "tokens_out"
+            ],
+            "nullable": true
+          },
+          "session_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "limit_reached_until": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "tool_version": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "required": [
+          "nonce",
+          "exit"
         ]
       },
       "ApplyTemplateDto": {

@@ -1,4 +1,6 @@
 import { Global, Module } from '@nestjs/common';
+import { AgentWakesController } from './agent-wakes.controller';
+import { AgentWakesService } from './agent-wakes.service';
 import { RunnerApiController } from './runner-api.controller';
 import { RunnerAuthGuard } from './runner-auth.guard';
 import { RunnerSweeperService } from './runner-sweeper.service';
@@ -11,8 +13,8 @@ import { RunnersService } from './runners.service';
  */
 @Global()
 @Module({
-  controllers: [RunnersController, RunnerApiController],
-  providers: [RunnersService, RunnerAuthGuard, RunnerSweeperService],
-  exports: [RunnersService],
+  controllers: [RunnersController, RunnerApiController, AgentWakesController],
+  providers: [RunnersService, AgentWakesService, RunnerAuthGuard, RunnerSweeperService],
+  exports: [RunnersService, AgentWakesService],
 })
 export class RunnersModule {}

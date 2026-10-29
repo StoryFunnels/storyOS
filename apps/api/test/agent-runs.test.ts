@@ -595,7 +595,8 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
   });
 
   it('stamps the run class BEFORE any step executes — a your-own-AI run is never metered', async () => {
-    const agent = await createAgent('BYO bot', { enabled: true, scopes: ['read'] });
+    // ticket #1130: a your-own-AI run is now a wake, and a wake is made only for an agent whose AI mode IS Your own AI (the injected runtime must agree with the record).
+    const agent = await createAgent('BYO bot', { enabled: true, scopes: ['read'], aiMode: 'Your own AI' });
     const service = app.get(AgentsService);
     const original = service.runtimeFor;
 
@@ -876,7 +877,7 @@ describe('MN-168 — entitlements wiring at dispatch', () => {
   });
 
   it('a your-own-AI run never reaches the entitlements counter — MN-188 structural guarantee', async () => {
-    const agent = await createAgent('BYO counted bot', { enabled: true, scopes: ['read'] });
+    const agent = await createAgent('BYO counted bot', { enabled: true, scopes: ['read'], aiMode: 'Your own AI' }); // ticket #1130: see 'BYO bot' above
     const service = app.get(AgentsService);
     const originalRuntime = service.runtimeFor;
     const byo: AgentRuntime = {
@@ -1026,7 +1027,7 @@ describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
       ).toBe(201);
 
       // your_own_ai
-      const byo = await createAgent('Unmetered BYO bot', { enabled: true, scopes: ['read'] });
+      const byo = await createAgent('Unmetered BYO bot', { enabled: true, scopes: ['read'], aiMode: 'Your own AI' }); // ticket #1130: see 'BYO bot' above
       service.runtimeFor = () => ({
         runClass: 'your_own_ai',
         async *execute() {

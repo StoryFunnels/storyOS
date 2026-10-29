@@ -3020,3 +3020,79 @@ export const runnerAgents = pgTable(
   },
   (t) => [index('runner_agents_runner_idx').on(t.runnerId)],
 );
+
+/**
+ * #1130 / ADR-0021 §1 — the wake queue. A wake is a durable row meaning "this agent should look at this record now, for this
+ * reason". It is not the Run (that is `run_id`, created at enqueue, status Queued) and it carries NO record text: a Runner that
+ * claims one learns that something happened on a record, never what it said.
+ *
+ * Separate from `automation_jobs` on purpose: that table's claim loop runs EVERY queued row through the server's executor
+ * registry, so a wake there would be executed by the server. The PATTERN is reused (SKIP LOCKED, reaper), not the table.
+ *
+ * `agent_id` has no FK (agents are soft-deletable records, as `api_tokens.agent_id`). `reason` is text validated in code
+ * (`agents/agent-wakes.constants.ts`), so a new reason never needs a migration.
+ */
+export const agentWakes = pgTable(
+  'agent_wakes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id').notNull(),
+    /** Null together for a wake with no record (a schedule or a manual run with no context). */
+    recordId: uuid('record_id'),
+    databaseId: uuid('database_id'),
+    /** The reason that CREATED this wake; later repeats merge into `reasons`. */
+    reason: text('reason').notNull(),
+    /** The user whose action caused it (the access check's subject); null for a schedule. Text: better-auth user ids. */
+    requestedBy: text('requested_by'),
+    /** Idempotency for a REPLAY of the same event (comment id, approval id, link event). A coalesced repeat does not store its key. */
+    sourceKey: text('source_key'),
+    /** Loop-guard depth carried from the cause (ADR-0010 §5, max 2). */
+    depth: integer('depth').notNull().default(0),
+    /** queued | claimed | done | failed | canceled */
+    status: text('status').notNull().default('queued'),
+    runnerId: uuid('runner_id').references(() => runners.id, { onDelete: 'set null' }),
+    claimNonce: text('claim_nonce'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    /** When the current claim started: the 30-minute run ceiling is measured from here, not from the last heartbeat. */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    /** Lost leases so far; at the limit the wake fails (ADR-0021 §2). */
+    attempts: integer('attempts').notNull().default(0),
+    notBefore: timestamp('not_before', { withTimezone: true }).notNull().defaultNow(),
+    /** A repeat arrived while this wake was claimed: completion enqueues one fresh wake, so nothing is lost and nothing runs concurrently. */
+    rewake: boolean('rewake').notNull().default(false),
+    rewakeRequestedBy: text('rewake_requested_by'),
+    rewakeDepth: integer('rewake_depth'),
+    rewakeReason: text('rewake_reason'),
+    /** The Runs-database record this wake produces. Set right after insert; a record id, not a FK (a Run is a record). */
+    runId: uuid('run_id'),
+    /** The distinct reasons merged into this wake, with counts: `[{ reason, count, last_at, detail? }]`. */
+    reasons: jsonb('reasons').notNull().default(sql`'[]'::jsonb`),
+    /** What the cause carried that is not record text: a `run_agent` prompt override, an approval verdict. Last writer wins. */
+    context: jsonb('context'),
+    coalescedCount: integer('coalesced_count').notNull().default(0),
+    /** A queued wake nobody can serve is cancelled after this (ADR-0021 §11: the 7-day default approvals use). */
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    // One open wake per agent and record. This index IS the coalescing: the second insert conflicts and is merged.
+    uniqueIndex('agent_wakes_open_record_uq')
+      .on(t.agentId, t.recordId)
+      .where(sql`${t.recordId} IS NOT NULL AND ${t.status} IN ('queued', 'claimed')`),
+    uniqueIndex('agent_wakes_open_norecord_uq')
+      .on(t.agentId)
+      .where(sql`${t.recordId} IS NULL AND ${t.status} IN ('queued', 'claimed')`),
+    uniqueIndex('agent_wakes_source_key_uq')
+      .on(t.sourceKey)
+      .where(sql`${t.sourceKey} IS NOT NULL`),
+    index('agent_wakes_claim_idx').on(t.workspaceId, t.status, t.notBefore),
+    index('agent_wakes_runner_idx').on(t.runnerId, t.status),
+    index('agent_wakes_lease_idx').on(t.status, t.leaseExpiresAt),
+  ],
+);

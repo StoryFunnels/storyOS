@@ -702,6 +702,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_agent_write_gates: 'read', // #1111: the agent's OWNER may read it (a member, read scope); an admin still needs an admin-scoped token, which the API enforces in the handler
   // #1131 — read-only on purpose: pairing, turning on, switching the tool of, removing and assigning agents to a Runner decide where an agent's work and the workspace's data go (see coverage.ts).
   list_runners: 'read',
+  // #1130 — the wake queue, read-only on purpose: waking, claiming and finishing a wake are things that HAPPEN in the workspace or are done by a Runner program (see coverage.ts).
+  list_agent_wakes: 'read',
+  get_agent_wake_summary: 'read',
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',
@@ -6232,7 +6235,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run agent',
       description:
-        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
+        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. For an agent set to "Your own AI" the Run comes back Queued, not finished: it is a wake waiting for a Runner (see list_agent_wakes for its run_state), and asking again while it waits returns the SAME Run. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from the Agents database)."),
@@ -6254,7 +6257,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delegate a record to an agent',
       description:
-        'Hand one record to an agent: it runs with that record as its context and posts its outcome back ON the record as a comment, with a link to the full Run. This is the one to reach for when a person asks "get the agent to handle this" — the trail stays where the work is, so the next human to open the record sees what happened without knowing runs exist.',
+        'Hand one record to an agent: it runs with that record as its context and posts its outcome back ON the record as a comment, with a link to the full Run. This is the one to reach for when a person asks "get the agent to handle this" — the trail stays where the work is, so the next human to open the record sees what happened without knowing runs exist. For an agent set to "Your own AI" the Run and the comment say Queued until a Runner picks it up (list_agent_wakes shows where it is).',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6283,13 +6286,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Set human_gate:true to make the agent STAGE its action for a person to approve rather than apply it; that is the ADR-0010 gate, and it is the right default for anything that writes to something a customer sees. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. Set human_gate:true to make the agent STAGE its action for a person to approve rather than apply it; that is the ADR-0010 gate, and it is the right default for anything that writes to something a customer sees. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
         database: z.string().describe('The database whose state changes should fire the agent.'),
-        state_field: z.string().describe('The select/workflow field to watch (name, api_name, or id).'),
-        state: z.string().describe('The option that fires it — the human label, e.g. "New".'),
+        state_field: z.string().optional().describe('State binding: the select/workflow field to watch (name, api_name, or id).'),
+        state: z.string().optional().describe('State binding: the option that fires it — the human label, e.g. "New".'),
+        relation_field: z.string().optional().describe('Relation binding (instead of state_field + state): a relation field on the database that points at the Agents database, e.g. "Next". Linking it to the agent wakes the agent (#1130).'),
         human_gate: z
           .boolean()
           .optional()
@@ -6301,14 +6305,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       workspace: string;
       agent: string;
       database: string;
-      state_field: string;
-      state: string;
+      state_field?: string;
+      state?: string;
+      relation_field?: string;
       human_gate?: boolean;
       enabled?: boolean;
-    }>(async ({ workspace, agent, database, state_field, state, human_gate, enabled }) => {
+    }>(async ({ workspace, agent, database, state_field, state, relation_field, human_gate, enabled }) => {
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await getDetail(ws.id, db.id);
+      if (relation_field) {
+        if (state_field || state) throw new Error('Give either relation_field (a relation binding) or state_field + state (a state binding), not both.');
+        const relationId = resolveFieldId(detail, relation_field, ['relation'], 'relation');
+        const bound = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/agents/triggers', {
+            params: { path: { ws: ws.id } } as never,
+            body: { agent, database_id: db.id, relation_field_id: relationId, ...(enabled === undefined ? {} : { enabled }) } as never,
+          }),
+        );
+        return text(bound);
+      }
+      if (!state_field || !state) throw new Error('Give state_field and state (a state binding), or relation_field (a relation binding).');
       const fieldId = resolveFieldId(detail, state_field, ['select', 'workflow'], 'select/workflow');
       const field = detail.fields.find((f) => f.id === fieldId);
       // Resolve the LABEL to an option id here, like every other write in this
@@ -7493,6 +7510,55 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/runners', { params: { path: { ws: ws.id } } } as never));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_wakes',
+    {
+      title: 'List the agent wake queue',
+      description:
+        "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_turn (one job at a time). " +
+        "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().optional().describe("The agent record's uuid (from the Agents database)."),
+        record: z.string().optional().describe('A record uuid, or its public number when `database` is given.'),
+        database: z.string().optional().describe('The database of `record`, only needed when `record` is a public number.'),
+        limit: z.number().int().min(1).max(200).optional(),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
+    },
+    handle<{ workspace: string; agent?: string; record?: string; database?: string; limit?: number; cursor?: string }>(
+      async ({ workspace, agent, record, database, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        let recordId = record;
+        if (record && database) {
+          const db = await resolveDatabase(client, ws.id, database);
+          recordId = await resolveRecordId(ws.id, db.id, record);
+        }
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/agent-wakes', {
+            params: { path: { ws: ws.id }, query: { ...(agent ? { agent } : {}), ...(recordId ? { record: recordId } : {}), ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) } },
+          } as never),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'get_agent_wake_summary',
+    {
+      title: 'Agent wake counts',
+      description:
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), and waiting (queued wakes). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not counted. These are real counts from the queue: quote them, never estimate.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws: ws.id } } } as never));
       return text(res);
     }),
   );

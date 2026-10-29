@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -13,7 +14,8 @@ import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { MentionsService } from '../mentions/mentions.service';
+import { MentionsService, collectMentions } from '../mentions/mentions.service';
+import { AgentWakesService } from '../runners/agent-wakes.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService, escapeSlackText } from '../integrations/slack.service';
 import { AccessService } from '../access/access.service';
@@ -64,6 +66,8 @@ export function commentBodyText(body: CommentBody): string {
 
 @Injectable()
 export class CommentsService {
+  private readonly logger = new Logger(CommentsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
@@ -72,6 +76,8 @@ export class CommentsService {
     private readonly preferences: PreferencesService,
     private readonly slackService: SlackService,
     private readonly access: AccessService,
+    /** ticket #1130: an @-mention of an agent wakes it (at emit time, here). */
+    private readonly agentWakes: AgentWakesService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4).
@@ -300,6 +306,7 @@ export class CommentsService {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
+    await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
     return {
       id: created.id,
       body: created.body,
@@ -308,6 +315,36 @@ export class CommentsService {
       agent_name: created.agentName,
       created_at: created.createdAt,
     };
+  }
+
+  /**
+   * ticket #1130 / ADR-0021 §1 — an @-mention of an AGENT in a comment wakes it. Done HERE, when the comment is written (emit time),
+   * never by filtering what a reader sees later: a wake that is not created cannot leak. AgentWakesService.enqueue refuses unless the
+   * author can read the record AND the agent, and the agent's owner can read the record; a record in a personal space never wakes
+   * anything. An AGENT-authored comment wakes nothing for now: a mention ping-pong between two agents is bounded by the run's depth,
+   * which rides on the per-run credential (ticket #1132), so until that exists an agent cannot wake another by mention at all.
+   * Best-effort by design: waking an agent never fails the comment someone just wrote.
+   */
+  private async wakeMentionedAgents(workspaceId: string, recordId: string, authorId: string, commentId: string, body: CommentBody, source: ChangeSource): Promise<void> {
+    if (source === 'agent' || !isBlocknoteCommentBody(body)) return;
+    const { agentIds } = collectMentions(body.doc);
+    for (const agentId of agentIds) {
+      try {
+        await this.agentWakes.enqueue({
+          workspaceId,
+          agentId,
+          reason: 'mention',
+          recordId,
+          requestedBy: authorId,
+          depth: 0,
+          sourceKey: `mention:${commentId}:${agentId}`,
+          detail: { comment_id: commentId },
+          materialize: true,
+        });
+      } catch (error) {
+        this.logger.warn(`@-mention wake for agent ${agentId} failed: ${String(error)}`);
+      }
+    }
   }
 
   private async notifyMentions(

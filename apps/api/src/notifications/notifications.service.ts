@@ -105,7 +105,12 @@ export type NotificationType =
    * waiting. Bare (no record), sent once per offline episode to the owners of the agents on that Runner. Not an opt-out ping, the
    * same reasoning as `automation_disabled`: it explains why work silently stopped.
    */
-  | 'runner_offline';
+  | 'runner_offline'
+  /**
+   * #1130 / ADR-0021 §2 — a wake lost its lease three times (the Runner stopped answering), so the agent's job failed. Bare or on the
+   * record, sent once to the agent's owner. Not an opt-out ping: it explains why work silently did not happen.
+   */
+  | 'agent_wake_failed';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

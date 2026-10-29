@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { env } from '../config/env';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RUNNER_SWEEP_INTERVAL_MS } from './runner.constants';
+import { AgentWakesService } from './agent-wakes.service';
 import { RunnersService } from './runners.service';
 
 /**
@@ -14,6 +15,8 @@ import { RunnersService } from './runners.service';
  *  3. An ACTIVE Runner silent past the offline gap is announced ONCE per offline episode, to the people whose agents are stuck on
  *     it. Going offline is not stored (`offline_since` is derived); only the de-duplication marker is.
  *  4. Wrong-guess records past the lockout window are dropped.
+ *  5. (#1130) The wake queue: an expired lease returns its wake to the queue (a wake that loses its lease three times fails, and its
+ *     owner is told once); a wake nobody served for 7 days is cancelled; old finished wakes are dropped.
  *
  * "Manager": there is no manager concept for agents in the code. An agent's owner is the record's creator (agent-identity.ts), and
  * the ADR names the owner. The recipients are the agents' owners on that Runner, plus the Runner's own owner when it carries agents.
@@ -28,6 +31,7 @@ export class RunnerSweeperService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly runners: RunnersService,
     private readonly notifications: NotificationsService,
+    private readonly wakes: AgentWakesService,
   ) {}
 
   onModuleInit() {
@@ -38,7 +42,7 @@ export class RunnerSweeperService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  async sweep(now = new Date()): Promise<{ expired: number; ownerGone: number; offlineAnnounced: number }> {
+  async sweep(now = new Date()): Promise<{ expired: number; ownerGone: number; offlineAnnounced: number; leasesReturned: number; wakesFailed: number; wakesExpired: number }> {
     let expired = 0;
     let ownerGone = 0;
     let offlineAnnounced = 0;
@@ -84,6 +88,24 @@ export class RunnerSweeperService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`pairing failure prune failed: ${String(error)}`);
     }
-    return { expired, ownerGone, offlineAnnounced };
+
+    // ADR-0021 §2 / §11: the wake queue's own upkeep. Each unit is isolated so one failure never stops the others.
+    let leasesReturned = 0;
+    let wakesFailed = 0;
+    let wakesExpired = 0;
+    try {
+      const reaped = await this.wakes.reapExpiredLeases(now);
+      leasesReturned = reaped.returned;
+      wakesFailed = reaped.failed;
+    } catch (error) {
+      this.logger.warn(`lease reaper failed: ${String(error)}`);
+    }
+    try {
+      wakesExpired = await this.wakes.expireQueued(now);
+      await this.wakes.pruneHistory(now);
+    } catch (error) {
+      this.logger.warn(`wake expiry failed: ${String(error)}`);
+    }
+    return { expired, ownerGone, offlineAnnounced, leasesReturned, wakesFailed, wakesExpired };
   }
 }

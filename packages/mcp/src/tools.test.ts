@@ -5482,3 +5482,76 @@ describe('attach_file never fetches the URL itself (#1033)', () => {
     expect(res.content[0]!.text).toContain('filename');
   });
 });
+
+/**
+ * #1130 / ADR-0021 §11 — the wake queue's MCP reads, and the relation kind of agent trigger. The reads pass the caller's filters
+ * straight to the one REST read (so the web and MCP see the same rows and the same derived run_state), resolve a record NUMBER
+ * through its database, and never offer a write (waking, claiming and finishing a wake have no tool: coverage.ts says why).
+ */
+describe('agent wake queue tools (#1130)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      { id: 'f-next', apiName: 'next', displayName: 'Next', type: 'relation' },
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'opt-todo', label: 'ToDo' }] },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const gets: Array<{ path: string; query?: unknown }> = [];
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string, o?: { params?: { query?: unknown } }) => {
+        gets.push({ path, query: o?.params?.query });
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: { id: 'rec-uuid-7' } };
+        if (path === '/api/v1/workspaces/{ws}/agent-wakes') return { data: { data: [{ id: 'w1', run_state: { state: 'waiting_for_runner' } }], next_cursor: null } };
+        if (path === '/api/v1/workspaces/{ws}/agent-wakes/summary') return { data: { agents: [], waiting_total: 3, agents_that_cannot_run: 1 } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        return { data: { id: 'binding-1' } };
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, gets, posted };
+  }
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) => (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('list_agent_wakes sends the filters through, resolving a record number via its database', async () => {
+    const { handlers, gets } = harness();
+    const res = await call(handlers.get('list_agent_wakes')!, { workspace: 'JCM Agency', agent: 'agent-uuid', record: '7', database: 'issues', limit: 5 });
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('waiting_for_runner');
+    expect(gets.find((g) => g.path.endsWith('/agent-wakes'))!.query).toEqual({ agent: 'agent-uuid', record: 'rec-uuid-7', limit: 5 });
+  });
+
+  it('get_agent_wake_summary returns the server counts as they are', async () => {
+    const { handlers } = harness();
+    const res = await call(handlers.get('get_agent_wake_summary')!, { workspace: 'JCM Agency' });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ waiting_total: 3, agents_that_cannot_run: 1 });
+  });
+
+  it('create_agent_trigger takes a relation field instead of a state, and refuses mixing the two', async () => {
+    const { handlers, posted } = harness();
+    const ok = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', relation_field: 'Next' });
+    expect(ok.isError).toBeUndefined();
+    expect(posted.find((p) => p.path.endsWith('/agents/triggers'))!.body).toEqual({ agent: '7', database_id: 'db-1', relation_field_id: 'f-next' });
+    const mixed = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', relation_field: 'Next', state_field: 'state', state: 'ToDo' });
+    expect(mixed.isError).toBe(true);
+    const neither = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues' });
+    expect(neither.isError).toBe(true);
+    // The state kind is unchanged.
+    await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', state_field: 'state', state: 'ToDo' });
+    expect(posted[posted.length - 1]!.body).toEqual({ agent: '7', database_id: 'db-1', state_field_id: 'f-state', state_option_id: 'opt-todo' });
+  });
+});

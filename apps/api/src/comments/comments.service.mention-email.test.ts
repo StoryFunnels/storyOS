@@ -7,6 +7,7 @@ import type { PreferencesService } from '../users/preferences.service';
 import type { AccessService } from '../access/access.service';
 import type { SlackService } from '../integrations/slack.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
+import type { AgentWakesService } from '../runners/agent-wakes.service';
 import { CommentsService } from './comments.service';
 import { renderCommentText } from './comment-render';
 
@@ -71,6 +72,7 @@ function buildService(opts: {
     preferences,
     slackService,
     { isClosedToSomeMembers: vi.fn().mockResolvedValue(false) } as unknown as AccessService,
+    { enqueue: vi.fn() } as unknown as AgentWakesService, // ticket #1130: this test never writes an agent mention
   );
   return { service, sent, preferences, slackPosts };
 }
