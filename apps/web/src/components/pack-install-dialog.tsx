@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
-import { useSpaces } from '@/lib/queries';
+import { renamedAfterInstall } from '@/lib/space-start';
+import { useSidebarMutations, useSpaces } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -552,6 +553,7 @@ export function InstallDialog({
       : null,
   );
   const qc = useQueryClient();
+  const { updateSpace } = useSidebarMutations(ws);
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
   // #978 AC3 — an agent the person changed defaults to Keep mine; only an explicit 'update' reaches the API.
   const [agentChoices, setAgentChoices] = useState<Record<string, AgentChoice>>({});
@@ -614,6 +616,16 @@ export function InstallDialog({
       return data as unknown as InstallResult;
     },
     onSuccess: (data) => {
+      // #1094 — a pack installed into a space still called exactly "Untitled space" names it after the pack. Only on a
+      // SUCCESSFUL install (this is onSuccess), through the ordinary rename (PATCH space), and a failed rename never undoes or
+      // blocks the install: it is a toast and the install carries on.
+      const renamed = target ? renamedAfterInstall(target.name, packSpaceName(entry.data?.manifest as RowManifest | undefined)) : null;
+      if (target && renamed) {
+        updateSpace.mutate(
+          { id: target.id, name: renamed },
+          { onError: (e) => toast.error(apiErrorMessage(e, `Installed, but could not rename the space to "${renamed}"`)) },
+        );
+      }
       setResult(data);
       void qc.invalidateQueries({ queryKey: ['packs-installed', ws] });
       void qc.invalidateQueries({ queryKey: ['onboarding', ws] });
@@ -655,6 +667,8 @@ export function InstallDialog({
   const rows: InstallRow[] = preview.data ? buildInstallRows(preview.data, manifest) : [];
   // Installing into a chosen space: that space is where everything lands, whatever the manifest calls its own.
   const spaceName = target ? target.name : packSpaceName(manifest);
+  // #1094 — what the space will be renamed to on a successful install (null: it keeps its name).
+  const renameTo = target ? renamedAfterInstall(target.name, packSpaceName(manifest)) : null;
   const spaceExists = target
     ? true
     : Boolean(spaceName && spaces.data?.some((sp) => sp.name.trim().toLowerCase() === spaceName.trim().toLowerCase()));
@@ -871,7 +885,15 @@ export function InstallDialog({
                     spaceExists ? (
                       <>
                         {target ? 'Sets up' : 'Adds to your space,'} <b className="font-medium">{spaceName}</b>
-                        {target ? ' with:' : ':'}
+                        {target && renameTo ? (
+                          <>
+                            , renamed <b className="font-medium">{renameTo}</b>, with:
+                          </>
+                        ) : target ? (
+                          ' with:'
+                        ) : (
+                          ':'
+                        )}
                       </>
                     ) : (
                       <>

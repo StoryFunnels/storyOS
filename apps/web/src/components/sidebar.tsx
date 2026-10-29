@@ -69,6 +69,7 @@ import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
 import { markNewDocument } from '@/lib/new-doc-focus';
 import { markNewSpace, UNTITLED_SPACE } from '@/lib/new-space-focus';
+import { nextSpaceColor } from '@/lib/space-color';
 import { RestrictedLock } from '@/components/restricted-lock';
 
 interface Favorite {
@@ -502,7 +503,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             // (marked before navigating, consumed once by the page). New opens what it made.
             onCreate={() =>
               mutations.createSpace.mutate(
-                { name: UNTITLED_SPACE },
+                // Born with a colour: the next hue of the default palette (lib/space-color.ts), never grey.
+                { name: UNTITLED_SPACE, color: nextSpaceColor(spaces.data ?? []) },
                 {
                   onSuccess: (created) => {
                     markNewSpace(created.id);

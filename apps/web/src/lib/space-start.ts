@@ -12,6 +12,8 @@
  *  - WHICH packs lead, and which filter chips exist (only a kind of work that has at least one pack).
  */
 
+import { UNTITLED_SPACE } from './new-space-focus';
+
 export interface SpacePackLike {
   slug: string;
   name: string;
@@ -28,6 +30,19 @@ export interface PackFilterOption {
  * so this list can name packs before they ship without the page drawing a card for something that does not exist.
  */
 export const FEATURED_SPACE_PACKS: readonly string[] = ['team-board', 'dev-tracker', 'team-wiki'];
+
+/**
+ * A space made by one click is called "Untitled space" until someone names it. Installing a pack into it names it after the pack
+ * (what the pack would have called its own space), but ONLY when the name is still exactly that string: a space a person named
+ * (any other string, "Untitled space 2" included) is never touched. A person who typed the default back is indistinguishable
+ * from one who never edited it, and is treated the same on purpose: the rule is an exact match, nothing cleverer.
+ * Returns the new name, or null when the space must keep the one it has.
+ */
+export function renamedAfterInstall(spaceName: string, packSpaceName: string | null): string | null {
+  if (spaceName !== UNTITLED_SPACE) return null;
+  const next = packSpaceName?.trim();
+  return next ? next : null;
+}
 
 export const ANY_TEAM = 'team';
 export const ALL_PACKS = 'all';

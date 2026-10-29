@@ -9,6 +9,7 @@ import {
   canAddToSpace,
   canInstallPacks,
   isSpaceEmpty,
+  renamedAfterInstall,
   spacePackFilters,
   visibleSpacePacks,
 } from './space-start';
@@ -65,6 +66,39 @@ describe('adminAskLine (#1094)', () => {
   it('never invents a name: no list, or no admin in it, says a workspace admin', () => {
     expect(adminAskLine(undefined)).toBe('Only admins can add packs. Ask a workspace admin to add one.');
     expect(adminAskLine([{ role: 'member', user: { name: 'Mia' } }])).toBe('Only admins can add packs. Ask a workspace admin to add one.');
+  });
+});
+
+describe('renamedAfterInstall (#1094)', () => {
+  it('renames a space that is still exactly "Untitled space" to the pack\'s space name', () => {
+    expect(renamedAfterInstall('Untitled space', 'Product')).toBe('Product');
+  });
+  // The rejections: a space someone named is never renamed. Exact string match, nothing cleverer.
+  it('NEVER renames a space someone named, however close to the default', () => {
+    for (const name of ['Marketing', 'Untitled space 2', 'untitled space', 'Untitled space ', 'My Untitled space', '']) {
+      expect(renamedAfterInstall(name, 'Product')).toBeNull();
+    }
+  });
+  it('keeps the name when the pack names no single space', () => {
+    expect(renamedAfterInstall('Untitled space', null)).toBeNull();
+    expect(renamedAfterInstall('Untitled space', '   ')).toBeNull();
+  });
+});
+
+describe('rename after install: wiring (#1094)', () => {
+  const dialog = readFileSync(join(__dirname, '../components/pack-install-dialog.tsx'), 'utf8');
+  const mutationFn = dialog.slice(dialog.indexOf('const install = useMutation'), dialog.indexOf('onSuccess: (data) => {'));
+  const onSuccess = dialog.slice(dialog.indexOf('onSuccess: (data) => {'), dialog.indexOf('// With a target space the server'));
+  const onError = dialog.slice(dialog.indexOf('// With a target space the server'), dialog.indexOf('// #569 — a reuse-only row'));
+  it('renames only in onSuccess, through the ordinary space rename, never in the request or on a failed install', () => {
+    expect(onSuccess).toContain('renamedAfterInstall(target.name');
+    expect(onSuccess).toContain('updateSpace.mutate(');
+    expect(mutationFn).not.toContain('updateSpace');
+    expect(onError).not.toContain('updateSpace');
+  });
+  it('a failed rename is a toast and never fails the install', () => {
+    expect(onSuccess).toMatch(/onError: \(e\) => toast\.error\(/);
+    expect(onSuccess.indexOf('updateSpace.mutate(')).toBeLessThan(onSuccess.indexOf('setResult(data)'));
   });
 });
 
@@ -151,7 +185,7 @@ describe('the space page wiring (#1094)', () => {
     expect(page).toContain('RESTRICTED_PRIVATE_NOTE');
   });
   it('New space is ONE click: no name dialog, "Untitled space", marked for edit mode, then opened', () => {
-    expect(sidebar).toMatch(/createSpace\.mutate\(\s*\{ name: UNTITLED_SPACE \}/);
+    expect(sidebar).toMatch(/createSpace\.mutate\(\s*(?:\/\/[^\n]*\n\s*)?\{ name: UNTITLED_SPACE, color: /);
     expect(sidebar).toMatch(/markNewSpace\(created\.id\);\s*router\.push\(`\/w\/\$\{ws\}\/s\/\$\{created\.id\}`\)/);
     const button = sidebar.slice(sidebar.indexOf('function NewSpaceButton('), sidebar.indexOf('export function NewDatabaseDialog'));
     expect(button).not.toMatch(/Dialog/);
