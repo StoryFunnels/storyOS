@@ -88,7 +88,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /api/v1/users/me/preferences': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'GET /api/v1/workspaces': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'GET /api/v1/workspaces/:ws': scoped('assertSpace + visibleSpaceIds + notOthersPersonal', 'workspaces/workspaces.controller.ts'),
-  'GET /api/v1/workspaces/:ws/agent-write-gates': adminOnly(),
+  'GET /api/v1/workspaces/:ws/agent-write-gates': scoped('resolveAgentIdentity', 'action-gates/agent-write-gates.controller.ts'), // #1111: an admin, or the agent's owner for that one agent (isOwner -> resolveAgentIdentity); anyone else 404
   'GET /api/v1/workspaces/:ws/action-gates': workspaceLevel('UNAUDITED: no access primitive referenced in action-gates/ — audit whether it can return scoped content'),
   'GET /api/v1/workspaces/:ws/agents': adminOnly(),
   'GET /api/v1/workspaces/:ws/agents/:agent/activity': adminOnly(),

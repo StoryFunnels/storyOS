@@ -113,7 +113,7 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: /(POST|PATCH|DELETE) \/api\/v1\/workspaces\/\{ws\}\/agent-write-gates(\/\{id\})?/,
     reason:
-      "#1104 — declaring, switching off or removing a gate on an agent's record writes is the platform's own restraint on that agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could lift the very gate meant to hold its writes for approval, so the API additionally refuses any token or connected AI for it (a person who is an admin only). The read half is reachable (list_agent_write_gates, admin only): an agent acting for an admin can see what applies to it and why a write answered pending_approval.",
+      "#1104 — declaring, switching off or removing a gate on an agent's record writes is the platform's own restraint on that agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could lift the very gate meant to hold its writes for approval, so the API additionally refuses any token or connected AI for it (a person who is an admin only). The read half is reachable (list_agent_write_gates): an admin (with an admin-scoped token) sees any agent's gates, and an agent's owner sees that agent's (#1111) — but an agent-scoped token never takes the owner path, so an agent acting for an admin can see what applies to it and why a write answered pending_approval, while an agent acting for a member cannot.",
   },
   {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,

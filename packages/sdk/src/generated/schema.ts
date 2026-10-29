@@ -703,7 +703,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the gates that hold an agent's record create/update for approval (optionally for one agent) */
+        /** List the gates that hold an agent's record create/update for approval (an admin: any agent or all; the agent's owner: that agent only, agent_id required) */
         get: operations["AgentWriteGatesController_list"];
         put?: never;
         /** Gate an agent's record create and/or update for approval, optionally limited to one database and to named fields (a person who is an admin) */

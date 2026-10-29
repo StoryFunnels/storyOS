@@ -133,6 +133,85 @@ describe('#1104 declaring a gate', () => {
   });
 });
 
+describe('#1111 an agent\'s owner reads that agent\'s gates (read-only); everyone else keeps today\'s answer', () => {
+  let owner: { token: string; email: string };
+  let guest: { token: string; email: string };
+  let ownedId: string;
+  let adminAgent: { id: string; token: string };
+  let gateId: string;
+  const list = (token: string, agentId?: string) => as(token, 'GET', `/workspaces/${wsId}/agent-write-gates${agentId ? `?agent_id=${agentId}` : ''}`);
+  const NOT_FOUND_BODY = { error: { code: 'not_found', message: 'Agent not found' } };
+
+  beforeAll(async () => {
+    owner = await signUpUser(app, 'WriteGateOwner');
+    guest = await signUpUser(app, 'WriteGateGuest');
+    for (const [u, role] of [[owner, 'member'], [guest, 'guest']] as const) {
+      const spaceId = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json().data?.[0]?.id ?? (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0]?.id;
+      const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, { email: u.email, role, ...(role === 'guest' ? { grants: [{ space_id: spaceId, role: 'viewer' }] } : {}) });
+      expect(invite.statusCode, invite.body).toBe(201);
+      await as(u.token, 'POST', '/invites/accept', { token: new URL(invite.json().accept_url).searchParams.get('token')! });
+    }
+    // the OWNER of an agent is the creator of its record: a member creates this one
+    const made = await as(owner.token, 'POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, { values: { name: 'Owned Bot', enabled: true } });
+    expect(made.statusCode, made.body).toBe(201);
+    ownedId = made.json().id;
+    adminAgent = await mkAgent('Admin Owned Bot');
+    const g = await gate(ownedId, { operations: ['update'], database_id: candidatesId });
+    expect(g.statusCode, g.body).toBe(201);
+    gateId = g.json().id;
+    expect((await gate(adminAgent.id, { operations: ['create'] })).statusCode).toBe(201);
+  });
+
+  it('the owner (a member) lists THAT agent\'s gates, and only those; a read-scoped token of theirs does too', async () => {
+    const res = await list(owner.token, ownedId);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().data.map((g: { id: string }) => g.id)).toEqual([gateId]);
+    const tok = await as(owner.token, 'POST', '/me/tokens', { name: 'owner read', workspace_id: wsId, scope: 'read' });
+    expect(tok.statusCode, tok.body).toBe(201);
+    expect((await list(tok.json().token, ownedId)).statusCode).toBe(200);
+  });
+
+  it('a non-owner member, and the owner asking about someone else\'s agent, hear the SAME 404 as an agent that does not exist', async () => {
+    const unknown = await list(member.token, '00000000-0000-4000-8000-000000000000');
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toMatchObject(NOT_FOUND_BODY);
+    for (const res of [await list(member.token, ownedId), await list(owner.token, adminAgent.id), await list(owner.token, 'not-a-uuid'), await list(owner.token), await list(member.token)]) {
+      expect(res.statusCode, res.body).toBe(404);
+      expect(res.json()).toMatchObject(NOT_FOUND_BODY);
+    }
+  });
+
+  it('a guest is refused as before (below member), and the owner can still not declare, change or remove a gate', async () => {
+    expect((await list(guest.token, ownedId)).statusCode).toBe(403);
+    expect((await gate(ownedId, { operations: ['update'] }, owner.token)).statusCode).toBe(403);
+    expect((await as(owner.token, 'PATCH', `/workspaces/${wsId}/agent-write-gates/${gateId}`, { enabled: false })).statusCode).toBe(403);
+    expect((await as(owner.token, 'DELETE', `/workspaces/${wsId}/agent-write-gates/${gateId}`)).statusCode).toBe(403);
+    expect((await db.query.agentWriteGates.findFirst({ where: eq(agentWriteGates.id, gateId) }))?.enabled).toBe(true);
+  });
+
+  it('an agent cannot read its own gates through its owner: the owner path refuses an agent-scoped token', async () => {
+    const tok = await as(owner.token, 'POST', '/me/tokens', { name: 'owned bot token', workspace_id: wsId, scope: 'read', agent_id: ownedId });
+    expect(tok.statusCode, tok.body).toBe(201);
+    const res = await list(tok.json().token, ownedId);
+    expect(res.statusCode, res.body).toBe(404);
+  });
+
+  it('MUST KEEP: an admin reads one agent or all; an admin\'s read/write token still cannot (#1049), an admin-scoped one can', async () => {
+    const all = await list(admin.token);
+    expect(all.statusCode, all.body).toBe(200);
+    expect(all.json().data.length).toBeGreaterThan(1);
+    expect((await list(admin.token, ownedId)).json().data).toHaveLength(1);
+    for (const scope of ['read', 'write']) {
+      const tok = await as(admin.token, 'POST', '/me/tokens', { name: `admin ${scope}`, workspace_id: wsId, scope });
+      expect((await list(tok.json().token, ownedId)).statusCode, scope).toBe(403);
+    }
+    const adminTok = await as(admin.token, 'POST', '/me/tokens', { name: 'admin admin', workspace_id: wsId, scope: 'admin' });
+    expect((await list(adminTok.json().token)).statusCode).toBe(200);
+    // the admin-owned agent's own admin-scoped token still sees its gates, as before (#1104)
+    expect((await list(adminAgent.token, adminAgent.id)).statusCode).toBe(200);
+  });
+});
+
 describe('#1104 a gated update is staged, approve applies exactly it, reject discards it', () => {
   let agent: { id: string; token: string };
   beforeAll(async () => {

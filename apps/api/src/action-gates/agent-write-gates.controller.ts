@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -43,22 +43,16 @@ function toDto(row: {
 }
 
 /**
- * #1104 — declaring a per-agent write gate. Reading is admin-only (a gate names databases and fields); declaring,
+ * #1104 — declaring a per-agent write gate. Reading is the admin's, or (#1111) the agent's owner for that one agent (a gate names
+ * databases and fields, so nobody else); declaring,
  * switching off or removing one is admin AND a person: the gate is the platform's restraint on an agent, so a token or a
  * connected AI, even one acting for an admin, must not be able to lift it (the same rule approving has, #859).
  */
 @ApiTags('agent-write-gates')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
-@MinRole('admin')
 @Controller('workspaces/:ws/agent-write-gates')
 export class AgentWriteGatesController {
   constructor(private readonly gates: AgentWriteGatesService) {}
-
-  private assertAdmin(req: WorkspaceRequest): void {
-    if (req.membership.role !== 'admin') {
-      throw new ForbiddenException('Only a workspace admin can see the gates on agents\' writes: they name databases and fields');
-    }
-  }
 
   private assertAdminPerson(req: WorkspaceRequest): void {
     assertHumanSource(req);
@@ -67,16 +61,39 @@ export class AgentWriteGatesController {
     }
   }
 
-  // No `@RequiresScope('read')` override: this is an admin-role route, so a token needs ADMIN scope even to read (#1049: an admin's write/read token must not reach admin-role routes).
+  /**
+   * #1111 — who reads. The route is member-role at the guard with a `read` scope; the decision is made here:
+   *  - an ADMIN reads any/all, exactly as before, and still needs an ADMIN-scoped token (#1049: an admin-role route must not
+   *    be reachable by an admin's read/write token — the route stopped being @MinRole('admin'), so the handler keeps that rule);
+   *  - an agent's OWNER (a member) reads THAT agent's gates, read-only: `agent_id` is required and must be an agent they own;
+   *  - anyone else, and an unknown / malformed / not-owned agent, hears the same 404 (nothing about which it was);
+   *  - an agent-scoped token never takes the owner path: an agent must not read the gates on its own writes.
+   * Guests (and resource-bound tokens, which are guests) never reach this: the guard refuses below member.
+   */
   @Get()
-  @ApiOperation({ summary: 'List the gates that hold an agent\'s record create/update for approval (optionally for one agent)' })
+  @MinRole('member')
+  @RequiresScope('read')
+  @ApiOperation({
+    summary:
+      'List the gates that hold an agent\'s record create/update for approval (an admin: any agent or all; the agent\'s owner: that agent only, agent_id required)',
+  })
   async list(@Req() req: WorkspaceRequest, @Query('agent_id') agentId?: string) {
-    this.assertAdmin(req); // a gate names databases and fields a member or guest may not be allowed to see
-    const rows = await this.gates.list(req.membership.workspaceId, agentId);
+    const workspaceId = req.membership.workspaceId;
+    if (req.membership.role === 'admin') {
+      if (req.auth?.via === 'token' && req.auth.tokenScope !== 'admin') {
+        throw new ForbiddenException('Reading the gates on agents\' writes as an admin needs an admin-scoped token');
+      }
+      const rows = await this.gates.list(workspaceId, agentId);
+      return { data: rows.map(toDto) };
+    }
+    const owns = !!agentId && !req.auth?.agentId && (await this.gates.isOwner(workspaceId, agentId, req.user.id));
+    if (!owns) throw new NotFoundException('Agent not found');
+    const rows = await this.gates.list(workspaceId, agentId);
     return { data: rows.map(toDto) };
   }
 
   @Post()
+  @MinRole('admin')
   @RequiresScope('admin')
   @ApiOperation({
     summary:
@@ -96,6 +113,7 @@ export class AgentWriteGatesController {
   }
 
   @Patch(':id')
+  @MinRole('admin')
   @RequiresScope('admin')
   @ApiOperation({ summary: 'Switch an agent write gate on or off (a person who is an admin)' })
   async update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateAgentWriteGateDto) {
@@ -104,6 +122,7 @@ export class AgentWriteGatesController {
   }
 
   @Delete(':id')
+  @MinRole('admin')
   @RequiresScope('admin')
   @ApiOperation({ summary: 'Remove an agent write gate (a person who is an admin)' })
   async remove(@Req() req: WorkspaceRequest, @Param('id') id: string) {
