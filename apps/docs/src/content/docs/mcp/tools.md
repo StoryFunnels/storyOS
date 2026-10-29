@@ -99,6 +99,7 @@ personal view is only reachable from here today.
 | `list_comments` | A record's comment thread, newest first, each with its id, author, and `source`. |
 | `update_comment` / `delete_comment` | Edit or delete a comment **you** wrote (admins may delete any; editing someone else's is refused). Deleting is final — a comment has no browsable trash. |
 | `list_action_gates` / `list_approvals` | Workspace-declared approval gates and the held items. Read-only by design — approving is a person's act, in the app Inbox. |
+| `list_agent_write_gates` | The gates that hold an agent's record create/update for approval. Admins read all or one agent's; an agent's owner reads that agent's only (`agent_id` required); anyone else gets not found. Read-only by design. See [Approval gates](/concepts/approval-gates/#gating-an-agents-record-writes). |
 
 ## Documents and folders
 
