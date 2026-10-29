@@ -10660,6 +10660,324 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/runners/pairing-codes": {
+      "post": {
+        "operationId": "RunnersController_issueCode",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start \"Add a Runner\": a 6-character, single-use pairing code valid about 10 minutes. A new code burns your previous unused one. Not for guests.",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runners/pairing-codes/{id}": {
+      "get": {
+        "operationId": "RunnersController_codeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Poll a pairing code you issued: waiting, connected (with the Runner and the tools it found), expired or cancelled",
+        "tags": [
+          "runners"
+        ]
+      },
+      "delete": {
+        "operationId": "RunnersController_cancelCode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel pairing: burns the code AND revokes the pending Runner it produced, at once",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runners": {
+      "get": {
+        "operationId": "RunnersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Your own Runners (never anyone else's, admins included): status, connection, tools, chosen tool, versions, offline_since and the agents on each",
+        "tags": [
+          "runners"
+        ],
+        "x-min-role": "member"
+      }
+    },
+    "/api/v1/workspaces/{ws}/runners/{id}/activate": {
+      "post": {
+        "operationId": "RunnersController_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerToolChoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Done: turn a pending Runner on and choose its tool. 409 pairing_expired if the pairing window has closed; 422 if the tool was not found on that computer",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runners/{id}": {
+      "patch": {
+        "operationId": "RunnersController_setTool",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerToolChoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change which detected tool your agents use on this Runner",
+        "tags": [
+          "runners"
+        ]
+      },
+      "delete": {
+        "operationId": "RunnersController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a Runner: revokes its token (refused on its next call), unassigns its agents and returns its claimed wakes to the queue. Also how a pending Runner is taken away",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runner-assignments/{agent}": {
+      "get": {
+        "operationId": "RunnersController_getAssignment",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Which Runner an agent runs on (the agent's owner, or an admin)",
+        "tags": [
+          "runners"
+        ]
+      },
+      "put": {
+        "operationId": "RunnersController_assign",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerAssignmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send an agent to one of its owner's own active Runners, or pass runner_id null to unassign. 422 unless the agent's AI mode is \"Your own AI\" and the Runner is the owner's own and active",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/runner/v1/pair": {
+      "post": {
+        "operationId": "RunnerApiController_pair",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerPairDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Exchange a pairing code for a Runner token. The Runner is PENDING: it does nothing until the person presses Done in StoryOS, and is revoked if that does not happen inside the pairing window. The token is shown once.",
+        "tags": [
+          "runner"
+        ]
+      }
+    },
+    "/api/v1/runner/v1/heartbeat": {
+      "post": {
+        "operationId": "RunnerApiController_heartbeat",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerHeartbeatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Report liveness, machine name, tools and versions. Answers with the supported protocol range and the agents assigned to THIS Runner. A Runner below the minimum protocol gets 426 with the one command that updates it.",
+        "tags": [
+          "runner"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -19579,6 +19897,163 @@
         },
         "required": [
           "approve"
+        ]
+      },
+      "RunnerToolChoiceDto": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "tool"
+        ]
+      },
+      "RunnerAssignmentDto": {
+        "type": "object",
+        "properties": {
+          "runner_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "runner_id"
+        ]
+      },
+      "RunnerPairDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "machine_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "tools": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "installed": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "logged_in": {
+                  "type": "boolean"
+                },
+                "capabilities": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "id",
+                "installed"
+              ]
+            }
+          },
+          "runner_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "protocol_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "code",
+          "machine_name",
+          "tools",
+          "runner_version",
+          "protocol_version"
+        ]
+      },
+      "RunnerHeartbeatDto": {
+        "type": "object",
+        "properties": {
+          "machine_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "tools": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "installed": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "logged_in": {
+                  "type": "boolean"
+                },
+                "capabilities": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "id",
+                "installed"
+              ]
+            }
+          },
+          "runner_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "protocol_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "machine_name",
+          "tools",
+          "runner_version",
+          "protocol_version"
         ]
       },
       "ApplyTemplateDto": {

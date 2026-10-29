@@ -24,6 +24,7 @@ import { TokensService } from '../tokens/tokens.service';
 import { RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
 import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+import { RUNNER_TOKEN_PREFIX } from '../runners/runner.constants';
 
 /**
  * The scope a token needs for a route. An explicit `@RequiresScope` wins. Otherwise a route that needs the ADMIN ROLE
@@ -178,6 +179,12 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
 
     const header = request.headers.authorization;
+    // #1131 — a Runner's credential is NOT a PAT and works only on /runner/v1/* (RunnerAuthGuard). Say so, rather than letting it
+    // fall through the session and OAuth lookups to a bare "Authentication required": the refusal is the same either way, but this
+    // one is explicit, pinned by test, and cannot quietly become "accepted" if a later lookup ever learns the prefix.
+    if (typeof header === 'string' && header.startsWith(`Bearer ${RUNNER_TOKEN_PREFIX}`)) {
+      throw new UnauthorizedException('A Runner token works only on the Runner endpoints, not on this one.');
+    }
     if (typeof header === 'string' && header.startsWith('Bearer mn_pat_')) {
       const resolved = await this.tokens.resolve(header.slice('Bearer '.length));
       if (!resolved) throw new UnauthorizedException('Invalid or revoked token');

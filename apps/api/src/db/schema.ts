@@ -2909,3 +2909,114 @@ export const templateInstalls = pgTable(
   },
   (t) => [index('template_installs_slug_idx').on(t.slug)],
 );
+
+/**
+ * #1131 / ADR-0021 §3 — the StoryOS Runner: a program on a person's own computer that wakes their agents inside their own
+ * Claude Code or Cursor. A Runner has its OWN credential (`mn_run_…`), stored here and not in `api_tokens`, accepted by its own
+ * guard and valid ONLY on `/runner/v1/*`; a leaked one cannot read a record, so it is deliberately not a PAT.
+ */
+export const runnerStatus = pgEnum('runner_status', ['pending', 'active', 'revoked']);
+export type RunnerStatus = (typeof runnerStatus.enumValues)[number];
+
+/** What one tool the Runner found on its machine looks like (ADR-0021 §5). Stored per RUNNER, refreshed on every heartbeat. */
+export interface RunnerToolInfo {
+  id: string;
+  name?: string;
+  installed: boolean;
+  version?: string;
+  logged_in?: boolean;
+  capabilities?: Record<string, unknown>;
+}
+
+/**
+ * One pairing code: 6 characters, single use, ~10 minutes. Only an HMAC of the code is stored (`code_hash`), so the table never
+ * holds a code a person could still type. A code is issued to a signed-in, non-guest member and exchanged by the Runner.
+ */
+export const runnerPairingCodes = pgTable(
+  'runner_pairing_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The person who pressed "Add a Runner". No FK, like `api_tokens.user_id`: an erased person is anonymised, not cascaded. */
+    userId: text('user_id').notNull(),
+    codeHash: text('code_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** Set when the Runner exchanged it. A code is single use: this is its only transition. */
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    /** Set by Cancel, or by issuing a newer code (one live code per person and workspace). */
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_pairing_codes_user_idx').on(t.workspaceId, t.userId, t.createdAt)],
+);
+
+/** One failed attempt to exchange a code, by network address: the lockout counts these (a wrong guess matches no code to count against). */
+export const runnerPairingFailures = pgTable(
+  'runner_pairing_failures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ip: text('ip').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_pairing_failures_ip_idx').on(t.ip, t.createdAt), index('runner_pairing_failures_created_idx').on(t.createdAt)],
+);
+
+export const runners = pgTable(
+  'runners',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The person whose computer and subscription this is. The only person who lists, activates or removes it (admins included). */
+    userId: text('user_id').notNull(),
+    /** The code this Runner was exchanged from. */
+    pairingCodeId: uuid('pairing_code_id').references(() => runnerPairingCodes.id, { onDelete: 'set null' }),
+    /** Machine name as REPORTED by the Runner: unverified, shown as the Runner's name. */
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** mn_run_ + first/last 4 characters: the only recoverable fragment. */
+    tokenPrefix: text('token_prefix').notNull(),
+    status: runnerStatus('status').notNull().default('pending'),
+    /** The tools the Runner detected. Refreshed on every heartbeat. */
+    tools: jsonb('tools').$type<RunnerToolInfo[]>().notNull().default([]),
+    /** Which detected tool agents use on this machine. Per Runner, null until the person presses Done. */
+    chosenTool: text('chosen_tool'),
+    runnerVersion: text('runner_version'),
+    protocolVersion: integer('protocol_version'),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    /** De-duplication of the "Runner offline" notification, once per offline episode. NEVER shown; `offline_since` is derived from `last_seen_at`. */
+    offlineNotifiedAt: timestamp('offline_notified_at', { withTimezone: true }),
+    /** #1137 owns these two; they exist now so the Runner object has its final shape. */
+    pausedUntil: timestamp('paused_until', { withTimezone: true }),
+    pauseReason: text('pause_reason'),
+    /** While `pending`: the end of the pairing window. A pending Runner nobody activated by then is revoked. */
+    pendingExpiresAt: timestamp('pending_expires_at', { withTimezone: true }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** removed | cancelled | pairing_expired | member_inactive | erased */
+    revokedReason: text('revoked_reason'),
+    ...timestamps,
+  },
+  (t) => [index('runners_owner_idx').on(t.workspaceId, t.userId), index('runners_status_idx').on(t.status, t.lastSeenAt)],
+);
+
+/** Agent -> Runner assignment ("Runs on…"). A row, not a field on the Agent record: routing an agent's instructions to a computer is a security decision. */
+export const runnerAgents = pgTable(
+  'runner_agents',
+  {
+    /** An Agents-database record. No FK (agents are soft-deletable records, as `api_tokens.agent_id`); one Runner per agent. */
+    agentId: uuid('agent_id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    runnerId: uuid('runner_id')
+      .notNull()
+      .references(() => runners.id, { onDelete: 'cascade' }),
+    assignedBy: text('assigned_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_agents_runner_idx').on(t.runnerId)],
+);

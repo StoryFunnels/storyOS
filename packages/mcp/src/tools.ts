@@ -700,6 +700,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_action_gates: 'read',
   // #1104 — read-only on purpose, same reasoning: the gate on an agent's own writes is not the agent's to lift (see coverage.ts).
   list_agent_write_gates: 'read', // #1111: the agent's OWNER may read it (a member, read scope); an admin still needs an admin-scoped token, which the API enforces in the handler
+  // #1131 — read-only on purpose: pairing, turning on, switching the tool of, removing and assigning agents to a Runner decide where an agent's work and the workspace's data go (see coverage.ts).
+  list_runners: 'read',
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',
@@ -7473,6 +7475,24 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           params: { path: { ws: ws.id }, ...(agent_id ? { query: { agent_id } } : {}) },
         } as never),
       );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_runners',
+    {
+      title: 'List my Runners',
+      description:
+        '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code or Cursor, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). ' +
+        'Read this to see why an agent is not running: an agent set to "Your own AI" with no active, online Runner waits. Adding, turning on, changing and removing a Runner are done by a person in StoryOS (Settings, Runners); there is deliberately no tool for them, because a Runner decides where your agents\' instructions and the workspace\'s data go.',
+      inputSchema: {
+        workspace: z.string(),
+      },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/runners', { params: { path: { ws: ws.id } } } as never));
       return text(res);
     }),
   );

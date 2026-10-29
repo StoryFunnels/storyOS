@@ -9,6 +9,8 @@ import {
 } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 import { TokensService } from '../tokens/tokens.service';
+import { RunnersService } from '../runners/runners.service';
+import { RUNNER_TOKEN_PREFIX } from '../runners/runner.constants';
 
 const PAT_BEARER_PREFIX = 'Bearer mn_pat_';
 
@@ -43,6 +45,7 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
     @InjectThrottlerStorage() storageService: ThrottlerStorage,
     reflector: Reflector,
     private readonly tokens: TokensService,
+    private readonly runners: RunnersService,
   ) {
     super(options, storageService, reflector);
   }
@@ -56,6 +59,12 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
       // Invalid/revoked token: deliberately do NOT return here — fall through to
       // the IP bucket. Minting a per-token bucket for an unresolved token is the
       // bypass this guard exists to close.
+    }
+    // #1131 — a Runner heartbeats about every 30 s; many of them behind one office address must not share (and starve) one IP bucket.
+    // Same rule as a PAT: only a token that resolves gets its own bucket, so a bogus one cannot scatter buckets.
+    if (typeof auth === 'string' && auth.startsWith(`Bearer ${RUNNER_TOKEN_PREFIX}`)) {
+      const principal = await this.runners.identify(auth.slice('Bearer '.length));
+      if (principal) return `runner:${principal}`;
     }
     // request.ip is Fastify's trustProxy-aware client address. trustProxy is
     // pinned to the single front proxy (Caddy) in main.ts, so a client-supplied

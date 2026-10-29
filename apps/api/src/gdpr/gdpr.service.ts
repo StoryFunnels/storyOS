@@ -28,6 +28,9 @@ import {
   oauthApplication,
   oauthConsent,
   records,
+  runnerAgents,
+  runnerPairingCodes,
+  runners,
   session,
   skillMembers,
   skills,
@@ -429,6 +432,7 @@ export class GdprService {
     const notifs = (await tx.delete(notifications).where(and(eq(notifications.workspaceId, workspaceId), eq(notifications.userId, userId))).returning()).length;
     const userFieldsCleared = await this.clearUserFieldReferences(tx, userFieldRefs, userId);
     const tokens = await this.anonymiseTokens(tx, and(eq(apiTokens.userId, userId), eq(apiTokens.workspaceId, workspaceId)));
+    await this.anonymiseRunners(tx, and(eq(runners.userId, userId), eq(runners.workspaceId, workspaceId)), and(eq(runnerPairingCodes.userId, userId), eq(runnerPairingCodes.workspaceId, workspaceId)));
     return {
       removed: {
         memberships: 1,
@@ -459,6 +463,41 @@ export class GdprService {
    *   (opens the window); updated_at is stamped.
    * Whether this satisfies an erasure request is a legal question, not decided here.
    */
+  /**
+   * #1131 — a Runner is a person's own computer: its name ("Daria's MacBook"), its token and the tools on it are about a PERSON, so an
+   * erasure revokes it and strips all of that. The row is kept (an audit line may still name the Runner by its id), the way
+   * `anonymiseTokens` keeps a token row. Every column, decided:
+   *   user_id -> `erased:<id>`; name -> 'Erased Runner'; token_hash -> fresh random digest (can never authenticate); token_prefix ->
+   *   'erased'; tools/versions/last_seen_at/chosen_tool cleared; status -> revoked. Its agent assignments and the person's pairing codes
+   *   are deleted outright (a code row holds only a hash and a user id).
+   */
+  private async anonymiseRunners(tx: Tx, runnerWhere: ReturnType<typeof and>, codeWhere: ReturnType<typeof and>): Promise<void> {
+    const rows = await tx.select({ id: runners.id, status: runners.status, revokedAt: runners.revokedAt }).from(runners).where(runnerWhere);
+    for (const r of rows) {
+      await tx.delete(runnerAgents).where(eq(runnerAgents.runnerId, r.id));
+      await tx
+        .update(runners)
+        .set({
+          userId: `erased:${r.id}`,
+          name: 'Erased Runner',
+          tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+          tokenPrefix: 'erased',
+          status: 'revoked',
+          revokedAt: r.revokedAt ?? new Date(),
+          revokedReason: 'erased',
+          pendingExpiresAt: null,
+          tools: [],
+          chosenTool: null,
+          runnerVersion: null,
+          protocolVersion: null,
+          lastSeenAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(runners.id, r.id));
+    }
+    await tx.delete(runnerPairingCodes).where(codeWhere);
+  }
+
   private async anonymiseTokens(tx: Tx, where: ReturnType<typeof and>): Promise<number> {
     const tokenRows = await tx.select({ id: apiTokens.id, revokedAt: apiTokens.revokedAt }).from(apiTokens).where(where);
     for (const t of tokenRows) {
@@ -579,6 +618,7 @@ export class GdprService {
       add('oauth_consents', (await tx.delete(oauthConsent).where(eq(oauthConsent.userId, userId)).returning()).length);
       add('oauth_applications', (await tx.delete(oauthApplication).where(eq(oauthApplication.userId, userId)).returning()).length);
       add('api_tokens_anonymized', await this.anonymiseTokens(tx, eq(apiTokens.userId, userId)));
+      await this.anonymiseRunners(tx, eq(runners.userId, userId), eq(runnerPairingCodes.userId, userId)); // #1131
       add('user_preferences', (await tx.delete(userPreferences).where(eq(userPreferences.userId, userId)).returning()).length);
       if (before?.email && before.email !== anonymisedEmail) add('history_rows_scrubbed', await this.scrubEmailFromHistory(tx, before.email, anonymisedEmail));
       return totals;
