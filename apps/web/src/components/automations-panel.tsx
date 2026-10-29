@@ -14,7 +14,6 @@ import { FlowDiagramEditor } from '@/components/automations/flow-diagram-editor'
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
 import { opsForField, SortButton } from '@/components/views/view-toolbar';
-import { CATEGORY_CHOICES } from '@/components/views/category-filter';
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
 import { triggerLabel } from '@/components/automations/flow-diagram-model';
@@ -28,6 +27,7 @@ import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
+import { CATEGORY_CHOICES } from '@/components/views/category-filter';
 
 /* #738 — stable identity across renders. */
 const ACTIONS_VIEW_OPTIONS = [
