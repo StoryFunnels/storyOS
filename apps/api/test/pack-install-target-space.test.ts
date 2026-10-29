@@ -110,14 +110,18 @@ describe('#1095 what is refused', () => {
     expect((await dbsOf(ws)).length, 'nothing was created').toBe(0);
   });
 
-  it('a database that already lives in ANOTHER space is a 409 naming where, not a silent reuse that leaves the target empty', async () => {
+  it('a database of the same name in ANOTHER space no longer blocks the install (#1156): the target gets its own, the other is left alone', async () => {
+    // Until #1156 this was a 409 ("...would leave this space without them"), because matching was workspace-wide and the install would
+    // have reused the other space's databases where they live. Matching is now scoped to the target space, so there is nothing to refuse.
     const ws = await newWs('Elsewhere');
     expect((await install(ws, single.manifest)).statusCode).toBe(201); // lands in the pack's own space
+    const elsewhere = (await dbsOf(ws)).map((d) => d.id).sort();
     const target = await newSpace(ws, 'Different space');
     const res = await install(ws, single.manifest, target);
-    expect(res.statusCode, res.body).toBe(409);
-    expect(res.body).toContain(single.manifest.databases[0]!.space);
-    expect((await dbsOf(ws)).filter((d) => d.spaceId === target), 'the target space stays empty').toEqual([]);
+    expect(res.statusCode, res.body).toBe(201);
+    const inTarget = (await dbsOf(ws)).filter((d) => d.spaceId === target);
+    expect(inTarget.map((d) => d.name).sort(), 'the target space got its own copy of every database').toEqual(single.manifest.databases.map((d) => d.name).sort());
+    expect((await dbsOf(ws)).filter((d) => elsewhere.includes(d.id)).length, 'the first install\'s databases are still there').toBe(elsewhere.length);
   });
 
   it('a space the caller cannot reach is a 404: another workspace\'s space, and someone else\'s personal space', async () => {

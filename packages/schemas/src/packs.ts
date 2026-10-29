@@ -610,6 +610,27 @@ export const packPreviewItemSchema = z.object({
   agent_update: packAgentUpdateSchema.optional(),
   gains: packDatabaseGainsSchema.optional(),
   /**
+   * #1156 — databases only. A database of this name lives in ANOTHER space than the one this pack installs into. Matching is per space,
+   * so by default the pack ignores it and creates its own; reusing it is the person's explicit choice (`reuse` in `resolutions`).
+   *  - `adopted`: the install WILL use it (the person chose `reuse` and it is reusable, or this pack adopted it on an earlier install).
+   *  - `reusable`: it CAN be used. When false, `reason` says why in plain language, for the review to show next to a disabled "use existing":
+   *      incompatible field types ("Status is a select here but this pack needs a workflow."), more than one editable match ("Can't use
+   *      one: you have more than one Clients database (in A and B). Create a new one here.") or no edit access ("There is no Clients
+   *      database you can edit."), the last worded exactly like a database that does not exist.
+   *  - `database_id`/`space_name` name the one database concerned; absent when there is no single one (ambiguous) or the person cannot
+   *    edit it. The whole object is absent when the person cannot even read a database of that name, so it never reveals one.
+   * An install with an explicit `reuse` of a non-reusable database fails with 422 and `reason` as its message.
+   */
+  existing_elsewhere: z
+    .object({
+      database_id: z.string().optional(),
+      space_name: z.string().optional(),
+      adopted: z.boolean(),
+      reusable: z.boolean(),
+      reason: z.string().optional(),
+    })
+    .optional(),
+  /**
    * #1107 — automations only, and only when this install would CREATE the rule: whether it would be on (`enabled_on_install`), and, if it
    * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
    */
