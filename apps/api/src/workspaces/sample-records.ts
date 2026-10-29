@@ -29,3 +29,19 @@ export async function trackSampleRecords(db: Db, workspaceId: string, ids: strin
     .set({ settings: { ...settings, sample_record_ids: [...merged] } })
     .where(eq(workspaces.id, workspaceId));
 }
+
+/**
+ * #1112 — the inverse of `trackSampleRecords`, for an install that failed and removed the records it had seeded: their ids must leave the
+ * registry too, or "Remove sample data" and the onboarding checklist would count records that no longer exist.
+ */
+export async function untrackSampleRecords(db: Db, workspaceId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const ws = await db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+  const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+  const gone = new Set(ids);
+  const remaining = ((settings.sample_record_ids as string[]) ?? []).filter((id) => !gone.has(id));
+  await db
+    .update(workspaces)
+    .set({ settings: { ...settings, sample_record_ids: remaining } })
+    .where(eq(workspaces.id, workspaceId));
+}
