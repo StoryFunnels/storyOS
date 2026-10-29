@@ -164,7 +164,7 @@ export function StarterCards({
               setOpen(null);
               setPasted('');
             }}
-            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+            className="rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--text-on-accent)] disabled:opacity-40"
           >
             Make it a database
           </button>

@@ -358,7 +358,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               <button
                 type="button"
                 onClick={() => confirm.mutate(true)}
-                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--on-accent,#fff)]"
+                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--text-on-error)]"
               >
                 Yes, do it
               </button>
@@ -415,7 +415,7 @@ export function TyronConversation({ ws }: { ws: string }) {
             onClick={submit}
             disabled={!draft.trim() || send.isPending}
             aria-label="Send"
-            className="shrink-0 rounded-[var(--radius-control)] bg-[var(--accent)] p-1.5 text-[var(--on-accent,#fff)] disabled:opacity-40"
+            className="shrink-0 rounded-[var(--radius-control)] bg-[var(--accent)] p-1.5 text-[var(--text-on-accent)] disabled:opacity-40"
           >
             <ArrowUp className="h-4 w-4" />
           </button>
