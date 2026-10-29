@@ -105,7 +105,7 @@ export function FormThemePanel({
         <p className="text-label text-muted">{EMBED_MODE_HINTS[mode]}</p>
       </div>
 
-      <Swatch label="Accent" hint="button and links" value={accent} onChange={(v) => set({ accent: v })} />
+      <Swatch label="Accent" hint="Colours the submit button and links." value={accent} onChange={(v) => set({ accent: v })} />
       <Swatch label="Surface" hint="input backgrounds" value={surface} onChange={(v) => set({ surface: v })} />
       <Swatch label="Text" hint="headings and labels" value={text} onChange={(v) => set({ text: v })} />
 
