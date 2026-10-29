@@ -124,6 +124,7 @@ function FavoritesSection({ ws }: { ws: string }) {
 export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) {
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
+  const router = useRouter();
   const signOut = useSignOut();
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
@@ -492,7 +493,24 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </DragPreview>
         </DndContext>
 
-        {canEdit && <NewSpaceButton ws={ws} onCreate={(name) => mutations.createSpace.mutate({ name })} />}
+        {canEdit && (
+          <NewSpaceButton
+            ws={ws}
+            // #1094 — New opens what it made. The space page now has a way to add (database, document, pack), so it is no
+            // longer a dead end to land on; before, the new space was created and the person left looking at the old page.
+            onCreate={(name) =>
+              mutations.createSpace.mutate(
+                { name },
+                {
+                  onSuccess: (created) => {
+                    router.push(`/w/${ws}/s/${created.id}`);
+                    onCloseMobile?.();
+                  },
+                },
+              )
+            }
+          />
+        )}
         {canEdit && (
           <>
             <button
@@ -3331,7 +3349,7 @@ function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string)
   );
 }
 
-function NewDatabaseDialog({ onCreate }: { onCreate: (name: string) => void }) {
+export function NewDatabaseDialog({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('');
   return (
     <DialogContent title="New database" unsaved>

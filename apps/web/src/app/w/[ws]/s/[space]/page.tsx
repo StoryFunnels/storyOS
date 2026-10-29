@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Layers, Lock, Users } from 'lucide-react';
+import { FileText, Layers, Lock, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { apiErrorMessage } from '@/lib/api';
 import { useDatabases, useSpaces, useSidebarMutations, useWorkspace } from '@/lib/queries';
@@ -14,6 +14,15 @@ import { GRANT_ROLES } from '@/lib/access';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { InstallDialog } from '@/components/pack-install-dialog';
+import {
+  SpaceNewMenu,
+  SpacePackGrid,
+  StartFromScratchBar,
+  useSpaceContents,
+  useSpaceCreators,
+} from '@/components/space-start';
+import { canAddToSpace, canInstallPacks, isSpaceEmpty } from '@/lib/space-start';
 import { Textarea } from '@/components/ui/textarea';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
 import { canManageAccess } from '@/lib/access-model';
@@ -126,6 +135,15 @@ export default function SpacePage() {
     enabled: Boolean(spaceId),
   });
 
+  // #1094 — what the viewer may ADD here, and whether there is anything here yet. Read before the early returns (hooks), and
+  // both fail safe: a guest is never offered a creator, and nothing is called "empty" until every list has answered.
+  const canAdd = canAddToSpace(workspace.data?.role);
+  const packsOk = canInstallPacks(workspace.data?.role);
+  const contents = useSpaceContents(ws, spaceId, canAdd);
+  const creators = useSpaceCreators(ws, spaceId);
+  const [packPicker, setPackPicker] = useState(false);
+  const [installSlug, setInstallSlug] = useState<string | null>(null);
+
   const [descValue, setDescValue] = useState<string | null>(null);
   const [editingDesc, setEditingDesc] = useState(false);
   const [iconing, setIconing] = useState(false);
@@ -150,6 +168,13 @@ export default function SpacePage() {
       </div>
     );
   }
+
+  // #1094 — "empty" needs every list to have answered (a full space must never flash the empty state) and a person who may add.
+  const known = !databases.isLoading && contents.settled;
+  const empty =
+    canAdd &&
+    known &&
+    isSpaceEmpty({ databases: spaceDatabases.length, documents: contents.documents.length, views: contents.views.length });
 
   const spaceNameById = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
 
@@ -180,7 +205,11 @@ export default function SpacePage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl p-4 sm:p-8">
+    // max-md:pb-24 — below `md` the floating Quick add button covers the bottom-right corner; this page ends in the Access list,
+    // so its last row must scroll clear of it (the same clearance as #1120's FAB_CLEARANCE_PB, which `sm:p-8` would override).
+    <div className="mx-auto flex max-w-[1260px] flex-col gap-6 p-4 sm:p-8 max-md:pb-24">
+      <div className="flex flex-wrap items-start gap-3">
+      <div className="min-w-0 flex-1">
       {/* Identity */}
       <div className="mb-1 flex items-center gap-3">
         {/*
@@ -218,7 +247,7 @@ export default function SpacePage() {
       </div>
 
       {editingDesc ? (
-        <div className="mb-6 flex max-w-xl flex-col gap-2">
+        <div className="flex max-w-xl flex-col gap-2">
           <Textarea
             autoFocus
             rows={2}
@@ -259,14 +288,135 @@ export default function SpacePage() {
         <button
           type="button"
           onClick={() => setEditingDesc(true)}
-          className="mb-6 block max-w-xl text-left text-body text-muted hover:text-ink"
+          className="block max-w-xl text-left text-body text-muted hover:text-ink"
         >
           {space.description || 'Add a description…'}
         </button>
       )}
 
+      </div>
+      {/* #1094 — the header's two actions. Access is a jump to the Access section below (nothing about it moved out of the page),
+          so who can see this space is one click from the name; New is how a space gets its first thing. */}
+      <div className="flex shrink-0 items-center gap-1.5 max-sm:w-full">
+        {accessMode !== 'guest' && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => document.getElementById('space-access')?.scrollIntoView({ block: 'start' })}
+          >
+            {space.restricted ? <Lock className="h-3.5 w-3.5" aria-hidden /> : <Users className="h-3.5 w-3.5" aria-hidden />}
+            {space.restricted ? 'Restricted' : 'Everyone'}
+          </Button>
+        )}
+        {canAdd && (
+          <SpaceNewMenu
+            busy={creators.busy}
+            onDatabase={creators.addDatabase}
+            onDocument={creators.addDocument}
+            onPack={packsOk ? () => setPackPicker(true) : undefined}
+          />
+        )}
+      </div>
+      </div>
+
+      {!known ? (
+        <p className="text-body text-muted">Loading…</p>
+      ) : empty ? (
+        <>
+          <StartFromScratchBar packs={packsOk} busy={creators.busy} onDatabase={creators.addDatabase} onDocument={creators.addDocument} />
+          {packsOk && (
+            <section>
+              <h2 className="mb-2 text-label font-semibold text-muted">What is this space for?</h2>
+              <SpacePackGrid onPick={setInstallSlug} />
+            </section>
+          )}
+          <p className="text-label text-muted">Contents and relations appear here once the space has something in it.</p>
+        </>
+      ) : (
+        <>
+      {/* Contents */}
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-ink">Contents</h2>
+        {spaceDatabases.length + contents.documents.length + contents.views.length === 0 ? (
+          <p className="text-body text-muted">No databases here that you can access.</p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {spaceDatabases.map((d) => (
+              <li key={d.id}>
+                <a
+                  href={`/w/${ws}/d/${d.id}`}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                >
+                  <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={null} />
+                  <span className="truncate">{d.name}</span>
+                  <span className="ml-auto text-label text-muted">database</span>
+                </a>
+              </li>
+            ))}
+            {contents.documents.map((d) => (
+              <li key={d.id}>
+                <a
+                  href={`/w/${ws}/doc/${d.id}`}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                  <span className="truncate">{d.title || 'Untitled'}</span>
+                  <span className="ml-auto text-label text-muted">document</span>
+                </a>
+              </li>
+            ))}
+            {contents.views.map((v) => (
+              <li key={v.id}>
+                <a
+                  href={`/w/${ws}/v/${v.id}`}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                  <span className="truncate">{v.name}</span>
+                  <span className="ml-auto text-label text-muted">view</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Ontology */}
+      <section>
+        <h2 className="mb-1 text-sm font-medium text-ink">Ontology</h2>
+        <p className="mb-3 text-body text-muted">
+          {/* #636 — there is only ONE rendering now, so this caption no longer
+              has to describe which of two the component picked (#509's
+              question, which the redesign made moot along with
+              DIAGRAM_NODE_LIMIT). It does have to be honest that the diagram
+              centres on one database and the Contents list below carries the
+              rest. */}
+          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)}. The
+          diagram centres on the most connected one; hover a chip for the relationship type, and see
+          Contents below for everything here.
+        </p>
+        <SpaceOntology
+          ws={ws}
+          spaceId={space.id}
+          databases={spaceDatabases.map((d) => ({
+            id: d.id,
+            name: d.name,
+            icon: d.icon,
+            color: d.color,
+            description: d.description,
+            recordCounter: (d as unknown as { recordCounter?: number }).recordCounter,
+          }))}
+          relations={relations.data ?? []}
+          spaceNameById={spaceNameById}
+        />
+      </section>
+
+        </>
+      )}
+
+
       {/* Access */}
-      <section className="mb-8 border-b border-border-default pb-8">
+      <section id="space-access" className="scroll-mt-4 border-t border-border-default pt-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-1.5 text-sm font-medium text-ink">
             <Users className="h-3.5 w-3.5" /> Access
@@ -328,57 +478,31 @@ export default function SpacePage() {
         )}
       </section>
 
-      {/* Ontology */}
-      <section className="mb-8">
-        <h2 className="mb-1 text-sm font-medium text-ink">Ontology</h2>
-        <p className="mb-3 text-body text-muted">
-          {/* #636 — there is only ONE rendering now, so this caption no longer
-              has to describe which of two the component picked (#509's
-              question, which the redesign made moot along with
-              DIAGRAM_NODE_LIMIT). It does have to be honest that the diagram
-              centres on one database and the Contents list below carries the
-              rest. */}
-          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)}. The
-          diagram centres on the most connected one; hover a chip for the relationship type, and see
-          Contents below for everything here.
-        </p>
-        <SpaceOntology
-          ws={ws}
-          spaceId={space.id}
-          databases={spaceDatabases.map((d) => ({
-            id: d.id,
-            name: d.name,
-            icon: d.icon,
-            color: d.color,
-            description: d.description,
-            recordCounter: (d as unknown as { recordCounter?: number }).recordCounter,
-          }))}
-          relations={relations.data ?? []}
-          spaceNameById={spaceNameById}
-        />
-      </section>
 
-      {/* Contents */}
-      <section>
-        <h2 className="mb-2 text-sm font-medium text-ink">Contents</h2>
-        {spaceDatabases.length === 0 ? (
-          <p className="text-body text-muted">No databases here that you can access.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {spaceDatabases.map((d) => (
-              <li key={d.id}>
-                <a
-                  href={`/w/${ws}/d/${d.id}`}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-body text-ink hover:bg-hover"
-                >
-                  <EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={null} />
-                  <span className="truncate">{d.name}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
+      {creators.dialog}
+
+      {/* #1094 — "From a pack…" on a space that already has things in it: the same cards, in a dialog. */}
+      <Dialog open={packPicker} onOpenChange={setPackPicker}>
+        {packPicker && (
+          <DialogContent title={`Add a pack to "${space.name}"`} className="max-h-[calc(100vh-32px)] max-w-[1100px] overflow-auto">
+            <SpacePackGrid
+              onPick={(slug) => {
+                setPackPicker(false);
+                setInstallSlug(slug);
+              }}
+            />
+          </DialogContent>
         )}
-      </section>
+      </Dialog>
+
+      {installSlug && (
+        <InstallDialog
+          ws={ws}
+          slug={installSlug}
+          target={{ id: space.id, name: space.name }}
+          onOpenChange={(open) => !open && setInstallSlug(null)}
+        />
+      )}
 
       <Dialog open={iconing} onOpenChange={setIconing}>
         {iconing && (
