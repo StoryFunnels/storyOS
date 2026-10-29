@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Plus } from 'lucide-react';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
+import { FAB_CLEARANCE_PB } from '@/lib/fab-clearance';
 import { CellDisplay, OPTION_COLORS, optionColor } from '../table-view/cells';
 import { isPercentField } from '../table-view/cell-text';
 import { splitCardFields } from './list-fields';
@@ -219,7 +220,8 @@ export function ListView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="h-full overflow-auto">
-      <div className="px-4 py-2">
+      {/* #1120 — FAB_CLEARANCE_PB: on a phone the last row (and the "New" row) scrolls clear of the floating + button. */}
+      <div className={cn('px-4 pt-2', FAB_CLEARANCE_PB)}>
         {cardFields.length > 0 && (
           /* #1115 — a header names the slots: the same fixed widths as every row below,
              so "Issues" sits over the issue counts, not somewhere near them. A
