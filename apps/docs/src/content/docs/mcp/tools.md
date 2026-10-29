@@ -153,6 +153,13 @@ space, and the pack's own space is not created. With no `space` the install beha
   workspace's one shared *Agentic OS* space** they live in, if the workspace does not have it yet.
   Only the pack's own space is skipped.
 
+### Automations a pack installs switched off
+
+A pack automation that sends email, Slack, webhook, HTTP or social-post actions, or runs an agent, installs
+**switched off**. Pass `enable_automations` (labels written `Database.Rule name`, as `preview` lists them) to
+switch chosen ones on. The preview and the install result say which rules are off and why. Details:
+[Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
+
 ### Space-level views and groups
 
 | Tool | What it does |
