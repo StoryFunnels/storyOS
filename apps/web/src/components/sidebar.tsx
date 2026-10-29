@@ -2319,8 +2319,11 @@ function PromptDialog({
             </button>
             <button
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium text-white',
-                state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
+                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium',
+                // #1170 — a solid red fill takes --text-on-error (white is 3.13:1 on the lifted dark --error).
+                state.kind === 'confirm' && state.danger
+                  ? 'bg-error text-[var(--text-on-error)]'
+                  : 'bg-ink text-white',
               )}
               onClick={confirm}
             >

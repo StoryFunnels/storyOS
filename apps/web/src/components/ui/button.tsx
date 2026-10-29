@@ -18,7 +18,7 @@ const buttonVariants = cva(
         primary: 'bg-primary text-[var(--text-on-dark)] hover:bg-primary-hover',
         secondary: 'bg-card border border-border-default text-ink hover:bg-hover',
         ghost: 'text-ink-secondary hover:bg-hover',
-        destructive: 'border border-error text-error hover:bg-error hover:text-white',
+        destructive: 'border border-error text-error hover:bg-error hover:text-[var(--text-on-error)]',
       },
       size: {
         default: 'h-9 px-4',

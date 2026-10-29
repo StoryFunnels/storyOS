@@ -250,7 +250,7 @@ function collisionEntries(preview: PreviewResult): CollisionEntry[] {
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
   const style =
     action === 'collision'
-      ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning-text,#92400e)]'
+      ? 'bg-[var(--warning-soft)] text-[var(--warning-text)]'
       : action === 'create'
         ? 'bg-primary text-[var(--text-on-dark)]'
         : 'bg-hover text-muted';
