@@ -699,7 +699,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // is a human act, same line #441 draws for grants — see coverage.ts.
   list_action_gates: 'read',
   // #1104 — read-only on purpose, same reasoning: the gate on an agent's own writes is not the agent's to lift (see coverage.ts).
-  list_agent_write_gates: 'admin', // an admin-role route: mirrors the API, which needs admin scope even to read (#1049)
+  list_agent_write_gates: 'read', // #1111: the agent's OWNER may read it (a member, read scope); an admin still needs an admin-scoped token, which the API enforces in the handler
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',
@@ -7460,7 +7460,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List the gates on agents\' record writes',
       description:
         '#1104: the gates that hold an agent\'s record create and/or update for a person\'s approval, instead of applying it. Each has the agent_id (an Agents-database record), operations (create, update), database_id (null = every database), fields (null = any write; otherwise only a write that touches one of those api_names) and enabled. ' +
-        'When a gate holds your write, the write call answers { pending_approval: true, approval_id } and NOTHING is changed until a person approves it in the Approvals inbox; do not retry it. Pass agent_id to see one agent\'s gates (admin only, since a gate names databases and fields). Read-only: declaring, switching off or removing a gate is for a person who is an admin and not reachable via MCP, because an agent that could lift the gate meant to constrain it would defeat it.',
+        'When a gate holds your write, the write call answers { pending_approval: true, approval_id } and NOTHING is changed until a person approves it in the Approvals inbox; do not retry it. Pass agent_id to see one agent\'s gates: an admin may omit it to see every gate; an agent\'s owner (a member) must pass it and sees only that agent\'s; anyone else, and an unknown agent, hears "not found" (#1111). An agent cannot read its own gates through its owner\'s access, and an admin-role caller needs an admin-scoped token. Read-only: declaring, switching off or removing a gate is for a person who is an admin and not reachable via MCP, because an agent that could lift the gate meant to constrain it would defeat it.',
       inputSchema: {
         workspace: z.string(),
         agent_id: z.string().optional().describe('Limit to one agent (its record uuid).'),

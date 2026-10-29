@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
+import { z } from 'zod';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { agentWriteGates, approvals, databases, fields, type ChangeSource } from '../db/schema';
@@ -159,6 +160,17 @@ export class AgentWriteGatesService {
       approvalId: created!.id,
       message: 'This write is held for approval by a gate on this agent. It has not happened yet; a person must approve it.',
     };
+  }
+
+  /**
+   * #1111 — is `userId` the OWNER of `agentId` right now? Owner is `resolveAgentIdentity`'s live ownerId (the agent record's
+   * creator, who must still be an active member). A malformed id, an unknown agent and somebody else's agent all answer the
+   * same `false`, so the caller can give one 404 and leak nothing about which it was (ADR-0018 b).
+   */
+  async isOwner(workspaceId: string, agentId: string, userId: string): Promise<boolean> {
+    if (!z.uuid().safeParse(agentId).success) return false;
+    const identity = await resolveAgentIdentity(this.db, workspaceId, agentId);
+    return identity?.ownerId === userId;
   }
 
   async list(workspaceId: string, agentId?: string): Promise<GateRow[]> {
