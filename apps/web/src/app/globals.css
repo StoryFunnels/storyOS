@@ -99,10 +99,12 @@
   /* Status */
   --success: #2d7a4f;
   --error: #c0392b;
-  --warning: #b8860b;
-  /* #1164 — --warning is a FILL / ICON colour (3.25:1 on white: fails AA as text). Warning TEXT uses this token: 4.89:1 or
-     better on every light bg token (lowest on --bg-active). Hue 34° (orange), not gold's 43-45°: a warning is not an agent. */
-  --warning-text: #8c5000;
+  /* #1164 (revised by Dara) — --warning is a FILL / ICON / dot colour: #c25f0c, hue 27°, 3.23:1 or better on every light bg
+     token (non-text 3:1). It left gold's 43° because a warning is not an agent acting. */
+  --warning: #c25f0c;
+  /* Warning TEXT: #994000 (hue 25°), 5.17:1 or better on every light bg token (lowest on --bg-active). CIEDE2000 18.7 from
+     agent gold --accent-text and 13.5 from --error. */
+  --warning-text: #994000;
   --info: #3d5296;
 
   /* Dashboard chart categorical palette (MN-225 / #168, Phase 2). Eight hues
@@ -339,9 +341,10 @@
   /* Status — lifted for contrast on dark */
   --success: #57b37f;
   --error: #e2705f;
-  --warning: #d8ad3e;
-  /* #1164 — warning TEXT in dark: 6.24:1 or better on every dark bg token (lowest on --bg-active); hue 32°, not gold. */
-  --warning-text: #eda24a;
+  --warning: #e8893a;
+  /* Warning TEXT in dark: #ff8a2a (hue 28°), 5.64:1 or better on every dark bg token (lowest on --bg-active). CIEDE2000 19.7
+     from agent gold, 19.1 from --error. Fill #e8893a: 5.11:1 or better. */
+  --warning-text: #ff8a2a;
   --info: #7a92d6;
 
   /* Chart palette — lifted for contrast on the darker canvas (MN-225 / #168). */

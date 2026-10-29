@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * #1164 / #1165 — the two TEXT tokens that sit near gold, and the rule that keeps them honest.
  *
- *  - `--warning` is a FILL / ICON colour (#b8860b is 3.25:1 on white). Warning TEXT is `--warning-text`.
+ *  - `--warning` is a FILL / ICON colour (the old #b8860b was 3.25:1 on white and gold-hued). Warning TEXT is `--warning-text`.
  *  - `--accent-text` is agent-gold TEXT; it must clear 4.5:1 on every surface, including `--bg-active` (selected rows).
  *
  * Both are measured against EVERY background token the stylesheet declares for that theme (the `--bg-*` set plus
@@ -78,17 +78,97 @@ describe.each([
   });
 });
 
-describe('--warning-text is not gold', () => {
-  it('differs in hue from --accent-text in both themes (a warning is not an agent acting)', () => {
-    const hue = (hex: string) => {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
-      const mx = Math.max(r, g, b);
-      const d = mx - Math.min(r, g, b);
-      const h = d === 0 ? 0 : mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      return (h * 60 + 360) % 360;
+describe('--warning fills and icons clear the 3:1 non-text bar on every background token', () => {
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ] as const)('%s', (_n, theme) => {
+    const fg = resolve(theme, '--warning');
+    const failing = surfaces(theme)
+      .map((s) => [s, ratio(fg, resolve(theme, s))] as const)
+      .filter(([, r]) => r < 3)
+      .map(([s, r]) => `--warning ${fg} on ${s} = ${r.toFixed(2)}`);
+    expect(failing).toEqual([]);
+  });
+});
+
+/** The pills `bg-warning/10 text-warning-text` (members, admin, packs/submit): the text sits on a 10% warning tint of the surface. */
+describe('warning-text on its own 10% tint clears 4.5:1 on every background token', () => {
+  const blend = (fg: string, bg: string, a: number) =>
+    '#' + [0, 1, 2].map((i) => Math.round(parseInt(fg.slice(1 + i * 2, 3 + i * 2), 16) * a + parseInt(bg.slice(1 + i * 2, 3 + i * 2), 16) * (1 - a)).toString(16).padStart(2, '0')).join('');
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ] as const)('%s', (_n, theme) => {
+    const failing = surfaces(theme)
+      .map((s) => [s, ratio(resolve(theme, '--warning-text'), blend(resolve(theme, '--warning'), resolve(theme, s), 0.1))] as const)
+      .filter(([, r]) => r < 4.5)
+      .map(([s, r]) => `${s} ${r.toFixed(2)}`);
+    expect(failing).toEqual([]);
+  });
+});
+
+/** CIEDE2000 between two hex colours (Sharma et al.). */
+export function deltaE2000(h1: string, h2: string): number {
+  const lab = (hex: string) => {
+    const f = (i: number) => {
+      const v = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     };
+    const [R, G, B] = [f(0), f(1), f(2)];
+    const X = (0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / 0.95047;
+    const Y = 0.2126729 * R + 0.7151522 * G + 0.072175 * B;
+    const Z = (0.0193339 * R + 0.119192 * G + 0.9503041 * B) / 1.08883;
+    const g = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+    return [116 * g(Y) - 16, 500 * (g(X) - g(Y)), 200 * (g(Y) - g(Z))] as const;
+  };
+  const [L1, a1, b1] = lab(h1);
+  const [L2, a2, b2] = lab(h2);
+  const rad = Math.PI / 180;
+  const Cb = (Math.hypot(a1, b1) + Math.hypot(a2, b2)) / 2;
+  const G = 0.5 * (1 - Math.sqrt(Cb ** 7 / (Cb ** 7 + 25 ** 7)));
+  const a1p = (1 + G) * a1;
+  const a2p = (1 + G) * a2;
+  const C1 = Math.hypot(a1p, b1);
+  const C2 = Math.hypot(a2p, b2);
+  const hh = (a: number, b: number) => ((Math.atan2(b, a) / rad) + 360) % 360;
+  const ha = hh(a1p, b1);
+  const hb2 = hh(a2p, b2);
+  let dh = hb2 - ha;
+  if (Math.abs(dh) > 180) dh -= Math.sign(dh) * 360;
+  const dL = L2 - L1;
+  const dC = C2 - C1;
+  const dH = 2 * Math.sqrt(C1 * C2) * Math.sin((dh * rad) / 2);
+  const Lb = (L1 + L2) / 2;
+  const Cp = (C1 + C2) / 2;
+  let hm = (ha + hb2) / 2;
+  if (Math.abs(ha - hb2) > 180) hm += 180;
+  hm %= 360;
+  const T = 1 - 0.17 * Math.cos((hm - 30) * rad) + 0.24 * Math.cos(2 * hm * rad) + 0.32 * Math.cos((3 * hm + 6) * rad) - 0.2 * Math.cos((4 * hm - 63) * rad);
+  const SL = 1 + (0.015 * (Lb - 50) ** 2) / Math.sqrt(20 + (Lb - 50) ** 2);
+  const SC = 1 + 0.045 * Cp;
+  const SH = 1 + 0.015 * Cp * T;
+  const RT = -2 * Math.sqrt(Cp ** 7 / (Cp ** 7 + 25 ** 7)) * Math.sin(60 * Math.exp(-(((hm - 275) / 25) ** 2)) * rad);
+  return Math.sqrt((dL / SL) ** 2 + (dC / SC) ** 2 + (dH / SH) ** 2 + RT * (dC / SC) * (dH / SH));
+}
+
+describe('warning text is neither agent gold nor error red (Dara: every pair at least 13.5 CIEDE2000)', () => {
+  it('measures the metric itself (black vs white is 100)', () => {
+    expect(deltaE2000('#000000', '#ffffff')).toBeGreaterThan(99);
+    expect(deltaE2000('#336699', '#336699')).toBe(0);
+  });
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ] as const)('%s: --warning-text is >= 13 from --accent-text and from --error; the old pair (~10) would fail', (_n, theme) => {
+    const w = resolve(theme, '--warning-text');
+    expect(deltaE2000(w, resolve(theme, '--accent-text'))).toBeGreaterThanOrEqual(13);
+    expect(deltaE2000(w, resolve(theme, '--error'))).toBeGreaterThanOrEqual(13);
+  });
+  it('--warning (fills) is >= 13 from the gold fill and from --error', () => {
     for (const theme of [light, dark]) {
-      expect(Math.abs(hue(resolve(theme, '--accent-text')) - hue(resolve(theme, '--warning-text')))).toBeGreaterThanOrEqual(8);
+      expect(deltaE2000(resolve(theme, '--warning'), resolve(theme, '--accent'))).toBeGreaterThanOrEqual(13);
+      expect(deltaE2000(resolve(theme, '--warning'), resolve(theme, '--error'))).toBeGreaterThanOrEqual(13);
     }
   });
 });
