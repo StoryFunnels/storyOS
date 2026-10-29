@@ -69,6 +69,29 @@ describe('the date value editor', () => {
     expect(render('before', '$date:-ninety')).toContain('$date:-ninety');
   });
   it('`on` and `is not` take a day, not a relative date: no kind select', () => {
-    expect(render('eq', '2026-07-31')).not.toContain('Date kind');
+    expect(render('eq', '2026-07-31')).not.toContain('Date unit');
+  });
+  it('names its controls for a screen reader: the unit and the amount say what they are', () => {
+    const html = render('before', '$date:-90d');
+    expect(html).toContain('aria-label="Date unit"');
+    expect(html).toContain('aria-label="Amount of days"');
+    expect(render('after', '$date:+14d')).toContain('aria-label="Amount of weeks"');
+  });
+  it('a set amount is not flagged invalid, and carries a hint with the allowed range (the unset state is asserted live)', () => {
+    const set = render('before', '$date:-90d');
+    expect(set).not.toContain('aria-invalid');
+    expect(set).toContain('A whole number of days, 1 to 9999');
+  });
+  it('the DOM order is the visual order, so Tab follows the eye: amount then unit for a relative date, unit then date for an exact one', () => {
+    const rel = render('before', '$date:-90d');
+    expect(rel.indexOf('aria-label="Amount of days"')).toBeGreaterThan(-1);
+    expect(rel.indexOf('aria-label="Amount of days"')).toBeLessThan(rel.indexOf('aria-label="Date unit"'));
+    const exact = render('before', '2026-07-31');
+    expect(exact.indexOf('aria-label="Date unit"')).toBeLessThan(exact.indexOf('aria-haspopup="dialog"'));
+  });
+  it('the exact-date button says what it is and that it opens a dialog', () => {
+    expect(render('before', '2026-07-31')).toContain('aria-label="Date: 2026-07-31. Change date"');
+    expect(render('after', '')).toContain('aria-label="Pick a date"');
+    expect(render('before', '2026-07-31')).toContain('aria-expanded="false"');
   });
 });

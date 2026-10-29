@@ -22,7 +22,7 @@
  */
 
 import { BackLayer } from '@/lib/back-layers';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
 import { useViewSearch } from './view-search';
@@ -35,6 +35,7 @@ import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import {
+  MAX_RELATIVE_DAYS,
   RELATIVE_DATE_KINDS,
   buildRelativeDate,
   describeRelativeDateCondition,
@@ -1036,6 +1037,13 @@ function DateFilterInput({
   onChange: (value: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // #1155 — the picker's input holds focus while it is open; when it closes (Escape, a date, Today/Clear) focus goes back to this
+  // button instead of falling to the page, so the keyboard user is not dropped at the top of the document.
+  const close = () => {
+    setEditing(false);
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
   /*
    * #423 — there is deliberately NO PopoverParentAnchor here.
    *
@@ -1057,8 +1065,12 @@ function DateFilterInput({
   return (
     <span className={cn('relative', fill ? 'block w-full min-w-0' : 'inline-block')}>
       <button
+        ref={buttonRef}
         type="button"
         className={cn(boxed, !value && 'text-muted', fill && 'flex items-center justify-between gap-2 text-left')}
+        aria-haspopup="dialog"
+        aria-expanded={editing}
+        aria-label={value ? `Date: ${value}. Change date` : 'Pick a date'}
         onClick={() => setEditing((v) => !v)}
       >
         <span className="truncate">{value ? (/^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value) : fill ? 'Pick a date…' : 'pick date…'}</span>
@@ -1069,9 +1081,9 @@ function DateFilterInput({
           value={value}
           onCommit={(v) => {
             onChange(v);
-            setEditing(false);
+            close();
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={close}
         />
       )}
     </span>
@@ -1086,7 +1098,7 @@ function DateFilterInput({
  * `kind`/`amount` are the mid-edit draft: a blank or invalid amount stores '' (an unfinished condition, dashed, never applied)
  * rather than keeping a stale token the person can no longer see.
  */
-function DateOperandEditor({
+export function DateOperandEditor({
   value,
   boxed,
   fill = false,
@@ -1115,6 +1127,12 @@ function DateOperandEditor({
   }, [value]);
 
   const parts = splitKind(kind);
+  const hintId = useId();
+  // #1155 — a blank amount, or one past the API's 9999 days, is an unfinished condition (value ''): say so to a screen reader
+  // (aria-invalid + a described-by hint with the allowed range) as well as by the dashed border, so it never rests on colour or style alone.
+  const unit = parts?.unit === 'weeks' ? 'weeks' : 'days';
+  const maxAmount = unit === 'weeks' ? Math.floor(MAX_RELATIVE_DAYS / 7) : MAX_RELATIVE_DAYS;
+  const amountInvalid = Boolean(parts) && value === '';
   function commit(nextKind: RelativeDateKind, nextAmount: string) {
     const p = splitKind(nextKind);
     if (!p) return;
@@ -1122,34 +1140,41 @@ function DateOperandEditor({
     onChange(buildRelativeDate(n, p.unit, p.direction));
   }
 
+  const unitSelect = (
+    <select
+      aria-label="Date unit"
+      className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : 'shrink-0'))}
+      value={kind}
+      onChange={(e) => {
+        const next = e.target.value as RelativeDateKind;
+        setKind(next);
+        if (next === 'date') {
+          onChange('');
+        } else {
+          // Keep a typed amount across a unit switch; start blank (unfinished) rather than inventing a number.
+          commit(next, amount);
+        }
+      }}
+    >
+      {RELATIVE_DATE_KINDS.map((k) => (
+        <option key={k.kind} value={k.kind}>
+          {k.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  // The DOM order IS the visual order (so Tab follows what the eye sees): a relative date reads "3 | days from now" — the number the
+  // person is here to type leads — and an exact date reads "exact date | 2026-07-31". The unit select sits in the SAME slot of both
+  // arrangements (the others are `false` placeholders), so switching kind with the keyboard does not remount it and drop focus.
   return (
     <span className={cn('flex min-w-0 items-center gap-1', fill ? 'w-full' : 'inline-flex')}>
-      <select
-        aria-label="Date kind"
-        className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : 'shrink-0'))}
-        value={kind}
-        onChange={(e) => {
-          const next = e.target.value as RelativeDateKind;
-          setKind(next);
-          if (next === 'date') {
-            onChange('');
-          } else {
-            // Keep a typed amount across a unit switch; start blank (unfinished) rather than inventing a number.
-            commit(next, amount);
-          }
-        }}
-      >
-        {RELATIVE_DATE_KINDS.map((k) => (
-          <option key={k.kind} value={k.kind}>
-            {k.label}
-          </option>
-        ))}
-      </select>
-      {parts ? (
+      {parts && (
         <input
-          aria-label="Amount"
-          // First in the line, so it reads "3 | days from now" — the number the person is here to type leads.
-          className={cn(boxed, 'order-first', fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
+          aria-label={`Amount of ${unit}`}
+          aria-invalid={amountInvalid || undefined}
+          aria-describedby={hintId}
+          className={cn(boxed, fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
           inputMode="numeric"
           placeholder="N"
           value={amount}
@@ -1159,13 +1184,15 @@ function DateOperandEditor({
             commit(kind, digits);
           }}
         />
-      ) : (
-        <DateFilterInput
-          value={parsed ? null : value}
-          boxed={boxed}
-          fill={fill}
-          onChange={(v) => onChange(v ?? '')}
-        />
+      )}
+      {parts && (
+        <span id={hintId} className="sr-only">
+          {amountInvalid ? `Not set yet: enter a whole number of ${unit}, 1 to ${maxAmount}` : `A whole number of ${unit}, 1 to ${maxAmount}`}
+        </span>
+      )}
+      {unitSelect}
+      {!parts && (
+        <DateFilterInput value={parsed ? null : value} boxed={boxed} fill={fill} onChange={(v) => onChange(v ?? '')} />
       )}
     </span>
   );
@@ -1438,6 +1465,26 @@ export function FiltersSection({
     setOpen(false);
   }
 
+  // #1155 — the panel had NO keyboard way out: Escape did nothing (it is a hand-rolled backdrop, not Radix), so a keyboard user who opened
+  // it could only leave by Tabbing past it with it still open over the page. Same rule as the Sort panel (#1118): a Radix menu or the date
+  // picker open inside it has already claimed this Escape to close itself (defaultPrevented) and the panel stays open under it; a native
+  // select's popup swallows its own Escape. A keyboard drag of a row owns Escape too (dnd-kit cancels the lift) — its handle is the one
+  // element marked aria-pressed while lifted. Otherwise claim it (so a record page behind does not also close, #834), close, and give
+  // focus back to the Filter button.
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('.phone-sheet [aria-roledescription][aria-pressed="true"]')) return;
+      e.preventDefault();
+      closeBuilder();
+      filterButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
   return (
     <>
       {visibleLeaves.map((leaf) => {
@@ -1456,6 +1503,7 @@ export function FiltersSection({
       })}
       <span className="relative">
         <button
+          ref={filterButtonRef}
           type="button"
           onClick={() => (open ? closeBuilder() : openBuilder())}
           aria-label={
