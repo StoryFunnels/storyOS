@@ -159,12 +159,14 @@ describe('the space page wiring (#1094)', () => {
   const dialog = read('../components/pack-install-dialog.tsx');
   const sidebar = read('../components/sidebar.tsx');
 
-  it('sends the target space on BOTH preview and install, so the review cannot disagree with the install', () => {
-    expect(dialog.match(/target_space_id: target\.id/g)?.length).toBe(2);
+  it('sends the target space on EVERY request: the preview, the what-if preview (#1149) and the install, so none can disagree', () => {
+    expect(dialog.match(/target_space_id: target\.id/g)?.length).toBe(3);
   });
   it('shows the server refusal text verbatim, not a generic error (the 409 names the database and the space)', () => {
     expect(dialog).toContain("apiErrorMessage(preview.error, 'This pack cannot be installed into this space.')");
-    expect(dialog).toContain('target ? apiErrorMessage(e,');
+    // #1149: a refused reuse (422) says why in its own words too, so the condition also covers a reuse the person picked.
+    expect(dialog).toContain('target || Object.keys(picked).length > 0');
+    expect(dialog).toContain('? apiErrorMessage(e,');
   });
   it('installs the pack INTO the space the page is showing', () => {
     expect(page).toMatch(/<InstallDialog[\s\S]*target=\{\{ id: space\.id, name: space\.name \}\}/);
