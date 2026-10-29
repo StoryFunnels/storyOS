@@ -1224,7 +1224,7 @@ describe('collisions (#161)', () => {
     // A database the pack did NOT make — an ordinary user action.
     await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
     await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
-      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json().find((s: { name: string }) => s.name === 'Sales').id, // #1156: a pack matches only within ITS space
       name: 'Leads',
     });
 
@@ -1239,7 +1239,7 @@ describe('collisions (#161)', () => {
     const wsId = await newWorkspace('Collision Unresolved');
     await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
     await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
-      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json().find((s: { name: string }) => s.name === 'Sales').id, // #1156: a pack matches only within ITS space
       name: 'Leads',
     });
 
@@ -1252,7 +1252,7 @@ describe('collisions (#161)', () => {
     await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
     const preexisting = (
       await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
-        space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+        space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json().find((s: { name: string }) => s.name === 'Sales').id, // #1156: a pack matches only within ITS space
         name: 'Leads',
       })
     ).json().id as string;
@@ -1273,7 +1273,7 @@ describe('collisions (#161)', () => {
     const wsId = await newWorkspace('Collision Rename Refused');
     await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
     await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
-      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json().find((s: { name: string }) => s.name === 'Sales').id, // #1156: a pack matches only within ITS space
       name: 'Leads',
     });
 
@@ -1640,11 +1640,19 @@ describe('#568 pack install: a reused database\'s missing option is a skip, not 
 
     await installOk(wsId, agency.manifest);
 
-    const preview = await previewOk(wsId, consulting.manifest);
+    // #1156 — a pack matches databases only within ITS OWN space, so Consulting OS adopts Agency OS's Clients only when it is installed
+    // where Clients already is. (Installed into its own space it now creates its own Clients: see pack-install-name-scope.test.ts.)
+    const agencyClientsSpace = (agency.manifest.databases.find((d) => d.name === 'Clients') as { space: string }).space;
+    const consultingManifest = {
+      ...consulting.manifest,
+      databases: consulting.manifest.databases.map((d) => ({ ...d, space: agencyClientsSpace })),
+    } as PackManifest;
+
+    const preview = await previewOk(wsId, consultingManifest);
     const clients = preview.databases.find((d: { name: string }) => d.name === 'Clients');
     expect(clients?.action, 'Clients must collide — that is the whole scenario').toBe('collision');
 
-    const res = await installWith(wsId, consulting.manifest, { Clients: { action: 'reuse' } });
+    const res = await installWith(wsId, consultingManifest, { Clients: { action: 'reuse' } });
     expect(res.statusCode, res.body).toBe(201); // NOT a 422
     const result = res.json();
 

@@ -1089,9 +1089,10 @@ export class PacksService {
    *  - Not a PERSONAL space: a personal space holds documents and views only, never databases (personal-space.md).
    *  - A manifest whose databases sit in more than one space is refused: "everything lands in the target" would flatten a structure
    *    the pack chose on purpose, and picking which space the target stands in for would be a guess.
-   *  - Install reuses a database by NAME anywhere in the workspace, so a manifest database that already lives in a DIFFERENT space
-   *    would be reused where it is and leave the target space without it: exactly the dead end this exists to remove. Refused (409)
-   *    naming where it lives, rather than reported as success. In the target space itself it is simply reused (idempotent).
+   *  - A manifest database of the same name in a DIFFERENT space is no business of this install (#1156): it used to be reused where it
+   *    lived, which left the target space without it, so #1095 refused it (409). Matching is now scoped to the target space, so the pack
+   *    simply creates its own here and the refusal is gone. In the target space itself a same-named database is reused if this pack put
+   *    it there (idempotent) and is a collision needing a decision if it did not (`computeCollisions`).
    */
   private async resolveTargetSpace(
     membership: Membership,
@@ -1108,17 +1109,6 @@ export class PacksService {
       const names = [...new Set(manifest.databases.map((d) => d.space))].join(', ');
       throw new UnprocessableEntityException(
         `"${manifest.name}" places its databases in ${planned.length} spaces (${names}), so it cannot be installed into one existing space. Install it without choosing a space.`,
-      );
-    }
-    const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
-    const live = await this.databases.list(membership);
-    const elsewhere = manifest.databases
-      .map((planned) => ({ planned, found: live.find((d) => norm(d.name) === norm(planned.name)) }))
-      .filter((x) => x.found && x.found.spaceId !== targetSpaceId);
-    if (elsewhere.length > 0) {
-      const where = elsewhere.map((x) => `"${x.planned.name}" (in ${spaceNames.get(x.found!.spaceId) ?? 'another space'})`).join(', ');
-      throw new ConflictException(
-        `${where} already exist${elsewhere.length === 1 ? 's' : ''} in this workspace outside "${space.name}", and installing reuses what exists by name, which would leave this space without ${elsewhere.length === 1 ? 'it' : 'them'}. Open the existing ${elsewhere.length === 1 ? 'database' : 'databases'} instead, or rename ${elsewhere.length === 1 ? 'it' : 'them'} first.`,
       );
     }
     return { id: space.id, name: space.name };
@@ -1147,7 +1137,7 @@ export class PacksService {
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
-    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId);
     // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
     const turnedOn = this.labelSet(enableAutomations);
     const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
@@ -1172,6 +1162,7 @@ export class PacksService {
   private async computeCollisions(
     membership: Membership,
     manifest: PackManifest,
+    targetSpaceId?: string,
   ): Promise<{
     databases: PackPreviewItem[];
     views: PackPreviewItem[];
@@ -1193,8 +1184,14 @@ export class PacksService {
       return tracked?.[kind].has(norm(label)) ? 'reuse' : 'collision';
     };
 
-    const liveDbs = await this.databases.list(membership);
-    const liveByName = new Map(liveDbs.map((d) => [norm(d.name), d]));
+    // #1156 — a planned database is matched only among the databases of the space it goes into (see `homeSpaceMatcher`), exactly as
+    // `ArchitectService.buildDatabases` does for the install, so this never reports a collision with a database the install would not touch.
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined);
+    const liveByName = new Map<string, NonNullable<ReturnType<typeof inHomeSpace>>>();
+    for (const d of manifest.databases) {
+      const found = inHomeSpace(d.name, d.space);
+      if (found) liveByName.set(norm(d.name), found);
+    }
 
     const databases: PackPreviewItem[] = manifest.databases.map((d) => ({
       name: d.name,
@@ -1619,7 +1616,7 @@ export class PacksService {
     const unmet = await this.checkRequirements(membership, manifest);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
-    const collisions = await this.computeCollisions(membership, manifest);
+    const collisions = await this.computeCollisions(membership, manifest, targetSpace?.id);
     const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
@@ -1638,7 +1635,7 @@ export class PacksService {
       // Databases, fields, relations, states, agents and bindings — all of it,
       // through the walk #214 already ships. Nothing about that walk is
       // reimplemented, adapted or wrapped here.
-      const built = await this.architect.build(membership, working, { targetSpace, progress: ledger.built });
+      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, progress: ledger.built });
 
       const result: PackInstallResult = {
         slug: manifest.slug,
@@ -2193,11 +2190,17 @@ export class PacksService {
     const removed: PackUninstallResult['removed'] = [];
     const kept: PackUninstallResult['kept'] = [];
     const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
+    // #1156 — a view or automation belongs to the database THIS install tracked, found by id. Looking it up by name alone takes the first
+    // database of that name in the workspace, which with two "Issues" in different spaces is not necessarily the pack's: its views were
+    // then skipped as "already gone". Name stays only as the fallback for a database the install never tracked.
+    const liveDbIds = new Set((await this.databases.list(membership)).map((d) => d.id));
+    const trackedDbByName = new Map(items.filter((i) => i.kind === 'database' && liveDbIds.has(i.entityId)).map((i) => [norm(i.name), i.entityId] as const));
+    const dbIdFor = async (name: string) => trackedDbByName.get(norm(name)) ?? (await this.findDbIdByName(membership, name));
 
     for (const item of items) {
       if (item.kind === 'view') {
         const database = item.name.split('.')[0] ?? item.name;
-        const dbId = await this.findDbIdByName(membership, database);
+        const dbId = await dbIdFor(database);
         const live = dbId ? await this.findLiveView(membership, dbId, item.entityId) : undefined;
         if (!live) continue; // already gone — nothing to remove or keep
         // Belt-and-braces: `installViews` no longer tracks a database's
@@ -2222,7 +2225,7 @@ export class PacksService {
         removed.push({ kind: 'view', name: item.name, id: item.entityId });
       } else if (item.kind === 'automation') {
         const database = item.name.split('.')[0] ?? item.name;
-        const dbId = await this.findDbIdByName(membership, database);
+        const dbId = await dbIdFor(database);
         const live = dbId ? await this.findLiveAutomation(dbId, item.entityId) : undefined;
         if (!live) continue;
         const projection = {

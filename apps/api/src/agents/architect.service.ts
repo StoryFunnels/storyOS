@@ -174,6 +174,13 @@ export class ArchitectService {
     options: {
       targetSpace?: { id: string; name: string };
       /**
+       * #1156 — match each planned database only among the databases of the space it is going into (the target space, else the space
+       * its plan names), never workspace-wide. A pack install sets this: a pack is its own space's content, and a database of the same
+       * name in some other space is somebody else's, not "already installed". Left off, a plan keeps reusing by name anywhere — that is
+       * the reviewed "reuse my Leads database" an agent-proposed plan carries.
+       */
+      scopeToHomeSpace?: boolean;
+      /**
        * #1112 — filled IN PLACE as the build creates things, so a caller still holds the partial ledger when the build throws partway.
        * Without it the result only exists once the whole build has returned, and a failure leaves the caller no way to know what the
        * build had already created.
@@ -217,7 +224,7 @@ export class ArchitectService {
     const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
-    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace);
+    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace, options.scopeToHomeSpace);
     await this.buildRelations(membership, plan, dbIds, result);
     await this.buildStates(membership, plan, dbIds, result);
     const agentIds = await this.buildAgents(membership, plan, agentOs?.agentsDb.id ?? '', dbIds, result);
@@ -259,6 +266,22 @@ export class ArchitectService {
     return created.id;
   }
 
+  /**
+   * #1156 — "the live database a pack's planned database is", looked for ONLY in the space it goes into: the target space when the
+   * caller chose one (#1095), otherwise the existing space named `plannedSpace` (the space `ensureSpace` would reuse). A space that does
+   * not exist yet holds nothing, so nothing matches and the database is created. Shared by `buildDatabases` and the pack preview, so what
+   * preview reports is what install does.
+   */
+  async homeSpaceMatcher(membership: Membership, targetSpace?: { id: string }) {
+    const live = await this.databases.list(membership);
+    const spaces = targetSpace ? [] : await this.spaces.list(membership);
+    return (plannedName: string, plannedSpace: string) => {
+      const spaceId = targetSpace?.id ?? spaces.find((s) => norm(s.name) === norm(plannedSpace))?.id;
+      if (!spaceId) return undefined;
+      return live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName));
+    };
+  }
+
   /** Add a planned field unless one of that display name is already there. */
   private async ensureField(
     membership: Membership,
@@ -293,13 +316,15 @@ export class ArchitectService {
     plan: ArchitectPlan,
     result: ArchitectBuildResult,
     targetSpace?: { id: string; name: string },
+    scopeToHomeSpace = false,
   ): Promise<Map<string, string>> {
     const live = await this.databases.list(membership);
     const byName = new Map(live.map((d) => [norm(d.name), d]));
+    const inHomeSpace = scopeToHomeSpace ? await this.homeSpaceMatcher(membership, targetSpace) : undefined;
     const ids = new Map<string, string>();
 
     for (const planned of plan.databases) {
-      const existing = byName.get(norm(planned.name));
+      const existing = inHomeSpace ? inHomeSpace(planned.name, planned.space) : byName.get(norm(planned.name));
 
       if (planned.action === 'reuse' && !existing) {
         // The plan was written against a workspace that no longer looks like
