@@ -14,8 +14,10 @@ Token groups, by name (`globals.css` for values):
 - **Text** — `--text-primary`, `--text-secondary`, `--text-muted`, `--text-faint`, `--text-on-dark`.
 - **Borders** — `--border-default`, `--border-strong` (1px, everywhere, instead of shadows for most surface separation — shadows are reserved for floating elements, see Elevation below).
 - **Code surfaces** — `--bg-code`, `--border-code` (ticket #338): cool slate-blue against the warm page, so code reads as a distinct technical register without becoming a black slab.
-- **Brand & actions** — `--primary`, `--primary-hover`, `--accent`, `--accent-hover`, `--accent-soft`.
-- **Status** — `--success`, `--error`, `--warning`, `--info`.
+- **Brand & actions** — `--primary`, `--primary-hover`, `--primary-text`, `--accent`, `--accent-hover`, `--accent-soft`, `--accent-text`.
+- **Status** — `--success`, `--error`, `--warning`, `--warning-text`, `--info`.
+
+**Gold marks agents (#1163).** `--accent*` is for where agents live, who they are, what they are doing and what they are asking of you — nothing else. Selection, favourites, toggles, human tasks and setup nudges use the neutral tokens (`--bg-active`, `--primary-text`, `--primary` + `--text-on-dark`). `gold-agents-only.unit.test.ts` allow-lists the agent files by path and count. Filled shapes carrying white text use `--primary` + `--text-on-dark`; `--primary-text` is for text, glyphs, outlines and thin lines (white on dark `--primary-text` is ~2.7:1). A switch track is `--primary-text` with a `--bg-card` knob. `--warning` is a fill/icon colour; warning TEXT is `--warning-text` (#1164), and `--accent-text` clears 4.5:1 on every background token (#1165).
 
 31 of these are redeclared under `:root[data-theme='dark']` — see [Dark mode](#dark-mode) below.
 

@@ -252,7 +252,7 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
     action === 'collision'
       ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning-text,#92400e)]'
       : action === 'create'
-        ? 'bg-primary text-on-dark'
+        ? 'bg-primary text-[var(--text-on-dark)]'
         : 'bg-hover text-muted';
   const label =
     action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';

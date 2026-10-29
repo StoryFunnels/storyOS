@@ -179,3 +179,28 @@ describe('gold only where an agent acts', () => {
     expect(drift).toEqual([]);
   });
 });
+
+/**
+ * The neutral replacements must be REAL utilities. `text-on-dark` was first written as a utility, passed this file's
+ * scan, and rendered an invisible label: Tailwind only knows the `--color-*` aliases of the @theme block, and
+ * `--text-on-dark` has none (it is `text-[var(--text-on-dark)]`). A scan that proves what is absent cannot prove the
+ * replacement exists, so the aliases are read out of the stylesheet and the bare form is flagged.
+ */
+describe('the neutral utilities the moves rely on are declared @theme colours', () => {
+  const aliases = new Set([...css.matchAll(/--color-([a-z0-9-]+)\s*:/g)].map((m) => m[1]!));
+  const NEUTRAL = ['primary-text', 'active', 'hover', 'hover-soft', 'border-strong', 'border-default', 'primary', 'warning-text', 'card', 'ink'];
+  const bare = /(?:^|[\s'"`:!])(?:text|bg|border)-on-dark(?![\w-])/;
+  it('declares the aliases the moves rely on', () => {
+    for (const n of NEUTRAL) expect(aliases.has(n), n).toBe(true);
+  });
+  it('flags a bare text-on-dark utility (it has no alias; it is text-[var(--text-on-dark)])', () => {
+    expect(bare.test('className="bg-primary text-on-dark"')).toBe(true);
+    expect(bare.test('className="bg-primary text-[var(--text-on-dark)]"')).toBe(false);
+  });
+  it('no source file uses the bare form', () => {
+    const offenders = walk(SRC)
+      .filter((f) => /\.tsx?$/.test(f) && bare.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(SRC, f));
+    expect(offenders).toEqual([]);
+  });
+});

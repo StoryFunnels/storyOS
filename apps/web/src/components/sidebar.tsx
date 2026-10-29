@@ -822,7 +822,7 @@ function RailButton({
         {children}
         <RailName>{title}</RailName>
         {badge && (
-          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-on-dark">
+          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
             {badge}
           </span>
         )}

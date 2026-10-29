@@ -134,7 +134,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
             className={cn(
               'flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-micro font-bold tabular-nums',
               // #1163 — gold counts AGENT work waiting on you; a setup nudge or an update count is not that.
-              agentBadge ? 'bg-accent text-on-accent' : 'bg-primary text-on-dark',
+              agentBadge ? 'bg-accent text-on-accent' : 'bg-primary text-[var(--text-on-dark)]',
             )}
           >
             {count}

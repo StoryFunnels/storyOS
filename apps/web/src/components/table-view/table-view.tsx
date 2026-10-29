@@ -1353,7 +1353,7 @@ export function TableView({
                           <Check
                             aria-hidden
                             strokeWidth={3}
-                            className="pointer-events-none absolute inset-0 h-3 w-3 text-on-dark opacity-0 peer-checked:opacity-100"
+                            className="pointer-events-none absolute inset-0 h-3 w-3 text-[var(--text-on-dark)] opacity-0 peer-checked:opacity-100"
                           />
                         </span>
                       )}
