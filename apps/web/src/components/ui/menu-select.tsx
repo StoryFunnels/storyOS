@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export interface MenuOption {
@@ -18,12 +19,25 @@ const TRIGGER =
  * current item, a themed list with a check on it. Replaces the native `<select>` whose popup
  * ignored the theme and listed every option in the system's font.
  */
-export function MenuSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: MenuOption[] }) {
+export function MenuSelect({
+  label,
+  value,
+  onChange,
+  options,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: MenuOption[];
+  /** #1118 — size only (a row that must share its width with siblings); the look stays this component's. */
+  className?: string;
+}) {
   const current = options.find((o) => o.value === value) ?? options[0];
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={TRIGGER} aria-label={label}>
+        <button type="button" className={cn(TRIGGER, className)} aria-label={label}>
           <span className="min-w-0 flex-1 truncate text-left">{current?.label ?? '—'}</span>
           <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
         </button>
