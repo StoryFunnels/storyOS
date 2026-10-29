@@ -982,17 +982,20 @@ export function OptionChipSet({
   selected,
   onChange,
   unfinished,
+  label = 'Values',
 }: {
   options: Array<{ id: string; label: string; icon?: string | null; color?: string }>;
   selected: string[];
   onChange: (ids: string[]) => void;
   unfinished?: boolean;
+  /** The group's accessible name: a screen reader says what the chips ARE ("State categories"), not just "Values". */
+  label?: string;
 }) {
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   }
   return (
-    <div role="group" aria-label="Values" className="flex min-w-0 flex-wrap gap-1">
+    <div role="group" aria-label={label} className="flex min-w-0 flex-wrap gap-1">
       {options.map((option) => {
         const on = selected.includes(option.id);
         const tint = option.color ? OPTION_COLORS[option.color] : undefined;
@@ -2018,7 +2021,8 @@ function ConditionRow({
         </select>
         <select
           aria-label="Operator"
-          className={cn(FILTER_CTL, 'w-[100px] shrink-0 !text-muted', unfinishedCtl(unfinished), dim)}
+          className={cn(FILTER_CTL, // #1159 — "is not in category" is longer than the other operators and would clip at the 100px every one of them fits in.
+            activeOp.input === 'categories' ? 'w-[132px]' : 'w-[100px]', 'shrink-0 !text-muted', unfinishedCtl(unfinished), dim)}
           value={condition.op}
           onChange={(e) => {
             const nextOp = ops.find((o) => o.op === e.target.value)!;
@@ -2094,6 +2098,7 @@ function ConditionRow({
             selected={activeOp.input === 'categories' ? parseCategoryValue(condition.value).categories : Array.isArray(condition.value) ? (condition.value as string[]) : []}
             onChange={(ids) => onChange({ ...condition, value: activeOp.input === 'categories' ? normalizeCategories(ids) : ids })}
             unfinished={unfinished}
+            label={activeOp.input === 'categories' ? 'State categories' : undefined}
           />
         </div>
       )}

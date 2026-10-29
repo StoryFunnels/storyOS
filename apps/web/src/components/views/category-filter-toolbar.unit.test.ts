@@ -86,6 +86,21 @@ describe('the chip / row label (describeCondition)', () => {
   });
 });
 
+describe('accessible names', () => {
+  it('the chip group says what the chips are, each chip carries its pressed state, and the default stays "Values"', async () => {
+    const { OptionChipSet } = await import('./view-toolbar');
+    const { CATEGORY_CHOICES } = await import('./category-filter');
+    const html = render(
+      createElement(OptionChipSet, { options: CATEGORY_CHOICES, selected: ['completed'], onChange: () => {}, label: 'State categories' }),
+    );
+    expect(html).toContain('aria-label="State categories"');
+    expect(html).toMatch(/aria-pressed="true"[^>]*>(?:(?!<button).)*Done/);
+    expect(html.match(/aria-pressed="false"/g)).toHaveLength(4);
+    const plain = render(createElement(OptionChipSet, { options: CATEGORY_CHOICES, selected: [], onChange: () => {} }));
+    expect(plain).toContain('aria-label="Values"');
+  });
+});
+
 describe('the value control', () => {
   const activeOp = { op: 'category_is', label: 'is in category', input: 'categories' };
 
