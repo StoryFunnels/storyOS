@@ -71,8 +71,8 @@
   --c7: #c9701f;
   --c8: #9a7b4f;
   /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
-     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened. */
-  --accent-text: #8a6700;
+     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened. #1165: #8a6700 -> #7d5d00 (same 45° hue and saturation, lightness 27% -> 25%) so it also clears 4.5:1 on --bg-active (4.64:1, the lowest). */
+  --accent-text: #7d5d00;
   /* #967 — text ON a gold fill (a count badge): 6.65:1 on --accent, where the off-white --text-on-dark is ~2.2:1. */
   --text-on-accent: #2a2205;
 

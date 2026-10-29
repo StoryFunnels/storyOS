@@ -68,7 +68,7 @@ describe.each([
   it('finds the real surface set', () => {
     expect(surfaces(theme)).toEqual(expect.arrayContaining(['--bg-app', '--bg-sidebar', '--bg-card', '--bg-hover', '--bg-active', '--accent-soft']));
   });
-  it.each(['--warning-text'])('%s', (token) => {
+  it.each(['--warning-text', '--accent-text'])('%s', (token) => {
     const fg = resolve(theme, token);
     const failing = surfaces(theme)
       .map((s) => [s, ratio(fg, resolve(theme, s))] as const)
