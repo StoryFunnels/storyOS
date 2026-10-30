@@ -1006,7 +1006,7 @@ function RuleEditor({
                   key={conditionOp}
                   nativeDate
                   value={conditionValue || null}
-                  boxed="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-label text-ink outline-none focus-visible:border-accent"
+                  boxed="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-label text-ink"
                   onChange={(v) => setConditionValue(v ?? '')}
                 />
               ) : (
