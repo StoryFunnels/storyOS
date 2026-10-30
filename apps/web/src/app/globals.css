@@ -108,9 +108,6 @@
   /* Warning TEXT: #994000 (hue 25°), 5.17:1 or better on every light bg token (lowest on --bg-active). CIEDE2000 18.7 from
      agent gold --accent-text and 13.5 from --error. */
   --warning-text: #994000;
-  /* #1170 — the soft tint behind warning text (the pack-install "Name collision" badge): 14% of the --warning fill over the
-     card, so it follows Dara's hue instead of a pastel. --warning-text on it: 5.71:1 over --bg-card, 5.37:1 over --bg-app. */
-  --warning-soft: color-mix(in srgb, var(--warning) 14%, var(--bg-card));
   --info: #3d5296;
 
   /* Dashboard chart categorical palette (MN-225 / #168, Phase 2). Eight hues
@@ -355,9 +352,6 @@
   /* Warning TEXT in dark: #ff8a2a (hue 28°), 5.64:1 or better on every dark bg token (lowest on --bg-active). CIEDE2000 19.7
      from agent gold, 19.1 from --error. Fill #e8893a: 5.11:1 or better. */
   --warning-text: #ff8a2a;
-  /* #1170 — dark tint: the same 14% of the lifted fill over the dark card = a low-key amber, not a #fef3c7 pastel.
-     --warning-text on it: 5.93:1. */
-  --warning-soft: color-mix(in srgb, var(--warning) 14%, var(--bg-card));
   --info: #7a92d6;
 
   /* Chart palette — lifted for contrast on the darker canvas (MN-225 / #168). */

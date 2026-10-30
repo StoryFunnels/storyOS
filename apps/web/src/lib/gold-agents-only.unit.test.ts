@@ -66,9 +66,9 @@ export const AGENT_GOLD: Record<string, number> = {
   // Tyron: the agent avatar badge, the working pulse dot, send-to-Tyron, the build starters, the full-screen exit chip,
   // the panel's resize handle (a Tyron surface)
   'components/tyron/agent-avatar.tsx': 3, // border, tint, glyph of the agent badge
-  'components/tyron/tyron-conversation.tsx': 3, // the pulse dot, the send button, + the --text-on-accent label on a gold button (#1168)
-  'components/tyron/starter-cards.tsx': 2, // + the --text-on-accent label on its gold button (#1168)
-  'components/tyron/workspace-build.tsx': 2, // + the --text-on-accent label on its gold button (#1168)
+  'components/tyron/tyron-conversation.tsx': 3, // the pulse dot, the send button fill and its --text-on-accent label (#1353)
+  'components/tyron/starter-cards.tsx': 2, // the gold action button: fill + --text-on-accent label (#1353)
+  'components/tyron/workspace-build.tsx': 2, // the gold action button: fill + --text-on-accent label (#1353)
   'components/tyron/tyron-panel.tsx': 4, // resize handle hover + drag, the full-screen exit chip (tint + glyph)
   // The AI section: header label, the row icon, the Bot glyph, and the badge's gold branch (agent work waiting on you)
   'components/sidebar-ai-section.tsx': 5,
