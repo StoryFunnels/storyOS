@@ -1229,7 +1229,7 @@ export function DateOperandEditor({
           ))}
       </span>
       {parts && (
-        <span id={hintId} className={tooLarge ? 'text-micro text-warning' : 'sr-only'}>
+        <span id={hintId} className={tooLarge ? 'text-micro text-warning-text' : 'sr-only'}>
           {hintText}
         </span>
       )}
