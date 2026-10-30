@@ -107,6 +107,23 @@ If you keep yours, the rest of the agent is still brought up to date when you ha
 exported agent names. If an exported agent names a skill you cannot see, the export is refused (422)
 and names it.
 
+## Views, and the one a database opens on
+
+A manifest's `views` list creates views on its databases. Each entry names its `database`, a `name`, a
+`type` and a `config`. A view may also carry `default: true`, which makes it the view its database
+opens on instead of the plain **All records** list.
+
+- **Only for a database the install creates.** A database that already existed keeps the default view it
+  has, and `default` is not applied to it.
+- **Only for a view the install creates.** A view that already exists is not re-pointed.
+- **One default per database.** If a manifest marks two views of one database, the later one is the one
+  the database opens on.
+- **Optional.** Leaving it out changes nothing, so existing manifests are unaffected.
+- **Uninstalling never removes it**, because a database's default view is never removed (see
+  [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack)).
+
+The built-in [Team Board](/guides/team-board-pack/) pack uses it to make its Board the view Tasks opens on.
+
 ## Automations that send things out install switched off
 
 An automation whose actions leave the workspace or start an agent installs **switched off**, whatever
