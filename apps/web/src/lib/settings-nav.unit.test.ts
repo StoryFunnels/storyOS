@@ -13,13 +13,13 @@ describe('workspace settings nav by role (ticket #875)', () => {
   });
   it('an ADMIN keeps everything, Integrations included; #967 moved Connect your AI to just after Members', () => {
     expect(labels('admin', true)).toEqual([
-      'General', 'Members', 'Connect your AI', 'Billing', 'Integrations', 'API tokens', 'Export', 'Trash', 'Audit log', 'Governance',
+      'General', 'Members', 'Connect your AI', 'Runners', 'Billing', 'Integrations', 'API tokens', 'Export', 'Trash', 'Audit log', 'Governance',
     ]);
   });
   it('#967: Connect your AI sits right after Members for an admin, and right after General for a member', () => {
     const admin = labels('admin', true);
     expect(admin.indexOf('Connect your AI')).toBe(admin.indexOf('Members') + 1);
-    expect(labels('member')).toEqual(['General', 'Connect your AI', 'API tokens']);
+    expect(labels('member')).toEqual(['General', 'Connect your AI', 'Runners', 'API tokens']);
   });
   it('a GUEST sees neither Connect your AI nor API tokens nor Integrations (matches the credential they cannot mint)', () => {
     const l = labels('guest');
@@ -32,6 +32,12 @@ describe('workspace settings nav by role (ticket #875)', () => {
     for (const role of ['admin', 'member', 'guest', 'editor', 'viewer']) {
       expect(labels(role).includes('Connect your AI'), role).toBe(labels(role).includes('API tokens'));
     }
+  });
+  it('Runners (ticket #1139) is for members and admins: a guest holds no Runner and is not shown the link', () => {
+    expect(labels('admin', true)).toContain('Runners');
+    expect(labels('member')).toContain('Runners');
+    expect(labels('guest')).not.toContain('Runners');
+    expect(labels('admin', true).indexOf('Runners')).toBe(labels('admin', true).indexOf('Connect your AI') + 1);
   });
   it('the screen itself refuses a guest who types the URL, and nobody else', () => {
     expect(canConnectAi('guest')).toBe(false);

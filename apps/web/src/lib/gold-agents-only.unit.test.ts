@@ -81,6 +81,9 @@ export const AGENT_GOLD: Record<string, number> = {
   // Skills: "Written by an agent or an MCP client" and the agent tag. (The YOU tag is a human: neutral.)
   'components/skills/skill-bits.tsx': 2, // tint + label of "Written by an agent or an MCP client"
   'components/skills/skill-editor.tsx': 2, // the agent tag (tint + label)
+  // Runner screens (ticket #1139): the status dot and label of a run. Gold ONLY for `go` (an agent running: label, dot, the pulse halo)
+  // and `ask` (an agent waiting for your approval: label, dot). `status.ts` pins that no other tone is gold.
+  'components/runners/status-mark.tsx': 5,
   // The change-log badge for source != human (agent / automation / mcp)
   'components/entity/record-history.tsx': 2,
 };

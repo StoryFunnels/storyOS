@@ -41,6 +41,8 @@ export function workspaceSettingsLinks(base: string, flags: SettingsNavFlags): A
     // #967 — its permanent home, right after Members (the sidebar row is only an invitation until the first AI
     // connects, then it disappears). Own route and the API-tokens gate from #875; Integrations is NOT relaxed for it.
     ...(canEdit ? [{ href: `${base}/connect-ai`, label: 'Connect your AI' }] : []),
+    // ticket #1139 — right after it: where hired agents get their AI from. Same gate (members and admins; a guest holds no Runner).
+    ...(canEdit ? [{ href: `${base}/runners`, label: 'Runners' }] : []),
     ...(isAdmin && billingEnabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),

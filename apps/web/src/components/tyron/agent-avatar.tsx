@@ -36,11 +36,11 @@ export function AgentAvatar({
 }: {
   /** The agent's name — used for the accessible label, never rendered as initials. */
   name: string;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   className?: string;
 }) {
-  const px = size === 'sm' ? 'h-5 w-5' : 'h-7 w-7';
-  const glyph = size === 'sm' ? 'h-3 w-3' : 'h-4 w-4';
+  const px = size === 'sm' ? 'h-5 w-5' : size === 'lg' ? 'h-10 w-10' : 'h-7 w-7';
+  const glyph = size === 'sm' ? 'h-3 w-3' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4';
   return (
     <span
       // "agent" is in the label because a screen reader gets none of the visual
