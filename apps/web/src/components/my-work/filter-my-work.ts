@@ -1,6 +1,8 @@
 import { resolveSampleDate } from '@storyos/schemas';
 import { isFilterGroup, nodeChildren, nodeConnector } from '@/components/views/filter-config';
 import type { FilterGroup, FilterNode } from '@/components/views/filter-config';
+import { isCategoryOp, matchesCategory } from '@/components/views/category-filter';
+import type { StateCategory } from '@storyos/schemas';
 
 /**
  * MN-297: My Work's client-side filter evaluator — a plain `.ts` module (not
@@ -98,23 +100,54 @@ function matchOne(value: unknown, op: string, target: unknown): boolean {
  * leaf (MN-253 UI) contributes no opinion (`undefined`), same as it dropping out
  * of activeFilterNode for saved views. `undefined` propagates up through an empty
  * group exactly like an empty filter — "no verdict" reads as "don't exclude". */
-function evaluateNode(node: FilterNode, values: Record<string, unknown>): boolean | undefined {
+function evaluateNode(
+  node: FilterNode,
+  values: Record<string, unknown>,
+  categories: CategoryLookup,
+): boolean | undefined {
   if (isFilterGroup(node)) {
     const results = nodeChildren(node)
-      .map((child) => evaluateNode(child, values))
+      .map((child) => evaluateNode(child, values, categories))
       .filter((r): r is boolean => r !== undefined);
     if (results.length === 0) return undefined;
     return nodeConnector(node) === 'or' ? results.some(Boolean) : results.every(Boolean);
   }
   if (node.disabled) return undefined;
+  // #1159 — `category_is` / `category_is_not` ask about the option's STATE CATEGORY, which the record's value (an option id) does not
+  // carry: it comes from the field's own options. Without them (a caller that passed no fields) the condition has no verdict, the same
+  // "don't exclude" an unknown op gets, rather than a guess in either direction.
+  if (isCategoryOp(node.op)) {
+    const byOption = categories[node.field];
+    return byOption ? matchesCategory(node.op, values[node.field], node.value, byOption) : undefined;
+  }
   return matchOne(values[node.field], node.op, node.value);
+}
+
+/** The fields a My Work row was read with, as far as a filter needs them: option id → state category, per field api name. */
+type CategoryLookup = Record<string, Record<string, StateCategory | null | undefined>>;
+export interface MyWorkFilterField {
+  api_name: string;
+  options?: Array<{ id: string; category?: StateCategory | null }>;
+}
+
+function categoryLookup(fields: readonly MyWorkFilterField[] | undefined): CategoryLookup {
+  const lookup: CategoryLookup = {};
+  for (const field of fields ?? []) {
+    if (!field.options) continue;
+    lookup[field.api_name] = Object.fromEntries(field.options.map((o) => [o.id, o.category]));
+  }
+  return lookup;
 }
 
 /** Client-side And/Or filter over the returned records (My Work is a bounded set),
  * supporting nested groups (MN-258) — My Work shares the SAME `FiltersSection`
  * builder + persisted `FilterGroup` shape as saved views, so a group built here
  * must be evaluated with the same and/or nesting the server would apply. */
-export function matchesFilters(values: Record<string, unknown>, config: MyWorkFilterConfig): boolean {
+export function matchesFilters(
+  values: Record<string, unknown>,
+  config: MyWorkFilterConfig,
+  fields?: readonly MyWorkFilterField[],
+): boolean {
   if (!config.filters) return true;
-  return evaluateNode(config.filters, values) ?? true;
+  return evaluateNode(config.filters, values, categoryLookup(fields)) ?? true;
 }

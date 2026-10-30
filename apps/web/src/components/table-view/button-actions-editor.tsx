@@ -18,6 +18,7 @@ import { EntityPickerRow } from '@/components/entity/entity-picker-row';
 import { DbColorMarker, type LinkChip } from './relation-cell';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import { opsForField } from '@/components/views/view-toolbar';
+import { CATEGORY_CHOICES } from '@/components/views/category-filter';
 import type { Field } from './use-table-data';
 import { databaseColor } from '@/lib/entity-color';
 import { RunAgentEditor, type RunAgentAction } from '@/components/automations/run-agent-editor';
@@ -1495,7 +1496,8 @@ function ActionConditionRow({
   const needsValue = Boolean(condition?.op) && !NO_VALUE_ACTION_OPS.has(condition!.op);
 
   /** A select/multi-select/workflow clause stores an array of option ids. */
-  const isOptionInput = op?.input === 'options';
+  // #1159 — a category clause (`category_is`) is one state category in the same one-element array; its choices are the five categories.
+  const isOptionInput = op?.input === 'options' || op?.input === 'categories';
   const valueAsText = Array.isArray(condition?.value)
     ? String(condition!.value[0] ?? '')
     : condition?.value === undefined || condition?.value === null
@@ -1526,7 +1528,7 @@ function ActionConditionRow({
           onChange({
             field: apiName,
             op: firstOp.op,
-            ...(NO_VALUE_ACTION_OPS.has(firstOp.op) ? {} : { value: firstOp.input === 'options' ? [] : '' }),
+            ...(NO_VALUE_ACTION_OPS.has(firstOp.op) ? {} : { value: firstOp.input === 'options' || firstOp.input === 'categories' ? [] : '' }),
           });
         }}
       >
@@ -1548,7 +1550,7 @@ function ActionConditionRow({
             onChange({
               field: condition.field,
               op: nextOp.op,
-              ...(NO_VALUE_ACTION_OPS.has(nextOp.op) ? {} : { value: nextOp.input === 'options' ? [] : '' }),
+              ...(NO_VALUE_ACTION_OPS.has(nextOp.op) ? {} : { value: nextOp.input === 'options' || nextOp.input === 'categories' ? [] : '' }),
             });
           }}
         >
@@ -1567,7 +1569,7 @@ function ActionConditionRow({
           onChange={(e) => setValue(e.target.value)}
         >
           <option value="">choose…</option>
-          {(field?.options ?? []).map((o) => (
+          {(op?.input === 'categories' ? CATEGORY_CHOICES : (field?.options ?? [])).map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
             </option>
