@@ -357,7 +357,7 @@ export default function NewWorkspacePage() {
                 setDescription(e.target.value);
                 if (descriptionError) setDescriptionError(null);
               }}
-              className="min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+              className="min-h-0 w-full resize-none px-2.5 placeholder:text-faint"
             />
             {descriptionError && (
               <p id="description-error" className="text-label text-error">

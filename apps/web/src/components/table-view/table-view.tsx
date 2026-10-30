@@ -900,7 +900,7 @@ export function TableView({
           openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
         }}
         onDoubleClick={(e) => e.stopPropagation()}
-        className="min-w-0 max-w-full truncate rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        className="min-w-0 max-w-full truncate rounded-sm underline-offset-2 hover:underline"
       >
         {isEmptyCellValue(value) ? (
           <span className="text-body font-medium text-faint">Untitled</span>
@@ -1342,7 +1342,6 @@ export function TableView({
                               selected.size > 0
                                 ? 'border-ink/60'
                                 : 'border-faint group-hover:border-ink focus-visible:border-ink',
-                              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
                             )}
                             checked={selected.has(row.id)}
                             onClick={(e) => {
