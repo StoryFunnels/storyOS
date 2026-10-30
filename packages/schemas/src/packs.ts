@@ -211,6 +211,12 @@ export const packViewSchema = z.object({
   name: z.string().min(1).max(100),
   type: viewTypeSchema,
   config: jsonObjectSchema.default({}),
+  /**
+   * #1146 — the view this pack's database OPENS on. Optional, and honoured only for a view this install creates in a database this
+   * install creates: a database that already existed keeps the default it has. A database has exactly one default, so if a manifest
+   * marks two views of one database the later one wins.
+   */
+  default: z.boolean().optional(),
 });
 export type PackView = z.infer<typeof packViewSchema>;
 
