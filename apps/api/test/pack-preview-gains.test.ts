@@ -23,7 +23,8 @@ afterAll(async () => { await app.close(); });
 
 async function workspace(label: string) {
   const ws = (await as('POST', '/workspaces', { name: label })).json().id as string;
-  const space = (await as('GET', `/workspaces/${ws}/spaces`)).json()[0].id as string;
+  // #1156 — a pack matches databases only within the space it installs into, so the "existing" database lives in the space the manifests name.
+  const space = (await as('POST', `/workspaces/${ws}/spaces`, { name: 'Work' })).json().id as string;
   return { ws, space };
 }
 const manifest = (slug: string, version: string, over: Partial<PackManifest> = {}): PackManifest =>
