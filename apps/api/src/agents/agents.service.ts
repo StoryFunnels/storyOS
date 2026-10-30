@@ -22,6 +22,7 @@ import {
   selectOptions,
 } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
+import { spaceCanHoldDatabases } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -458,7 +459,8 @@ export class AgentsService implements OnModuleInit {
 
     const allSpaces = await this.spaces.list(membership);
     const space =
-      allSpaces.find((s) => s.name === 'Agentic OS') ??
+      // Ticket #1173: a personal space is never where the Agentic OS databases go, whatever it is named.
+      allSpaces.find((s) => spaceCanHoldDatabases(s) && s.name === 'Agentic OS') ??
       (await this.spaces.create(membership.workspaceId, { name: 'Agentic OS', icon: '🤖' }));
 
     let agentsDb = existing.agentsDb;

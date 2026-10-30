@@ -3296,7 +3296,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Create a new database (table) in a space. Returns it with its auto-created system fields (id, name). Then shape it with add_field and create_view.',
       inputSchema: {
         workspace: z.string(),
-        space: z.string().describe('Space name or id the database belongs to.'),
+        space: z.string().describe('Space name or id the database belongs to. Never a personal space: those hold documents and views only (422).'),
         name: z.string().describe('Database name, e.g. "Clients".'),
         icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
         color: z.enum(PALETTE).optional().describe(COLOR_PARAM),
@@ -5182,7 +5182,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       inputSchema: {
         workspace: z.string(),
         template: z.string().describe('Template slug from list_templates.'),
-        space: z.string().optional().describe('Target space — required for a database-shaped template.'),
+        space: z.string().optional().describe('Target space, required for a database-shaped template. Never a personal space (documents and views only, 422).'),
         name: z.string().optional().describe('Rename the created database.'),
       },
     },
@@ -5569,7 +5569,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
-        move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
+        move_to_space: z.string().optional().describe('Space name or slug to move the database into. Never a personal space: those hold documents and views only (422).'),
         restricted: z.boolean().optional().describe('Admin only. true = the database is visible only to people holding a grant on it (admins always see it); false = open again. A restricted database inside an open space is not opened by a space grant — it needs its own grant. Not allowed on personal spaces or system databases.'),
       },
     },

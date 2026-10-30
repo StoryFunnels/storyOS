@@ -3,8 +3,9 @@ import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos
 import type { PlanAgent, PlanAgentWriteGate } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
+import { assertSpaceCanHoldDatabases, spaceCanHoldDatabases } from '../access/access.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
-import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
+import { decideField, decideState, isSystemDatabase, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -229,6 +230,12 @@ export class ArchitectService {
     // space and three databases the install never asked for. (#1095 made this so for installs that target a space; this is every
     // install.) Anything that later needs the databases goes through `AgentsService.ensurePack` itself.
     const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
+    // Ticket #1173 — before ANYTHING is written (the Agentic OS pack below is a write): a planned space that names only a personal
+    // space is refused up front, so a refused build leaves nothing behind. `ensureSpace` is the backstop for the same rule.
+    if (!options.targetSpace) {
+      const all = await this.spaces.list(membership);
+      for (const d of plan.databases) this.sharedSpaceNamed(all, d.space);
+    }
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
     const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace, options.scopeToHomeSpace, options.adopt, options.trackedIds);
@@ -248,6 +255,18 @@ export class ArchitectService {
     return detail.fields as unknown as LiveField[];
   }
 
+  /**
+   * Ticket #1173 — the space a planned name refers to, among spaces that CAN hold databases. The caller's own personal space is in
+   * `spaces.list` and is named "Personal", so a name lookup that ignored the flag would land databases there. A name that matches
+   * ONLY a personal space is refused (422), never silently re-homed; one that also matches a shared space resolves to the shared one.
+   */
+  private sharedSpaceNamed<S extends { name: string; personal: boolean | null }>(all: S[], name: string): S | undefined {
+    const sameName = all.filter((s) => norm(s.name) === norm(name));
+    const shared = sameName.find((s) => spaceCanHoldDatabases(s));
+    if (!shared && sameName[0]) assertSpaceCanHoldDatabases(sameName[0]);
+    return shared;
+  }
+
   private async ensureSpace(
     membership: Membership,
     name: string,
@@ -263,7 +282,7 @@ export class ArchitectService {
     if (already) return already.id;
 
     const all = await this.spaces.list(membership);
-    const existing = all.find((s) => norm(s.name) === norm(name));
+    const existing = this.sharedSpaceNamed(all, name);
     if (existing) {
       result.spaces.push({ name, action: 'reused', id: existing.id });
       return existing.id;
@@ -283,12 +302,14 @@ export class ArchitectService {
     const live = await this.databases.list(membership);
     const spaces = targetSpace ? [] : await this.spaces.list(membership);
     return (plannedName: string, plannedSpace: string) => {
-      const spaceId = targetSpace?.id ?? spaces.find((s) => norm(s.name) === norm(plannedSpace))?.id;
+      // #1173 — a personal space is never "the space this planned database goes into" (a pre-guard row in one is not reused as a match).
+      const spaceId = targetSpace?.id ?? spaces.find((s) => spaceCanHoldDatabases(s) && norm(s.name) === norm(plannedSpace))?.id;
       if (!spaceId) return undefined;
       // #1156 — the database this install recorded for that name wins, whatever it is called now; a same-named one is found only after.
       const tracked = trackedIds?.get(norm(plannedName));
-      const own = tracked ? live.find((d) => d.id === tracked && d.spaceId === spaceId) : undefined;
-      return own ?? live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName));
+      const own = tracked ? live.find((d) => d.id === tracked && d.spaceId === spaceId && !isSystemDatabase(d)) : undefined;
+      // #1166 — a system database is never what a pack's database "is", whatever it is called.
+      return own ?? live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName) && !isSystemDatabase(d));
     };
   }
 
