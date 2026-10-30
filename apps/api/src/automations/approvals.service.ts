@@ -835,8 +835,8 @@ export class ApprovalsService implements OnModuleInit {
       .where(and(eq(approvals.status, 'pending'), lt(approvals.expiresAt, new Date())))
       .returning();
     for (const approval of expired) {
-      const action = (approval.actionSnapshot as ApprovalActionSnapshot).action;
-      if (action.type === 'linear_comment_push') await this.failLinearPush(action.comment_id, 'It expired without a decision');
+      const action = (approval.actionSnapshot as Partial<ApprovalActionSnapshot> | null)?.action; // a stale row from an older shape must not stop the sweep
+      if (action?.type === 'linear_comment_push') await this.failLinearPush(action.comment_id, 'It expired without a decision');
       if (!approval.recordId) continue;
       await this.comments
         .create(
