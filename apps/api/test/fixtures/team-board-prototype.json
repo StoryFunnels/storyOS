@@ -1,5 +1,5 @@
 {
-  "_source": "dara-prototype-latest.html (md5 aaf479fb735332387ec89758d6c4b747): the PACKS row for 'team-board', PACK_WHY, PACK_ONTO and PACK_ITEMS['team-board'], transcribed. Frozen so 'the pack is the prototype' is a comparison, not a memory.",
+  "_source": "dara-prototype-latest.html (md5 81d127f95e2a2d92ec210264798d67a2 (v48)): the PACKS row for 'team-board', PACK_WHY, PACK_ONTO and PACK_ITEMS['team-board'], transcribed. Frozen so 'the pack is the prototype' is a comparison, not a memory. Labels options and the All projects view added from the v48 install list; colours are Dara's answer on ticket 1146 (Urgent red, Blocked orange, Quick win green, Idea purple).",
   "name": "Team Board",
   "summary": "A shared board your team works from on day one: To Do, In Progress, Done, with owners, due dates and labels already there.",
   "space": "Team",
@@ -10,28 +10,126 @@
     "Open “Assigned to me” to see only your own work",
     "Assign a task and the person is told straight away"
   ],
-  "workflow": { "database": "Tasks", "field": "Status", "stages": [["To Do"], ["In Progress"], ["Done"]] },
+  "workflow": {
+    "database": "Tasks",
+    "field": "Status",
+    "stages": [
+      [
+        "To Do"
+      ],
+      [
+        "In Progress"
+      ],
+      [
+        "Done"
+      ]
+    ]
+  },
   "databases": {
-    "Tasks": { "fields": ["Status", "Assignee", "Due date", "Labels", "Project", "Sub-tasks"] },
-    "Projects": { "fields": ["Owner", "Target date", "Tasks"] }
+    "Tasks": {
+      "fields": [
+        "Status",
+        "Assignee",
+        "Due date",
+        "Labels",
+        "Project",
+        "Sub-tasks"
+      ]
+    },
+    "Projects": {
+      "fields": [
+        "Owner",
+        "Target date",
+        "Tasks",
+        "Open tasks"
+      ]
+    }
   },
   "map": [
-    { "from": "Tasks", "to": "Projects" },
-    { "from": "Tasks", "to": "Tasks", "to_field": "Sub-tasks" }
+    {
+      "from": "Tasks",
+      "to": "Projects"
+    },
+    {
+      "from": "Tasks",
+      "to": "Tasks",
+      "to_field": "Sub-tasks"
+    }
   ],
   "states": [
-    { "label": "To Do", "category": "unstarted" },
-    { "label": "In Progress", "category": "started" },
-    { "label": "Done", "category": "completed" }
+    {
+      "label": "To Do",
+      "category": "unstarted"
+    },
+    {
+      "label": "In Progress",
+      "category": "started"
+    },
+    {
+      "label": "Done",
+      "category": "completed"
+    }
   ],
   "views": [
-    { "name": "Board", "database": "Tasks", "grouped_by": "Status", "opens": true },
-    { "name": "Assigned to me", "database": "Tasks", "only_mine": true }
+    {
+      "name": "Board",
+      "database": "Tasks",
+      "grouped_by": "Status",
+      "opens": true
+    },
+    {
+      "name": "Assigned to me",
+      "database": "Tasks",
+      "only_mine": true
+    },
+    {
+      "name": "All projects",
+      "database": "Projects",
+      "type": "table",
+      "shows": [
+        "Owner",
+        "Target date",
+        "Open tasks"
+      ]
+    }
   ],
-  "automations": [{ "name": "Tell the assignee", "database": "Tasks", "notifies": "Assignee" }],
+  "automations": [
+    {
+      "name": "Tell the assignee",
+      "database": "Tasks",
+      "notifies": "Assignee"
+    }
+  ],
   "sample_cards": [
-    { "title": "Drag me to In Progress", "status": "To Do" },
-    { "title": "Open me and set a due date", "status": "To Do" },
-    { "title": "Assign me to someone", "status": "To Do" }
+    {
+      "title": "Drag me to In Progress",
+      "status": "To Do"
+    },
+    {
+      "title": "Open me and set a due date",
+      "status": "To Do"
+    },
+    {
+      "title": "Assign me to someone",
+      "status": "To Do"
+    }
+  ],
+  "labels": [
+    {
+      "label": "Urgent",
+      "color": "red"
+    },
+    {
+      "label": "Blocked",
+      "color": "orange"
+    },
+    {
+      "label": "Quick win",
+      "color": "green"
+    },
+    {
+      "label": "Idea",
+      "color": "purple"
+    }
   ]
 }
