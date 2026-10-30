@@ -176,7 +176,7 @@ function EmailSection({ email, verified }: { email: string; verified: boolean })
       <div className="flex items-center gap-2 text-sm text-ink">
         {email}
         <span
-          className={`rounded-[var(--radius-pill,9999px)] px-2 py-0.5 text-meta font-medium ${
+          className={`rounded-[var(--radius-pill)] px-2 py-0.5 text-meta font-medium ${
             verified ? 'border border-border-default bg-hover text-warning-text' : 'bg-hover text-muted'
           }`}
         >
