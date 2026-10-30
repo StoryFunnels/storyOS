@@ -13,7 +13,7 @@ import { useDatabase, useMailConnections, useMembers } from '@/components/table-
 import { FlowDiagramEditor } from '@/components/automations/flow-diagram-editor';
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
-import { opsForField, SortButton } from '@/components/views/view-toolbar';
+import { DateOperandEditor, opsForField, SortButton } from '@/components/views/view-toolbar';
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
 import { triggerLabel } from '@/components/automations/flow-diagram-model';
@@ -940,7 +940,12 @@ function RuleEditor({
               <Select
                 size="sm"
                 value={conditionOp}
-                onChange={(e) => setConditionOp(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setConditionOp(next);
+                  // #1155 — a relative date is only valid on before/after; do not carry it onto `on`/`is not`, which the API refuses it on.
+                  if (conditionValue.startsWith('$date:') && next !== 'before' && next !== 'after') setConditionValue('');
+                }}
               >
                 {conditionOps.map((o) => (
                   <option key={o.op} value={o.op}>
@@ -994,6 +999,16 @@ function RuleEditor({
                   <option value="true">checked</option>
                   <option value="false">unchecked</option>
                 </Select>
+              ) : currentOp.input === 'date' && (conditionOp === 'before' || conditionOp === 'after') ? (
+                // #1155 — the one date operand the filter builder uses: an exact date OR a relative one ("90 days ago", stored as the API's
+                // `$date:-90d` token, which a rule's condition compiles like any filter). Not a second editor for the same value.
+                <DateOperandEditor
+                  key={conditionOp}
+                  nativeDate
+                  value={conditionValue || null}
+                  boxed="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-label text-ink"
+                  onChange={(v) => setConditionValue(v ?? '')}
+                />
               ) : (
                 <Input
                   type={

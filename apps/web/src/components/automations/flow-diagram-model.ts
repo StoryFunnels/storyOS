@@ -1,3 +1,4 @@
+import { describeRelativeDateCondition } from '@/components/views/relative-date';
 import type { Field } from '@/components/table-view/use-table-data';
 
 /**
@@ -118,6 +119,9 @@ export function conditionLabel(condition: DiagramCondition | null | undefined, f
   const name = field ? `"${field.displayName}"` : condition.field;
   const opLabel = OP_LABELS[condition.op] ?? condition.op.replace(/_/g, ' ');
   if (condition.value === undefined) return `${name} ${opLabel}`;
+  // #1155 — a relative date (`$date:-90d`, the API's token) reads in words, as it does in the filter builder.
+  const relative = describeRelativeDateCondition(condition.op, condition.value);
+  if (relative) return `${name} ${relative}`;
   const value = field?.options?.length
     ? resolveOptionLabels(condition.value, field)
     : Array.isArray(condition.value)
