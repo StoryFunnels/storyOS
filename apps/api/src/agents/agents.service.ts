@@ -66,6 +66,8 @@ import { SkillsService } from '../skills/skills.service';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import type { EnqueueResult, WakeRow } from '../runners/agent-wakes.service';
 import type { WakeReason } from '../runners/wake.constants';
+import { EXIT_LABEL, RUNNER_RUN_FIELD_NAMES, addUsage, capSummary } from '../runners/run-record';
+import type { RunResult } from '../runners/run-record';
 
 type Database = typeof databasesTable.$inferSelect;
 
@@ -345,6 +347,44 @@ export class AgentsService implements OnModuleInit {
   }
 
   /**
+   * #1133 / ADR-0021 §5-6: the run record a Runner run leaves. No migration: a field is a row, added here for a new workspace and for
+   * a workspace whose Runs database predates it alike. Idempotent and ONE query once they all exist (this runs on every ensure,
+   * which every dispatch calls), and a run that predates a field simply has no value for it, the honest answer, never a guessed one.
+   * All of them are runtime-owned (records/runtime-owned-fields.ts). `Agent` and `Input record` (the agent and the record),
+   * `Started at` and `Finished at` are the fields created with the database.
+   */
+  private async ensureRunnerRunFields(runsDbId: string): Promise<void> {
+    const have = new Set(
+      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, runsDbId), inArray(fieldsTable.apiName, [...RUNNER_RUN_FIELD_NAMES])))).map((r) => r.apiName),
+    );
+    const specs: Record<(typeof RUNNER_RUN_FIELD_NAMES)[number], Parameters<FieldsService['create']>[1]> = {
+      wake_reason: { display_name: 'Wake reason', type: 'text', config: {} },
+      runner: { display_name: 'Runner', type: 'text', config: {} },
+      tool: { display_name: 'Tool', type: 'text', config: {} },
+      tool_version: { display_name: 'Tool version', type: 'text', config: {} },
+      exit: {
+        display_name: 'Exit',
+        type: 'select',
+        config: {},
+        options: [
+          { label: EXIT_LABEL.ok, color: 'green' },
+          { label: EXIT_LABEL.error, color: 'red' },
+          { label: EXIT_LABEL.limit_reached, color: 'gold' },
+          { label: EXIT_LABEL.aborted, color: 'brown' },
+          { label: EXIT_LABEL.timeout, color: 'red' },
+        ],
+      },
+      // Tokens as the tool reported them. EMPTY when it did not: never zero-filled (CLAUDE.md, never guess numbers).
+      tokens_in: { display_name: 'Tokens in', type: 'number', config: {} },
+      tokens_out: { display_name: 'Tokens out', type: 'number', config: {} },
+      summary: { display_name: 'Summary', type: 'text', config: { multiline: true } },
+      session_id: { display_name: 'Session id', type: 'text', config: {} },
+      limit_resumes_at: { display_name: 'Limit resumes at', type: 'date', config: { include_time: true } },
+    };
+    for (const name of RUNNER_RUN_FIELD_NAMES) if (!have.has(name)) await this.fields.create(runsDbId, specs[name]);
+  }
+
+  /**
    * #114: mark Runs."Pending action" hidden-by-default on an existing pack.
    * Idempotent — reads the current config and only writes when `entity_hidden`
    * isn't already set, so re-ensuring a pack costs nothing. Config merges, so
@@ -449,6 +489,7 @@ export class AgentsService implements OnModuleInit {
       await this.retireScheduleTrigger(existing.agentsDb.id, existing.runsDb.id);
       // ticket #1130: and a pack provisioned before relation bindings gains their field (idempotent, one lookup once it exists).
       await this.ensureField(existing.triggersDb.id, 'relation_field', { display_name: 'Relation field', type: 'text', config: {} });
+      await this.ensureRunnerRunFields(existing.runsDb.id); // ticket #1133: and the run record's fields
       return {
         agentsDb: existing.agentsDb,
         runsDb: existing.runsDb,
@@ -719,6 +760,8 @@ export class AgentsService implements OnModuleInit {
       type: 'text',
       config: {},
     });
+
+    await this.ensureRunnerRunFields(runsDb.id); // #1133
 
     // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
     // provisioned by an earlier release has a "Trigger" field on both Agents
@@ -1231,6 +1274,8 @@ export class AgentsService implements OnModuleInit {
         status: statusIds.get(blockedBeforeExecution ? 'Failed' : wake ? 'Queued' : 'Running') ?? null,
         run_class: runClassIds.get(runClassLabel) ?? null,
         started_at: new Date().toISOString(),
+        // #1133: why the agent was woken, as the wake queue knows it ('assigned', 'mention', 'must_comment' ...).
+        ...(wake ? { wake_reason: wake.reason } : {}),
         ...(blockedBeforeExecution
           ? {
               finished_at: new Date().toISOString(),
@@ -1575,7 +1620,7 @@ export class AgentsService implements OnModuleInit {
         });
         return run.id;
       },
-      setRunStatus: (wake, status, note) => this.setWakeRunStatus(wake, status, note),
+      setRunStatus: (wake, status, note, result) => this.setWakeRunStatus(wake, status, note, result),
     });
   }
 
@@ -1583,6 +1628,7 @@ export class AgentsService implements OnModuleInit {
     wake: WakeRow,
     status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Canceled',
     note?: string,
+    result?: RunResult,
   ): Promise<void> {
     if (!wake.runId) return;
     const { agentsDb, runsDb } = await this.findPackDbs(wake.workspaceId);
@@ -1595,11 +1641,34 @@ export class AgentsService implements OnModuleInit {
     if (!actorId) return;
     const values: Record<string, unknown> = { status: statusIds.get(status) ?? null };
     if (status === 'Succeeded' || status === 'Failed' || status === 'Canceled') values['finished_at'] = new Date().toISOString();
+    // #1133: the run record. Written only for what the Runner actually told us; an absent number stays absent.
+    if (result) {
+      const prev = run.values;
+      const prevRunner = typeof prev['runner'] === 'string' && prev['runner'] !== '';
+      if (result.runner !== undefined) values['runner'] = result.runner;
+      if (result.tool !== undefined) values['tool'] = result.tool;
+      // The Run STARTED when a Runner first took it (until then `Started at` is the time it was queued).
+      if (result.startedAt && !prevRunner) values['started_at'] = result.startedAt.toISOString();
+      if (result.toolVersion) values['tool_version'] = result.toolVersion;
+      if (result.sessionId) values['session_id'] = result.sessionId;
+      const summary = capSummary(result.summary);
+      if (summary) values['summary'] = summary;
+      if (result.exit) {
+        const exitIds = await this.optionIdsByLabel(runsDb.id, 'exit');
+        values['exit'] = exitIds.get(EXIT_LABEL[result.exit]) ?? null;
+      }
+      if (result.limitResumesAt) values['limit_resumes_at'] = result.limitResumesAt.toISOString();
+      if (result.attemptEnded && result.usage) {
+        const asNumber = (v: unknown) => (typeof v === 'number' ? v : null);
+        values['tokens_in'] = addUsage(asNumber(prev['tokens_in']), result.usage.tokensIn);
+        values['tokens_out'] = addUsage(asNumber(prev['tokens_out']), result.usage.tokensOut);
+      }
+    }
     if (note) {
       const before = run.values['steps'] ? blocksToMarkdown(run.values['steps']) : '';
       values['steps'] = markdownToBlocks(`${before ? `${before}\n` : ''}- **wake.${status.toLowerCase()}** — ${note}`);
     }
-    await this.recordsService.update(wake.workspaceId, runsDb.id, run.id, values, actorId);
+    await asAgentRuntime(() => this.recordsService.update(wake.workspaceId, runsDb.id, run.id, values, actorId));
   }
 
   /**
