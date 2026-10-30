@@ -249,6 +249,33 @@ interface AgentWriteDecision {
   reason?: string | null;
 }
 
+/**
+ * #1178 follow-up — WHICH agent a decided approval concerns and what it was, for the `approval_decided` wake (ADR-0021 §1, ticket #1130).
+ * Null for anything no agent caused (an automation or a person's own action: nobody to tell). `afterApply`: the wake of an APPROVED
+ * action waits for the executor (the write or delete has happened, so the agent has something new to look at); everything else, and
+ * every rejection, wakes at the decision.
+ */
+interface DecisionSubject {
+  agentId: string;
+  /** The record the wake is about; null when the held action deleted it (a wake on a deleted record is refused as not found). */
+  recordId: string | null;
+  kind: string;
+  target: string | null;
+  afterApply: boolean;
+}
+
+function decisionSubject(snapshot: ApprovalActionSnapshot): DecisionSubject | null {
+  const a = snapshot.action;
+  if (a.type === 'agent_write_gate') return { agentId: a.agent_id, recordId: a.record_id, kind: a.type, target: a.record_id ?? a.database_id, afterApply: true };
+  if (a.type === 'agent_delete') {
+    return { agentId: a.agent_id, recordId: a.kind === 'record' ? null : a.record_id, kind: a.kind, target: a.record_id ?? a.database_id, afterApply: true };
+  }
+  // The #1174 outward kinds (and any action an agent's write fired): the origin on the snapshot is the agent that caused it.
+  const agentId = snapshot.ctx.origin?.agentId;
+  if (!agentId || a.type === 'agent_proposed_action') return null;
+  return { agentId, recordId: snapshot.ctx.recordId, kind: a.type, target: snapshot.ctx.recordId ?? snapshot.ctx.databaseId, afterApply: false };
+}
+
 @Injectable()
 export class ApprovalsService implements OnModuleInit {
   private readonly logger = new Logger(ApprovalsService.name);
@@ -286,13 +313,15 @@ export class ApprovalsService implements OnModuleInit {
       const { action, ctx, decision } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx']; decision?: AgentWriteDecision };
       await this.applyAgentWriteGate(action, ctx.workspaceId);
       // Approved AND applied: only now does the agent have something new to look at, so wake it after the write, not before.
-      if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, action, decision);
+      if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, decisionSubject({ action, ctx })!, decision);
     });
     // #1178 — a direct delete an agent's run credential made, held by the agent's own `delete` policy. Approving enqueues it from the
     // server-side snapshot; the owning service's applier performs it as the acting member, with the agent and run on the audit row.
     this.jobs.registerExecutor('agent_delete', async (payload) => {
-      const { action, ctx } = payload as { action: AgentDeleteSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      const { action, ctx, decision } = payload as { action: AgentDeleteSnapshot; ctx: ApprovalActionSnapshot['ctx']; decision?: AgentWriteDecision };
       await this.agentDeletes.applyApproved(action, { workspaceId: ctx.workspaceId, actorId: ctx.actorId, origin: ctx.origin ?? null });
+      // Approved AND applied: the agent is told once the data is really gone.
+      if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, decisionSubject({ action, ctx })!, decision);
     });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
@@ -327,21 +356,28 @@ export class ApprovalsService implements OnModuleInit {
    * Idempotent on the approval id (a retried job or a replayed decision never makes a second wake). A wake that is refused (the
    * agent is not a Your-own-AI agent, its owner left) is the queue's rule working: it must not fail the decision.
    */
-  private async wakeAgentAfterDecision(workspaceId: string, action: AgentWriteGateSnapshot, decision: AgentWriteDecision): Promise<void> {
+  private async wakeAgentAfterDecision(workspaceId: string, subject: DecisionSubject, decision: AgentWriteDecision): Promise<void> {
+    const approval = {
+      id: decision.approval_id,
+      verdict: decision.verdict,
+      kind: subject.kind,
+      ...(subject.target ? { target: subject.target } : {}),
+      ...(decision.reason ? { reason: decision.reason } : {}),
+    };
     try {
       await this.agentWakes.enqueue({
         workspaceId,
-        agentId: action.agent_id,
+        agentId: subject.agentId,
         reason: 'approval_decided',
-        recordId: action.record_id,
+        recordId: subject.recordId,
         requestedBy: decision.decided_by,
         sourceKey: `approval:${decision.approval_id}`,
-        detail: { approval_id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) },
-        context: { approval: { id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) } },
+        detail: approval,
+        context: { approval },
         materialize: true,
       });
     } catch (error) {
-      this.logger.warn(`could not wake agent ${action.agent_id} after approval ${decision.approval_id}: ${String(error)}`);
+      this.logger.warn(`could not wake agent ${subject.agentId} after approval ${decision.approval_id}: ${String(error)}`);
     }
   }
 
@@ -699,9 +735,6 @@ export class ApprovalsService implements OnModuleInit {
         idempotencyKey: `approval:${updated.id}`,
         approvalId: updated.id,
       });
-    } else if (snapshot.action.type === 'agent_write_gate') {
-      // Rejected: nothing is applied, but the agent asked and was told no, so it is woken to read the answer (and the reason).
-      await this.wakeAgentAfterDecision(workspaceId, snapshot.action, { approval_id: updated.id, verdict: 'rejected', decided_by: actorId, reason: reason ?? null });
     } else if (snapshot.action.type === 'write_back_push') {
       // #282 AC — rejecting makes no outbound call (nothing enqueued above),
       // but is still recorded in the source's own run log, not only as an
@@ -729,6 +762,13 @@ export class ApprovalsService implements OnModuleInit {
         role: 'assistant',
         content: `${action.message}\n\nA workspace admin reviewed this and said no.${reason ? ` Their reason: ${reason}` : ''}`,
       });
+    }
+    // #1178 follow-up — an approval an AGENT caused, once decided by a person, wakes that agent (ONE wake per decision: the source key is
+    // the approval id, and the wake queue coalesces repeats for the same agent and record). A rejection and a decision on an action
+    // that has no executor-side effect wake here; an approved write or delete wakes from its executor, after it applied.
+    const subject = decisionSubject(snapshot);
+    if (subject && (verdict === 'rejected' || !subject.afterApply)) {
+      await this.wakeAgentAfterDecision(workspaceId, subject, { approval_id: updated.id, verdict, decided_by: actorId, reason: reason ?? null });
     }
     return updated;
   }

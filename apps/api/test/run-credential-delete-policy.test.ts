@@ -389,3 +389,94 @@ describe('2. what must keep working', () => {
     expect(await recordAlive(id)()).toBe(true);
   });
 });
+
+// ---- 3. approving or rejecting wakes the agent that caused the held action (ADR-0021 §1, ticket #1130's `approval_decided` source) ----
+type WakeRow = { id: string; status: string; reason: string; record_id: string | null; source_key: string | null; context: { approval?: Record<string, unknown> } | null; coalesced_count: number };
+const wakesOf = async (approvalId: string) =>
+  (await pool.query('select id, status, reason, record_id, source_key, context, coalesced_count from agent_wakes where agent_id = $1 and (source_key = $2 or reasons::text like $3)', [w.agentId, `approval:${approvalId}`, `%${approvalId}%`])).rows as WakeRow[];
+const heldDelete = async () => {
+  await setPolicy(['delete']);
+  const fx = await FIXTURES['DELETE /workspaces/:ws/databases/:db/records/:rec']!();
+  const res = await w.as(w.credential, fx.method, fx.url, fx.body);
+  expect(res.statusCode, res.body).toBe(202);
+  return { fx, id: res.json().approval_id as string };
+};
+
+describe('3. a decided held delete wakes the agent that caused it, once', () => {
+  it('approve: after the delete is applied, exactly one approval_decided wake carrying the verdict, the action kind and the target', async () => {
+    const { fx, id } = await heldDelete();
+    expect(await wakesOf(id), 'being held is not a wake').toHaveLength(0);
+    expect((await w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/approve`)).statusCode).toBeLessThan(300);
+    await settle();
+    expect(await fx.alive()).toBe(false);
+    const rows = await wakesOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ reason: 'approval_decided', status: 'queued' }); // (a repeat coalesced into an open wake keeps no source key of its own)
+    expect(rows[0]!.context!.approval).toMatchObject({ id, verdict: 'approved', kind: 'record' });
+    expect(rows[0]!.context!.approval!['target']).toBeTruthy();
+  });
+
+  it('reject: one wake at once, carrying rejected and the reason', async () => {
+    const { id } = await heldDelete();
+    expect((await w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/reject`, { reason: 'keep it' })).statusCode).toBeLessThan(300);
+    const rows = await wakesOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.context!.approval).toMatchObject({ id, verdict: 'rejected', reason: 'keep it', kind: 'record' });
+  });
+
+  it('two held deletes on the same record approved in a row coalesce into ONE open wake', async () => {
+    await setPolicy(['delete']);
+    const rec = await ticket(`Coalesce ${randomUUID()}`);
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const c = await w.as(w.owner.token, 'POST', `${base()}/databases/${w.ticketsDbId}/records/${rec}/comments`, { body: [{ type: 'text', text: `c${i}` }] });
+      const d = await w.as(w.credential, 'DELETE', `${base()}/databases/${w.ticketsDbId}/records/${rec}/comments/${c.json().id}`);
+      expect(d.statusCode, d.body).toBe(202);
+      ids.push(d.json().approval_id);
+    }
+    for (const id of ids) await w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/approve`);
+    await settle();
+    const open = (await pool.query("select id, coalesced_count from agent_wakes where agent_id = $1 and record_id = $2 and status in ('queued','claimed')", [w.agentId, rec])).rows;
+    expect(open, 'one open wake for the agent and the record').toHaveLength(1);
+    expect(open[0].coalesced_count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('a double approve (a race) makes one wake', async () => {
+    const { id } = await heldDelete();
+    await Promise.all([w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/approve`), w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/approve`)]);
+    await settle();
+    await settle();
+    expect(await wakesOf(id)).toHaveLength(1);
+  });
+
+  it('a human-origin approval wakes nobody (no agent origin): a declared #542 gate held a plain token\'s delete', async () => {
+    await setPolicy([]);
+    const adminId = (await pool.query('select id from "user" where email = $1', [w.admin.email])).rows[0].id as string;
+    const gate = await w.as(w.admin.token, 'POST', `${base()}/action-gates`, { action_class: 'delete_records', database_id: w.ticketsDbId, approver_id: adminId });
+    expect(gate.statusCode, gate.body).toBe(201);
+    try {
+      const tok = await w.as(w.owner.token, 'POST', '/me/tokens', { name: 'plain2', scope: 'write', workspace_id: w.ws });
+      const pat = (tok.json().token ?? tok.json().secret) as string;
+      const id = await ticket(`Plain ${randomUUID()}`);
+      const before = await count('select count(*)::int as n from agent_wakes where workspace_id = $1', [w.ws]);
+      const held = await w.as(pat, 'DELETE', `${base()}/databases/${w.ticketsDbId}/records/${id}`);
+      expect(held.json()).toMatchObject({ pending_approval: true });
+      expect((await w.as(w.admin.token, 'POST', `${base()}/approvals/${held.json().approval_id}/approve`)).statusCode).toBeLessThan(300);
+      await settle();
+      expect(await recordAlive(id)()).toBe(false);
+      expect(await count('select count(*)::int as n from agent_wakes where workspace_id = $1', [w.ws]), 'no wake').toBe(before);
+    } finally {
+      await w.as(w.admin.token, 'DELETE', `${base()}/action-gates/${gate.json().id}`);
+    }
+  });
+
+  // LAST: it unassigns the Runner for the rest of the file.
+  it('an agent with no Runner assigned still gets the wake, queued', async () => {
+    const { id } = await heldDelete();
+    expect((await w.as(w.owner.token, 'PUT', `${base()}/runner-assignments/${w.agentId}`, { runner_id: null })).statusCode).toBe(200);
+    expect((await w.as(w.admin.token, 'POST', `${base()}/approvals/${id}/reject`, { reason: 'later' })).statusCode).toBeLessThan(300);
+    const rows = await wakesOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('queued');
+  });
+});
