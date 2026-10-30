@@ -2370,6 +2370,12 @@ export class PacksService {
           });
           continue;
         }
+        // #1153 — a view the install merely REUSED (same name already existed) is someone's own; the pack did not make it, so
+        // uninstall does not unmake it, however pristine it looks.
+        if (item.action === 'reused') {
+          kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Existed before the install.' });
+          continue;
+        }
         if (this.hashOf({ name: live.name, type: live.type, config: live.config }) !== item.contentHash) {
           kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Changed since install.' });
           continue;
@@ -2690,9 +2696,20 @@ export class PacksService {
         membership.userId,
       );
       result.views.push({ name: label, action: 'created', id: created.id });
+      // #1146 — the view a pack's database opens on. Only when this install made the database (a reused one keeps its default) and only
+      // when this install made the view (an existing view is never re-pointed). `ViewsService.setDefault` is the one place the
+      // "exactly one default per database" rule lives.
+      if (planned.default && result.databases.some((d) => norm(d.name) === norm(planned.database) && d.action === 'created')) {
+        await this.views.setDefault(dbId, created.id);
+      }
+      // #1153 — hash the view AS A READ SEES IT, not what the manifest asked for. `ViewsService.create` fills in defaults the manifest
+      // did not carry (a Board's group-by) and the read (`cleanViewConfig`) normalises the rest (`sorts: []`, ...), so hashing the
+      // request made every pack view read as "Changed since install" on uninstall and none was ever removed. Uninstall compares
+      // against this same read shape (`findLiveView`).
+      const stored = await this.findLiveView(membership, dbId, created.id);
       hashes.set(
         `view:${created.id}`,
-        this.hashOf({ name: targetName, type: planned.type, config }),
+        this.hashOf({ name: created.name, type: created.type, config: stored?.config ?? created.config }),
       );
     }
   }
