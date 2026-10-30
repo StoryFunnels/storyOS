@@ -1,0 +1,48 @@
+{
+  "name": "@storyos/runner",
+  "version": "0.1.0",
+  "description": "The StoryOS Runner: runs your hired agents on your own computer, inside your own Claude Code or Cursor subscription. Outbound connections only.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "runner": "./dist/index.js",
+    "storyos-runner": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StoryFunnels/storyOS.git",
+    "directory": "packages/runner"
+  },
+  "keywords": [
+    "storyos",
+    "ai-agents",
+    "claude-code",
+    "cursor",
+    "runner"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm build",
+    "lint": "eslint src test && node ../../scripts/check-runner-license-boundary.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
