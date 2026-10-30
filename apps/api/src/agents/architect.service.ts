@@ -336,7 +336,8 @@ export class ArchitectService {
     const ids = new Map<string, string>();
 
     for (const planned of plan.databases) {
-      const existing = inHomeSpace ? (inHomeSpace(planned.name, planned.space) ?? (adopt?.get(norm(planned.name)) as (typeof live)[number] | undefined)) : byName.get(norm(planned.name));
+      // #1157 — `adopt` (a database this pack's install tracked, or the person chose to reuse) wins over a same-named one in the home space.
+      const existing = inHomeSpace ? ((adopt?.get(norm(planned.name)) as (typeof live)[number] | undefined) ?? inHomeSpace(planned.name, planned.space)) : byName.get(norm(planned.name));
 
       if (planned.action === 'reuse' && !existing) {
         // The plan was written against a workspace that no longer looks like
