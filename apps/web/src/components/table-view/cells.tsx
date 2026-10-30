@@ -1215,7 +1215,7 @@ function OptionList({
                 </span>
                 {/* MN-292: mark the current value(s) so a picker opened on an
                     already-set cell shows what's selected, not just a bare list. */}
-                {!multi && isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+                {!multi && isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
               </button>
             );
           })}

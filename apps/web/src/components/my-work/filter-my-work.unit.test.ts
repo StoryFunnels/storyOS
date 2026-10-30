@@ -137,3 +137,20 @@ describe('matchesFilters', () => {
     expect(matchesFilters(rec({ state: 'done' }), config)).toBe(true);
   });
 });
+
+describe('before/after take the API relative date (ticket #1155)', () => {
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const before: MyWorkFilterConfig = { filters: { and: [{ field: 'd', op: 'before', value: '$date:-90d' }] } };
+  const after: MyWorkFilterConfig = { filters: { and: [{ field: 'd', op: 'after', value: '$date:+3d' }] } };
+  it('before $date:-90d keeps a record older than 90 days and drops a recent one', () => {
+    expect(matchesFilters(rec({ d: day(-120) }), before)).toBe(true);
+    expect(matchesFilters(rec({ d: day(-5) }), before)).toBe(false);
+  });
+  it('after $date:+3d keeps a date past three days from now and drops today', () => {
+    expect(matchesFilters(rec({ d: day(10) }), after)).toBe(true);
+    expect(matchesFilters(rec({ d: day(0) }), after)).toBe(false);
+  });
+  it('an absolute date still compares as text', () => {
+    expect(matchesFilters(rec({ d: '2026-01-01' }), { filters: { and: [{ field: 'd', op: 'before', value: '2026-06-01' }] } })).toBe(true);
+  });
+});

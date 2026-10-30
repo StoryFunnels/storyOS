@@ -151,7 +151,7 @@ export function TopRowMenu({
               onToggle(f, !selectedIds.has(f.id));
             }}
           >
-            <span className="mr-2 w-3 text-accent">{selectedIds.has(f.id) ? '✓' : ''}</span> {f.displayName}
+            <span className="mr-2 w-3 text-primary-text">{selectedIds.has(f.id) ? '✓' : ''}</span> {f.displayName}
           </DropdownMenuItem>
         ))}
         {configured && <p className="px-2 py-1.5 text-label text-faint">Clear every field to go back to automatic.</p>}
@@ -232,7 +232,7 @@ export function FieldMenu({
                   onToggleZone(field, z);
                 }}
               >
-                <span className="mr-2 w-3 text-accent">{zones.includes(z) ? '✓' : ''}</span> Show in {ZONE_LABEL[z]}
+                <span className="mr-2 w-3 text-primary-text">{zones.includes(z) ? '✓' : ''}</span> Show in {ZONE_LABEL[z]}
               </DropdownMenuItem>
             ))}
           <DropdownMenuSeparator />

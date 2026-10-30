@@ -386,7 +386,7 @@ export function BatchBar({
               Set “{settingField.displayName}” on {selected.length} records
             </p>
             {overwriteCount > 0 && (
-              <p className="mb-1.5 text-label text-warning">
+              <p className="mb-1.5 text-label text-warning-text">
                 {overwriteCount} of {selected.length} already have a value — applying overwrites them.
               </p>
             )}

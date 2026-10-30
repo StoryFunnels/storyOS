@@ -290,7 +290,7 @@ function AllDayCell({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${iso}` });
   return (
-    <div ref={setNodeRef} className={cn('min-h-6 flex-1 flex-wrap gap-0.5 border-l border-border-default p-0.5', isOver && 'bg-accent-soft')}>
+    <div ref={setNodeRef} className={cn('min-h-6 flex-1 flex-wrap gap-0.5 border-l border-border-default p-0.5', isOver && 'bg-active')}>
       {rows.map((row) => (
         <EventChip key={row.id} row={row} colorField={colorField} disabled={readOnly} onOpen={() => onOpen(row.id)} compact />
       ))}
@@ -331,7 +331,7 @@ function DayColumn({
   return (
     <div
       ref={setNodeRef}
-      className={cn('relative flex-1 border-l border-border-default', isOver && 'bg-accent-soft')}
+      className={cn('relative flex-1 border-l border-border-default', isOver && 'bg-active')}
       style={{ height: hours * HOUR_HEIGHT }}
       onClick={(e) => {
         if (readOnly || e.target !== e.currentTarget) return;

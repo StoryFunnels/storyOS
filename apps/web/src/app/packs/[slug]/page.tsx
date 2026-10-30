@@ -136,7 +136,7 @@ export default async function PackPublicPreviewPage({
             <ul className="mt-5 flex flex-col gap-1.5">
               {pack.highlights.map((h) => (
                 <li key={h} className="flex items-start gap-2 text-body text-ink-secondary">
-                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--accent)]" />
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary-text" />
                   {h}
                 </li>
               ))}

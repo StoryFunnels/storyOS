@@ -624,7 +624,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         key={d}
                         type="button"
                         onClick={() => setEditDirections((prev) => new Map(prev).set(key, d))}
-                        className={cn('px-1.5 py-1', direction === d ? 'bg-accent-soft text-ink' : 'text-muted hover:text-ink')}
+                        className={cn('px-1.5 py-1', direction === d ? 'bg-active text-ink' : 'text-muted hover:text-ink')}
                       >
                         {d}
                       </button>
@@ -708,7 +708,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               rather than duplicating (and risking conflicting with) its binding
               flow on the same database. */}
           {providerId === CALENDAR_POINTER_ID && (
-            <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
+            <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-hover px-4 py-3">
               <div className="flex items-start gap-2">
                 <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
                 <p className="text-body text-ink">
@@ -742,7 +742,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   className={cn(
                     'rounded-[var(--radius-card)] border px-3 py-2 text-label',
                     present.state === 'cloud_only'
-                      ? 'border-border-default bg-accent-soft text-ink'
+                      ? 'border-border-default bg-active text-ink'
                       : 'border-border-default bg-card text-muted',
                   )}
                 >

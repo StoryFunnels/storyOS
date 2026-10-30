@@ -215,7 +215,7 @@ export function NewPersonalViewDialog({
                         title={need ?? undefined}
                         onClick={() => setType(kind)}
                         className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-body disabled:cursor-not-allowed disabled:opacity-40 ${
-                          type === kind ? 'border-accent bg-accent-soft text-ink' : 'border-border-default text-ink-secondary hover:bg-hover'
+                          type === kind ? 'border-primary-text bg-active text-ink' : 'border-border-default text-ink-secondary hover:bg-hover'
                         }`}
                       >
                         <Icon className="h-4 w-4 shrink-0" />

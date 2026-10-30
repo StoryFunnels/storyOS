@@ -240,7 +240,7 @@ export default function ConnectionsSettingsPage() {
               <p className="mt-0.5 text-label text-muted">
                 <StatusPill status={c.status} />
                 {needsBaseUrl(c) && (
-                  <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-meta font-medium text-ink">Needs base URL</span>
+                  <span className="ml-1.5 rounded border border-border-default bg-hover px-1.5 py-0.5 text-meta font-medium text-ink">Needs base URL</span>
                 )}
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
@@ -269,7 +269,7 @@ export default function ConnectionsSettingsPage() {
                       <p className="text-label text-muted">
                         {c.error_count_24h > 0 && (
                           <span
-                            className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}
+                            className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning-text'}
                           >
                             {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in
                             the last 24h
@@ -444,7 +444,7 @@ function StatusPill({ status }: { status: Connection['status'] }) {
     <span
       className={cn(
         'rounded px-1.5 py-0.5 text-meta',
-        ok ? 'bg-accent-soft text-ink' : 'bg-hover text-error',
+        ok ? 'border border-border-default bg-hover text-ink' : 'bg-hover text-error',
       )}
     >
       {status}
@@ -465,7 +465,7 @@ function AvailabilityNote({ present }: { present: AvailabilityPresentation }) {
       <span
         className={cn(
           'inline-block rounded px-1.5 py-0.5 text-meta',
-          upsell ? 'bg-accent-soft text-ink' : 'bg-hover text-muted',
+          upsell ? 'border border-border-default bg-hover text-ink' : 'bg-hover text-muted',
         )}
       >
         {present.label}

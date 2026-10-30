@@ -3060,7 +3060,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List packs',
       description:
-        'The built-in Business Pack gallery — ready-made workspaces (databases, fields, relations, views, sample data). Installing one is the fastest possible "build me a workspace"; check here before planning a schema from scratch.',
+        'The built-in Business Pack gallery — ready-made workspaces (databases, fields, relations, views, sample data). Each pack carries `why` (the situation it is for, one sentence), `can` (up to three things you can do once it is in) and `relations` (from → to database links, with cardinality), so you can say why a pack fits before installing it. Installing one is the fastest possible "build me a workspace"; check here before planning a schema from scratch.',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () =>
@@ -3310,7 +3310,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Create a new database (table) in a space. Returns it with its auto-created system fields (id, name). Then shape it with add_field and create_view.',
       inputSchema: {
         workspace: z.string(),
-        space: z.string().describe('Space name or id the database belongs to.'),
+        space: z.string().describe('Space name or id the database belongs to. Never a personal space: those hold documents and views only (422).'),
         name: z.string().describe('Database name, e.g. "Clients".'),
         icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
         color: z.enum(PALETTE).optional().describe(COLOR_PARAM),
@@ -3659,6 +3659,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   type ViewOpts = {
     group_by?: string;
     card_fields?: string[];
+    hidden_columns?: string[];
     date_field?: string;
     start_date_field?: string;
     end_date_field?: string;
@@ -3701,6 +3702,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     type: string,
     o: ViewOpts,
     existingForm?: StoredForm,
+    existingConfig?: { group_by_field_id?: string; hidden_option_ids?: string[] },
   ): Record<string, unknown> {
     // #191: only emit keys the caller actually passed. viewConfigSchema fills the
     // per-field defaults (sorts:[], hidden_field_ids:[], …) on parse, so create
@@ -3712,6 +3714,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     if (o.filters) config.filters = mapFilterValues(detail, o.filters);
     if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
     if (type === 'board' && o.group_by) config.group_by_field_id = anyField(detail, o.group_by);
+    if (type === 'board') {
+      // #1158 — hidden columns are OPTIONS of the group-by field, named by label (or id) like filter values are.
+      const groupId = (config.group_by_field_id as string | undefined) ?? existingConfig?.group_by_field_id;
+      if (o.hidden_columns !== undefined) {
+        const groupField = detail.fields.find((f) => f.id === groupId);
+        if (o.hidden_columns.length && (!groupField || !['select', 'workflow'].includes(groupField.type))) {
+          throw new Error('hidden_columns needs a board grouped by a select or workflow field.');
+        }
+        config.hidden_option_ids = o.hidden_columns.map((v) => {
+          const opt = groupField?.options?.find((x) => x.id === v || x.label.toLowerCase() === v.toLowerCase());
+          if (!opt) {
+            throw new Error(
+              `No option "${v}" on field "${groupField?.apiName}". Available: ${(groupField?.options ?? []).map((x) => x.label).join(', ')}.`,
+            );
+          }
+          return opt.id;
+        });
+      } else if (config.group_by_field_id && existingConfig?.group_by_field_id && config.group_by_field_id !== existingConfig.group_by_field_id && existingConfig.hidden_option_ids?.length) {
+        // Regrouping: the old columns are options of a different field, so keeping them would 422 — clear them, say so in the tool docs.
+        config.hidden_option_ids = [];
+      }
+    }
     if (type === 'calendar' && o.date_field) config.date_field_id = anyField(detail, o.date_field);
     if (type === 'timeline') {
       if (o.start_date_field) config.start_date_field_id = anyField(detail, o.start_date_field);
@@ -3849,6 +3873,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(VIEW_TYPES),
         group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
         card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
@@ -3900,6 +3925,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(VIEW_TYPES),
         group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
         card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
@@ -3936,6 +3962,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         rename_to: z.string().optional(),
         group_by: z.string().optional(),
         card_fields: z.array(z.string()).optional(),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional(),
         start_date_field: z.string().optional(),
         end_date_field: z.string().optional(),
@@ -3976,7 +4003,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // filter no longer wipes sorts / hidden fields / grouping / form config).
         const CONFIG_KEYS = [
           'filters', 'sorts',
-          'group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field',
+          'group_by', 'card_fields', 'hidden_columns', 'date_field', 'start_date_field', 'end_date_field',
           'form_title', 'form_description', 'form_submit_text', 'form_fields', 'form_access',
           'form_success_message', 'form_redirect_url',
         ] as const;
@@ -3984,7 +4011,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           const existingForm = (v.config as { form?: StoredForm } | undefined)?.form;
           patch.config = {
             ...((v.config ?? {}) as Record<string, unknown>),
-            ...buildViewConfig(detail, v.type, rest, existingForm),
+            ...buildViewConfig(detail, v.type, rest, existingForm, v.config as { group_by_field_id?: string; hidden_option_ids?: string[] } | undefined),
           };
         }
         const updated = await unwrap<unknown>(
@@ -5169,7 +5196,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       inputSchema: {
         workspace: z.string(),
         template: z.string().describe('Template slug from list_templates.'),
-        space: z.string().optional().describe('Target space — required for a database-shaped template.'),
+        space: z.string().optional().describe('Target space, required for a database-shaped template. Never a personal space (documents and views only, 422).'),
         name: z.string().optional().describe('Rename the created database.'),
       },
     },
@@ -5556,7 +5583,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
-        move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
+        move_to_space: z.string().optional().describe('Space name or slug to move the database into. Never a personal space: those hold documents and views only (422).'),
         restricted: z.boolean().optional().describe('Admin only. true = the database is visible only to people holding a grant on it (admins always see it); false = open again. A restricted database inside an open space is not opened by a space grant — it needs its own grant. Not allowed on personal spaces or system databases.'),
       },
     },

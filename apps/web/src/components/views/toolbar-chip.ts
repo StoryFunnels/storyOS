@@ -11,22 +11,22 @@ export function chipClass(active = false): string {
   return cn(
     'inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-chip)] border px-2.5 text-label',
     active
-      ? 'border-[color-mix(in_srgb,var(--accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--accent)_10%,var(--bg-card))] text-ink'
+      ? 'border-border-strong bg-active text-ink'
       : 'border-border-default bg-card text-ink-secondary hover:border-border-strong hover:text-ink',
   );
 }
 
 /** `.cnum` — the count badge inside a chip. */
 export const CHIP_COUNT =
-  'ml-px inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_22%,transparent)] px-1 text-[10px] font-bold tabular-nums text-ink';
+  'ml-px inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-border-default px-1 text-[10px] font-bold tabular-nums text-ink';
 
 /** `.pmark` — the person glyph that says "your personal filter is on", folded into the Filter chip. */
 export const CHIP_PERSON =
-  'inline-flex h-[15px] w-[15px] items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] text-ink';
+  'inline-flex h-[15px] w-[15px] items-center justify-center rounded-full bg-border-default text-ink';
 
 /** `.findbox` — Find once it is open: a pill with an accent border. */
 export const FIND_BOX =
-  'relative inline-flex h-[26px] items-center gap-1.5 rounded-[var(--radius-chip)] border border-accent bg-card px-[9px]';
+  'relative inline-flex h-[26px] items-center gap-1.5 rounded-[var(--radius-chip)] border border-primary-text bg-card px-[9px]';
 
 /** `.btn` — the right-hand controls (Display, ⋯): 27px, a stronger hairline, a bold 12px label. */
 export const TOOLBAR_BTN =

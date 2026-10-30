@@ -10,6 +10,8 @@ export interface Space {
   icon: string | null;
   color: string | null;
   position: number;
+  /** The row's creation time (the list sends the whole row); used to pick a new space's next colour. */
+  createdAt?: string;
   /** #400's purpose line. Absent from this type until #457 — which is part of why
    *  nothing in the app ever offered to write one. */
   description?: string | null;
@@ -191,7 +193,7 @@ export function useSidebarMutations(ws: string) {
       },
     }),
     createSpace: useMutation({
-      mutationFn: async (body: { name: string }) =>
+      mutationFn: async (body: { name: string; color?: string }) =>
         unwrap<Space>(
           await api.POST('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws } }, body }),
         ),

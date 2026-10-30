@@ -107,6 +107,11 @@ function textOnAccent(accent: string): string {
     : ON_DARK_DARK;
 }
 
+/** #1163 — the floor for the embedder's colour used as link/glyph text, and our two card colours it is probed on. */
+export const PRIMARY_TEXT_FLOOR = 4.5;
+const PRIMARY_TEXT_PROBE_LIGHT = '#ffffff';
+const PRIMARY_TEXT_PROBE_DARK = '#171c26';
+
 /** `color-mix` lets CSS do the blending where no contrast floor applies. */
 const mix = (a: string, pct: number, b: string) => `color-mix(in srgb, ${a} ${pct}%, ${b})`;
 
@@ -218,6 +223,13 @@ export function embedThemeStyle(config: unknown): CSSProperties | undefined {
     style['--accent-hover'] = mix(accent, 88, ON_DARK_DARK);
     style['--accent-soft'] = mix(accent, 14, surface ?? ON_DARK_LIGHT);
     style['--text-on-dark'] = textOnAccent(accent);
+    // #1163 — links, ticks and glyphs inside the form are drawn in `--primary-text`, so it must follow the embedder
+    // too, or the hint "Colours the submit button and links." is false. But a mid-toned accent as TEXT can fail,
+    // so it is used only where it reaches 4.5:1: on the themed surface when there is one, otherwise on BOTH of
+    // our card colours (the form may render in either theme and we cannot measure the unthemed one). When it
+    // does not, nothing is set and the stylesheet's own --primary-text (readable on both themes) applies.
+    const surfaces = surface ? [surface] : [PRIMARY_TEXT_PROBE_LIGHT, PRIMARY_TEXT_PROBE_DARK];
+    if (surfaces.every((s) => contrast(accent, s) >= PRIMARY_TEXT_FLOOR)) style['--primary-text'] = accent;
   }
 
   if (r !== null) {
