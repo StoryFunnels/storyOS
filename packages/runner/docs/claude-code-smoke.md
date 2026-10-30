@@ -50,6 +50,10 @@ SMOKE_API=http://127.0.0.1:3001 SMOKE_MCP=http://127.0.0.1:3002/mcp SMOKE_DB=sto
 
 It creates a throwaway account, workspace, agent (AI mode "Your own AI", scope `write`) and one lead; pairs the built Runner; assigns the agent; starts the Runner; hands the lead to the agent; waits up to 10 minutes; and prints what happened. It refuses any API address that is not on this computer. It needs `psql` on your PATH (to read select-option ids).
 
+**Cleaning up: only the paths this script printed.** The script makes ONE directory for itself (it prints `This run's own directory ...`), keeps everything it creates inside it, and on a clean finish removes only that. If a run fails, or you set `SMOKE_KEEP=1`, it keeps the directory and prints its exact path: delete only that path. Never clean up with a pattern such as `rm -rf /tmp/storyos-smoke-runner-*` or a temp-dir glob: other sessions' throwaway runner homes live next to yours and look the same. The throwaway database and the local API/MCP processes you started are yours to stop by hand; the script does not touch them.
+
+**Version check.** The adapter relies on an undocumented `claude` setting (`MCP_CONNECTION_NONBLOCKING=0`, see "Known risk" in the README). The script checks `claude --version` against the list of verified versions (`VERIFIED_CLI_VERSIONS` in `src/adapters/claude-code/pins.ts`, the same list the package test uses) and refuses to run on any other, unless you set `SMOKE_ALLOW_UNVERIFIED_CLI=1`; then watch for `mcp storyos=pending` in the log.
+
 ### What you should see
 
 1. `found    Claude Code 2.1.x, signed in` while pairing, then `Done. This computer is ready and will use claude-code.`

@@ -14,25 +14,41 @@
  *   SMOKE_MCP   the local MCP server (default http://127.0.0.1:3002/mcp)
  *   SMOKE_DB    the local Postgres database the API uses, read with `psql` for select-option ids (REQUIRED)
  *   SMOKE_WAIT  minutes to wait for the run (default 10)
+ *   SMOKE_KEEP  1 = keep this run's directory (its Runner log) instead of cleaning up
+ *   SMOKE_ALLOW_UNVERIFIED_CLI  1 = run even though the installed claude is not a version this adapter was verified on
  * Everything else the Runner reads (STORYOS_RUNNER_CLAUDE_BIN, STORYOS_RUNNER_RUN_TIMEOUT_MINUTES, ...) passes through.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const API = (process.env.SMOKE_API ?? 'http://127.0.0.1:3001').replace(/\/+$/, '');
 const MCP = process.env.SMOKE_MCP ?? 'http://127.0.0.1:3002/mcp';
 const DB = process.env.SMOKE_DB;
 const WAIT_MS = Number(process.env.SMOKE_WAIT ?? '10') * 60_000;
-const RUNNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'index.js');
+const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const RUNNER = join(DIST, 'index.js');
 
 const host = new URL(API).hostname;
 if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) throw new Error(`Refusing ${API}: this script creates throwaway data and only runs against an API on this computer.`);
 if (!DB) throw new Error('Set SMOKE_DB to the local database name the API uses (it is read with psql).');
 if (!existsSync(RUNNER)) throw new Error('Build the Runner first: pnpm --filter @storyos/runner build');
+const { createRunDir } = await import(pathToFileURL(join(DIST, 'smoke-run-dir.js')).href);
+const { judgeCliVersion } = await import(pathToFileURL(join(DIST, 'adapters', 'claude-code', 'pins.js')).href);
+
+// Preflight: the adapter relies on an UNDOCUMENTED claude setting verified only on the versions in pins.ts. Same list as the test.
+{
+  const bin = process.env.STORYOS_RUNNER_CLAUDE_BIN ?? 'claude';
+  let out = '';
+  try { out = execFileSync(bin, ['--version'], { timeout: 10_000 }).toString(); } catch { out = ''; }
+  const verdict = judgeCliVersion(out);
+  if (!verdict.verified) {
+    console.error(`\n!!! UNVERIFIED CLAUDE VERSION !!!\n${verdict.message}\n`);
+    if (process.env.SMOKE_ALLOW_UNVERIFIED_CLI !== '1') throw new Error('Refusing to run. Set SMOKE_ALLOW_UNVERIFIED_CLI=1 to run anyway and watch for "mcp storyos=pending" in the Runner log.');
+  }
+}
 
 const sql = (q) => execFileSync('psql', [DB, '-Atc', q]).toString().trim();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -92,10 +108,14 @@ const agent = must(
 ).id;
 
 say('Pairing the Runner (the same steps a person takes, through the API)');
-const home = mkdtempSync(join(tmpdir(), 'storyos-smoke-runner-'));
+// ONE directory for everything this run creates. Cleanup removes ONLY what is tracked under it, never anything that merely looks like it.
+const run = createRunDir();
+const home = run.track(run.path('runner-home'));
+console.log(`This run's own directory (the only thing it will ever delete): ${run.root}`);
 const env = { ...process.env, STORYOS_RUNNER_HOME: home };
 const code = must(await call('POST', `/workspaces/${ws}/runners/pairing-codes`), [200, 201], 'pairing code').code;
 const pair = spawn('node', [RUNNER, 'pair', code, '--server', API, '--mcp-url', MCP], { env, stdio: 'inherit' });
+run.trackProcess(pair);
 const runner = await until(async () => (await call('GET', `/workspaces/${ws}/runners`)).json.data?.[0], 'the Runner to appear');
 console.log(`Tools the Runner found on this computer: ${runner.tools.map((t) => `${t.id}${t.installed ? '' : ' (missing)'}${t.logged_in === true ? ' signed in' : ''}`).join(', ')}`);
 must(await call('POST', `/workspaces/${ws}/runners/${runner.id}/activate`, { tool: 'claude-code' }), [200], 'activate (is claude installed?)');
@@ -104,6 +124,7 @@ must(await call('PUT', `/workspaces/${ws}/runner-assignments/${agent}`, { runner
 
 say('Starting the Runner. Its log is printed below; nothing secret is in it.');
 const start = spawn('node', [RUNNER, 'start'], { env, stdio: 'inherit' });
+run.trackProcess(start);
 
 say('Handing a lead to the agent');
 const lead = must(await call('POST', `/workspaces/${ws}/databases/${leadsDb}/records`, { values: { name: 'Acme Corp asked for a quote for 40 seats' } }), [201], 'lead').id;
@@ -124,5 +145,11 @@ if (runId) {
   console.log(`run summary: ${val('summary').slice(0, 400) || '(none)'}`);
 }
 console.log(sql(`select coalesce(string_agg('comment by '||coalesce(agent_name,'a person')||' (source '||source::text||'): '||left(body::text,300), E'\\n'), 'NO COMMENT ON THE LEAD') from comments where record_id='${lead}' and agent_name is not null`));
-console.log(`\nWorkspace ${ws} stays in your local database; the Runner's own log is ${join(home, 'logs', 'runner.log')}.`);
+console.log(`\nWorkspace ${ws} stays in your local database.`);
+if (process.env.SMOKE_KEEP === '1' || !finished) {
+  console.log(`Kept for you to read: ${join(home, 'logs', 'runner.log')}\nWhen done, delete ONLY this directory (copy the exact path above): ${run.root}`);
+} else {
+  const report = run.cleanup();
+  console.log(`Cleaned up only what this run created: ${report.deleted.join(', ')}${report.refused.length ? `; REFUSED (outside this run): ${report.refused.join(', ')}` : ''}`);
+}
 process.exit(finished ? 0 : 1);

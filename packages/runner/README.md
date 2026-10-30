@@ -32,6 +32,8 @@ Choose **Claude Code** when you finish pairing and the Runner runs `claude` head
 - One run is stopped after 30 minutes (`--run-timeout <minutes>`). `ANTHROPIC_API_KEY` is not passed to the session, so it uses your subscription.
 - Not on StoryOS cloud's address? Pass `--mcp-url`: the MCP server is its own service.
 
+**KNOWN RISK: one undocumented CLI setting.** The adapter sets `MCP_CONNECTION_NONBLOCKING=0` for the session. It is undocumented and was verified on Claude Code **2.1.104 only**. Without it, the real CLI (with the settings isolation above) starts the session while the StoryOS MCP server is still "pending", so the model gets **no StoryOS tools** and cannot read or comment. If a CLI release breaks it: the agent does no work, the run ends without a comment, StoryOS re-runs it once (the must-comment backstop) and then fails it visibly and tells the owner; nothing unsafe happens. How an upgrade is caught: a package test reads the installed `claude --version` and **fails** when it is not in `VERIFIED_CLI_VERSIONS` (`src/adapters/claude-code/pins.ts`, the one list), telling you to re-verify and update it; the smoke script's preflight checks the same list. Where `claude` is not installed (CI) that test is skipped, so **CI does not guard this**; a developer machine and the smoke run do. In the Runner log, `mcp storyos=pending` means it broke.
+
 To try it on your own computer end to end: [docs/claude-code-smoke.md](docs/claude-code-smoke.md).
 
 ## Keeping it running
