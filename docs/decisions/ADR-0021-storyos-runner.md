@@ -207,7 +207,7 @@ interface Capabilities {
 **Decision.** **A fresh headless session per wake. The record and its comments are the memory.** The session id is stored on the Run record for diagnosis, not for resuming.
 
 - Each wake starts with: the agent's current instructions and skills (resolved when the wake *starts*, the way skills already are, `api/agents/agent-runtime.ts:135-163`, so an edit to the agent applies to the next wake), the wake reason, and one record reference.
-- The agent works through MCP, **comments on the record with what it did or why it stopped**, and hands off by changing the record's state or `Next`. That comment is also the human-visible trail (`delegate_to_agent` already works this way: it "posts its outcome back ON the record as a comment, with a link to the full Run", `mcp/tools.ts:6251-6262`).
+- The agent works through MCP, **comments on the record with what it did or why it stopped**, and hands off by changing the record's state or `Next`. That comment is also the human-visible trail (`delegate_to_agent` already works this way: it "posts its outcome back ON the record as a comment, with a link to the full Run", `mcp/tools.ts:6278-6289`).
 - **Per-agent working folder:** `<runner home>/agents/<workspace id>/<agent id>/`. The Runner writes the instructions file into it at the start of each wake and clears its scratch subfolder at the end. It is the session's working directory and the only directory it is given (`--add-dir` is not used to widen it).
 - **The must-comment backstop** (#1133) lives server-side: a run that ends without a comment on its record is re-woken once with `reason = must_comment`, then failed visibly and its owner told.
 
