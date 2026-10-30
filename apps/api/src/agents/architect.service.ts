@@ -5,7 +5,7 @@ import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '
 import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
 import { assertSpaceCanHoldDatabases, spaceCanHoldDatabases } from '../access/access.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
-import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
+import { decideField, decideState, isSystemDatabase, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -307,8 +307,9 @@ export class ArchitectService {
       if (!spaceId) return undefined;
       // #1156 — the database this install recorded for that name wins, whatever it is called now; a same-named one is found only after.
       const tracked = trackedIds?.get(norm(plannedName));
-      const own = tracked ? live.find((d) => d.id === tracked && d.spaceId === spaceId) : undefined;
-      return own ?? live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName));
+      const own = tracked ? live.find((d) => d.id === tracked && d.spaceId === spaceId && !isSystemDatabase(d)) : undefined;
+      // #1166 — a system database is never what a pack's database "is", whatever it is called.
+      return own ?? live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName) && !isSystemDatabase(d));
     };
   }
 

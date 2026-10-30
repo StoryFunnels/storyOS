@@ -63,7 +63,7 @@ import {
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService, type ArchitectBuildProgress } from '../agents/architect.service';
-import { decideField, decideState, relationExists } from '../agents/plan-decisions';
+import { decideField, decideState, isSystemDatabase, relationExists } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
@@ -276,6 +276,9 @@ const typeClash = (field: string, liveType: string, plannedType: string) =>
   `${field} is ${typeWords(liveType)} here but this pack needs ${typeWords(plannedType)}`;
 /** Said for a database that does not exist, that the person cannot read, AND one they can read but not edit: one wording, so none is confirmed. */
 const notFoundReason = (dbName: string) => `There is no ${dbName} database you can edit.`;
+/** #1166 — an explicit `reuse` aimed at a system database. */
+const builtinReason = (dbName: string) =>
+  `"${dbName}" is a built-in StoryOS database, and a pack never changes those, so it cannot be reused. Leave it out of your choices and the pack installs its own separate "${dbName}".`;
 /** Only databases the person can EDIT are counted and named, so a hidden or read-only one never appears here. */
 const ambiguousReason = (dbName: string, spaceNames: string[]) =>
   `Can't use one: you have more than one ${dbName} database (in ${readableList(spaceNames)}). Create a new one here.`;
@@ -1181,7 +1184,7 @@ export class PacksService {
     // #1157 — the databases this install tracked that are still live (not trashed) and that the installer can EDIT; anything else is
     // treated as absent, so nothing about a database they cannot edit is used or described.
     const trackedLive = trackedDbs.flatMap((t) => {
-      const l = live.find((x) => x.id === t.entityId && canEdit(x));
+      const l = live.find((x) => x.id === t.entityId && canEdit(x) && !isSystemDatabase(x));
       return l ? [{ t, l }] : [];
     });
     // A tracked database that this pack CREATED is found by id wherever it lives now, but only when this is a re-install INTO where the
@@ -1207,7 +1210,7 @@ export class PacksService {
         hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true, reusable: true });
         continue;
       }
-      const same = live.filter((x) => norm(x.name) === norm(d.name) && !x.isSystem);
+      const same = live.filter((x) => norm(x.name) === norm(d.name) && !isSystemDatabase(x));
       const editable = same.filter(canEdit);
       const chose = resolutions[d.name]?.action === 'reuse';
       let hint: ExistingElsewhere | undefined;
@@ -1222,6 +1225,11 @@ export class PacksService {
         hint = { adopted: false, reusable: false, reason: notFoundReason(d.name) };
       }
       if (chose && strict) {
+        // #1166 — an explicit `reuse` of a database that is only a SYSTEM one is refused for what it is, plainly. (System databases are
+        // listed for anyone who can read them, so this names nothing that person could not already see.)
+        if (!hint && live.some((x) => norm(x.name) === norm(d.name) && isSystemDatabase(x))) {
+          throw new UnprocessableEntityException(builtinReason(d.name));
+        }
         if (!hint) throw new UnprocessableEntityException(notFoundReason(d.name));
         if (!hint.reusable) throw new UnprocessableEntityException(hint.reason);
       }
@@ -2462,7 +2470,7 @@ export class PacksService {
 
   private async findDbIdByName(membership: Membership, name: string): Promise<string | undefined> {
     const live = await this.databases.list(membership);
-    return live.find((d) => norm(d.name) === norm(name))?.id;
+    return live.find((d) => norm(d.name) === norm(name) && !isSystemDatabase(d))?.id;
   }
 
   private async findLiveView(
