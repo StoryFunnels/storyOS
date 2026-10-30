@@ -14,14 +14,18 @@ import { MCP_SERVER_VERSION } from './schema-version.js';
  * and advertises only the tools the token's scope permits — the HTTP transport builds
  * a fresh server per request, so each connection reflects its own token's ceiling.
  */
-export async function buildServer(ctx: Ctx = makeClient()): Promise<McpServer> {
+export async function buildServer(ctx: Ctx = makeClient(), options: { onlyTools?: ReadonlySet<string> } = {}): Promise<McpServer> {
   // #365 — the version carries the TOOL-ARGUMENT SCHEMA version, not just the
   // package's. A client negotiates tool schemas once at connect, so after a
   // deploy that changes an argument shape it is silently behind; this is the
   // value it can compare to notice. See schema-version.ts for when to bump.
   const server = new McpServer({ name: 'storyos', version: MCP_SERVER_VERSION });
   const effective = await fetchEffectiveScope(ctx);
+  if (options.onlyTools) effective.onlyTools = options.onlyTools;
   registerTools(server, ctx, effective);
+  // #1177: a profiled connection (an agent run) is a headless session that wants the short tool list: skills as resources/prompts are
+  // more definitions for nothing it will call.
+  if (options.onlyTools) return server;
   // #41: skills as native MCP resources/prompts, on top of list_skills/run_skill
   // above. Best-effort on top of best-effort — a catalog-fetch hiccup must never
   // fail the whole connection (the hosted transport builds one of these per request).

@@ -12,7 +12,7 @@ import { runProcess } from './process.js';
 import type { ProcessRunner } from './process.js';
 import { MCP_BLOCKING_ENV } from './pins.js';
 import { buildSystemPrompt, buildTaskText, newDataMarker } from './prompt.js';
-import { buildToolPolicy, MCP_SERVER_NAME } from './tools.js';
+import { buildToolPolicy, MCP_SERVER_NAME, withRunProfile } from './tools.js';
 
 /**
  * The Claude Code adapter (ticket #1135, ADR-0021 sections 5-7): runs the customer's own logged-in `claude` CLI, headless, once per
@@ -98,6 +98,12 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       return { exit: 'error', usage: null, summary: '', error: 'The StoryOS MCP address is not a valid http(s) URL. Set it with --mcp-url (or STORYOS_MCP_URL).', toolVersion };
     }
 
+    // #1177: offer the run only its role's StoryOS tools (the server filters `tools/list`); `--allowedTools` cannot do this, it only
+    // grants permission and the CLI still sends every schema (measured: 36,958 vs 7,667 tokens per request).
+    const profiled = withRunProfile(url, wake.mcpTools ?? []);
+    if (profiled.dropped.length) this.log.warn(`wake ${wake.wakeId}: ignored extra MCP tool name(s) that are not tool names: ${profiled.dropped.map((n) => JSON.stringify(redact(n))).join(', ')}`);
+    url = profiled.url;
+
     // The config holds the NAME of an environment variable. The credential itself goes to the child's environment only: not argv (ps
     // shows it), not a file (a backup shows it). Verified against the installed CLI: it expands ${VAR} in an MCP server's headers.
     const configPath = join(wake.workdir, `.storyos-mcp-${wake.wakeId.replace(/[^A-Za-z0-9_-]/g, '')}.json`);
@@ -119,6 +125,10 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       // allows `Bash` would re-open what this list closes.
       '--setting-sources', '',
       '--disable-slash-commands',
+      // #1177: moves the per-machine parts of the CLI's system prompt (working directory, environment, repository state) into the first
+      // user message, so the system prompt and tool list are identical from run to run and the provider's prompt cache can serve them
+      // to the next run instead of re-creating them. Same total tokens; fewer of them are cache writes. Exists on claude 2.1.104.
+      '--exclude-dynamic-system-prompt-sections',
       '--append-system-prompt', buildSystemPrompt(wake, nativeRules),
     ];
 
