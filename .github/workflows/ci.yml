@@ -9,6 +9,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# #1127 — explicit, not inherited from the repo default. The collision check
+# lists open PRs and their files through the API; nothing here writes.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   # #953 — is this diff docs-only? Decides whether the two test jobs below run at all. Same base-SHA
   # logic as the `images` job's docker-inputs-changed.mjs, for both triggers. FAIL-SAFE: if the base
