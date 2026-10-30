@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AgentsModule } from '../agents/agents.module';
 import { AutomationsModule } from '../automations/automations.module';
 import { DatabasesModule } from '../databases/databases.module';
+import { DocumentsModule } from '../documents/documents.module';
 import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
@@ -29,6 +30,7 @@ import { PublicPacksController } from './public-packs.controller';
     AgentsModule,
     AutomationsModule,
     DatabasesModule,
+    DocumentsModule,
     FieldsModule,
     RecordsModule,
     RelationsModule,

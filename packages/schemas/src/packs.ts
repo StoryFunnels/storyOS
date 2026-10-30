@@ -277,6 +277,11 @@ export function resolveSampleDate(token: string, now: Date = new Date()): string
 export const packSampleRecordSchema = z.object({
   database: nameSchema,
   values: jsonObjectSchema.default({}),
+  /**
+   * ticket #1147 — the record's body (its description document), as Markdown. Optional, so every manifest written before it still
+   * validates. A wiki page's text is its description, so a starter page that installed with only a title would install empty.
+   */
+  description: z.string().max(20_000).optional(),
 });
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
 

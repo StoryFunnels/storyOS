@@ -1,5 +1,6 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { stripPublicSharing } from '../views/view-sharing';
+import { DocumentsService } from '../documents/documents.service';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
@@ -9,6 +10,7 @@ import {
   dbRef,
   fieldRef,
   lineDiff,
+  markdownToBlocks,
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
@@ -296,6 +298,7 @@ export class PacksService {
     private readonly skills: SkillsService,
     private readonly marketplace: MarketplaceService,
     private readonly access: AccessService,
+    private readonly documents: DocumentsService,
   ) {}
 
   // ── export ─────────────────────────────────────────────────────────────────
@@ -1064,7 +1067,10 @@ export class PacksService {
           const rewritten = refify(value, idToRef, `A sample record of "${db.name}"`, 'drop');
           if (rewritten !== undefined) values[key] = rewritten;
         }
-        out.push({ database: db.name, values });
+        // #1147 — a record's body round-trips: export what import now writes.
+        const doc = await this.documents.get(record.id);
+        const description = doc.content ? blocksToMarkdown(doc.content).trim() : '';
+        out.push({ database: db.name, values, ...(description ? { description } : {}) });
       }
     }
     return out;
@@ -2877,6 +2883,10 @@ export class PacksService {
         // person installing it.
         'automation',
       );
+      // #1147 — the record's body, written once at creation (a reused record above is left exactly as the person has it).
+      if (planned.description) {
+        await this.documents.put(membership.workspaceId, dbId, created.id, markdownToBlocks(planned.description), 0, membership.userId, 'automation');
+      }
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
       createdIds.push(created.id);
