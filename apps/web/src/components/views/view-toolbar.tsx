@@ -26,7 +26,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
 import { useViewSearch } from './view-search';
-import { filterButtonState } from './filter-state';
+import { filterButtonState, isUnfinished } from './filter-state';
 import { DisplayMenu } from './display-menu';
 import { GroupChip, showsGroupChip, viewGroups } from './group-chip';
 import { buildViewMenu } from './view-menu';
@@ -891,9 +891,15 @@ export function FilterValueEditor({
     return (
       <select
         className={boxed}
-        value={String(condition.value ?? 'next_7_days')}
+        value={String(condition.value ?? '')}
         onChange={(e) => onChange({ ...condition, value: e.target.value })}
       >
+        {/* #1161 — no stored value is not "next 7 days": show it as unchosen instead of drawing a default that was never saved. */}
+        {(condition.value === undefined || condition.value === null || condition.value === '') && (
+          <option value="" disabled>
+            pick a range…
+          </option>
+        )}
         {RELATIVE_RANGES.map((r) => (
           <option key={r} value={r}>
             {r.replaceAll('_', ' ')}
@@ -906,9 +912,14 @@ export function FilterValueEditor({
     return (
       <select
         className={boxed}
-        value={String(condition.value ?? 'true')}
+        value={String(condition.value ?? '')}
         onChange={(e) => onChange({ ...condition, value: e.target.value === 'true' })}
       >
+        {typeof condition.value !== 'boolean' && (
+          <option value="" disabled>
+            pick…
+          </option>
+        )}
         <option value="true">checked</option>
         <option value="false">unchecked</option>
       </select>
@@ -1301,8 +1312,17 @@ export function FilterChip({
   const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
+  // #1161 — a chip with no value yet says so, the way the Filter panel's row does: dashed border + "not applied yet".
+  const unfinished = isUnfinished(condition);
+
   return (
-    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label">
+    <span
+      className={cn(
+        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label',
+        unfinishedCtl(unfinished),
+      )}
+      title={unfinished ? 'not applied yet — needs a value' : undefined}
+    >
       <span className="font-medium text-ink">{field.displayName}</span>
       <select
         className="bg-card text-muted outline-none"
@@ -1320,6 +1340,7 @@ export function FilterChip({
       </select>
 
       <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} compact />
+      {unfinished && <span className="text-micro text-warning">not applied yet</span>}
 
       <button onClick={onRemove} className="text-faint hover:text-error">
         <X className="h-3 w-3" />

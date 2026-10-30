@@ -72,7 +72,8 @@ import { RelationsService } from '../relations/relations.service';
 import { SkillsService } from '../skills/skills.service';
 import { RUN_CLASS_BY_LABEL } from '../agents/agent-runtime';
 import { ViewsService } from '../views/views.service';
-import { AccessService } from '../access/access.service';
+import { ACCESS_RANK, AccessService } from '../access/access.service';
+import type { EffectiveRole } from '../access/access.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
@@ -258,6 +259,27 @@ interface AgentOsSnapshot {
  * install's `ref → id` — are built by the same rules from the same names, which
  * is what makes the round trip closed rather than merely hopeful.
  */
+/** #1156 — what the preview says about a same-named database in another space (see `packPreviewItemSchema.existing_elsewhere`). */
+type ExistingElsewhere = { database_id?: string; space_name?: string; adopted: boolean; reusable: boolean; reason?: string };
+
+/** "A", "A and B", "A, B and C": the names, once each, in a stable order. */
+function readableList(names: string[]): string {
+  const uniq = [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  return uniq.length <= 1 ? (uniq[0] ?? '') : `${uniq.slice(0, -1).join(', ')} and ${uniq[uniq.length - 1]}`;
+}
+/** The words for a field type in a sentence: `multi_select` -> "a multi select", `email` -> "an email". */
+function typeWords(type: string): string {
+  const t = type.replace(/_/g, ' ');
+  return `${/^[aeiou]/i.test(t) ? 'an' : 'a'} ${t}`;
+}
+const typeClash = (field: string, liveType: string, plannedType: string) =>
+  `${field} is ${typeWords(liveType)} here but this pack needs ${typeWords(plannedType)}`;
+/** Said for a database that does not exist, that the person cannot read, AND one they can read but not edit: one wording, so none is confirmed. */
+const notFoundReason = (dbName: string) => `There is no ${dbName} database you can edit.`;
+/** Only databases the person can EDIT are counted and named, so a hidden or read-only one never appears here. */
+const ambiguousReason = (dbName: string, spaceNames: string[]) =>
+  `Can't use one: you have more than one ${dbName} database (in ${readableList(spaceNames)}). Create a new one here.`;
+
 @Injectable()
 export class PacksService {
   private readonly logger = new Logger(PacksService.name);
@@ -1097,9 +1119,10 @@ export class PacksService {
    *  - Not a PERSONAL space: a personal space holds documents and views only, never databases (personal-space.md).
    *  - A manifest whose databases sit in more than one space is refused: "everything lands in the target" would flatten a structure
    *    the pack chose on purpose, and picking which space the target stands in for would be a guess.
-   *  - Install reuses a database by NAME anywhere in the workspace, so a manifest database that already lives in a DIFFERENT space
-   *    would be reused where it is and leave the target space without it: exactly the dead end this exists to remove. Refused (409)
-   *    naming where it lives, rather than reported as success. In the target space itself it is simply reused (idempotent).
+   *  - A manifest database of the same name in a DIFFERENT space is no business of this install (#1156): it used to be reused where it
+   *    lived, which left the target space without it, so #1095 refused it (409). Matching is now scoped to the target space, so the pack
+   *    simply creates its own here and the refusal is gone. In the target space itself a same-named database is reused if this pack put
+   *    it there (idempotent) and is a collision needing a decision if it did not (`computeCollisions`).
    */
   private async resolveTargetSpace(
     membership: Membership,
@@ -1118,18 +1141,101 @@ export class PacksService {
         `"${manifest.name}" places its databases in ${planned.length} spaces (${names}), so it cannot be installed into one existing space. Install it without choosing a space.`,
       );
     }
-    const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
-    const live = await this.databases.list(membership);
-    const elsewhere = manifest.databases
-      .map((planned) => ({ planned, found: live.find((d) => norm(d.name) === norm(planned.name)) }))
-      .filter((x) => x.found && x.found.spaceId !== targetSpaceId);
-    if (elsewhere.length > 0) {
-      const where = elsewhere.map((x) => `"${x.planned.name}" (in ${spaceNames.get(x.found!.spaceId) ?? 'another space'})`).join(', ');
-      throw new ConflictException(
-        `${where} already exist${elsewhere.length === 1 ? 's' : ''} in this workspace outside "${space.name}", and installing reuses what exists by name, which would leave this space without ${elsewhere.length === 1 ? 'it' : 'them'}. Open the existing ${elsewhere.length === 1 ? 'database' : 'databases'} instead, or rename ${elsewhere.length === 1 ? 'it' : 'them'} first.`,
-      );
-    }
     return { id: space.id, name: space.name };
+  }
+
+  /**
+   * #1156 — which databases in OTHER spaces this install adopts, and what the review should say about each.
+   *
+   * Matching is per space, so a database of the same name elsewhere is ignored by default. Sharing one across packs (a Clients list for
+   * Agency OS, Consulting OS and a portal) is a deliberate act, so it happens only when
+   *  - the person chose `reuse` for that database in the review (`resolutions`), or
+   *  - this pack adopted it on an earlier install (tracked as `reused`), so a re-install keeps using it instead of making a duplicate.
+   * It must also be REUSABLE: the person can EDIT exactly one database of that name, and its fields fit the pack (same type where the
+   * pack declares a field; a workflow state is a select). Why not is worded for a person (`reuseReasons`).
+   *
+   * Only what the person can READ is ever looked at (`my_access` comes from the visibility-filtered list). A database they can read but
+   * not edit gets the not-found wording, with no id or space; one they cannot read leaves no trace at all. The ambiguity reason counts and
+   * names only databases they can edit. `strict` (install) refuses an explicit `reuse` that is not reusable with the reason as the
+   * message; the preview (not strict) reports the same reason instead, so the review can show it and the install agrees with it.
+   */
+  private async planAdoptions(
+    membership: Membership,
+    manifest: PackManifest,
+    targetSpaceId: string | undefined,
+    resolutions: PackInstallResolutions,
+    existingInstall: { id: string } | undefined,
+    strict = true,
+  ): Promise<{ adopt: Map<string, { id: string; name: string }>; hints: Map<string, ExistingElsewhere> }> {
+    const adopt = new Map<string, { id: string; name: string }>();
+    const hints = new Map<string, ExistingElsewhere>();
+    const trackedDbIds = existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : new Map<string, string>();
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined, trackedDbIds);
+    const live = await this.databases.list(membership);
+    const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
+    const where = (spaceId: string) => spaceNames.get(spaceId) ?? 'another space';
+    const trackedReused = existingInstall
+      ? await this.db.query.packInstallItems.findMany({
+          where: and(eq(packInstallItems.packInstallId, existingInstall.id), eq(packInstallItems.kind, 'database'), eq(packInstallItems.action, 'reused')),
+        })
+      : [];
+    const canEdit = (d: { my_access: string | null }) => d.my_access !== null && ACCESS_RANK[d.my_access as EffectiveRole] >= ACCESS_RANK.editor;
+    for (const d of manifest.databases) {
+      const homeDb = inHomeSpace(d.name, d.space);
+      if (homeDb) {
+        // A same-named database the install did not create, in the space it installs into: written to only on the person's explicit
+        // `reuse`, and then only if they can edit it, worded as for a database that is not there.
+        const foreign = trackedDbIds.get(norm(d.name)) !== homeDb.id;
+        if (foreign && strict && resolutions[d.name]?.action === 'reuse' && !canEdit(homeDb)) {
+          throw new UnprocessableEntityException(notFoundReason(d.name));
+        }
+        continue;
+      }
+      const earlier = trackedReused.find((t) => norm(t.name) === norm(d.name));
+      const kept = earlier ? live.find((x) => x.id === earlier.entityId && canEdit(x)) : undefined;
+      if (kept) {
+        adopt.set(norm(d.name), { id: kept.id, name: kept.name });
+        hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true, reusable: true });
+        continue;
+      }
+      const same = live.filter((x) => norm(x.name) === norm(d.name) && !x.isSystem);
+      const editable = same.filter(canEdit);
+      const chose = resolutions[d.name]?.action === 'reuse';
+      let hint: ExistingElsewhere | undefined;
+      if (editable.length > 1) {
+        hint = { adopted: false, reusable: false, reason: ambiguousReason(d.name, editable.map((x) => where(x.spaceId))) };
+      } else if (editable.length === 1) {
+        const only = editable[0]!;
+        const reason = await this.incompatibility(membership, manifest, d.name, only.id);
+        hint = { database_id: only.id, space_name: where(only.spaceId), adopted: chose && !reason, reusable: !reason, ...(reason ? { reason } : {}) };
+        if (chose && !reason) adopt.set(norm(d.name), { id: only.id, name: only.name });
+      } else if (same.length > 0) {
+        hint = { adopted: false, reusable: false, reason: notFoundReason(d.name) };
+      }
+      if (chose && strict) {
+        if (!hint) throw new UnprocessableEntityException(notFoundReason(d.name));
+        if (!hint.reusable) throw new UnprocessableEntityException(hint.reason);
+      }
+      if (hint) hints.set(norm(d.name), hint);
+    }
+    return { adopt, hints };
+  }
+
+  /** #1156 — why the pack's version of `dbName` cannot use the live database `liveId` as it is, in plain language; undefined when it can. */
+  private async incompatibility(membership: Membership, manifest: PackManifest, dbName: string, liveId: string): Promise<string | undefined> {
+    const detail = await this.databases.get(membership, liveId);
+    const fields = ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options }));
+    const planned = manifest.databases.find((x) => norm(x.name) === norm(dbName));
+    const problems: string[] = [];
+    for (const f of planned?.fields ?? []) {
+      const decision = decideField(fields, f.name, f.type);
+      if (decision.action === 'reuse' && decision.clash) problems.push(typeClash(f.name, decision.clash.live_type, decision.clash.planned_type));
+    }
+    for (const st of manifest.states.filter((x) => norm(x.database) === norm(dbName))) {
+      const decision = decideState(fields, st.field, st.options);
+      if (decision.action === 'blocked') problems.push(typeClash(st.field, decision.live_type, 'select'));
+    }
+    return problems.length > 0 ? `${problems.join('; ')}.` : undefined;
   }
 
   /**
@@ -1150,12 +1256,19 @@ export class PacksService {
     targetSpaceId?: string,
     /** #1107 — see `install`. A preview that ignored it would show the rules off that the install then turns on. */
     enableAutomations: string[] = [],
+    /** #1156 — the same `resolutions` install takes: a `reuse` the person chose for a database in another space is shown as adopted. */
+    resolutions: PackInstallResolutions = {},
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
-    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest);
+    const plan = await this.planAdoptions(membership, manifest, targetSpaceId, resolutions, await this.findExistingInstall(membership.workspaceId, manifest.slug), false);
+    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId, plan.adopt);
+    for (const item of databases) {
+      const hint = plan.hints.get(norm(item.name));
+      if (hint) item.existing_elsewhere = hint;
+    }
     // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
     const turnedOn = this.labelSet(enableAutomations);
     const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
@@ -1180,6 +1293,8 @@ export class PacksService {
   private async computeCollisions(
     membership: Membership,
     manifest: PackManifest,
+    targetSpaceId?: string,
+    adopt?: Map<string, { id: string; name: string }>,
   ): Promise<{
     databases: PackPreviewItem[];
     views: PackPreviewItem[];
@@ -1201,13 +1316,22 @@ export class PacksService {
       return tracked?.[kind].has(norm(label)) ? 'reuse' : 'collision';
     };
 
-    const liveDbs = await this.databases.list(membership);
-    const liveByName = new Map(liveDbs.map((d) => [norm(d.name), d]));
+    // #1156 — a planned database is matched only among the databases of the space it goes into (see `homeSpaceMatcher`), exactly as
+    // `ArchitectService.buildDatabases` does for the install, so this never reports a collision with a database the install would not touch.
+    const trackedDbIds = existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : new Map<string, string>();
+    const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined, trackedDbIds);
+    const liveByName = new Map<string, NonNullable<ReturnType<typeof inHomeSpace>>>();
+    for (const d of manifest.databases) {
+      const found = inHomeSpace(d.name, d.space) ?? (adopt?.get(norm(d.name)) as ReturnType<typeof inHomeSpace>);
+      if (found) liveByName.set(norm(d.name), found);
+    }
 
-    const databases: PackPreviewItem[] = manifest.databases.map((d) => ({
-      name: d.name,
-      action: classify('database', d.name, liveByName.has(norm(d.name))),
-    }));
+    // #1156 — a live database is `reuse` only if it IS the one this install recorded (same id); a same-named one the install did not create
+    // is a `collision` needing the person's explicit choice, however many times the pack was installed elsewhere.
+    const databases: PackPreviewItem[] = manifest.databases.map((d) => {
+      const found = liveByName.get(norm(d.name));
+      return { name: d.name, action: !found ? 'create' : trackedDbIds.get(norm(d.name)) === found.id ? 'reuse' : 'collision' };
+    });
 
     // Views/automations only exist once their database does — a planned
     // database that isn't live yet previews all of its views and automations
@@ -1578,6 +1702,17 @@ export class PacksService {
     });
   }
 
+  /**
+   * #1156 — the database id each planned database name was installed as, per the install's own record. A database is "this pack's own" by
+   * THIS id and no other: a same-named database the install did not create is somebody else's, however alike its name.
+   */
+  private async trackedDatabaseIds(packInstallId: string): Promise<Map<string, string>> {
+    const rows = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, 'database')),
+    });
+    return new Map(rows.map((r) => [norm(r.name), r.entityId] as const));
+  }
+
   private async trackedNames(
     packInstallId: string,
     kind: 'database' | 'view' | 'automation' | 'agent' | 'skill',
@@ -1627,7 +1762,8 @@ export class PacksService {
     const unmet = await this.checkRequirements(membership, manifest);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
-    const collisions = await this.computeCollisions(membership, manifest);
+    const { adopt } = await this.planAdoptions(membership, manifest, targetSpace?.id, resolutions, existingInstall);
+    const collisions = await this.computeCollisions(membership, manifest, targetSpace?.id, adopt);
     const { manifest: working, skippedAgents, viewResolutions, automationResolutions, takeAgents } =
       this.applyResolutions(manifest, collisions, resolutions);
 
@@ -1646,7 +1782,7 @@ export class PacksService {
       // Databases, fields, relations, states, agents and bindings — all of it,
       // through the walk #214 already ships. Nothing about that walk is
       // reimplemented, adapted or wrapped here.
-      const built = await this.architect.build(membership, working, { targetSpace, progress: ledger.built });
+      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, trackedIds: existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : undefined, progress: ledger.built });
 
       const result: PackInstallResult = {
         slug: manifest.slug,
@@ -2201,11 +2337,17 @@ export class PacksService {
     const removed: PackUninstallResult['removed'] = [];
     const kept: PackUninstallResult['kept'] = [];
     const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
+    // #1156 — a view or automation belongs to the database THIS install tracked, found by id. Looking it up by name alone takes the first
+    // database of that name in the workspace, which with two "Issues" in different spaces is not necessarily the pack's: its views were
+    // then skipped as "already gone". Name stays only as the fallback for a database the install never tracked.
+    const liveDbIds = new Set((await this.databases.list(membership)).map((d) => d.id));
+    const trackedDbByName = new Map(items.filter((i) => i.kind === 'database' && liveDbIds.has(i.entityId)).map((i) => [norm(i.name), i.entityId] as const));
+    const dbIdFor = async (name: string) => trackedDbByName.get(norm(name)) ?? (await this.findDbIdByName(membership, name));
 
     for (const item of items) {
       if (item.kind === 'view') {
         const database = item.name.split('.')[0] ?? item.name;
-        const dbId = await this.findDbIdByName(membership, database);
+        const dbId = await dbIdFor(database);
         const live = dbId ? await this.findLiveView(membership, dbId, item.entityId) : undefined;
         if (!live) continue; // already gone — nothing to remove or keep
         // Belt-and-braces: `installViews` no longer tracks a database's
@@ -2222,6 +2364,12 @@ export class PacksService {
           });
           continue;
         }
+        // #1153 — a view the install merely REUSED (same name already existed) is someone's own; the pack did not make it, so
+        // uninstall does not unmake it, however pristine it looks.
+        if (item.action === 'reused') {
+          kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Existed before the install.' });
+          continue;
+        }
         if (this.hashOf({ name: live.name, type: live.type, config: live.config }) !== item.contentHash) {
           kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Changed since install.' });
           continue;
@@ -2230,7 +2378,7 @@ export class PacksService {
         removed.push({ kind: 'view', name: item.name, id: item.entityId });
       } else if (item.kind === 'automation') {
         const database = item.name.split('.')[0] ?? item.name;
-        const dbId = await this.findDbIdByName(membership, database);
+        const dbId = await dbIdFor(database);
         const live = dbId ? await this.findLiveAutomation(dbId, item.entityId) : undefined;
         if (!live) continue;
         const projection = {
@@ -2548,9 +2696,14 @@ export class PacksService {
       if (planned.default && result.databases.some((d) => norm(d.name) === norm(planned.database) && d.action === 'created')) {
         await this.views.setDefault(dbId, created.id);
       }
+      // #1153 — hash the view AS A READ SEES IT, not what the manifest asked for. `ViewsService.create` fills in defaults the manifest
+      // did not carry (a Board's group-by) and the read (`cleanViewConfig`) normalises the rest (`sorts: []`, ...), so hashing the
+      // request made every pack view read as "Changed since install" on uninstall and none was ever removed. Uninstall compares
+      // against this same read shape (`findLiveView`).
+      const stored = await this.findLiveView(membership, dbId, created.id);
       hashes.set(
         `view:${created.id}`,
-        this.hashOf({ name: targetName, type: planned.type, config }),
+        this.hashOf({ name: created.name, type: created.type, config: stored?.config ?? created.config }),
       );
     }
   }

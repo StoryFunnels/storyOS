@@ -29,6 +29,7 @@ config.
 | `relation` | A link to another database — see [relations](/concepts/relations/). |
 | `lookup`, `rollup` | Derived from a relation — see [lookups & rollups](/concepts/lookups-and-rollups/). |
 | `formula` | Computed from other fields — see [formulas](/concepts/formulas/). |
+| `ai` | AI field: fills a value from a prompt; details coming. |
 | `button` | Runs actions on click — see [automations & buttons](/concepts/automations/). |
 | `created_at`, `updated_at`, `created_by` | System, read-only. Filterable and sortable like any other field, with the operators each type supports. |
 
@@ -47,12 +48,25 @@ A record opens as one **main column** and a fixed **side panel**.
 - **Main column**, top to bottom: the title, a status strip (workflow status, assignee, due date and
   who's watching), the fields in labelled groups — **Details**, **Links**, **Computed** and **System**
   — then the **Description**, any embedded collections (sub-items and the like), and **Attachments**.
+- **An empty strip shows Assignee and Due date, and hides the rest.** On a new record the status
+  strip still draws a person field and a date field while they are empty, as chips you click to
+  set, so assigning and dating a record takes one click each. Any other empty strip property
+  (a select, a number, a relation) is left out and comes back through **+ Add property** at the end
+  of the strip. A person or date field that someone hid on the record stays hidden.
 - **Attachments appear only when they have something to show** — the database has an attachment
   field, or this record already has files. Existing files are never hidden.
 - **Empty collections hide by default.** A collection on a record (many-to-many, or the many side of a
   one-to-many) is hidden while it has nothing in it; single references and ordinary fields keep
   showing. A field's own menu overrides this either way: **Hide when empty** or **Always show (even
   empty)**, and the menu shows the setting actually in force.
+- **A related row shows its state, and the state is edited on that record.** In an embedded
+  collection each row reads number, state glyph, title, then its chosen columns. The state glyph
+  is the one a [list](/concepts/views/#state-glyphs-percent-chips-and-loading-in-lists-and-boards)
+  draws, taken from the related database's workflow field or its first select with state
+  categories. That field is not a column in the row and has no inline control: open the related
+  record to change it. A collection of more than 50 rows shows its first 50 with a **Show all** link, and **Show
+  less** folds it back. Changing a sort or filter keeps the rows on screen until the new first
+  page arrives, and changing only the colouring repaints the rows without reloading them.
 - **An embedded collection's filter is yours.** Filtering, sorting, colouring or choosing columns on a
   collection like Sub-items is a **personal** setting: it applies to you only, in every record of that
   database, and a **Personal · Reset** badge appears beside the collection while it's active. Reset

@@ -21,7 +21,8 @@ const proto = JSON.parse(readFileSync(new URL('./fixtures/team-board-prototype.j
   databases: Record<string, { fields: string[] }>;
   map: Array<{ from: string; to: string; to_field?: string }>;
   states: Array<{ label: string; category: string }>;
-  views: Array<{ name: string; database: string; grouped_by?: string; opens?: boolean; only_mine?: boolean }>;
+  views: Array<{ name: string; database: string; type?: string; grouped_by?: string; opens?: boolean; only_mine?: boolean; shows?: string[] }>;
+  labels: Array<{ label: string; color: string }>;
   automations: Array<{ name: string; database: string; notifies: string }>;
   sample_cards: Array<{ title: string; status: string }>;
 };
@@ -64,12 +65,13 @@ describe('#1146 the manifest', () => {
     expect(packWorkflow(entry)).toEqual(proto.workflow);
   });
 
-  it('declares exactly the prototype\'s pieces: 2 databases, 2 views, 1 automation, no agent, 3 sample cards', () => {
+  it('declares exactly the prototype\'s pieces: 2 databases, 3 views, the prototype\'s automation (plus its create-time twin), no agent, 3 sample cards', () => {
     const m = entry.manifest;
     expect(m.databases.map((d) => d.name).sort()).toEqual(Object.keys(proto.databases).sort());
     expect(m.databases.every((d) => d.space === proto.space)).toBe(true);
     expect(m.views.map((v) => v.name)).toEqual(proto.views.map((v) => v.name));
-    expect(m.automations.map((a) => a.name)).toEqual(proto.automations.map((a) => a.name));
+    // the prototype's one automation, then its twin that covers a task created already assigned (ticket #1146 follow-up, Otto)
+    expect(m.automations.map((a) => a.name)).toEqual([...proto.automations.map((a) => a.name), 'Tell the assignee of a new task']);
     expect(m.agents).toEqual([]);
     expect(m.sample_records.map((r) => r.values.name)).toEqual(proto.sample_cards.map((c) => c.title));
     expect(m.sample_records).toHaveLength(proto.samples);
@@ -130,24 +132,52 @@ describe('#1146 a real install creates everything the prototype shows', () => {
   });
 
   it('creates Board and Assigned to me; Board groups by Status and is the view the database opens on; Assigned to me is not', async () => {
-    expect(result.views.map((v) => `${v.name}:${v.action}`).sort()).toEqual(['Tasks.Assigned to me:created', 'Tasks.Board:created']);
+    expect(result.views.map((v) => `${v.name}:${v.action}`).sort()).toEqual(['Projects.All projects:created', 'Tasks.Assigned to me:created', 'Tasks.Board:created']);
     const d = await detail(ws, 'Tasks');
     const status = d.fields.find((f) => f.displayName === 'Status')!;
+    const projects = await detail(ws, 'Projects');
     for (const pv of proto.views) {
-      const v = d.views.find((x) => x.name === pv.name)!;
+      const v = (pv.database === 'Projects' ? projects : d).views.find((x) => x.name === pv.name)!;
       expect(v, pv.name).toBeTruthy();
       expect(v.isDefault, `${pv.name} opens`).toBe(Boolean(pv.opens));
       if (pv.grouped_by) expect(v.config.group_by_field_id).toBe(status.id);
     }
     const defaults = d.views.filter((v) => v.isDefault);
     expect(defaults.map((v) => v.name)).toEqual(['Board']); // exactly one default per database
-    // Projects was given no views by the pack: it keeps its own "All records" default.
-    expect((await detail(ws, 'Projects')).views.filter((v) => v.isDefault)).toHaveLength(1);
+    // Projects keeps its own "All records" as the default; "All projects" is a table and is not the default.
+    expect(projects.views.filter((v) => v.isDefault).map((v) => v.name)).toEqual(['All records']);
+    expect(projects.views.find((v) => v.name === 'All projects')!.type).toBe('table');
+  });
+
+  it('Labels has the four prototype options with their colours', async () => {
+    const labels = (await detail(ws, 'Tasks')).fields.find((f) => f.displayName === 'Labels') as Fld & { options: Array<Opt & { color?: string }> };
+    expect(labels.options.map((o) => ({ label: o.label, color: o.color }))).toEqual(proto.labels);
+  });
+
+  it('"All projects" shows Owner, Target date and Open tasks (and not the raw Tasks link); Open tasks counts only the tasks that are not Done', async () => {
+    // its own workspace: the cards this test adds must not leak into the install assertions that count them
+    const ws = await newWs();
+    expect((await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest })).statusCode).toBe(201);
+    const projects = await detail(ws, 'Projects');
+    const tasks = await detail(ws, 'Tasks');
+    const view = projects.views.find((v) => v.name === 'All projects')!;
+    const hidden = new Set(view.config.hidden_field_ids as string[]);
+    const idOf = (n: string) => projects.fields.find((f) => f.displayName === n)!.id;
+    for (const n of proto.views.find((v) => v.name === 'All projects')!.shows!) expect(hidden.has(idOf(n)), `${n} must show`).toBe(false);
+    expect(hidden.has(idOf('Tasks')), 'the Tasks link column is hidden').toBe(true);
+    const opt = (n: string) => tasks.fields.find((f) => f.displayName === 'Status')!.options!.find((o) => o.label === n)!.id;
+    const proj = (await as('POST', `/workspaces/${ws}/databases/${projects.id}/records`, { values: { name: 'Rollup project' } })).json() as { id: string };
+    const mk = (name: string, status: string) => as('POST', `/workspaces/${ws}/databases/${tasks.id}/records`, { values: { name, status: opt(status), project: [proj.id] } });
+    for (const [n, st] of [['r1', 'To Do'], ['r2', 'In Progress'], ['r3', 'Done'], ['r4', 'Done']] as const) expect((await mk(n, st)).statusCode).toBe(201);
+    const got = (await as('GET', `/workspaces/${ws}/databases/${projects.id}/records/${proj.id}`)).json() as { values: Record<string, unknown>; computed_values?: Record<string, unknown> };
+    const open = projects.fields.find((f) => f.displayName === 'Open tasks')!;
+    expect(open.type).toBe('rollup');
+    expect(got.values[open.apiName] ?? got.computed_values?.[open.id] ?? got.computed_values?.[open.apiName]).toBe(2);
   });
 
   it('creates the automation switched on, aimed at Assignee', async () => {
-    expect(result.automations.map((a) => `${a.name}:${a.action}`)).toEqual(['Tasks.Tell the assignee:created']);
-    expect(result.automations[0]!.enabled).toBe(true);
+    expect(result.automations.map((a) => `${a.name}:${a.action}`)).toEqual(['Tasks.Tell the assignee:created', 'Tasks.Tell the assignee of a new task:created']);
+    expect(result.automations.every((a) => a.enabled === true)).toBe(true);
   });
 
   it('creates all three teaching cards, each in To Do, and exactly those', async () => {
@@ -222,5 +252,48 @@ describe('#1146 the default view is the pack\'s to set only on a database the pa
     const after = await detail(ws, 'Tasks');
     expect(after.views.some((v) => v.name === 'Board')).toBe(true);
     expect(after.views.filter((v) => v.isDefault).map((v) => v.name)).toEqual([defaultBefore]);
+  });
+});
+
+describe('#1146 "Tell the assignee" also fires for a task created already assigned', () => {
+  const MSG = 'A task was assigned to you.';
+  const told = async (ws: string, token: string) =>
+    ((await call(app, token, 'GET', `/workspaces/${ws}/notifications`)).json().data ?? []).filter((n: { snippet?: string }) => n.snippet === MSG).length as number;
+  const until = async (fn: () => Promise<boolean>) => {
+    for (let i = 0; i < 60; i++) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 250)); }
+    return false;
+  };
+  const make = async (ws: string, db: string, values: Record<string, unknown>) => {
+    const r = await as('POST', `/workspaces/${ws}/databases/${db}/records`, { values });
+    expect(r.statusCode, r.body).toBe(201);
+    return r.json() as { id: string };
+  };
+
+  it('created already assigned: the assignee is told once; created unassigned: nobody is; a later assign tells once more; no duplicate per event', async () => {
+    const ws = await newWs();
+    expect((await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest })).statusCode).toBe(201);
+    const member = await joinAs(app, owner.token, ws, 'Team Board Assignee', 'member');
+    const d = await detail(ws, 'Tasks');
+
+    // the installed sample cards (card 1 is assigned to the installer) must not tell the installer anything
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(await told(ws, owner.token), 'seeded sample cards must not notify the installer').toBe(0);
+
+    await make(ws, d.id, { name: 'Unassigned at birth' });
+    const assigned = await make(ws, d.id, { name: 'Assigned at birth', assignee: member.id });
+    expect(await until(async () => (await told(ws, member.token)) >= 1), 'created already assigned: the assignee was not told').toBe(true);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(await told(ws, member.token), 'exactly one notification for the one event').toBe(1);
+
+    // the unassigned task told nobody (the owner assigned nothing to themselves; the member only has the one above)
+    expect(await told(ws, owner.token)).toBe(0);
+
+    // a later assign of the unassigned task tells the new assignee once
+    const later = (await rows(ws, d.id)).find((r) => r.title === 'Unassigned at birth')!;
+    expect((await as('PATCH', `/workspaces/${ws}/databases/${d.id}/records/${later.id}`, { values: { assignee: member.id } })).statusCode).toBe(200);
+    expect(await until(async () => (await told(ws, member.token)) >= 2), 'a later assign did not notify').toBe(true);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(await told(ws, member.token)).toBe(2);
+    expect(assigned.id).toBeTruthy();
   });
 });

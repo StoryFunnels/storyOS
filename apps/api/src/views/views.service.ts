@@ -112,11 +112,30 @@ export function computePublicFieldAllowlist(
   return { exposedApiNames, relationApiNames };
 }
 
+/** #1158 — see `cleanViewConfig`. Returns undefined (not []) when nothing is stored, so absent stays absent. */
+function pruneHiddenOptionIds(
+  config: ViewConfig,
+  optionIdsByField: Map<string, Set<string>> | undefined,
+): string[] | undefined {
+  const ids = config.hidden_option_ids;
+  if (!ids) return undefined;
+  if (!optionIdsByField) return ids;
+  const live = config.group_by_field_id ? optionIdsByField.get(config.group_by_field_id) : undefined;
+  return ids.filter((id) => live?.has(id));
+}
+
 /** Drops references to fields that no longer exist (defensive read, C-series ACs). */
 export function cleanViewConfig(
   config: ViewConfig,
   liveFieldIds: Set<string>,
   liveApiNames: Set<string>,
+  /**
+   * #1158 — option ids per select/workflow field, so `hidden_option_ids` can be
+   * pruned to the group-by field's CURRENT options. Optional only so the pure
+   * callers that never carry a board config stay as they were; omitting it passes
+   * `hidden_option_ids` through untouched rather than guessing.
+   */
+  optionIdsByField?: Map<string, Set<string>>,
 ): ViewConfig {
   return {
     filters: config.filters ? (cleanFilterNode(config.filters, liveApiNames) as ViewConfig['filters']) : undefined,
@@ -170,6 +189,13 @@ export function cleanViewConfig(
     column_sort: config.column_sort,
     hide_empty_groups: config.hide_empty_groups,
     hide_empty_no_value_group: config.hide_empty_no_value_group,
+    /*
+     * #1158 — hidden board columns. An id is DANGLING when the option is gone,
+     * or when it is no longer an option of the CURRENT group-by field (the board
+     * was regrouped); only dangling ids are dropped, an unset key stays unset.
+     * Listed here because this function is an explicit allowlist (see above).
+     */
+    hidden_option_ids: pruneHiddenOptionIds(config, optionIdsByField),
     date_field_id:
       config.date_field_id && liveFieldIds.has(config.date_field_id)
         ? config.date_field_id
@@ -514,9 +540,36 @@ export class ViewsService {
       }
       const error = boardGroupError(groupField, relation);
       if (error) throw new UnprocessableEntityException(error);
+      await this.validateHiddenOptionIds(groupField, config.hidden_option_ids);
+    }
+
+    if (type !== 'board' && config.hidden_option_ids?.length) {
+      throw new UnprocessableEntityException('hidden_option_ids only applies to board views');
     }
 
     if (config.form?.fields?.length) await this.validateHiddenFormFieldValues(byId, config.form.fields);
+  }
+
+  /**
+   * #1158 — every hidden column must be an option of the board's group-by field,
+   * and that field must be one whose columns ARE options (select / workflow). A
+   * user, relation or date board has no option id to hide, so storing one would
+   * be a config nothing can honour. Empty / absent is always fine.
+   */
+  private async validateHiddenOptionIds(groupField: FieldRow | undefined, ids: string[] | undefined) {
+    if (!ids?.length) return;
+    if (!groupField || (groupField.type !== 'select' && groupField.type !== 'workflow')) {
+      throw new UnprocessableEntityException(
+        'hidden_option_ids needs a board grouped by a select or workflow field — other groupings have no option to hide',
+      );
+    }
+    const options = await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, groupField.id) });
+    const valid = new Set(options.map((o) => o.id));
+    for (const id of ids) {
+      if (!valid.has(id)) {
+        throw new UnprocessableEntityException(`hidden_option_ids: "${id}" is not an option of the board's group-by field`);
+      }
+    }
   }
 
   /**
