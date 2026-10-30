@@ -56,6 +56,22 @@ function heldWriteResult(held: PendingApprovalResult) {
     message: `${held.message} Nothing was changed. A person approves or rejects it in the Approvals inbox; do not retry the write.`,
   });
 }
+/**
+ * #1178 — the agent's own `delete` approval_policy can HOLD a run credential's direct delete (the API answers 202 with the same
+ * pending_approval body). The data is still there, so a tool that reports `deleted` for it lies: report it as what it is, and tell the
+ * agent not to retry (a retry would stage a second approval).
+ */
+function heldDelete(res: unknown) {
+  const held = heldWrite(res);
+  return held
+    ? text({
+        deleted: false,
+        pending_approval: true,
+        approval_id: held.approval_id,
+        message: `${held.message} Nothing was deleted. A person approves or rejects it in the Approvals inbox; do not retry the delete.`,
+      })
+    : null;
+}
 // Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
@@ -1981,12 +1997,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const relField = detail.fields.find((f) => f.id === fieldId);
         const targetDbId = relField?.relation?.target_database_id ?? db.id;
         const targetIds = await Promise.all(targets.map((t) => resolveRecordId(ws.id, targetDbId, t)));
-        await unwrap(
+        const res = await unwrap<unknown>(
           client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
             params: { path: { ws: ws.id, db: db.id, rec, field: fieldId } } as never,
             body: { record_ids: targetIds } as never,
           }),
         );
+        const held = heldDelete(res);
+        if (held) return held;
         // Was `text(row)` — the RAW row: option UUIDs instead of labels, BlockNote
         // JSON instead of prose, no `url`. Same serialiser as every other tool (#343).
         return text(await readRecord(detail, ws.id, db.id, rec));
@@ -2558,12 +2576,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const rec = await resolveRecordId(ws.id, db.id, record);
-        await unwrap(
+        const res = await unwrap<unknown>(
           client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments/{comment}', {
             params: { path: { ws: ws.id, db: db.id, rec, comment } } as never,
           }),
         );
-        return text({ deleted: comment });
+        return heldDelete(res) ?? text({ deleted: comment });
       },
     ),
   );
@@ -2925,7 +2943,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             params: { path: { ws: ws.id, db: db.id, rec, att: attachment_id } } as never,
           }),
         );
-        return text(res ?? { deleted: attachment_id });
+        return heldDelete(res) ?? text(res ?? { deleted: attachment_id });
       },
     ),
   );
@@ -4375,10 +4393,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             `Deleting "${doc.title}" is not undoable from here — there is no document trash. Call again with confirm: true.`,
           );
         }
-        await unwrap(
+        const res = await unwrap<unknown>(
           client.DELETE('/api/v1/workspaces/{ws}/documents/{doc}', { params: { path: { ws: ws.id, doc: docId } } } as never),
         );
-        return text({ deleted: docId });
+        return heldDelete(res) ?? text({ deleted: docId });
       },
     ),
   );
@@ -5230,7 +5248,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/templates/sample-data', { params: { path: { ws: ws.id } } as never }),
       );
-      return text(res);
+      return heldDelete(res) ?? text(res);
     }),
   );
 
@@ -6069,10 +6087,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           `Deleting "${ref.name}" is permanent — there is no trash for skills. Call again with confirm: true if that is what you mean.`,
         );
       }
-      await unwrap(
+      const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/skills/{id}', { params: { path: { ws: ws.id, id: ref.id } } } as never),
       );
-      return text({ deleted: ref.id, name: ref.name });
+      return heldDelete(res) ?? text({ deleted: ref.id, name: ref.name });
     }),
   );
 
@@ -7117,10 +7135,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     },
     handle<{ workspace: string; view: string }>(async ({ workspace, view }) => {
       const ws = await resolveWorkspace(client, workspace);
-      await unwrap(
+      const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/views/{view}', { params: { path: { ws: ws.id, view } } as never }),
       );
-      return text({ deleted: view, note: 'The view is gone; the records it showed are untouched.' });
+      return heldDelete(res) ?? text({ deleted: view, note: 'The view is gone; the records it showed are untouched.' });
     }),
   );
 
@@ -8214,11 +8232,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             `confirm must equal the source's exact name to delete it. Got "${confirm}", expected "${src.name}". Nothing was deleted.`,
           );
         }
-        await unwrap<unknown>(
+        const res = await unwrap<unknown>(
           client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}', {
             params: { path: { ws: ws.id, db: db.id, id: src.id } } as never,
           }),
         );
+        const held = heldDelete(res);
+        if (held) return held;
         return text({
           deleted: { id: src.id, name: src.name },
           records: 'kept — deleting a source never deletes the records it created',

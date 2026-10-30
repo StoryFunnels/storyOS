@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import {
   BadRequestException,
   Body,
@@ -97,6 +98,7 @@ export class SkillsController {
     return publicSkill(await this.skills.update(req.membership, req.user.id, id, body, req.auth.source));
   }
 
+  @HoldsAgentDeletes('skill')
   @Delete(':id')
   @MinRole('member')
   @ApiParam({ name: 'id', description: 'The skill record id' })

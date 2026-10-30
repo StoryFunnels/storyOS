@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import {
   BadRequestException,
   Body,
@@ -171,6 +172,7 @@ export class AttachmentsController {
     return reply.send(stream);
   }
 
+  @HoldsAgentDeletes('attachment')
   @Delete(':att')
   @ApiOperation({ summary: 'Delete an attachment (object removed best-effort)' })
   async remove(

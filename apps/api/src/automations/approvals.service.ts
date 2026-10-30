@@ -4,7 +4,7 @@ import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, memberships, records as recordsTable, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
 import type { EventOrigin } from '../common/credential-context';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
@@ -21,6 +21,9 @@ import type { AgentWriteGateSnapshot } from '../action-gates/agent-write-gates.s
 import { resolveAgentIdentity } from '../agents/agent-identity';
 import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { asApprovedAgentWrite } from '../records/agent-write-context';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
+import type { AgentDeleteSnapshot } from '../action-gates/agent-delete-hold.service';
+import { describeEventOrigin } from '../common/describe-origin';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
@@ -159,7 +162,7 @@ export interface SkillPublishPublicSnapshot {
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot | AgentDeleteSnapshot;
   /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
   ctx: {
     workspaceId: string;
@@ -269,6 +272,8 @@ export class ApprovalsService implements OnModuleInit {
     private readonly databases: DatabasesService,
     // ticket #1130 / ADR-0021 §1: a decided approval the agent ASKED for (a held write) wakes that agent. RunnersModule is global.
     private readonly agentWakes: AgentWakesService,
+    // #1178 — applies an approved agent_delete through the applier the owning service registered (action-gates module is @Global).
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
 
   /** Registers the executor JobRunnerService.enqueue() looks up by `kind`
@@ -282,6 +287,12 @@ export class ApprovalsService implements OnModuleInit {
       await this.applyAgentWriteGate(action, ctx.workspaceId);
       // Approved AND applied: only now does the agent have something new to look at, so wake it after the write, not before.
       if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, action, decision);
+    });
+    // #1178 — a direct delete an agent's run credential made, held by the agent's own `delete` policy. Approving enqueues it from the
+    // server-side snapshot; the owning service's applier performs it as the acting member, with the agent and run on the audit row.
+    this.jobs.registerExecutor('agent_delete', async (payload) => {
+      const { action, ctx } = payload as { action: AgentDeleteSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      await this.agentDeletes.applyApproved(action, { workspaceId: ctx.workspaceId, actorId: ctx.actorId, origin: ctx.origin ?? null });
     });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
@@ -386,15 +397,8 @@ export class ApprovalsService implements OnModuleInit {
   }
 
   /** #1174 — 'Caused by agent "X" (run 12): ' — the sentence an approver reads first. The run's public number is looked up live. */
-  private async describeOrigin(origin: EventOrigin): Promise<string> {
-    let runNumber: number | null = null;
-    if (origin.runId) {
-      const row = await this.db.query.records.findFirst({ where: eq(recordsTable.id, origin.runId), columns: { number: true } });
-      runNumber = row?.number ?? null;
-    }
-    const agent = origin.agentName ? `agent "${origin.agentName}"` : 'an agent';
-    const run = origin.runId ? ` (run ${runNumber ?? origin.runId}${origin.runnerName ? `, on ${origin.runnerName}` : ''})` : origin.runnerName ? ` (on ${origin.runnerName})` : '';
-    return `Caused by ${agent}${run}: `;
+  private describeOrigin(origin: EventOrigin): Promise<string> {
+    return describeEventOrigin(this.db, origin);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -193,6 +193,56 @@ describe('#1104 — every MCP handler reaching a per-agent-gated write reports a
           verbatim || w.includes('heldWrite('),
           `MCP call site #${i} for ${route.verb} ${route.path} neither returns the REST body verbatim nor checks heldWrite(): ` +
             `a gated agent's write answers 202 { pending_approval }, so this handler would read back a record that was never written (#1104).`,
+        ).toBe(true);
+      }
+    });
+  }
+});
+
+/**
+ * #1178 — the same invariant for the agent's own `delete` approval_policy, which HOLDS a run credential's direct delete and answers
+ * 202 `{ pending_approval: true, approval_id }` from every route marked `@HoldsAgentDeletes` in the API. Derived from the controllers'
+ * source, not hand-typed: a delete route added tomorrow with the marker is scanned without anyone editing this file. A tool that
+ * reported `{ deleted: ... }` for it would tell an agent the data is gone when it is waiting for a person.
+ */
+function heldDeleteRoutes(): Route[] {
+  const srcDir = join(REPO, 'apps/api/src');
+  const files = readdirSync(srcDir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.controller.ts'));
+  const found: Route[] = [];
+  for (const f of files) {
+    const lines = readFileSync(join(srcDir, f), 'utf8').split('\n');
+    let base = '';
+    let marked: string | null = null;
+    for (const line of lines) {
+      const ctl = line.match(/^@Controller\(\s*'([^']*)'\s*\)/);
+      if (ctl) base = ctl[1]!;
+      const mark = line.match(/^\s*@HoldsAgentDeletes\(\s*'(\w+)'\s*\)/);
+      if (mark) marked = mark[1]!;
+      const dec = line.match(/^\s*@(Delete|Post)\(\s*(?:'([^']*)')?\s*\)/);
+      if (dec && marked) {
+        const full = dec[2] ? `${base}/${dec[2]}` : base;
+        found.push({ verb: dec[1]!.toUpperCase(), path: `/api/v1/${full}`.replace(/:(\w+)/g, '{$1}'), via: marked });
+        marked = null;
+      }
+    }
+  }
+  return found;
+}
+
+describe('#1178 — every MCP handler reaching an agent-policy-held delete reports a held delete honestly', () => {
+  const held = heldDeleteRoutes();
+  it('found the routes this test is supposed to be checking (all ten at the time of writing)', () => {
+    expect(held.length).toBeGreaterThanOrEqual(10);
+  });
+  for (const route of held) {
+    it(`${route.verb} ${route.path} (${route.via}) handles a 202 pending_approval body`, () => {
+      const windows = mcpCallSites(route.verb, route.path);
+      // Not every route has a tool (coverage.test.ts decides that); a route with none has nothing to misreport.
+      for (const [i, w] of windows.entries()) {
+        expect(
+          w.includes('heldDelete(') || w.includes('pending_approval'),
+          `MCP call site #${i} for ${route.verb} ${route.path} does not check for a held delete: an agent whose approval_policy lists ` +
+            `"delete" gets 202 { pending_approval }, so this handler would report { deleted } for data that is still there (#1178).`,
         ).toBe(true);
       }
     });

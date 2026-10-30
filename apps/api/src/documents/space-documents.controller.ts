@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -109,6 +110,7 @@ export class SpaceDocumentsController {
     return this.docs.update(req.membership, doc, body);
   }
 
+  @HoldsAgentDeletes('document')
   @Delete('documents/:doc')
   @ApiOperation({ summary: 'Delete a standalone document' })
   async remove(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
