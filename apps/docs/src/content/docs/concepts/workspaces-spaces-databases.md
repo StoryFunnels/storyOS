@@ -78,11 +78,22 @@ folders.
 
 ### Opening a space
 
-Click a space's name in the sidebar (the caret still just collapses it) and it opens its own page:
+Click a space's name in the sidebar (the caret still just collapses it) and it opens its own page.
+**New space** in the sidebar is one click: it creates "Untitled space" and opens its page with the name selected, so you can type the real name straight away. The page has:
 
-- **Identity** — icon, name, and its [description](#every-level-can-say-what-it-is-for) if it has
-  one.
-- **Access** — who can open the space. In an unrestricted space it lists three groups: workspace
+- **Identity and actions** — icon, name, and its
+  [description](#every-level-can-say-what-it-is-for) if it has one. On the right, an **Everyone** or
+  **Restricted** button jumps to the Access section, and **New** adds to this space: a database, a
+  document, or (for an admin) a pack. The icon is the space's coloured mark (its initials, or the icon you chose); click it to change it. A guest sees neither New nor the packs, because a guest cannot
+  add to a space.
+- **An empty space starts here.** While a space has no database, document or view you can see, the
+  page puts **Start from scratch** (New database, New document) directly under the name, then one
+  card for every ready-made pack, with filters by kind of work. A card installs the pack **into this
+  space**, so you do not end up with a second space and an empty first one. Only an admin can install
+  a pack; a member sees the two Start from scratch buttons and a line naming the admins to ask. If a database the
+  pack would create already exists in another space, the install is refused with a message naming
+  that database and the space it lives in, and nothing is created.
+- **Access** — at the bottom of the page, who can open the space. In an unrestricted space it lists three groups: workspace
   members, space-level grants, and database-scoped grants within the space. In a
   [restricted](/concepts/access-and-roles/#restricting-a-space-or-database) space an admin sees a
   note that only admins and the people added can see it, then the workspace admins and the grants;
@@ -114,8 +125,10 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   still there. It follows the diagram's width, not the browser's, so collapsing the sidebar can
   flip it back to the cross at the same window size. Axis placement carries no meaning in either
   form, so stacking loses nothing.
-- **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
-  without it.
+- **Contents** — a plain list of the space's databases, documents and space-level views, for when
+  the sidebar is collapsed and you need the same information without it. A lock marks a restricted
+  database, as it does in the sidebar. It sits above the
+  Ontology once the space has something in it.
 
 **Access here follows the same door-and-room rule as everywhere else.** A space you cannot see
 doesn't render this page at all ("Nothing here you can access, or this space does not exist.");
