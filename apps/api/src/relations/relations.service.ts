@@ -3,8 +3,10 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AutoLinkRules, RelationCardinality } from '@storyos/schemas';
@@ -30,14 +32,26 @@ type Relation = typeof relations.$inferSelect;
 type FieldRow = typeof fields.$inferSelect;
 
 @Injectable()
-export class RelationsService {
+export class RelationsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly domainEvents: DomainEventsService,
     /** #448 — per-viewer database visibility, so a relation to a database the
      * caller cannot read is dropped rather than hinted at. */
     private readonly access: AccessService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's link removal. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved link removal runs as the acting member (editor access re-checked first), through the same removeLinks().
+    this.agentDeletes.registerApplier('link', async ({ workspaceId, membership, actorId, databaseId, recordId, params }) => {
+      const fieldId = params['field_id'] as string | undefined;
+      const targetIds = (params['target_ids'] as string[] | undefined) ?? [];
+      if (!databaseId || !recordId || !fieldId || targetIds.length === 0) throw new UnprocessableEntityException('This held delete names no link; nothing was removed');
+      await this.removeLinks(workspaceId, databaseId, recordId, fieldId, targetIds, actorId, 'agent', membership);
+    });
+  }
 
   private async uniqueApiName(databaseId: string, displayName: string): Promise<string> {
     const root = slugify(displayName);
@@ -788,6 +802,17 @@ export class RelationsService {
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
     if (membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
+    // #1178 — after the field, record and target access are resolved, before any link is removed: the agent's own `delete` policy holds
+    // a run credential's removal (202). Link rows are removed for good (no trash), so it is held like a delete.
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId,
+      kind: 'link',
+      actorId,
+      databaseId,
+      recordId,
+      label: `${targetIds.length} link${targetIds.length === 1 ? '' : 's'} from "${ctx.record.titleLocal ?? ctx.record.title ?? 'a record'}" in the field "${ctx.field.displayName}"`,
+      params: { field_id: ctx.field.id, target_ids: targetIds },
+    });
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = ctx.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 

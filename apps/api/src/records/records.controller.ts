@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import {
   Body,
   Controller,
@@ -318,6 +319,7 @@ export class RecordsController {
     return this.bulkJobs.get(req.membership.workspaceId, id, databaseId);
   }
 
+  @HoldsAgentDeletes('record')
   @Post('batch-delete')
   @ApiOperation({ summary: 'Soft-delete up to 5000 records' })
   async batchDelete(
@@ -426,6 +428,7 @@ export class RecordsController {
     return this.recordsService.narrowTitlesDeep(req.membership, updated);
   }
 
+  @HoldsAgentDeletes('record')
   @Delete(':rec')
   @ApiOperation({ summary: 'Soft delete (restorable for 30 days)' })
   async remove(

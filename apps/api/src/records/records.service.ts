@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
@@ -75,6 +76,8 @@ import { RUNTIME_OWNED_RUN_FIELDS, isAgentRuntimeWrite } from './runtime-owned-f
 import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
+import { currentActor } from '../common/credential-context';
 import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -146,7 +149,7 @@ export interface PendingApprovalResult {
  * behind an unchanged public API.
  */
 @Injectable()
-export class RecordsService {
+export class RecordsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
@@ -176,7 +179,28 @@ export class RecordsService {
     /** #1104 — the per-agent create/update gate, checked INSIDE create/update for the same reason as the delete gate:
      *  REST, MCP and the run executor all arrive here, so no route can forget it. */
     private readonly agentWriteGates: AgentWriteGatesService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's direct record delete (checkDeleteGate). */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — THE access rule for a held delete's re-check at apply time: the acting member must still hold the role the route asserted.
+    this.agentDeletes.setAccessCheck(async (membership, databaseId, recordId, min) => {
+      if (recordId) return this.assertRecordAccess(membership, databaseId, recordId, min);
+      const database = await this.db.query.databases.findFirst({
+        where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+      });
+      if (!database) throw new NotFoundException('Database not found');
+      this.access.assertRank(await this.access.effectiveForDatabase(membership, database), min, 'Database');
+    });
+    // #1178 — applies an approved record delete as the acting member, through the same batchDelete a person's call reaches. The declared
+    // #542 gate is re-checked inside it, so a gate declared since still holds.
+    this.agentDeletes.registerApplier('record', async ({ workspaceId, actorId, databaseId, params }) => {
+      const ids = (params['record_ids'] as string[] | undefined) ?? [];
+      if (!databaseId || ids.length === 0) throw new UnprocessableEntityException('This held delete names no record; nothing was deleted');
+      await this.batchDelete(workspaceId, databaseId, ids, actorId, 'agent');
+    });
+  }
 
   /**
    * #1104 — hold a gated agent's create/update for approval instead of performing it.
@@ -4375,12 +4399,44 @@ export class RecordsService {
           ? `Delete record ${recordIds[0]} in database ${databaseId}`
           : `Delete ${recordIds.length} records in database ${databaseId}`,
     });
-    if (!result.held) return null;
-    return {
-      pending_approval: true,
-      approval_id: result.approvalId,
-      message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.',
-    };
+    if (result.held) {
+      return {
+        pending_approval: true,
+        approval_id: result.approvalId,
+        message: 'This delete is held for approval by a workspace-declared gate — it has not happened yet.',
+      };
+    }
+    // #1178 — a gate the manager declared is checked FIRST and wins (one delete, one approval); the agent's OWN `delete` policy holds
+    // what no gate held, but only for a run credential. Throws WriteHeldForApprovalException (202) when it holds.
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId,
+      kind: 'record',
+      actorId,
+      databaseId,
+      recordId: recordIds.length === 1 ? recordIds[0]! : null,
+      label: await this.describeDeleteTarget(databaseId, recordIds),
+      params: { record_ids: recordIds },
+    });
+    return null;
+  }
+
+  /**
+   * #1178 — WHICH agent a delete made with an agent credential was, for the audit row (`record.deleted` carried only `source: 'agent'`,
+   * so "which agent deleted this" was unanswerable). Read from the request's actor, which is the run credential's agent; empty for a
+   * person, and for a server-run agent's in-process delete (no request, so no actor: absence recorded as absence).
+   */
+  private ambientAgent(source: ChangeSource): { agentId?: string; agentName?: string } {
+    const actor = source === 'agent' ? currentActor() : null;
+    return actor?.agentId ? { agentId: actor.agentId, agentName: actor.agentName ?? undefined } : {};
+  }
+
+  /** What a card says is being deleted: the record's title (as a caller who cannot read its inputs may see it) and its database. */
+  private async describeDeleteTarget(databaseId: string, recordIds: string[]): Promise<string> {
+    const dbName = (await this.agentDeletes.databaseName(databaseId)) ?? 'a database';
+    if (recordIds.length !== 1) return `${recordIds.length} records in ${dbName}`;
+    const row = await this.db.query.records.findFirst({ where: eq(records.id, recordIds[0]!), columns: { title: true, titleLocal: true } });
+    const title = row?.titleLocal ?? row?.title ?? '';
+    return title ? `record "${title}" in ${dbName}` : `a record in ${dbName}`;
   }
 
   async softDelete(
@@ -4404,6 +4460,7 @@ export class RecordsService {
         type: 'record.deleted',
         payload: {},
         source,
+        ...this.ambientAgent(source),
       });
     });
     this.domainEvents.emit({
@@ -4615,6 +4672,7 @@ export class RecordsService {
               type: 'record.deleted',
               payload: {},
               source,
+              ...this.ambientAgent(source),
             })),
           );
       });

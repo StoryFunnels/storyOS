@@ -8,6 +8,7 @@ import type { AccessService } from '../access/access.service';
 import type { SlackService } from '../integrations/slack.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import type { AgentWakesService } from '../runners/agent-wakes.service';
+import type { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { CommentsService } from './comments.service';
 import { renderCommentText } from './comment-render';
 
@@ -73,6 +74,7 @@ function buildService(opts: {
     slackService,
     { isClosedToSomeMembers: vi.fn().mockResolvedValue(false) } as unknown as AccessService,
     { enqueue: vi.fn() } as unknown as AgentWakesService, // ticket #1130: this test never writes an agent mention
+    {} as unknown as AgentDeleteHoldService, // #1178: this test never deletes
   );
   return { service, sent, preferences, slackPosts };
 }

@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { codedException } from '../common/coded-exception';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
@@ -29,14 +30,25 @@ const EDITOR_FILE_PATH = /^\/api\/v1\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4
  * tree next to databases, independent of any record. Single-editor optimistic
  * concurrency mirrors record descriptions. */
 @Injectable()
-export class SpaceDocumentsService {
+export class SpaceDocumentsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
     private readonly notifications: NotificationsService,
     private readonly spaces: SpacesService,
     private readonly pdf: PdfRenderer,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's document delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved document delete runs as the acting member, through the same remove() (its space door is re-checked there).
+    this.agentDeletes.registerApplier('document', async ({ membership, params }) => {
+      const docId = params['document_id'] as string | undefined;
+      if (!docId) throw new UnprocessableEntityException('This held delete names no document; nothing was deleted');
+      await this.remove(membership, docId);
+    });
+  }
 
   private project(row: typeof spaceDocuments.$inferSelect) {
     return {
@@ -285,6 +297,16 @@ export class SpaceDocumentsService {
   async remove(membership: Membership, docId: string) {
     const existing = await this.row(membership.workspaceId, docId);
     await this.assertDocSpace(membership, existing.spaceId, 'editor');
+    // #1178 — after the space door, before the write: the agent's own `delete` policy holds a run credential's delete (202). A document
+    // in a PERSONAL space is private from admins too (personal-space.md), and an approval card is listed to admins: its title stays off it.
+    const space = await this.access.assertSpace(membership, existing.spaceId, 'editor');
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId: membership.workspaceId,
+      kind: 'document',
+      actorId: membership.userId,
+      label: space.personal ? 'a document in a personal space' : `the document "${existing.title}"`,
+      params: { document_id: docId },
+    });
     await this.db.update(spaceDocuments).set({ deletedAt: new Date() }).where(eq(spaceDocuments.id, docId));
     return { deleted: docId };
   }

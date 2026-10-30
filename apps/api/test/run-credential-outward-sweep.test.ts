@@ -12,7 +12,8 @@ import { ABSENT, fill, liveRoutes } from './helpers/route-sweep';
 import type { AuditRoute } from './helpers/route-sweep';
 import { buildRunCredentialWorld } from './helpers/run-credential-fixture';
 import type { RunCredentialWorld } from './helpers/run-credential-fixture';
-import { EXPLICIT, FANOUT_PROOF, mechanismOf } from './helpers/outward-audit';
+import { EXPLICIT, FANOUT_PROOF, HELD_DELETE_ROUTES, OWN_STATE_DELETE_ROUTES, isDeleteCapable, mechanismOf } from './helpers/outward-audit';
+import { AgentDeleteHoldService } from '../src/action-gates/agent-delete-hold.service';
 import type { Mechanism } from './helpers/outward-audit';
 import { connections } from '../src/db/schema';
 import { seal } from '../src/common/secretbox';
@@ -132,6 +133,47 @@ describe('1. every live route and every MCP tool is classified', () => {
     expect(dead, 'EXPLICIT entries for routes that no longer exist').toEqual([]);
     const contradicted = Object.keys(EXPLICIT).filter((k) => live.has(k) && mech(live.get(k)!) !== null);
     expect(contradicted, 'EXPLICIT entries for routes a guard already refuses (delete the entry: the mechanism is the verdict)').toEqual([]);
+  });
+
+  // ticket #1178 — the agent's own `delete` approval_policy applies to every delete a run credential can reach. The enumeration is the
+  // live route table (isDeleteCapable), so a delete route added tomorrow fails HERE until it is held or classified.
+  describe('1b. every delete-capable route a run credential can reach is HELD by the agent\'s delete policy, or clears only the member\'s own state', () => {
+    const deletable = () => routes.filter((r) => isDeleteCapable(r) && mech(r) === null);
+
+    it('no reachable delete-capable route is unclassified', () => {
+      const open = deletable().filter((r) => !HELD_DELETE_ROUTES[key(r)] && !OWN_STATE_DELETE_ROUTES[key(r)]).map((r) => `${key(r)}   (${r.handler})`);
+      expect(
+        open,
+        `\n${open.length} route(s) can DELETE and a run credential can reach them, but the agent's own delete policy does not hold them. Carry ` +
+          `@HoldsAgentDeletes(kind) and call AgentDeleteHoldService.holdIfAgentPolicy from the service (see action-gates/agent-delete-hold.service.ts), ` +
+          `then list the route in HELD_DELETE_ROUTES (test/helpers/outward-audit.ts) with a fixture in run-credential-delete-policy.test.ts; or, if it clears ` +
+          `only the member's OWN preference, list it in OWN_STATE_DELETE_ROUTES with the reason.\n${open.join('\n')}\n`,
+      ).toEqual([]);
+    });
+
+    it('the HELD table, the @HoldsAgentDeletes decorators and the registered appliers are the same set', () => {
+      const live = new Map(routes.map((r) => [key(r), r]));
+      for (const [k, v] of Object.entries(HELD_DELETE_ROUTES)) {
+        const r = live.get(k);
+        expect(r, `${k} is not a live route`).toBeTruthy();
+        expect(mech(r!), `${k} is refused by a guard: it is not reachable, so it must not be listed as held`).toBeNull();
+        expect(r!.holdsAgentDeletes, `${k} is listed as held but its handler has no @HoldsAgentDeletes('${v.kind}')`).toBe(v.kind);
+      }
+      const decorated = routes.filter((r) => r.holdsAgentDeletes).map(key).sort();
+      expect(decorated, 'a handler carries @HoldsAgentDeletes but is not in HELD_DELETE_ROUTES').toEqual(Object.keys(HELD_DELETE_ROUTES).sort());
+      const registered = new Set<string>(app.get(AgentDeleteHoldService).registeredKinds());
+      for (const v of Object.values(HELD_DELETE_ROUTES)) expect(registered.has(v.kind), `no applier is registered for the "${v.kind}" kind: an approval could never be applied`).toBe(true);
+    });
+
+    it('an own-state entry names a live delete-capable route the guards do not already refuse, and is not also held', () => {
+      const live = new Map(routes.map((r) => [key(r), r]));
+      for (const k of Object.keys(OWN_STATE_DELETE_ROUTES)) {
+        const r = live.get(k);
+        expect(r, `${k} is not a live route`).toBeTruthy();
+        expect(isDeleteCapable(r!), `${k} is not delete-capable by the route table's words`).toBe(true);
+        expect(r!.holdsAgentDeletes, `${k} is own-state AND decorated as held`).toBeNull();
+      }
+    });
   });
 
   it('every entry says why, an open finding names its ticket, and a claim of "internal" is not made for a route that mentions an outward word', () => {

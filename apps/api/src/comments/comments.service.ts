@@ -1,4 +1,5 @@
 import { logAgentOriginOutward } from '../activity/agent-origin-log';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { currentRunStamp } from '../common/credential-context';
 import {
   ForbiddenException,
@@ -6,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -67,7 +69,7 @@ export function commentBodyText(body: CommentBody): string {
 }
 
 @Injectable()
-export class CommentsService {
+export class CommentsService implements OnModuleInit {
   private readonly logger = new Logger(CommentsService.name);
 
   constructor(
@@ -80,7 +82,18 @@ export class CommentsService {
     private readonly access: AccessService,
     /** ticket #1130: an @-mention of an agent wakes it (at emit time, here). */
     private readonly agentWakes: AgentWakesService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's comment delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved comment delete runs as the acting member (the author, or an admin), through the same remove() a person reaches.
+    this.agentDeletes.registerApplier('comment', async ({ workspaceId, membership, actorId, recordId, params }) => {
+      const commentId = params['comment_id'] as string | undefined;
+      if (!recordId || !commentId) throw new UnprocessableEntityException('This held delete names no comment; nothing was deleted');
+      await this.remove(recordId, commentId, actorId, membership.role === 'admin', workspaceId, 'agent');
+    });
+  }
 
   /** Extracts mentions server-side and validates they are active members (D4).
    *  Accepts both body shapes (#180) — the ids are collected the same way from
@@ -478,6 +491,17 @@ export class CommentsService {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId && !isAdmin) {
       throw new ForbiddenException('Only the author or an admin can delete a comment');
+    }
+    // #1178 — after the author/admin check, before the write: an agent's own `delete` policy holds a run credential's delete (202).
+    if (workspaceId) {
+      await this.agentDeletes.holdIfAgentPolicy({
+        workspaceId,
+        kind: 'comment',
+        actorId,
+        recordId,
+        label: 'a comment',
+        params: { comment_id: commentId },
+      });
     }
     await this.db.update(comments).set({ deletedAt: new Date() }).where(eq(comments.id, commentId));
     // A deleted comment's #mentions must drop their backlinks (#140).

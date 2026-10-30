@@ -4,8 +4,10 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { recordStructuralEvent } from '../activity/structural-events';
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -47,12 +49,23 @@ function namedSources(v: { databaseId: string | null; type: string; config: unkn
  * `views_owner_xor` invariant read from the other end.
  */
 @Injectable()
-export class SpaceViewsService {
+export class SpaceViewsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
     private readonly viewsService: ViewsService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's space-view delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved space-view delete runs as the acting member (the space door and edit access are re-checked by removeById).
+    this.agentDeletes.registerApplier('space_view', async ({ membership, params }) => {
+      const viewId = params['view_id'] as string | undefined;
+      if (!viewId) throw new UnprocessableEntityException('This held delete names no view; nothing was deleted');
+      await this.removeById(membership, viewId);
+    });
+  }
 
   async listForSpace(membership: Membership, spaceId: string) {
     /**
@@ -411,6 +424,15 @@ export class SpaceViewsService {
       throw new ForbiddenException('You need edit access to this space.');
     });
 
+    // #1178 — after every check, before the write: the agent's own `delete` policy holds a run credential's delete (202). A personal
+    // view is private from admins and an approval card is listed to admins: its name stays off it.
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId: membership.workspaceId,
+      kind: 'space_view',
+      actorId: membership.userId,
+      label: view.ownerUserId ? 'a personal view' : `the view "${view.name}"`,
+      params: { view_id: viewId },
+    });
     await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
     // #1059 — a shared space-level view (dashboard) deleted. A personal one is private from admins too, so it is never logged.
     if (!view.ownerUserId) {

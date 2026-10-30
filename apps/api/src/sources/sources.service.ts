@@ -9,6 +9,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
+import { currentActor } from '../common/credential-context';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { records, sourceRuns, sources } from '../db/schema';
@@ -95,9 +97,17 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     private readonly recordsService: RecordsService,
     private readonly connectionsService: ConnectionsService,
     private readonly notifications: NotificationsService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's source delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
 
   onModuleInit() {
+    // #1178 — an approved source delete runs as the acting member (creator access on the database re-checked first), through remove().
+    this.agentDeletes.registerApplier('source', async ({ databaseId, actorId, params }) => {
+      const sourceId = params['source_id'] as string | undefined;
+      if (!databaseId || !sourceId) throw new UnprocessableEntityException('This held delete names no source; nothing was deleted');
+      await this.remove(databaseId, sourceId, actorId);
+    });
     if (env().NODE_ENV !== 'test') {
       this.timer = setInterval(() => void this.tick(), 60_000);
     }
@@ -398,7 +408,18 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Deleting a source stops syncing but leaves every record it created intact. */
-  async remove(databaseId: string, id: string) {
+  async remove(databaseId: string, id: string, actorId?: string) {
+    // #1178 — after the row is found (a missing one stays a 404), before it is deleted: the agent's own `delete` policy holds a run
+    // credential's delete (202). The delete is a HARD delete of the source's configuration and run history link.
+    const row = await this.requireRow(databaseId, id);
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId: row.workspaceId,
+      kind: 'source',
+      actorId: actorId ?? currentActor()?.userId ?? row.createdBy ?? '',
+      databaseId,
+      label: `the source "${row.name}"`,
+      params: { source_id: id },
+    });
     const deleted = await this.db
       .delete(sources)
       .where(and(eq(sources.id, id), eq(sources.targetDatabaseId, databaseId)))

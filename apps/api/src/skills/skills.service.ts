@@ -1,4 +1,5 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { and, desc, eq, exists, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import type { ChangeSource } from '../db/schema';
@@ -86,8 +87,21 @@ export type InternalCreateSkillInput = Omit<CreateSkillInput, 'allowed_tools'> &
  * a differently-shaped thing.
  */
 @Injectable()
-export class SkillsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+export class SkillsService implements OnModuleInit {
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's skill delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
+  ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved skill delete runs as the acting member (still the owner, re-checked by requireOwner), through the same remove().
+    this.agentDeletes.registerApplier('skill', async ({ membership, actorId, params }) => {
+      const skillId = params['skill_id'] as string | undefined;
+      if (!skillId) throw new UnprocessableEntityException('This held delete names no skill; nothing was deleted');
+      await this.remove(membership, actorId, skillId);
+    });
+  }
 
   /**
    * THE ONE PLACE "who can see this skill" is decided (#841, Otto's ruling on AC3).
@@ -535,7 +549,16 @@ export class SkillsService {
   }
 
   async remove(membership: Membership, userId: string, id: string): Promise<{ deleted: true }> {
-    await this.requireOwner(membership, userId, id);
+    const row = await this.requireOwner(membership, userId, id);
+    // #1178 — after the owner check, before the (hard) delete: the agent's own `delete` policy holds a run credential's delete (202).
+    // A personal-visibility skill stays off an approval card, which is listed to admins.
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId: membership.workspaceId,
+      kind: 'skill',
+      actorId: userId,
+      label: row.visibility === 'personal' ? 'a personal skill' : `the skill "${row.name}"`,
+      params: { skill_id: id },
+    });
     await this.db.delete(skills).where(eq(skills.id, id));
     return { deleted: true };
   }
