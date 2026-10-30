@@ -9,6 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
+import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
 import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -1312,11 +1313,19 @@ function SpaceSection({
   const [describing, setDescribing] = useState(false);
 
   // Per-user, per-space collapse (MN-088) so a packed sidebar stays scannable.
-  const collapseKey = `storyos:space-collapsed:${space.id}`;
+  const collapseKey = spaceCollapseKey(space.id);
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     if (typeof window !== 'undefined') setCollapsed(window.localStorage.getItem(collapseKey) === '1');
   }, [collapseKey]);
+  // #1167 — a pack install that lands inside this space expands it (see `expandSpaceInSidebar`, which also wrote the stored state).
+  useEffect(() => {
+    const onExpand = (e: Event) => {
+      if ((e as CustomEvent<{ spaceId?: string }>).detail?.spaceId === space.id) setCollapsed(false);
+    };
+    window.addEventListener(EXPAND_SPACE_EVENT, onExpand);
+    return () => window.removeEventListener(EXPAND_SPACE_EVENT, onExpand);
+  }, [space.id]);
   // "Collapse all" (issue #34): one button collapses every space at once.
   useEffect(() => {
     const onCollapseAll = () => {

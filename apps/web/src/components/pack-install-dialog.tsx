@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -11,6 +12,7 @@ import {
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { renamedAfterInstall } from '@/lib/space-start';
+import { expandSpaceInSidebar, landingRoute } from '@/lib/pack-landing';
 import { useSidebarMutations, useSpaces } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -553,6 +555,9 @@ export function InstallDialog({
       : null,
   );
   const qc = useQueryClient();
+  const router = useRouter();
+  // #1167 — set once an install is on its way to the pack's default view, so the button cannot be pressed twice in the gap.
+  const [landing, setLanding] = useState(false);
   const { updateSpace } = useSidebarMutations(ws);
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
   // #978 AC3 — an agent the person changed defaults to Keep mine; only an explicit 'update' reaches the API.
@@ -615,22 +620,33 @@ export function InstallDialog({
       if (error) throw error;
       return data as unknown as InstallResult;
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // #1094 — a pack installed into a space still called exactly "Untitled space" names it after the pack. Only on a
       // SUCCESSFUL install (this is onSuccess), through the ordinary rename (PATCH space), and a failed rename never undoes or
       // blocks the install: it is a toast and the install carries on.
       const renamed = target ? renamedAfterInstall(target.name, packSpaceName(entry.data?.manifest as RowManifest | undefined)) : null;
+      // #1167 — a pack that declares a default view takes you there instead of to a result list. Never on an update (that
+      // dialog's result screen is the point), and null (nowhere better to go) leaves the screen exactly as it was.
+      const route = update ? null : landingRoute(ws, entry.data?.manifest as RowManifest | undefined, data);
       if (target && renamed) {
-        updateSpace.mutate(
-          { id: target.id, name: renamed },
-          { onError: (e) => toast.error(apiErrorMessage(e, `Installed, but could not rename the space to "${renamed}"`)) },
-        );
+        // When we are about to navigate the rename finishes FIRST, so the sidebar the person lands beside never shows the old name.
+        const rename = updateSpace.mutateAsync({ id: target.id, name: renamed });
+        const failed = (e: unknown) => toast.error(apiErrorMessage(e, `Installed, but could not rename the space to "${renamed}"`));
+        if (route) await rename.catch(failed);
+        else void rename.catch(failed);
       }
-      setResult(data);
       void qc.invalidateQueries({ queryKey: ['packs-installed', ws] });
       void qc.invalidateQueries({ queryKey: ['onboarding', ws] });
       void qc.invalidateQueries();
       toast.success(`${data.name} installed`);
+      if (route) {
+        setLanding(true);
+        const spaceId = target?.id ?? data.spaces.find((x) => x.action !== 'skipped')?.id;
+        if (spaceId) expandSpaceInSidebar(spaceId);
+        router.push(route);
+        return;
+      }
+      setResult(data);
     },
     // With a target space the server's refusal text IS the message (it names the database and the space it lives in): never a
     // generic one in its place.
@@ -1006,11 +1022,11 @@ export function InstallDialog({
                   </Button>
                   <Button
                     type="button"
-                    disabled={install.isPending || unresolved.length > 0 || blocked}
+                    disabled={install.isPending || landing || unresolved.length > 0 || blocked}
                     title={blockedWhy}
                     onClick={() => install.mutate()}
                   >
-                    {install.isPending ? (
+                    {install.isPending || landing ? (
                       <span className="flex items-center gap-1.5">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing…
                       </span>
@@ -1091,10 +1107,10 @@ export function InstallDialog({
                   </Button>
                   <Button
                     type="button"
-                    disabled={install.isPending || unresolved.length > 0}
+                    disabled={install.isPending || landing || unresolved.length > 0}
                     onClick={() => install.mutate()}
                   >
-                    {install.isPending ? (
+                    {install.isPending || landing ? (
                       <span className="flex items-center gap-1.5">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing…
                       </span>
