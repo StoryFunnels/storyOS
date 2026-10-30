@@ -22,7 +22,7 @@ export interface PreviewRowItem {
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
 export interface RowManifest {
   databases?: Array<{ name: string; space?: string }>;
-  views?: Array<{ database: string; name: string; type?: string }>;
+  views?: Array<{ database: string; name: string; type?: string; default?: boolean }>;
   automations?: Array<{ database: string; name: string }>;
   agents?: Array<{ name: string; goal?: string; approval_policy?: string[] }>;
   sample_records?: unknown[];

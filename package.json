@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "docs:check": "node scripts/check-doc-links.mjs",
     "license:check": "node scripts/license-check.mjs",
+    "license:runner": "node scripts/check-runner-license-boundary.mjs",
     "db:migrate": "pnpm --filter @storyos/api db:migrate",
     "db:generate": "pnpm --filter @storyos/api db:generate",
     "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build && pnpm --filter @storyos/mcp role-gates:generate",
