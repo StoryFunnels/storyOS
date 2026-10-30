@@ -1,0 +1,40 @@
+{
+  "_source": "dara-prototype-latest.html (md5 297483577c9a8fc2fe66901a52f8bbbf, 29 Oct 17:35): the PACKS row for 'team-wiki', PACK_WHY, PACK_ONTO and PACK_ITEMS['team-wiki'], plus the four starter pages and the pack setup posted on ticket #1147 (Dara, approved by Otto with two edits on Home). Frozen so 'the pack is the prototype' is a comparison, not a memory.",
+  "name": "Team Wiki",
+  "summary": "Pages with an owner and a review date, so the team knows what is still true. Starts with Home, Onboarding, How we work and Tools & accounts.",
+  "summary_note": "The prototype's card says '... and Tools.'; the ticket titles the fourth page 'Tools & accounts', so the card says that (Otto, ticket #1147 ruling 2).",
+  "space": "Wiki",
+  "why": "Your team keeps answering the same questions, or nobody knows which document is still true.",
+  "can": [
+    "Give every page an owner people can ask",
+    "See which pages nobody has checked in 90 days",
+    "Send new starters to Onboarding instead of answering in chat"
+  ],
+  "workflow": { "database": "Pages", "field": "Status", "stages": [["Draft"], ["Verified"], ["Needs review"]] },
+  "databases": {
+    "Pages": { "fields": ["Owner", "Last reviewed", "Status", "Team", "Parent page"] },
+    "Teams": { "fields": ["Pages"] }
+  },
+  "map": [
+    { "from": "Pages", "to": "Teams" },
+    { "from": "Pages", "to": "Pages", "to_field": "Sub-pages" }
+  ],
+  "states": [
+    { "label": "Draft", "category": "unstarted" },
+    { "label": "Verified", "category": "completed" },
+    { "label": "Needs review", "category": "started" }
+  ],
+  "views": [
+    { "name": "All pages", "grouped_by": "Team", "opens": true },
+    { "name": "My pages", "only_mine": true },
+    { "name": "Needs review", "older_than_days": 90 }
+  ],
+  "automations": ["Move stale pages to Needs review", "Review reminder"],
+  "teams": ["Everyone"],
+  "pages": [
+    { "title": "Home", "parent": null, "must_contain": ["This is your team's wiki", "**Finding things**", "Search (⌘K, or Ctrl+K on Windows) finds a page by its title.", "1. In All pages, press", "**Needs review**: someone thinks it's out of date, or nobody has checked it for 90 days. Say why in a comment.", "That's the whole system.", "mark it Verified."], "must_not_contain": ["by any word in it"] },
+    { "title": "Onboarding", "parent": "Home", "must_contain": ["Welcome. This is the plan for your first week.", "**Day 1**", "**Days 2–3**", "**Days 4–5**", "| Accounts and access | [name] |", "| Your work this week | [name] |", "| Anything else | [name] |", "**Why every page has an owner:**"] },
+    { "title": "How we work", "parent": "Home", "must_contain": ["How [team name] runs its week", "| Planning | [Mon 10:00, 30 min] | [Everyone] | Agree what we do this week |", "| Check-in | [daily, 15 min] | [Everyone] | Say what's stuck |", "| Retro | [every 2 weeks] | [Everyone] | One thing to keep, one to change |", "**Decisions**", "**Where work lives**", "**Every page belongs to a team.**"] },
+    { "title": "Tools & accounts", "parent": "Home", "must_contain": ["Every tool the team uses", "| StoryOS | Tasks, documents, this wiki | [name] | [plan] |", "| [Email] |", "| [Chat] |", "| [Calendar] |", "| [Password manager] | Shared logins | [name] |", "**Never put a password, API key or shared login on this page, or any page.**", "**Keeping this true:**"] }
+  ]
+}

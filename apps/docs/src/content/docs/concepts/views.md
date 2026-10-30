@@ -19,8 +19,11 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
 - **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
   optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
 - **List** — compact rows, optionally grouped by a select or status field. A row reads like a
-  tracker's: the record's state glyph, then its select and identifier fields before the title, the
-  rest in fixed slots after it. Click a column header to sort by it (again to reverse). Lists load
+  tracker's: the record's state glyph, then the card's select and status fields and the first text
+  field among the card fields (an identifier such as a key) before the title, and every other card
+  field in fixed slots after it. Click a column header to sort by it (again to reverse); a header
+  click replaces the view's sort with that one field, so keep secondary keys in the Sort panel's
+  **Then by**. Lists load
   in pages, with a **Load more** link at the bottom — see
   [how lists and boards load](#how-lists-and-boards-load).
 
@@ -196,7 +199,8 @@ draws the state, not just a coloured dot.
 Lists and boards load their records in pages, not all at once.
 
 - **A grouped list or board keeps loading pages as it opens**, so each group fills in without you
-  asking. On a very large database it stops before the end rather than loading without limit.
+  asking. On a very large database it stops before the end rather than loading without limit
+  (at most 20 pages are loaded this way).
 - **A Load more link appears at the bottom while records remain unloaded** — on a list, grouped or
   not, and under a board. It fetches the next page, and shows *Loading…* while it does.
 - **Until everything has loaded, a group's count says so.** A list group header reads, for example,

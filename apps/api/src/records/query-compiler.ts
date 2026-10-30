@@ -1,7 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
-import { STATE_CATEGORIES, SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
+import { resolveSampleDate, STATE_CATEGORIES, SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
 import { isPickOneOp } from './rollup-pick-one';
 import { recordLinks, records, user } from '../db/schema';
 
@@ -465,10 +465,21 @@ function compileDate(def: FieldDef, op: FilterOp, value: unknown): SQL {
     return sql`(${expr} >= ${fromStr} AND ${expr} < ${toStr})`;
   }
 
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+  /*
+   * ticket #1147 — `before`/`after` also take the relative-date token `$date:-90d` / `$date:+3d` (the same vocabulary a pack's sample
+   * records use), resolved HERE, at query time, against the clock of the moment: "not reviewed in 90 days" is a filter that stays true
+   * as the days pass, which a static date (stale the day after it is written) and a formula (materialized when the record is written)
+   * cannot be. A view, a scheduled automation's selection and an automation's condition all compile through this function, so all
+   * three read the token the same way.
+   */
+  const relative = (op === 'before' || op === 'after') && typeof value === 'string' ? resolveSampleDate(value) : null;
+  const resolved = relative ?? value;
+  // A `$date:` string that is not a day token for before/after is a mistake, never a date: Date.parse is lenient enough to read some of them.
+  const strayToken = relative === null && typeof value === 'string' && value.startsWith('$date:');
+  if (strayToken || typeof resolved !== 'string' || Number.isNaN(Date.parse(resolved))) {
     throw err(`op "${op}" on "${def.api_name}" expects an ISO date value`);
   }
-  const cmp = isTimestampCol ? new Date(value) : value;
+  const cmp = isTimestampCol ? new Date(resolved) : resolved;
   switch (op) {
     case 'eq':
       return sql`(${expr} = ${cmp})`;

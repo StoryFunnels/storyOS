@@ -689,7 +689,7 @@ describe('create_view / update_view (#270)', () => {
     name: 'Leads',
     apiSlug: 'leads_2',
     fields: [
-      { id: 'f-stage', apiName: 'pipeline_stage', displayName: 'Pipeline stage', type: 'select', options: [{ id: 'opt-new', label: 'New' }] },
+      { id: 'f-stage', apiName: 'pipeline_stage', displayName: 'Pipeline stage', type: 'select', options: [{ id: 'opt-new', label: 'New' }, { id: 'opt-won', label: 'Won' }] },
       { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'text' },
       { id: 'f-email', apiName: 'email', displayName: 'Email', type: 'email' },
     ],
@@ -702,6 +702,7 @@ describe('create_view / update_view (#270)', () => {
         // merges onto it, so these must survive a filter-only edit.
         config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
       },
+      { id: 'view-board', name: 'Hidden Board', type: 'board', config: { group_by_field_id: 'f-stage', hidden_option_ids: ['opt-new'] } },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
       // #718 — a form that is LIVE: fields, a real token, link access, and a
       // theme (#711) that update_view does not model. The pre-existing
@@ -864,6 +865,42 @@ describe('create_view / update_view (#270)', () => {
     })) as { isError?: boolean; content: Array<{ text: string }> };
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toMatch(/No field matches "not_a_real_field"/);
+  });
+
+  it('#1158 create_view maps hidden_columns labels to option ids on the group-by field', async () => {
+    const { handlers, posted } = registerAndGet(['create_view']);
+    const res = (await handlers.create_view!({
+      workspace: 'JCM Agency', database: 'leads_2', name: 'Active', type: 'board',
+      group_by: 'pipeline_stage', hidden_columns: ['won', 'New'],
+    })) as { isError?: boolean };
+    expect(res.isError).toBeUndefined();
+    const config = (posted[0]!.body as { config: Record<string, unknown> }).config;
+    expect(config.hidden_option_ids).toEqual(['opt-won', 'opt-new']);
+  });
+
+  it('#1158 an unknown column label is refused naming the real ones, not stored', async () => {
+    const { handlers, posted } = registerAndGet(['create_view']);
+    const res = (await handlers.create_view!({
+      workspace: 'JCM Agency', database: 'leads_2', name: 'Bad', type: 'board',
+      group_by: 'pipeline_stage', hidden_columns: ['Nope'],
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('Available: New, Won');
+    expect(posted).toHaveLength(0);
+  });
+
+  it('#1158 update_view resolves against the STORED group-by, and [] clears', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', hidden_columns: ['Won'] });
+    expect((patched[0]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual(['opt-won']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', hidden_columns: [] });
+    expect((patched[1]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual([]);
+  });
+
+  it('#1158 update_view leaves hidden columns alone when an unrelated key changes', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', sorts: [] });
+    expect((patched[0]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual(['opt-new']);
   });
 
   it('update_view mints a public_token moving a NEVER-shared form to link (there is none yet to reuse)', async () => {

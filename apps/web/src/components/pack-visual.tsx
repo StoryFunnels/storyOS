@@ -27,14 +27,8 @@ export interface PackPreviewCounts {
   marks?: { agent: boolean; notifies: boolean };
 }
 
-export function registryVertical(slug: string): string {
-  if (slug === 'agency-os' || slug === 'client-portal' || slug === 'consulting-os') return 'agency';
-  if (slug === 'content-engine' || slug === 'social-command-center') return 'marketing';
-  if (slug === 'dev-project-os') return 'engineering';
-  if (slug === 'support-inbox') return 'support';
-  if (slug === 'coaching-os') return 'ops';
-  return 'other';
-}
+/** #1149 — by slug, from an explicit record (lib/pack-verticals.ts), not an if-chain that falls through to 'other'. */
+export { registryVertical } from '@/lib/pack-verticals';
 
 /** "1 databases" shipped on the first screen every signup sees. */
 export function plural(n: number, word: string): string {

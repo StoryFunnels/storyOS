@@ -3642,6 +3642,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   type ViewOpts = {
     group_by?: string;
     card_fields?: string[];
+    hidden_columns?: string[];
     date_field?: string;
     start_date_field?: string;
     end_date_field?: string;
@@ -3684,6 +3685,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     type: string,
     o: ViewOpts,
     existingForm?: StoredForm,
+    existingConfig?: { group_by_field_id?: string; hidden_option_ids?: string[] },
   ): Record<string, unknown> {
     // #191: only emit keys the caller actually passed. viewConfigSchema fills the
     // per-field defaults (sorts:[], hidden_field_ids:[], …) on parse, so create
@@ -3695,6 +3697,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     if (o.filters) config.filters = mapFilterValues(detail, o.filters);
     if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
     if (type === 'board' && o.group_by) config.group_by_field_id = anyField(detail, o.group_by);
+    if (type === 'board') {
+      // #1158 — hidden columns are OPTIONS of the group-by field, named by label (or id) like filter values are.
+      const groupId = (config.group_by_field_id as string | undefined) ?? existingConfig?.group_by_field_id;
+      if (o.hidden_columns !== undefined) {
+        const groupField = detail.fields.find((f) => f.id === groupId);
+        if (o.hidden_columns.length && (!groupField || !['select', 'workflow'].includes(groupField.type))) {
+          throw new Error('hidden_columns needs a board grouped by a select or workflow field.');
+        }
+        config.hidden_option_ids = o.hidden_columns.map((v) => {
+          const opt = groupField?.options?.find((x) => x.id === v || x.label.toLowerCase() === v.toLowerCase());
+          if (!opt) {
+            throw new Error(
+              `No option "${v}" on field "${groupField?.apiName}". Available: ${(groupField?.options ?? []).map((x) => x.label).join(', ')}.`,
+            );
+          }
+          return opt.id;
+        });
+      } else if (config.group_by_field_id && existingConfig?.group_by_field_id && config.group_by_field_id !== existingConfig.group_by_field_id && existingConfig.hidden_option_ids?.length) {
+        // Regrouping: the old columns are options of a different field, so keeping them would 422 — clear them, say so in the tool docs.
+        config.hidden_option_ids = [];
+      }
+    }
     if (type === 'calendar' && o.date_field) config.date_field_id = anyField(detail, o.date_field);
     if (type === 'timeline') {
       if (o.start_date_field) config.start_date_field_id = anyField(detail, o.start_date_field);
@@ -3832,6 +3856,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(VIEW_TYPES),
         group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
         card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
@@ -3883,6 +3908,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(VIEW_TYPES),
         group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
         card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
@@ -3919,6 +3945,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         rename_to: z.string().optional(),
         group_by: z.string().optional(),
         card_fields: z.array(z.string()).optional(),
+        hidden_columns: z.array(z.string()).optional().describe('board (select/workflow group-by only): option LABELS (or ids) of columns NOT to draw, empty or not — e.g. ["Triage","Backlog","Done"]. Different from hiding empty columns. Pass [] to show every column again. Changing group_by without passing this clears it.'),
         date_field: z.string().optional(),
         start_date_field: z.string().optional(),
         end_date_field: z.string().optional(),
@@ -3959,7 +3986,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // filter no longer wipes sorts / hidden fields / grouping / form config).
         const CONFIG_KEYS = [
           'filters', 'sorts',
-          'group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field',
+          'group_by', 'card_fields', 'hidden_columns', 'date_field', 'start_date_field', 'end_date_field',
           'form_title', 'form_description', 'form_submit_text', 'form_fields', 'form_access',
           'form_success_message', 'form_redirect_url',
         ] as const;
@@ -3967,7 +3994,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           const existingForm = (v.config as { form?: StoredForm } | undefined)?.form;
           patch.config = {
             ...((v.config ?? {}) as Record<string, unknown>),
-            ...buildViewConfig(detail, v.type, rest, existingForm),
+            ...buildViewConfig(detail, v.type, rest, existingForm, v.config as { group_by_field_id?: string; hidden_option_ids?: string[] } | undefined),
           };
         }
         const updated = await unwrap<unknown>(

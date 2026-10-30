@@ -64,8 +64,9 @@ A record opens as one **main column** and a fixed **side panel**.
   is the one a [list](/concepts/views/#state-glyphs-percent-chips-and-loading-in-lists-and-boards)
   draws, taken from the related database's workflow field or its first select with state
   categories. That field is not a column in the row and has no inline control: open the related
-  record to change it. A long collection shows its first rows with a **Show all** link, and **Show
-  less** folds it back.
+  record to change it. A collection of more than 50 rows shows its first 50 with a **Show all** link, and **Show
+  less** folds it back. Changing a sort or filter keeps the rows on screen until the new first
+  page arrives, and changing only the colouring repaints the rows without reloading them.
 - **An embedded collection's filter is yours.** Filtering, sorting, colouring or choosing columns on a
   collection like Sub-items is a **personal** setting: it applies to you only, in every record of that
   database, and a **Personal · Reset** badge appears beside the collection while it's active. Reset
