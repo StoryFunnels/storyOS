@@ -73,6 +73,9 @@ describe('pair, start, claim, run with the stub adapter, report', () => {
     const wake = server.enqueue();
     const { io: sio, promise } = startRunner(new StubAdapter());
     await until(() => wake.completions.length === 1, 'the report');
+    // The server has RECORDED the report, but the Runner has not yet read the answer and cleared its saved claim. Stopping now would
+    // (correctly) leave the claim saved for the next start to report again; this test is about a finished run, so wait for it to finish.
+    await until(() => state().inflight.length === 0, 'the Runner to finish reporting');
     stop.abort();
 
     const c = wake.completions[0]!;
@@ -248,6 +251,33 @@ describe('a restart never runs a wake twice', () => {
     expect(runsB).toBe(0); // it did not run again
     expect(wake.completions).toHaveLength(1);
     expect(wake.status).toBe('done');
+  });
+
+  it('a stop while the report is IN FLIGHT keeps the claim saved, and the next start reports it again without running anything', async () => {
+    server.runnerStatus = 'active';
+    seed();
+    let release!: () => void;
+    server.holdCompleteAnswer = new Promise<void>((r) => (release = r));
+    const wake = server.enqueue();
+    let runsA = 0;
+    const a = startRunner(new StubAdapter({ onStart: () => void runsA++ }));
+    await until(() => wake.completions.length === 1, 'the server to have recorded the report'); // applied, not yet answered
+    expect(state().inflight).toHaveLength(1); // the Runner has not seen the answer: the claim is still saved
+    a.ctl.abort();
+    expect(await a.promise).toBe(0);
+    expect(state().inflight).toHaveLength(1); // still saved after the stop
+    release();
+
+    server.holdCompleteAnswer = null;
+    let runsB = 0;
+    const b = startRunner(new StubAdapter({ onStart: () => void runsB++ }));
+    await until(() => state().inflight.length === 0, 'the saved report to be sent again and answered');
+    b.ctl.abort();
+    await b.promise;
+    expect(runsA).toBe(1);
+    expect(runsB).toBe(0); // nothing ran again
+    expect(wake.completions).toHaveLength(1); // the server applied it once; the second send was answered as a repeat
+    expect(server.callsTo('/complete')).toHaveLength(2);
   });
 
   it('a lost RESPONSE is a harmless retry: the server applied the report once and says so', async () => {
