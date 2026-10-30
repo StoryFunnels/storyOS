@@ -38,13 +38,24 @@ jobs:
       web: ${{ steps.changes.outputs.web }}
       mcp: ${{ steps.changes.outputs.mcp }}
       services: ${{ steps.changes.outputs.services }}
+    permissions:
+      contents: read
+      actions: read # list this workflow's successful runs (last-published-base.mjs)
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # #1124 — diff against the last commit whose images were actually
+      # published, not the previous push: a cancelled run publishes nothing,
+      # and diffing past it reported its changes as "unchanged".
+      - id: base
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FALLBACK: ${{ github.event.before }}
+        run: node scripts/last-published-base.mjs
       - id: changes
         env:
-          DOCKER_DIFF_BASE: ${{ github.event.before }}
+          DOCKER_DIFF_BASE: ${{ steps.base.outputs.base }}
         run: node scripts/docker-inputs-changed.mjs
 
   build:
