@@ -2055,6 +2055,12 @@ export const bulkRecordJobs = pgTable(
       .references(() => databases.id, { onDelete: 'cascade' }),
     actorId: text('actor_id').notNull(),
     source: text('source').notNull().default('human'),
+    /**
+     * #1174 / ADR-0021 §7 — the agent run that enqueued this job, when it was a RUN credential (the EventOrigin shape). The job is
+     * processed on a timer, long after the request's AsyncLocalStorage is gone, so without this column the events it emits would
+     * read as a person's and an outward automation they fire would run unheld. Null for everything else.
+     */
+    origin: jsonb('origin'),
     op: text('op').notNull(), // 'update' | 'delete'
     /** Frozen at enqueue — the exact set this job will process, in order. */
     recordIds: jsonb('record_ids').notNull(),

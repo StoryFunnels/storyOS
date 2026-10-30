@@ -1,0 +1,1 @@
+ALTER TABLE "bulk_record_jobs" ADD COLUMN "origin" jsonb;

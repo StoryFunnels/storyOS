@@ -12,7 +12,7 @@ import { ABSENT, fill, liveRoutes } from './helpers/route-sweep';
 import type { AuditRoute } from './helpers/route-sweep';
 import { buildRunCredentialWorld } from './helpers/run-credential-fixture';
 import type { RunCredentialWorld } from './helpers/run-credential-fixture';
-import { EXPLICIT, FANOUT_TICKET, mechanismOf } from './helpers/outward-audit';
+import { EXPLICIT, FANOUT_PROOF, mechanismOf } from './helpers/outward-audit';
 import type { Mechanism } from './helpers/outward-audit';
 import { connections } from '../src/db/schema';
 import { seal } from '../src/common/secretbox';
@@ -122,7 +122,7 @@ describe('1. every live route and every MCP tool is classified', () => {
     expect(
       open,
       `\n${open.length} route(s) a run credential can reach have no verdict. Read what the route does and add it to EXPLICIT in test/helpers/outward-audit.ts ` +
-        `(internal / gated / fanout), or mark it @NoRunCredential() if it leaves StoryOS and has no approval step. See docs/architecture/runner-outward-tool-audit.md.\n${open.join('\n')}\n`,
+        `(internal / gated), or mark it @NoRunCredential() if it leaves StoryOS and has no approval step. See docs/architecture/runner-outward-tool-audit.md.\n${open.join('\n')}\n`,
     ).toEqual([]);
   });
 
@@ -137,7 +137,7 @@ describe('1. every live route and every MCP tool is classified', () => {
   it('every entry says why, an open finding names its ticket, and a claim of "internal" is not made for a route that mentions an outward word', () => {
     for (const [k, e] of Object.entries(EXPLICIT)) {
       expect(e.why.length, k).toBeGreaterThan(7);
-      if (e.verdict === 'fanout') expect(e.why, k).toContain(FANOUT_TICKET);
+      if (e.why.includes('ticket #1174')) expect(e.why, k).toContain(FANOUT_PROOF);
     }
     const outwardWords = /\b(webhook|slack|email|mail|publish|share|invite|portal|credential|rotate|export)\b/i;
     const suspicious = Object.entries(EXPLICIT)

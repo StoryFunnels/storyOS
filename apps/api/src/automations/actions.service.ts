@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
@@ -8,7 +8,9 @@ import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { env } from '../config/env';
-import { classRulesFor } from '../action-gates/action-classes';
+import { agentOriginHoldsAction, classRulesFor } from '../action-gates/action-classes';
+import { loadAgentApprovalPolicy } from '../agents/agent-approval-policy';
+import type { EventOrigin } from '../common/credential-context';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
@@ -57,6 +59,9 @@ const WEBHOOK_SAFE_ACTIONS = new Set([
   'notify_user',
 ]);
 
+/** #1174 — kinds whose job executor exists ONLY to apply an approved snapshot; an ungated one still runs inline (see onModuleInit). */
+const APPROVED_ONLY_EXECUTOR_KINDS: ReadonlySet<string> = new Set(['send_webhook', 'send_slack_message']);
+
 /** MN-256: the connection provider ids a send_email action may reference. */
 const MAIL_PROVIDER_IDS = new Set(['resend', 'smtp']);
 
@@ -98,6 +103,12 @@ export interface ActionContext {
    * every pre-existing call site is; the agent path passes 'agent' explicitly.
    */
   source?: ChangeSource;
+  /**
+   * #1174 / ADR-0021 §7 — the agent and Runner run whose write caused the event this rule is running for. When set, the OUTWARD
+   * actions are held for a person (action-classes.ts: agentOriginHoldsAction), the card names the agent and the run, and it rides
+   * in every job payload and approval snapshot so it survives the queue. Absent for a person's event.
+   */
+  origin?: EventOrigin | null;
   /** Loop-guard depth for automation-caused writes (MN-047). */
   depth?: number;
   /** MN-254: the inbound webhook body, addressable via {payload.a.b.0} tokens. */
@@ -180,7 +191,7 @@ export function parseTemplateBody(raw: string): unknown {
  * interpolation in comment templates.
  */
 @Injectable()
-export class AutomationActionsService {
+export class AutomationActionsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly recordsService: RecordsService,
@@ -192,6 +203,31 @@ export class AutomationActionsService {
     private readonly jobs: JobRunnerService,
     private readonly approvals: ApprovalsService,
   ) {}
+
+  /**
+   * #1174 — send_webhook and send_slack_message run INLINE when nothing holds them, so they never had a job executor. A held one
+   * (a rule's own `require_approval`, or now an agent's write) that a person APPROVES is enqueued by ApprovalsService under its own
+   * kind, and with no executor the job was finalized "no executor registered": approving did nothing. These two execute the FROZEN
+   * snapshot (everything already rendered), and are deliberately absent from the inline routing in execute() (INLINE_ACTION_KINDS).
+   */
+  onModuleInit(): void {
+    this.jobs.registerExecutor('send_webhook', async (payload) => {
+      const { action, ctx } = payload as { action: Extract<AutomationAction, { type: 'send_webhook' }>; ctx: { workspaceId: string } };
+      const delivery = await this.webhooksService.enqueueDirect({
+        workspaceId: ctx.workspaceId,
+        url: action.url,
+        eventType: 'button.pressed',
+        payload: parseTemplateBody(action.body_template ?? '{}'),
+      });
+      const result = await this.webhooksService.sendNow(delivery.id, stringHeadersOnly(action.headers));
+      return { delivery_id: delivery.id, ok: result.ok, status_code: result.statusCode ?? null };
+    });
+    this.jobs.registerExecutor('send_slack_message', async (payload) => {
+      const { action, ctx } = payload as { action: Extract<AutomationAction, { type: 'send_slack_message' }>; ctx: { workspaceId: string } };
+      const sent = await this.slackService.sendMessage(ctx.workspaceId, { channel: action.channel, text: action.text });
+      return { channel: sent.channel ?? null };
+    });
+  }
 
   /**
    * MN-256: true iff every address is an active workspace member's email —
@@ -743,6 +779,36 @@ export class AutomationActionsService {
     });
   }
 
+  /** The envelope a send_webhook with no body template sends (MN-088); shared by the inline send and the frozen approval snapshot. */
+  private defaultWebhookBody(ctx: ActionContext): Record<string, unknown> {
+    return {
+      event: 'button.pressed',
+      occurred_at: new Date().toISOString(),
+      actor_id: ctx.actorId,
+      workspace: { id: ctx.workspaceId },
+      // MN-254: a webhook-triggered rule has no record — send the delivered payload back out instead, so the receiver still gets
+      // something to act on.
+      record: ctx.record ? { id: ctx.record.id, title: ctx.record.title, values: ctx.record.values } : null,
+      payload: ctx.record ? undefined : (ctx.payload ?? null),
+    };
+  }
+
+  /**
+   * #1174 — should this action be held because an agent's run credential caused the event? The recipients of a send_email are the
+   * RENDERED ones (a `{Email}` token is the record's value NOW, which the agent may have just written), to + cc.
+   */
+  private async heldForAgentOrigin(action: AutomationAction, ctx: ActionContext, displayToApi: Map<string, string>): Promise<boolean> {
+    let recipientsAllMembers = false;
+    if (action.type === 'send_email') {
+      const addresses = splitEmailAddresses(
+        [this.interpolate(action.to, ctx, displayToApi), action.cc ? this.interpolate(action.cc, ctx, displayToApi) : ''].filter(Boolean).join(','),
+      );
+      recipientsAllMembers = addresses.length > 0 && (await this.allRecipientsInternal(ctx.workspaceId, addresses));
+    }
+    const policy = ctx.origin?.agentId ? await loadAgentApprovalPolicy(this.db, ctx.workspaceId, ctx.origin.agentId) : new Set<string>();
+    return agentOriginHoldsAction(action.type, { recipientsAllMembers, policy });
+  }
+
   /**
    * MN-255: fully render a `require_approval` action's tokens NOW — before it
    * ever reaches a human — so the frozen snapshot ApprovalsService stores is
@@ -807,9 +873,11 @@ export class AutomationActionsService {
       }
       case 'send_webhook': {
         const url = this.interpolate(action.url, ctx, displayToApi, encodeURIComponent);
+        // #1174 — with no template the body is the default envelope built from the record: freeze it too, so what an approver
+        // sees is what is sent when they approve (and the approved-only executor needs no record).
         const body_template = action.body_template
           ? this.interpolate(action.body_template, ctx, displayToApi, jsonEscape)
-          : action.body_template;
+          : JSON.stringify(this.defaultWebhookBody(ctx));
         return { snapshot: { ...action, url, body_template }, previewText: `Webhook → ${url}` };
       }
       case 'run_agent': {
@@ -992,6 +1060,12 @@ export class AutomationActionsService {
           requireApproval = false;
         }
       }
+      // #1174 / ADR-0021 §7 — the event was caused by an agent's RUN CREDENTIAL: its outward actions are held for a person
+      // whatever the rule says (the agent steers the content, and a recipient/URL taken from a record field is the destination),
+      // except an email whose rendered recipients are all members, which only the agent's own approval_policy can hold.
+      if (!requireApproval && ctx.origin && (await this.heldForAgentOrigin(action, ctx, displayToApi))) {
+        requireApproval = true;
+      }
       // MN-255: a gated action stops here — render its tokens now (so the
       // frozen snapshot can't drift from a later record edit), insert an
       // approval + notify its approver, and do NOT enqueue an MN-253 job or
@@ -1009,6 +1083,7 @@ export class AutomationActionsService {
           action: snapshot,
           previewText,
           requesterActorId: ctx.actorId,
+          origin: ctx.origin ?? null,
         });
         effects.push(effect);
         continue;
@@ -1018,7 +1093,7 @@ export class AutomationActionsService {
       // youtube_upload to follow, MN-257/258/259) never runs inline — it's
       // durable-queued instead, so a flaky provider retries with backoff
       // rather than stalling this record's save or double-firing on a retry.
-      if (this.jobs.hasExecutor(action.type)) {
+      if (this.jobs.hasExecutor(action.type) && !APPROVED_ONLY_EXECUTOR_KINDS.has(action.type)) {
         const runId = ctx.runId ?? 'no-run';
         const idempotencyKey = buildIdempotencyKey({
           ruleId: ctx.ruleId ?? null,
@@ -1070,6 +1145,8 @@ export class AutomationActionsService {
               // MAX_DEPTH loop guard. Harmless for every other registered
               // kind today (none write back to records).
               depth: ctx.depth ?? 0,
+              // #1174 — the agent run behind this event, so it survives the queue and a retry (see job-runner.service.ts).
+              ...(ctx.origin ? { origin: ctx.origin } : {}),
             },
           },
           idempotencyKey,
@@ -1297,19 +1374,7 @@ export class AutomationActionsService {
             // Values are JSON-escaped as they go in, so a title containing a quote
             // can't break out of the string it lands in.
             parseTemplateBody(this.interpolate(action.body_template, ctx, displayToApi, jsonEscape))
-          : {
-              event: 'button.pressed',
-              occurred_at: new Date().toISOString(),
-              actor_id: ctx.actorId,
-              workspace: { id: ctx.workspaceId },
-              // MN-254: a webhook-triggered rule has no record — send the
-              // delivered payload back out instead, so the receiver still gets
-              // something to act on.
-              record: ctx.record
-                ? { id: ctx.record.id, title: ctx.record.title, values: ctx.record.values }
-                : null,
-              payload: ctx.record ? undefined : (ctx.payload ?? null),
-            };
+          : this.defaultWebhookBody(ctx);
         try {
           const delivery = await this.webhooksService.enqueueDirect({
             workspaceId: ctx.workspaceId,

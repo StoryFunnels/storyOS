@@ -4,9 +4,9 @@ Written 2026-10-30 against the Runner stack head (PR #1355, `api/1132-run-creden
 
 ## The answer
 
-**No, not yet, and now for one reason instead of six.** Before this audit a run credential could, with no approval: press a button (running an admin-authored `send_email` / `http_request` / `send_webhook` / `send_slack_message` action list), rotate an automation's hook token and read the new token and secret, re-run a rule's actions, switch on write-back on a Shopify source and push edits to the shop, run a paid Apify actor, submit a GitHub pull-request review (an APPROVE included), have the server GET a URL it chose (a channel out for anything it can read), and start a Tyron turn whose token is minted from its OWNER's role, so a write-capped credential of an admin's agent acted as admin. Those six are fixed in this PR by refusing run credentials (a new `@NoRunCredential()` marker, plus `allowRunButton: false` at mint).
+**Yes, for the effects this audit could find, after two fixes in this stack.** Before this audit a run credential could, with no approval: press a button (running an admin-authored `send_email` / `http_request` / `send_webhook` / `send_slack_message` action list), rotate an automation's hook token and read the new token and secret, re-run a rule's actions, switch on write-back on a Shopify source and push edits to the shop, run a paid Apify actor, submit a GitHub pull-request review (an APPROVE included), have the server GET a URL it chose (a channel out for anything it can read), and start a Tyron turn whose token is minted from its OWNER's role, so a write-capped credential of an admin's agent acted as admin. Those six are fixed in this PR by refusing run credentials (a new `@NoRunCredential()` marker, plus `allowRunButton: false` at mint).
 
-What remains is one class, filed as **ticket #1174** (High): **an agent's record writes fire admin-configured outward actions with no approval.** An external email went out after a run credential's plain `PATCH` of a record, through an admin-authored `send_email` rule with `require_approval: false` (reproduced, see F1). Do not ship the adapter to customers until #1174 is decided.
+The one class that remained was **ticket #1174** (High): **an agent's record writes fired admin-configured outward actions with no approval.** An external email went out after a run credential's plain `PATCH` of a record, through an admin-authored `send_email` rule with `require_approval: false` (reproduced, see F1). **#1174 is fixed** (Otto's ruling: stage where the agent can steer the destination or content, log where an admin fixed the destination): the event now carries the agent and the run that caused it, every outward automation action it fires is staged for a person, and the fixed destinations are logged with the agent. `run-credential-outward-staging.test.ts` is the proof. What this audit still does NOT cover is listed under Limits.
 
 ### Counts
 
@@ -16,7 +16,7 @@ What remains is one class, filed as **ticket #1174** (High): **an agent's record
 | GATED | staged for a person, not performed | 3 | 3 |
 | INTERNAL | nothing leaves StoryOS (reads return to the caller only) | 124 | 81 |
 | PUBLIC | no `AuthGuard`: the credential neither grants nor widens anything | 23 | 0 |
-| OUTWARD AND UNGATED (open, #1174) | record writes whose events reach configured outward actions | 27 | 24 |
+| GATED / LOGGED by origin (#1174, was OUTWARD AND UNGATED) | record writes whose events reach configured outward actions: staged for a person, or logged with the agent | 27 | 24 |
 | (no direct REST call) | MCP tools that go through helpers, each classified by hand in the test | | 8 |
 
 Six findings were OUTWARD AND UNGATED when this audit started and are counted above as UNREACHABLE now (`no_run_credential` 20 routes incl. 8 Tyron routes, `run_button_flag` 1). A route whose mechanism is `scope_admin` needs an admin-scoped token, and a run credential is capped at `write`: that is 147 routes, including every outward one an admin can configure (webhooks, portal, invites, connections, credentials, share/publish, automations, packs, exports, billing).
@@ -44,7 +44,7 @@ Six findings were OUTWARD AND UNGATED when this audit started and are counted ab
 
 ## Findings
 
-### F1 (OPEN, High): record writes fire configured outward actions with no approval. Ticket #1174
+### F1 (FIXED by ticket #1174, was High): record writes fired configured outward actions with no approval
 
 `DomainEvent` carries no `source` (`apps/api/src/events/domain-events.service.ts:3`), so a rule fired by an agent's write runs its action list (`apps/api/src/automations/automations.service.ts:636`) without knowing an agent caused it. Gating exists per action kind only: `send_email` is held unless every recipient is a member or the author turned approval off (`apps/api/src/automations/actions.service.ts:984`, `apps/api/src/automations/actions.service.ts:991`); `post_social` is held by class (`apps/api/src/action-gates/action-classes.ts:54`); `send_slack_message`, `send_webhook` and `http_request` are never held by default (`apps/api/src/action-gates/action-classes.ts:50`). The same event also reaches outbound webhook subscriptions (`apps/api/src/webhooks/webhooks.service.ts:64`), the Slack mirror of an @mention comment (`apps/api/src/comments/comments.service.ts:436`, to the workspace's default channel; member emails go only to members who can read the record, `apps/api/src/comments/comments.service.ts:405`), watcher emails (`apps/api/src/records/watcher-email.service.ts:68`) and write-back for a source with `write_back` on and `require_approval_for_push` off (`apps/api/src/sources/write-back.subscriber.ts:146`, `apps/api/src/sources/write-back.subscriber.ts:151`).
 
@@ -52,7 +52,15 @@ Six findings were OUTWARD AND UNGATED when this audit started and are counted ab
 
 **Also not honoured on this path:** the agent's own `approval_policy` (delete / webhook / email / run_button / outward). It is read only where a server-run agent stages a proposed action (`apps/api/src/agents/agents.service.ts:1099`, `apps/api/src/agents/agents.service.ts:1338`); a Runner agent calls tools directly. The #1104 agent write gate (`apps/api/src/action-gates/agent-write-gates.service.ts:12`: `create` and `update` only) and the #542 delete policy (`apps/api/src/action-gates/action-gates.service.ts:137`) hold a write only if a manager declared one: both are opt-in.
 
-Not fixed here: the right answer is a product decision (carry the origin on the event and stage outward kinds for an agent origin, or accept the admin's configuration as the approval). The sweep marks these 27 routes `fanout` and requires the entry to name the ticket; nothing asserts the behaviour persists.
+**The fix (ticket #1174, Otto's ruling: option (a), scoped to where the agent can steer the destination or content).**
+
+- `DomainEvent.origin` (agent id and name, run, Runner) is stamped in `DomainEventsService.emit()` from the run credential's request context, so no emit site has to remember it. It rides in `ActionContext`, in every job payload and approval snapshot, and in a new `bulk_record_jobs.origin` column (the one hand-off with nowhere else to keep it), because the request context does not survive a database row. A write an automation action makes keeps it, so a chain of rules is held at every outward step.
+- An event with an origin STAGES every outward automation action (`OUTWARD_AUTOMATION_ACTION_TYPES` in `action-classes.ts`: `send_email`, `send_slack_message`, `send_webhook`, `http_request`, `post_social`) whatever the rule's `require_approval` says. The one exception is a `send_email` whose RENDERED recipients (to and cc, after `{Email}` has been replaced by the record's value, which the agent may have just written) are all active members: it runs as configured. An address or URL taken from a record field is therefore held whenever it resolves outside the workspace.
+- The agent's own `approval_policy` now applies on this path: a policy that lists `email` (or `outward`) holds even a member-only email.
+- The approval card says `Caused by agent "X" (run N, on Runner): ...` and the snapshot's `ctx.origin` carries the ids. Approving runs the frozen snapshot; the approve endpoint is admin-scoped, so a run credential cannot decide its own approval. Approving a held `send_webhook` or `send_slack_message` did nothing before this change (no job executor was registered for either kind); both now have approved-only executors.
+- Destinations an admin fixed run as configured and are LOGGED with the agent: outbound webhook subscriptions (the delivery payload gains `caused_by`), the Slack mention mirror, mention emails and watcher emails (an `outward.*` row in `activity_events`, visible in the audit log), and write-back on a source opted out of approval (`source_runs.stats.caused_by`).
+
+**What it does not do, stated plainly.** An ordinary personal access token (not a run credential) and a server-run agent have no origin, so their writes behave as before (a server-run agent stages through `agents.service.ts` already). The agent's own `delete` policy is not applied to the credential's direct `DELETE` route: that route is the #542 gate's, and no automation action deletes. The cascade of an action a person approved keeps the agent origin, so a second approval can be asked further down the chain.
 
 ### Fixed in this PR (each was OUTWARD AND UNGATED; each is now refused to a run credential only, a person and a PAT are unaffected)
 
@@ -78,14 +86,14 @@ These are refusals, not approvals: a Runner agent has no staging path for them y
 | members and roles (`PATCH/DELETE /members/:m`), grants, `list_grants` | changes who may do what | admin scope as above; MCP has no write tool for them (coverage.ts) | UNREACHABLE |
 | `/billing/*` (checkout, portal, AI-credit top-up) | spends money | admin scope | UNREACHABLE |
 | outbound webhooks: `POST/PATCH/DELETE /webhooks`, `list_webhooks`, `update_webhook`, `list_webhook_deliveries` | delivers events to an external URL | admin scope (#1049) | UNREACHABLE |
-| webhook DELIVERY of a record event to an existing subscription (`apps/api/src/webhooks/webhooks.service.ts:64`) | record data to an admin-chosen URL | any record write | OUTWARD AND UNGATED (config-driven), F1 / #1174 |
+| webhook DELIVERY of a record event to an existing subscription (`apps/api/src/webhooks/webhooks.service.ts:64`) | record data to an admin-chosen URL | any record write | LOGGED with the agent (delivery payload `caused_by`), runs as configured: #1174 |
 | inbound `POST /hooks/:slug/:token` | fires a rule's actions | public, token + HMAC; the only way a run credential could learn a token was regenerate-hook (F3) | PUBLIC (token unreachable: F3 fixed) |
 | `create_automation`, `update_automation`, `delete_automation`, `test_automation`, `get_automation` | authors / runs outward actions | `@RequiresScope(admin)` on the controller | UNREACHABLE |
 | `run_button` / `POST .../buttons/:field/press` | runs the button's outward actions | was reachable; `allowRunButton: false` (`apps/api/src/auth/auth.guard.ts:147`) | FIXED, now UNREACHABLE (F2) |
 | `rerun_run`, `rerun_action` | re-fires rule actions | was reachable at write | FIXED, now UNREACHABLE (F6b) |
-| rule actions `send_email`, `post_social`, `send_slack_message`, `send_webhook`, `http_request`, `youtube_upload` fired by an agent's record write | email / public post / Slack / HTTP | send_email held by default (`apps/api/src/automations/actions.service.ts:984`), post_social held by class (`apps/api/src/action-gates/action-classes.ts:54`), the rest not; an admin may turn approval off | GATED for post_social and external send_email; OUTWARD AND UNGATED for the rest (F1 / #1174) |
-| @mention in `add_comment` (`POST .../comments`) | email to mentioned MEMBERS; Slack mirror to the workspace channel; wakes a mentioned agent | any write; recipients are members who can read the record (`apps/api/src/comments/comments.service.ts:405`; a non-member is dropped, `apps/api/src/notifications/notifications.service.ts:296`), never an external address (`apps/api/src/comments/comments.service.ts:413`); channel mirror `apps/api/src/comments/comments.service.ts:436`; the wake is depth-limited and goes to a Runner, not out (`apps/api/src/comments/comments.service.ts:376`) | OUTWARD AND UNGATED to members and the workspace Slack channel (F1 / #1174); no external address |
-| watcher emails on a record change | email to watching members | `apps/api/src/records/watcher-email.service.ts:68` (readable members only, capped) | F1 / #1174, members only |
+| rule actions `send_email`, `post_social`, `send_slack_message`, `send_webhook`, `http_request`, `youtube_upload` fired by an agent's record write | email / public post / Slack / HTTP | send_email held by default (`apps/api/src/automations/actions.service.ts:984`), post_social held by class (`apps/api/src/action-gates/action-classes.ts:54`), the rest not; an admin may turn approval off | STAGED for an agent's write: all five outward kinds, whatever `require_approval` says; a member-only email is the one exception (#1174) |
+| @mention in `add_comment` (`POST .../comments`) | email to mentioned MEMBERS; Slack mirror to the workspace channel; wakes a mentioned agent | any write; recipients are members who can read the record (`apps/api/src/comments/comments.service.ts:405`; a non-member is dropped, `apps/api/src/notifications/notifications.service.ts:296`), never an external address (`apps/api/src/comments/comments.service.ts:413`); channel mirror `apps/api/src/comments/comments.service.ts:436`; the wake is depth-limited and goes to a Runner, not out (`apps/api/src/comments/comments.service.ts:376`) | LOGGED with the agent, runs as configured (members and the workspace channel only, no external address): #1174 |
+| watcher emails on a record change | email to watching members | `apps/api/src/records/watcher-email.service.ts:68` (readable members only, capped) | LOGGED with the agent, members only: #1174 |
 | `create_portal_recipient`, `rotate_portal_recipient`, `revoke_portal_recipient`, `list_portal_*` | gives an external person a portal link; rotates it | `@MinRole(admin)` | UNREACHABLE |
 | `share_view`, `unshare_view`, `publish_view` | public view link / publishes | `@RequiresScope(admin)` on the views controller (the share and publish routes) | UNREACHABLE |
 | `create_skill` / `update_skill` / `import_skill` with `visibility: public` | an unauthenticated public link | a non-human author gets a PERSONAL skill and an approval a person decides (`apps/api/src/skills/skills.service.ts:299`, `apps/api/src/automations/skill-publish-gate.service.ts:40`); approve is human-only (`apps/api/src/auth/assert-human-source.ts:14`) | GATED (proven: 1 approval raised, skill not public, the credential cannot decide it) |
@@ -108,8 +116,8 @@ These are refusals, not approvals: a Runner agent has no staging path for them y
 | approvals approve / reject; agent write gates and action gate policies (create / update / delete) | an agent decides or removes its own gate | admin scope; approve and reject also `apps/api/src/automations/approvals.controller.ts:73` | UNREACHABLE |
 | `GET /export/workspace.zip`, `export_pack`, `POST /packs/install`, `install_pack`, `uninstall_pack`, GDPR export / anonymize, `POST /me/gdpr/erase` | whole-workspace data leaving; erasure; installs (#1107 installs outward automations OFF) | admin scope, or session-only (erase) | UNREACHABLE |
 | `GET /databases/:db/export/csv`, document Markdown / PDF export, `export_skill` | returns the caller's own data to the caller (PDF goes to the operator's Gotenberg, `apps/api/src/documents/export/pdf-renderer.ts:157`) | read | INTERNAL (the data reaches the caller, and through it the model vendor: inherent to the Runner, not gateable here) |
-| `delete_record`, `delete_records`, `restore_*` | soft delete (restorable); not outward | write; held only if a delete policy exists (`apps/api/src/action-gates/action-gates.service.ts:137`); the agent's own `approval_policy: delete` is not consulted (`apps/api/src/agents/agents.service.ts:1338`) | F1 / #1174 (delete gate is opt-in) |
-| `create_record`, `update_record`, `upsert`, batch, link, move, import, copy, duplicate, version restore, document edits | internal data; events fan out (F1) | write; the #1104 gate holds `create` and `update` only if declared (`apps/api/src/action-gates/agent-write-gates.service.ts:12`), and was shown staging a run credential's create (202, nothing written) | F1 / #1174 for the fan-out; GATED when a gate is declared |
+| `delete_record`, `delete_records`, `restore_*` | soft delete (restorable); not outward | write; held only if a delete policy exists (`apps/api/src/action-gates/action-gates.service.ts:137`); the agent's own `approval_policy: delete` is not consulted (`apps/api/src/agents/agents.service.ts:1338`) | unchanged by #1174: the credential's own delete is the #542 gate's (opt-in), and the agent's `approval_policy: delete` is still not consulted on that route |
+| `create_record`, `update_record`, `upsert`, batch, link, move, import, copy, duplicate, version restore, document edits | internal data; events fan out (F1) | write; the #1104 gate holds `create` and `update` only if declared (`apps/api/src/action-gates/agent-write-gates.service.ts:12`), and was shown staging a run credential's create (202, nothing written) | fan-out STAGED or LOGGED by origin (#1174); GATED when a gate is declared |
 | personal space / views / pinned tabs / favorites / hints / notifications / search / my-work | none | write / read, the owner's own | INTERNAL |
 | `/admin/*` platform admin | platform operations | `apps/api/src/admin/platform-admin.guard.ts:22` | UNREACHABLE |
 | public and inbound routes (forms, files, skills, views, packs, webhooks, OAuth callbacks, health, docs) | inbound or read-only public | no `AuthGuard`: a run credential changes nothing | PUBLIC |
@@ -122,8 +130,8 @@ These are refusals, not approvals: a Runner agent has no staging path for them y
 - **The MCP tool column is derived by reading each `reg(` block of tools.ts.** The regex over-approximates for the last tool of a group (it can pick up a route from code after the block, for example `list_source_runs` shows a `GET /webhooks`). The ENFORCEMENT is per route, so an over-attribution can only make a tool look worse. Tools that call a route through a helper are in `LOCAL_TOOLS` in the test with a reason.
 - **The sweep refuses with empty or minimal bodies** and, for the handlers that validate a body before they refuse, with a body that passes validation. A route whose refusal depends on a database row that exists was not separately exercised beyond the guards (the guard-level refusals, which are all of the derived ones, do not depend on the row).
 - **A run credential's liveness over time.** The credential slides with the 90 s lease (#1132); this audit uses a freshly claimed one and does not test expiry, which `run-credentials.test.ts` owns.
-- **Operator-configured fan-out is accepted as configuration by this audit** only where it ends at members or the workspace's own channel; where it ends at an external address or URL it is F1.
-- **Open decision for Otto:** whether the refusals above (F2 to F6c) should become staging (approval) steps for agents, and F1 / #1174.
+- **Operator-configured fan-out is accepted as configuration by this audit** only where it ends at members or the workspace's own channel; where it ends at an external address or URL it is staged (F1, fixed by #1174).
+- **Open decision for Otto:** whether the refusals above (F2 to F6c) should become staging (approval) steps for agents. F1 / #1174 is decided and built; the same staging can replace a refusal later.
 
 ## Keeping this true
 
@@ -138,7 +146,7 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 
 | Tool | Verdict | Routes (effect routes first) |
 |---|---|---|
-| `add_comment` | fanout | `POST /workspaces/:p/databases/:p/records/:p/comments` (fanout); `GET /workspaces/:p/databases/:p/records/trash` (internal) |
+| `add_comment` | gated | `POST /workspaces/:p/databases/:p/records/:p/comments` (gated); `GET /workspaces/:p/databases/:p/records/trash` (internal) |
 | `add_field` | unreachable | `POST /workspaces/:p/databases/:p/fields` (unreach:scope_admin) |
 | `apply_template` | internal | `POST /workspaces/:p/templates/:p/apply` (internal) |
 | `attach_file` | unreachable | `GET /workspaces/:p/databases/:p` (internal); `POST /workspaces/:p/databases/:p/records/:p/attachments/from-url` (unreach:no_run_credential) |
@@ -148,19 +156,19 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `convert_members_relation_to_user_field` | unreachable | `POST /workspaces/:p/databases/:p/fields/:p/convert-to-user` (unreach:scope_admin) |
 | `convert_user_field_to_members_relation` | unreachable | `POST /workspaces/:p/databases/:p/fields/:p/convert-to-members-relation` (unreach:scope_admin) |
 | `copy_document_to_personal_space` | internal | `POST /workspaces/:p/documents/:p/copy-to-personal` (internal) |
-| `copy_records` | fanout | `POST /workspaces/:p/databases/:p/records/copy` (fanout) |
+| `copy_records` | gated | `POST /workspaces/:p/databases/:p/records/copy` (gated) |
 | `copy_view_to_personal_space` | internal | `POST /workspaces/:p/databases/:p/views/:p/copy-to-personal` (internal) |
 | `count_records` | internal | `POST /workspaces/:p/databases/:p/records/aggregate` (internal) |
 | `count_records_grouped` | internal | `POST /workspaces/:p/databases/:p/records/aggregate/grouped` (internal) |
 | `create_agent_trigger` | unreachable | `POST /workspaces/:p/agents/triggers` (unreach:scope_admin) |
 | `create_automation` | unreachable | `POST /workspaces/:p/databases/:p/automations` (unreach:scope_admin) |
 | `create_database` | unreachable | `POST /workspaces/:p/databases` (unreach:scope_admin) |
-| `create_document` | fanout | `POST /workspaces/:p/spaces/:p/documents` (fanout); `PATCH /workspaces/:p/documents/:p` (fanout) |
+| `create_document` | gated | `POST /workspaces/:p/spaces/:p/documents` (gated); `PATCH /workspaces/:p/documents/:p` (gated) |
 | `create_folder` | unreachable | `POST /workspaces/:p/spaces/:p/folders` (unreach:scope_admin) |
 | `create_personal_view` | internal | `POST /workspaces/:p/databases/:p/views/personal` (internal) |
 | `create_portal_recipient` | unreachable | `POST /workspaces/:p/portal-recipients` (unreach:scope_admin) |
-| `create_record` | fanout | `POST /workspaces/:p/databases/:p/records` (fanout) |
-| `create_records` | fanout | `POST /workspaces/:p/databases/:p/records/batch` (fanout) |
+| `create_record` | gated | `POST /workspaces/:p/databases/:p/records` (gated) |
+| `create_records` | gated | `POST /workspaces/:p/databases/:p/records/batch` (gated) |
 | `create_relation` | unreachable | `POST /workspaces/:p/relations` (unreach:scope_admin) |
 | `create_skill` | gated | `POST /workspaces/:p/skills` (gated) |
 | `create_source` | unreachable | `POST /workspaces/:p/databases/:p/sources` (unreach:no_run_credential) |
@@ -176,8 +184,8 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `delete_document` | internal | `GET /workspaces/:p/documents/:p` (internal); `DELETE /workspaces/:p/documents/:p` (internal) |
 | `delete_field` | unreachable | `DELETE /workspaces/:p/databases/:p/fields/:p` (unreach:scope_admin) |
 | `delete_folder` | unreachable | `DELETE /workspaces/:p/folders/:p` (unreach:scope_admin) |
-| `delete_record` | fanout | `DELETE /workspaces/:p/databases/:p/records/:p` (fanout) |
-| `delete_records` | fanout | `POST /workspaces/:p/databases/:p/records/batch-delete` (fanout) |
+| `delete_record` | gated | `DELETE /workspaces/:p/databases/:p/records/:p` (gated) |
+| `delete_records` | gated | `POST /workspaces/:p/databases/:p/records/batch-delete` (gated) |
 | `delete_relation` | unreachable | `DELETE /workspaces/:p/relations/:p` (unreach:scope_admin) |
 | `delete_skill` | internal | `DELETE /workspaces/:p/skills/:p` (internal) |
 | `delete_source` | internal | `DELETE /workspaces/:p/databases/:p/sources/:p` (internal) |
@@ -189,14 +197,14 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `describe_database` | internal | `GET /workspaces/:p/databases/:p` (internal) |
 | `discover_source_fields` | unreachable | `POST /workspaces/:p/databases/:p/sources/discover` (unreach:no_run_credential) |
 | `duplicate_database` | internal | `POST /workspaces/:p/databases/:p/duplicate` (internal) |
-| `duplicate_record` | fanout | `POST /workspaces/:p/databases/:p/records/:p/duplicate` (fanout) |
+| `duplicate_record` | gated | `POST /workspaces/:p/databases/:p/records/:p/duplicate` (gated) |
 | `duplicate_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/duplicate` (unreach:scope_admin) |
-| `enqueue_bulk_record_job` | fanout | `POST /workspaces/:p/databases/:p/records/batch-jobs` (fanout) |
+| `enqueue_bulk_record_job` | gated | `POST /workspaces/:p/databases/:p/records/batch-jobs` (gated) |
 | `export_pack` | unreachable | `POST /workspaces/:p/packs/export` (unreach:scope_admin) |
 | `export_skill` | internal | `GET /workspaces/:p/skills/:p/export` (internal) |
 | `find_select_drift` | internal | `GET /workspaces/:p/relations/:p/select-drift` (internal) |
 | `find_workflow_candidates` | internal | `GET /workspaces/:p/workflow-nomination` (internal) |
-| `fix_select_drift` | fanout | `POST /workspaces/:p/relations/:p/select-drift/reconcile` (fanout) |
+| `fix_select_drift` | gated | `POST /workspaces/:p/relations/:p/select-drift/reconcile` (gated) |
 | `get_activity_event` | unreachable | `GET /workspaces/:p/activity-events/:p` (unreach:scope_admin) |
 | `get_agent_wake_summary` | internal | `GET /workspaces/:p/agent-wakes/summary` (internal) |
 | `get_agents` | unreachable | `GET /workspaces/:p/agents` (unreach:scope_admin) |
@@ -229,7 +237,7 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `get_workspace` | internal | `GET /workspaces/:p` (internal) |
 | `import_skill` | gated | `POST /workspaces/:p/skills/import` (gated) |
 | `install_pack` | unreachable | `GET /packs/registry/:p` (internal); `POST /workspaces/:p/packs/preview` (unreach:scope_admin); `POST /workspaces/:p/packs/install` (unreach:scope_admin) |
-| `link_records` | fanout | `PUT /workspaces/:p/databases/:p/records/:p/links/:p` (fanout); `POST /workspaces/:p/databases/:p/records/:p/links/:p` (fanout) |
+| `link_records` | gated | `PUT /workspaces/:p/databases/:p/records/:p/links/:p` (gated); `POST /workspaces/:p/databases/:p/records/:p/links/:p` (gated) |
 | `list_action_gates` | unreachable | `GET /workspaces/:p/action-gates` (unreach:scope_admin) |
 | `list_agent_activity` | unreachable | `GET /workspaces/:p/agents/:p/activity` (unreach:scope_admin) |
 | `list_agent_wakes` | internal | `GET /workspaces/:p/agent-wakes` (internal) |
@@ -284,8 +292,8 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `list_workspaces` | local | helper |
 | `list_youtube_channels` | internal | `GET /workspaces/:p/databases/:p/sources/channels` (internal) |
 | `mark_notifications` | internal | `POST /workspaces/:p/notifications/read-all` (internal); `POST /workspaces/:p/notifications/:p/read` (internal); `POST /workspaces/:p/notifications/:p/archive` (internal); `POST /workspaces/:p/notifications/:p/unarchive` (internal) |
-| `move_document_to_space` | fanout | `POST /workspaces/:p/documents/:p/move` (fanout) |
-| `move_record` | fanout | `POST /workspaces/:p/databases/:p/records/:p/move` (fanout) |
+| `move_document_to_space` | gated | `POST /workspaces/:p/documents/:p/move` (gated) |
+| `move_record` | gated | `POST /workspaces/:p/databases/:p/records/:p/move` (gated) |
 | `nominate_workflows` | unreachable | `POST /workspaces/:p/workflow-nomination` (unreach:scope_admin) |
 | `propose_schema` | unreachable | `POST /workspaces/:p/architect/propose` (unreach:scope_admin) |
 | `publish_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/publish` (unreach:scope_admin) |
@@ -297,10 +305,10 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `rerun_action` | unreachable | `POST /workspaces/:p/runs/:p/actions/:p/rerun` (unreach:no_run_credential) |
 | `rerun_run` | unreachable | `POST /workspaces/:p/runs/:p/rerun` (unreach:no_run_credential) |
 | `restore_database` | unreachable | `POST /workspaces/:p/databases/:p/restore` (unreach:scope_admin) |
-| `restore_document_version` | fanout | `POST /workspaces/:p/databases/:p/records/:p/document/versions/:p/restore` (fanout) |
-| `restore_records` | fanout | `POST /workspaces/:p/databases/:p/records/:p/restore` (fanout); `POST /workspaces/:p/databases/:p/records/batch-restore` (fanout) |
+| `restore_document_version` | gated | `POST /workspaces/:p/databases/:p/records/:p/document/versions/:p/restore` (gated) |
+| `restore_records` | gated | `POST /workspaces/:p/databases/:p/records/:p/restore` (gated); `POST /workspaces/:p/databases/:p/records/batch-restore` (gated) |
 | `restore_space` | unreachable | `POST /workspaces/:p/spaces/:p/restore` (unreach:scope_admin) |
-| `restore_version` | fanout | `POST /workspaces/:p/databases/:p/records/:p/versions/:p/restore` (fanout) |
+| `restore_version` | gated | `POST /workspaces/:p/databases/:p/records/:p/versions/:p/restore` (gated) |
 | `restore_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/restore` (unreach:scope_admin) |
 | `revoke_portal_recipient` | unreachable | `POST /workspaces/:p/portal-recipients/:p/revoke` (unreach:scope_admin) |
 | `rotate_portal_recipient` | unreachable | `POST /workspaces/:p/portal-recipients/:p/rotate` (unreach:scope_admin) |
@@ -320,19 +328,19 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `share_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/share` (unreach:scope_admin) |
 | `sync_source` | unreachable | `POST /workspaces/:p/databases/:p/sources/:p/sync-now` (unreach:no_run_credential) |
 | `test_automation` | unreachable | `POST /workspaces/:p/databases/:p/automations/:p/test` (unreach:scope_admin) |
-| `undo_batch_update` | fanout | `POST /workspaces/:p/databases/:p/records/batch-update-undo` (fanout) |
+| `undo_batch_update` | gated | `POST /workspaces/:p/databases/:p/records/batch-update-undo` (gated) |
 | `uninstall_pack` | unreachable | `POST /workspaces/:p/packs/:p/uninstall` (unreach:scope_admin) |
-| `unlink_records` | fanout | `DELETE /workspaces/:p/databases/:p/records/:p/links/:p` (fanout) |
+| `unlink_records` | gated | `DELETE /workspaces/:p/databases/:p/records/:p/links/:p` (gated) |
 | `unshare_view` | unreachable | `DELETE /workspaces/:p/databases/:p/views/:p/share` (unreach:scope_admin) |
 | `update_automation` | unreachable | `PATCH /workspaces/:p/databases/:p/automations/:p` (unreach:scope_admin) |
-| `update_comment` | fanout | `PATCH /workspaces/:p/databases/:p/records/:p/comments/:p` (fanout) |
+| `update_comment` | gated | `PATCH /workspaces/:p/databases/:p/records/:p/comments/:p` (gated) |
 | `update_database` | unreachable | `PATCH /workspaces/:p/databases/:p` (unreach:scope_admin) |
-| `update_document` | fanout | `GET /workspaces/:p/documents/:p` (internal); `PATCH /workspaces/:p/documents/:p` (fanout) |
+| `update_document` | gated | `GET /workspaces/:p/documents/:p` (internal); `PATCH /workspaces/:p/documents/:p` (gated) |
 | `update_field` | unreachable | `PATCH /workspaces/:p/databases/:p/fields/:p` (unreach:scope_admin); `POST /workspaces/:p/databases/:p/fields/:p/options` (unreach:scope_admin); `PATCH /workspaces/:p/databases/:p/fields/:p/options/:p` (unreach:scope_admin); `DELETE /workspaces/:p/databases/:p/fields/:p/options/:p` (unreach:scope_admin) |
 | `update_folder` | unreachable | `PATCH /workspaces/:p/folders/:p` (unreach:scope_admin) |
-| `update_record` | fanout | `PATCH /workspaces/:p/databases/:p/records/:p` (fanout) |
-| `update_record_description` | fanout | `GET /workspaces/:p/databases/:p/records/:p/document` (internal); `PUT /workspaces/:p/databases/:p/records/:p/document` (fanout) |
-| `update_records` | fanout | `PATCH /workspaces/:p/databases/:p/records/batch` (fanout) |
+| `update_record` | gated | `PATCH /workspaces/:p/databases/:p/records/:p` (gated) |
+| `update_record_description` | gated | `GET /workspaces/:p/databases/:p/records/:p/document` (internal); `PUT /workspaces/:p/databases/:p/records/:p/document` (gated) |
+| `update_records` | gated | `PATCH /workspaces/:p/databases/:p/records/batch` (gated) |
 | `update_skill` | gated | `PATCH /workspaces/:p/skills/:p` (gated) |
 | `update_source` | unreachable | `PATCH /workspaces/:p/databases/:p/sources/:p` (unreach:no_run_credential) |
 | `update_space` | unreachable | `PATCH /workspaces/:p/spaces/:p` (unreach:scope_admin) |
@@ -341,9 +349,9 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `update_view` | unreachable | `PATCH /workspaces/:p/databases/:p/views/:p` (unreach:scope_admin) |
 | `update_webhook` | unreachable | `PATCH /workspaces/:p/webhooks/:p` (unreach:scope_admin) |
 | `update_workspace` | unreachable | `PATCH /workspaces/:p` (unreach:scope_admin) |
-| `upsert_record` | fanout | `POST /workspaces/:p/databases/:p/records/upsert` (fanout) |
+| `upsert_record` | gated | `POST /workspaces/:p/databases/:p/records/upsert` (gated) |
 | `watch_record` | internal | `POST /workspaces/:p/databases/:p/records/:p/watch` (internal); `DELETE /workspaces/:p/databases/:p/records/:p/watch` (internal) |
 
 ## Appendix B: routes by verdict
 
-Every route is in `apps/api/test/helpers/outward-audit.ts` (explicit entries) or derived from its guards. Counts at this commit: fanout 27, gated 3, internal 124, public 23, self_guarded 12, unreachable:no_run_credential 20, unreachable:platform_admin_session 11, unreachable:run_button_flag 1, unreachable:runner_token_only 4, unreachable:scope_admin 147, unreachable:session_only 10.
+Every route is in `apps/api/test/helpers/outward-audit.ts` (explicit entries) or derived from its guards. Counts at this commit: gated 30 (27 are record-write routes whose fan-out is staged or logged by origin, #1174), internal 124, public 23, self_guarded 12, unreachable:no_run_credential 20, unreachable:platform_admin_session 11, unreachable:run_button_flag 1, unreachable:runner_token_only 4, unreachable:scope_admin 147, unreachable:session_only 10.

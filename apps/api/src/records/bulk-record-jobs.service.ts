@@ -5,6 +5,7 @@ import type { Db } from '../db/client';
 import { bulkRecordJobs } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
+import { currentEventOrigin, parseEventOrigin, runWithEventOrigin } from '../common/credential-context';
 import { RecordsService } from './records.service';
 
 type BulkRecordJobRow = typeof bulkRecordJobs.$inferSelect;
@@ -99,6 +100,7 @@ export class BulkRecordJobsService implements OnModuleInit, OnModuleDestroy {
         databaseId,
         actorId,
         source,
+        origin: currentEventOrigin(), // #1174 — see the column's comment
         op,
         recordIds,
         values: op === 'update' ? (values ?? {}) : null,
@@ -123,7 +125,9 @@ export class BulkRecordJobsService implements OnModuleInit, OnModuleDestroy {
     await this.reap();
     const job = await this.claimOne();
     if (!job) return;
-    await this.processOneChunk(job);
+    // #1174 — the enqueuing run credential's origin is made ambient, so the events this chunk emits carry it (the request's own
+    // context is long gone by the time the timer gets here).
+    await runWithEventOrigin(parseEventOrigin(job.origin), () => this.processOneChunk(job));
   }
 
   private async reap(): Promise<void> {

@@ -14,19 +14,23 @@
  * Verdicts for an explicit entry:
  *  - internal      no effect outside StoryOS; a read returns data to the caller only.
  *  - gated         reaches an outward effect only through a staged approval (verified by a real request in the sweep).
- *  - fanout        OUTWARD AND UNGATED (a finding): it writes record data, and the events that follow reach admin-configured outward
- *                  actions with no approval. The `why` names the open ticket; the sweep fails if it does not.
+ *                  A route that writes record data is `gated` through FANOUT_WHY (ticket #1174): the events it causes carry the agent's
+ *                  origin, so every OUTWARD automation action is staged for a person, and the destinations an admin fixed (webhook
+ *                  subscriptions, the Slack mention mirror, mention/watcher email to members, write-back opted out of approval) run as
+ *                  configured and are LOGGED with the agent. run-credential-outward-staging.test.ts is the proof; the sweep checks the
+ *                  `why` names it.
  *  - self_guarded  refused inside the handler (assertSession / assertPerson), which the sweep proves with a real request.
  *  - public        no AuthGuard: a run credential neither grants nor widens anything here.
  *
- * A 'fanout' entry is NOT an assertion that the defect persists (CLAUDE.md: an assertion must not outlive its defect). When the ticket
- * lands, change the entry's verdict; nothing here pins the behaviour.
+ * Finding F1 is closed (ticket #1174), so no entry says 'fanout' any more: an entry that named an open defect would outlive it
+ * (CLAUDE.md: an assertion must not outlive its defect).
  */
-export type ExplicitVerdict = 'internal' | 'gated' | 'fanout' | 'self_guarded' | 'public';
+export type ExplicitVerdict = 'internal' | 'gated' | 'self_guarded' | 'public';
 export interface ExplicitEntry { verdict: ExplicitVerdict; why: string }
 
-/** The one open finding of the audit (see the ticket for the repro). */
-export const FANOUT_TICKET = 'ticket #1174';
+/** The audit's one finding (F1, ticket #1174), CLOSED: a record write's fan-out is staged or logged by its origin. */
+export const FANOUT_PROOF = 'run-credential-outward-staging.test.ts';
+export const FANOUT_WHY = `writes record data: the events that follow carry the agent origin (ticket #1174): outward automation actions are STAGED for approval, fixed destinations (outbound webhook subscriptions, Slack mention mirror, mention and watcher email to members, write-back opted out of approval) run as configured and are LOGGED with the agent. Proof: ${FANOUT_PROOF}`;
 
 export type Mechanism = 'runner_token_only' | 'platform_admin_session' | 'session_only' | 'no_run_credential' | 'run_button_flag' | 'scope_admin';
 
@@ -80,29 +84,29 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'DELETE /workspaces/:ws/databases/:db/fields/:field/personal-collection-view': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/workflow-nomination': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/upsert': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/upsert': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/query': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'POST /workspaces/:ws/databases/:db/records/aggregate': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'POST /workspaces/:ws/databases/:db/records/aggregate/grouped': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
-  'POST /workspaces/:ws/databases/:db/records/batch': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'PATCH /workspaces/:ws/databases/:db/records/batch': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/batch-update-undo': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/batch-jobs': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/batch': { verdict: 'gated', why: FANOUT_WHY },
+  'PATCH /workspaces/:ws/databases/:db/records/batch': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/batch-update-undo': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/batch-jobs': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/batch-jobs/:id': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/batch-delete': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/batch-restore': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/batch-delete': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/batch-restore': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/trash': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/by-number/:number': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'PATCH /workspaces/:ws/databases/:db/records/:rec': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'DELETE /workspaces/:ws/databases/:db/records/:rec': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/duplicate': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'PATCH /workspaces/:ws/databases/:db/records/:rec': { verdict: 'gated', why: FANOUT_WHY },
+  'DELETE /workspaces/:ws/databases/:db/records/:rec': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/:rec/duplicate': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/:rec/watch': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'DELETE /workspaces/:ws/databases/:db/records/:rec/watch': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/databases/:db/records/:rec/watchers': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/move': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/restore': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/:rec/move': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/:rec/restore': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/:rec/backlinks': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/notifications': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/notifications/unread-count': { verdict: 'internal', why: 'read: returns data to the caller only' },
@@ -118,18 +122,18 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /workspaces/:ws/databases/:db/records/:rec/attachments/:att/thumbnail': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'DELETE /workspaces/:ws/databases/:db/records/:rec/attachments/:att': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/relations/:rel/select-drift': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/relations/:rel/select-drift/reconcile': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/relations/:rel/select-drift/reconcile': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'PUT /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'DELETE /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'gated', why: FANOUT_WHY },
+  'PUT /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'gated', why: FANOUT_WHY },
+  'DELETE /workspaces/:ws/databases/:db/records/:rec/links/:field': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/automations/:id/last-payload': { verdict: 'internal', why: 'reads the last payload a hook received; the hook token itself is not returned here' },
   'POST /hooks/:workspaceSlug/:hookToken': { verdict: 'public', why: 'inbound webhook receiver: the hook token (+ HMAC secret) is the credential, so a run credential adds nothing; the only way to learn a token is regenerate-hook, which a run credential is refused' },
   'GET /workspaces/:ws/approvals': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/approvals/count': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/comments': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/comments': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'PATCH /workspaces/:ws/databases/:db/records/:rec/comments/:comment': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/:rec/comments': { verdict: 'gated', why: FANOUT_WHY },
+  'PATCH /workspaces/:ws/databases/:db/records/:rec/comments/:comment': { verdict: 'gated', why: FANOUT_WHY },
   'DELETE /workspaces/:ws/databases/:db/records/:rec/comments/:comment': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/databases/:db/records/:rec/activity': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/activity/hierarchy': { verdict: 'internal', why: 'read: returns data to the caller only' },
@@ -137,7 +141,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /workspaces/:ws/databases/:db/records/:rec/versions': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/versions/changes': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/versions/:version': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/versions/:version/restore': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/:rec/versions/:version/restore': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/integrations': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/integrations/github/reviews': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/integrations/github/reviews/:owner/:repo/:number': { verdict: 'internal', why: 'read: returns data to the caller only' },
@@ -148,18 +152,18 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/integrations/shopify/catalogue': { verdict: 'internal', why: 'creates databases, relations and Shopify SOURCES with config {} (write_back off), so the only third-party call is a read with the workspace connection (SourcesService.create in shopify-catalogue.service.ts:155-166); nothing is pushed' },
   'POST /providers/shopify/webhook/:connectionId': { verdict: 'public', why: 'inbound Shopify webhook, verified by HMAC' },
   'GET /workspaces/:ws/databases/:db/records/:rec/document': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'PUT /workspaces/:ws/databases/:db/records/:rec/document': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'PUT /workspaces/:ws/databases/:db/records/:rec/document': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/:rec/document/versions': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/document/versions/:version': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/records/:rec/document/versions/:version/restore': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/records/:rec/document/versions/:version/restore': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/spaces/:space/documents': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/spaces/:space/documents': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/spaces/:space/documents': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/documents/:doc': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/documents/:doc/export/markdown': { verdict: 'internal', why: 'reviewed: renders one document as Markdown and returns it to the caller' },
   'GET /workspaces/:ws/documents/:doc/export/pdf': { verdict: 'internal', why: 'reviewed: renders one document and returns the PDF to the caller; the only network hop is the operator\'s own Gotenberg sidecar (env-configured, the caller cannot choose the URL)' },
-  'PATCH /workspaces/:ws/documents/:doc': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'PATCH /workspaces/:ws/documents/:doc': { verdict: 'gated', why: FANOUT_WHY },
   'DELETE /workspaces/:ws/documents/:doc': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
-  'POST /workspaces/:ws/documents/:doc/move': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/documents/:doc/move': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/documents/:doc/copy-to-personal': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/connections': { verdict: 'internal', why: 'connections list never returns auth material (connections.service.ts present)' },
   'GET /workspaces/:ws/connections/providers': { verdict: 'internal', why: 'read: returns data to the caller only' },
@@ -210,8 +214,8 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /workspaces/:ws/search': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/my-work': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/recent': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'POST /workspaces/:ws/databases/:db/import': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
-  'POST /workspaces/:ws/databases/:db/records/copy': { verdict: 'fanout', why: 'writes record data: the resulting events reach admin-configured outward actions (automations, outbound webhooks, Slack mention mirror, watcher email, opted-in write-back) with no approval: ticket #1174' },
+  'POST /workspaces/:ws/databases/:db/import': { verdict: 'gated', why: FANOUT_WHY },
+  'POST /workspaces/:ws/databases/:db/records/copy': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/runs/quota': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/runs': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/runs/:id': { verdict: 'internal', why: 'read: returns data to the caller only' },

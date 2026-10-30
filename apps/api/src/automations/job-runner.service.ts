@@ -11,6 +11,7 @@ import type { Db } from '../db/client';
 import { approvals, automationJobs, automations, connections } from '../db/schema';
 import { env } from '../config/env';
 import { redactSecrets } from '../common/redact-secrets';
+import { parseEventOrigin, runWithEventOrigin } from '../common/credential-context';
 import { ProviderError } from '../common/provider-error';
 import { MAX_ATTEMPTS, nextAttemptDelayMs } from '../common/backoff-schedule';
 import { takeToken } from '../common/token-bucket';
@@ -296,12 +297,17 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const result = await executor.fn(job.payload as Record<string, unknown>, {
-        connectionAuth: (connectionId) => this.connections.getDecryptedAuth(job.workspaceId, connectionId),
-        fetcher: fetch,
-        idempotencyKey: job.idempotencyKey,
-        signal: controller.signal,
-      });
+      // #1174 — the agent run that caused this job's event survives the queue (and every retry: the payload row is what is retried) and
+      // is made ambient again, so any record write the executor makes (a run_agent apply, say) keeps the origin on ITS events.
+      const jobCtx = (job.payload as { ctx?: { origin?: unknown } } | null)?.ctx;
+      const result = await runWithEventOrigin(parseEventOrigin(jobCtx?.origin), () =>
+        executor.fn(job.payload as Record<string, unknown>, {
+          connectionAuth: (connectionId) => this.connections.getDecryptedAuth(job.workspaceId, connectionId),
+          fetcher: fetch,
+          idempotencyKey: job.idempotencyKey,
+          signal: controller.signal,
+        }),
+      );
       await this.finalizeSuccess(job, result);
     } catch (error) {
       const timedOut = controller.signal.aborted;
