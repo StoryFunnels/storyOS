@@ -120,6 +120,13 @@ jobs:
       - name: Dependency license scan + SBOM
         run: pnpm license:check
 
+      # ADR-0021 section 9 / Q9 (ticket #1134): packages/runner is Apache-2.0 inside
+      # an AGPL repo and must not depend on, import or copy from any AGPL workspace
+      # package. Fails on a violation and on anything it cannot tell. (Also run by
+      # `pnpm lint` through packages/runner; its own test is in `pnpm test:scripts`.)
+      - name: Runner licence boundary (Apache-2.0 vs AGPL)
+        run: pnpm license:runner
+
       # #722 — ADVISORY ONLY. Reports token-pair contrast and any new
       # --text-faint site in the diff; never fails the build. A check that turns
       # CI red across pre-existing sites gets disabled by the first person it

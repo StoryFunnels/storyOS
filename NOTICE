@@ -4,6 +4,10 @@ Copyright (c) 2026 Ievgen Krasovytskyi
 This product is licensed under the GNU Affero General Public License v3.0 or
 later (AGPL-3.0-or-later). See the LICENSE file for the full text.
 
+One directory is licensed differently: packages/runner (the StoryOS Runner) is
+licensed under the Apache License, Version 2.0, with its own LICENSE and NOTICE
+in that directory. It contains no AGPL code.
+
 The copyright holder above will move to the company entity once incorporated.
 
 Third-party dependencies retain their own licenses; a CycloneDX SBOM and an

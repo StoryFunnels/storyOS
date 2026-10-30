@@ -134,4 +134,6 @@ TypeScript monorepo (pnpm + Turborepo) · NestJS 11 on Fastify · Next.js 16 / R
 
 **Dual-licensed.** [AGPL-3.0-or-later](LICENSE) for everyone, free forever; if you host it as a service, share your changes back. A separate **commercial license** is available for organisations that cannot accept the AGPL: same code, different legal terms. See [docs/licensing.md](docs/licensing.md).
 
+**One exception: the Runner.** `packages/runner` (the open-source worker that runs your agents on your own computer) is **Apache-2.0**, with its own [LICENSE](packages/runner/LICENSE); the server and everything else stay AGPL-3.0-or-later. The Runner may not depend on any AGPL package, and CI fails if it does. See [docs/licensing.md](docs/licensing.md).
+
 Contributions require agreeing to the [Contributor License Agreement](CLA.md). See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -26,6 +26,32 @@ AGPL edition is in the code.
 To enquire about a commercial license, contact the maintainer (see the repo's
 GitHub profile / README).
 
+## The one exception: the Runner (Apache-2.0)
+
+`packages/runner` (published as `@storyos/runner`) is licensed under the
+**Apache License, Version 2.0**. It has its own [LICENSE](../packages/runner/LICENSE)
+and NOTICE, `"license": "Apache-2.0"` in its `package.json`, and the server and
+everything else in this repository stay AGPL-3.0-or-later. (ADR-0021 section 9.)
+
+Why: the Runner is the program a person installs on their own computer, next to
+their own tools, and it is meant to be copied, audited and embedded without
+taking on the AGPL's network clause.
+
+The rule that keeps the two licences apart runs one way. Apache code may be used
+inside the AGPL work; AGPL code may not be pulled into the Apache package without
+making the combination AGPL. So **`packages/runner` must not depend on, import or
+copy from any AGPL package in this repository** (`@storyos/schemas`, `sdk`, `mcp`,
+`config`, `apps/*`). It defines its own wire types, and its dependencies are
+permissive-only (MIT, ISC, BSD, Apache-2.0, 0BSD). This is enforced in CI by
+`scripts/check-runner-license-boundary.mjs` (`pnpm license:runner`), which fails
+the build on a violation and on anything it cannot tell.
+
+Open questions for the maintainer and counsel (not decided here): the trademark
+policy for the name "StoryOS" in forks of the Runner (the Apache licence grants no
+trademark rights), and whether contributions to the Runner go through the CLA
+below (the current recommendation, so the project keeps the option to relicense) or
+inbound-equals-outbound Apache terms.
+
 ## Why a CLA is required
 
 Offering a commercial license requires the right to license **all** of the code
