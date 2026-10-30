@@ -869,6 +869,13 @@
       "when": 1793304669344,
       "tag": "0123_dark_clint_barton",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1793363113717,
+      "tag": "0124_first_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

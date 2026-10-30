@@ -8,6 +8,7 @@ import { ConnectionsService } from '../connections/connections.service';
 import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
 import { DomainEventsService } from '../events/domain-events.service';
+import type { EventOrigin } from '../common/credential-context';
 import type { DomainEvent } from '../events/domain-events.service';
 import { RecordsService } from '../records/records.service';
 import { ApprovalsService } from '../automations/approvals.service';
@@ -148,7 +149,7 @@ export class WriteBackSubscriber implements OnModuleInit {
         continue;
       }
 
-      await this.pushOne(source, event.recordId, externalKey, values);
+      await this.pushOne(source, event.recordId, externalKey, values, event.origin);
     }
   }
 
@@ -194,6 +195,7 @@ export class WriteBackSubscriber implements OnModuleInit {
       action,
       previewText,
       requesterActorId: event.actorId ?? source.createdBy ?? 'system',
+      origin: event.origin ?? null, // #1174 — the card names the agent and the run
     });
 
     await this.db.insert(sourceRuns).values({
@@ -256,10 +258,19 @@ export class WriteBackSubscriber implements OnModuleInit {
     recordId: string,
     externalKey: unknown,
     values: Record<string, unknown>,
+    origin?: EventOrigin | null,
   ): Promise<void> {
     const descriptor = SOURCE_PROVIDER_REGISTRY.get(source.providerSource)!;
     const startedAt = new Date();
-    const baseStats = { pushed: true, record_id: recordId, external_key: externalKey, pushed_keys: Object.keys(values) };
+    // #1174 / ADR-0021 §7 — a source the admin opted OUT of approval pushes as configured (its destination is fixed by the admin),
+    // and the run row (this IS the log) says an agent's run credential caused it.
+    const baseStats = {
+      pushed: true,
+      record_id: recordId,
+      external_key: externalKey,
+      pushed_keys: Object.keys(values),
+      ...(origin ? { caused_by: { source: 'agent', agent_id: origin.agentId, agent_name: origin.agentName, run_id: origin.runId, runner_id: origin.runnerId, runner_name: origin.runnerName } } : {}),
+    };
     try {
       const { auth } = await this.connectionsService.getDecryptedAuth(source.workspaceId, source.connectionId!);
       const result = await descriptor.push!({
