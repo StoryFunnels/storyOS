@@ -37,7 +37,7 @@ export function IntegrationSetupGuide({
               className={cn(
                 'rounded-[var(--radius-control)] border p-3',
                 state === 'current'
-                  ? 'border-border-strong bg-accent-soft'
+                  ? 'border-border-strong bg-hover'
                   : 'border-border-default bg-page',
                 state === 'upcoming' && 'opacity-70',
               )}
@@ -47,7 +47,7 @@ export function IntegrationSetupGuide({
                   className={cn(
                     'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-meta font-semibold',
                     state === 'current' && 'bg-primary text-[var(--text-on-dark)]',
-                    state === 'complete' && 'bg-accent-soft text-ink',
+                    state === 'complete' && 'border border-border-default bg-hover text-ink',
                     state === 'upcoming' && 'bg-hover text-muted',
                   )}
                 >

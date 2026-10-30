@@ -53,6 +53,8 @@
   /* #994 (Otto's ruling) — the same navy for TEXT and GLYPHS. A fill and a text colour are different jobs in dark mode:
      --primary is a mid blue that clears AA under a label but is 3.45:1 as text on a card, so text uses its own token. */
   --primary-text: #2f3b63;
+  /* #1163 — GOLD MARKS AGENTS: where they live, who they are, what they are doing, what they ask of you. Not selection,
+     favourites, toggles, human tasks or setup nudges. gold-agents-only.unit.test.ts allow-lists the files that may use it. */
   --accent: #d4a017;
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
@@ -69,8 +71,8 @@
   --c7: #c9701f;
   --c8: #9a7b4f;
   /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
-     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened to 4.56:1. */
-  --accent-text: #8a6700;
+     the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened. #1165: #8a6700 -> #7d5d00 (same 45° hue and saturation, lightness 27% -> 25%) so it also clears 4.5:1 on --bg-active (4.64:1, the lowest). */
+  --accent-text: #7d5d00;
   /* #967 — text ON a gold fill (a count badge): 6.65:1 on --accent, where the off-white --text-on-dark is ~2.2:1. */
   --text-on-accent: #2a2205;
   /* #1168 — text ON the solid --error fill (the Tyron "Yes, do it" confirm). White is 5.44:1 on light --error; the ink
@@ -100,7 +102,12 @@
   /* Status */
   --success: #2d7a4f;
   --error: #c0392b;
-  --warning: #b8860b;
+  /* #1164 (revised by Dara) — --warning is a FILL / ICON / dot colour: #c25f0c, hue 27°, 3.23:1 or better on every light bg
+     token (non-text 3:1). It left gold's 43° because a warning is not an agent acting. */
+  --warning: #c25f0c;
+  /* Warning TEXT: #994000 (hue 25°), 5.17:1 or better on every light bg token (lowest on --bg-active). CIEDE2000 18.7 from
+     agent gold --accent-text and 13.5 from --error. */
+  --warning-text: #994000;
   --info: #3d5296;
 
   /* Dashboard chart categorical palette (MN-225 / #168, Phase 2). Eight hues
@@ -338,7 +345,10 @@
   --success: #57b37f;
   --error: #e2705f;
   --text-on-error: #2a2205;
-  --warning: #d8ad3e;
+  --warning: #e8893a;
+  /* Warning TEXT in dark: #ff8a2a (hue 28°), 5.64:1 or better on every dark bg token (lowest on --bg-active). CIEDE2000 19.7
+     from agent gold, 19.1 from --error. Fill #e8893a: 5.11:1 or better. */
+  --warning-text: #ff8a2a;
   --info: #7a92d6;
 
   /* Chart palette — lifted for contrast on the darker canvas (MN-225 / #168). */
@@ -380,6 +390,7 @@
   --color-success: var(--success);
   --color-error: var(--error);
   --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
   --color-info: var(--info);
   --font-sans: var(--font-figtree), -apple-system, 'Segoe UI', sans-serif;
 
@@ -515,7 +526,8 @@ html[data-embed] body {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  /* #1163 — text selection is not an agent acting: the neutral selected-row fill, not gold. */
+  background: var(--bg-active);
 }
 
 /*

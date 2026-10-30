@@ -687,7 +687,7 @@ export function RecordDetail({
                   className={HEADER_ICON_BTN}
                   onClick={() => setSidePanelCollapsed((c) => !c)}
                 >
-                  <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-[var(--accent)]')} />
+                  <PanelRight className={cn('h-4 w-4', !sidePanelCollapsed && 'text-primary-text')} />
                 </button>
               </Tooltip>
             </>
@@ -948,7 +948,7 @@ export function RecordDetail({
                 type="button"
                 onClick={followDatabaseOrder}
                 disabled={setFieldConfig.isPending}
-                className="font-medium text-accent underline underline-offset-2 disabled:opacity-50"
+                className="font-medium text-primary-text underline underline-offset-2 disabled:opacity-50"
               >
                 Follow the database order
               </button>
@@ -1224,7 +1224,7 @@ export function RecordDetail({
                   type="button"
                   onClick={followDatabaseOrder}
                   disabled={setFieldConfig.isPending}
-                  className="font-medium text-accent underline underline-offset-2 disabled:opacity-50"
+                  className="font-medium text-primary-text underline underline-offset-2 disabled:opacity-50"
                 >
                   Follow the database order
                 </button>
@@ -1466,7 +1466,7 @@ function ResizeHandle({
         className={cn(
           'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
           dragging
-            ? 'bg-accent'
+            ? 'bg-primary-text'
             : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
         )}
       />

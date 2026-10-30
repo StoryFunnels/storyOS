@@ -176,7 +176,7 @@ export function DropIndicator({
     <span
       aria-hidden
       className={cn(
-        'pointer-events-none absolute z-20 bg-[var(--accent)]',
+        'pointer-events-none absolute z-20 bg-primary-text',
         orientation === 'horizontal' ? 'inset-x-0 -top-px h-0.5' : 'inset-y-0 -left-px w-0.5',
       )}
     />

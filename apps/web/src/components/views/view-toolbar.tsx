@@ -634,7 +634,7 @@ export function ColorByButton({
           className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
           onClick={() => onChange(undefined)}
         >
-          None {!value && <Check className="h-3.5 w-3.5 text-accent" />}
+          None {!value && <Check className="h-3.5 w-3.5 text-primary-text" />}
         </button>
         {fields.map((field) => (
           <button
@@ -643,7 +643,7 @@ export function ColorByButton({
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
-            {value === field.id && <Check className="h-3.5 w-3.5 text-accent" />}
+            {value === field.id && <Check className="h-3.5 w-3.5 text-primary-text" />}
           </button>
         ))}
       </DropdownMenuContent>
@@ -993,7 +993,7 @@ export function OptionChipSet({
             className={cn(
               'inline-flex h-[21px] max-w-full items-center gap-1 rounded-full border px-2 text-micro font-semibold',
               on
-                ? 'border-[color-mix(in_srgb,var(--accent)_55%,transparent)] text-ink'
+                ? 'border-border-strong text-ink'
                 : 'border-border-default bg-card text-muted hover:border-border-strong hover:text-ink',
               !on && unfinished && 'border-dashed',
             )}
@@ -1168,7 +1168,7 @@ export function FilterChip({
       </select>
 
       <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} compact />
-      {unfinished && <span className="text-micro text-warning">not applied yet</span>}
+      {unfinished && <span className="text-micro text-warning-text">not applied yet</span>}
 
       <button onClick={onRemove} className="text-faint hover:text-error">
         <X className="h-3 w-3" />
@@ -2058,7 +2058,7 @@ function ConditionRow({
           <button
             type="button"
             onClick={onPin}
-            className={cn(ROW_ICON_BTN, condition.pinned && 'text-accent-text')}
+            className={cn(ROW_ICON_BTN, condition.pinned && 'text-primary-text')}
             title={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar as a chip'}
             aria-label={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar'}
             aria-pressed={Boolean(condition.pinned)}
@@ -2142,7 +2142,7 @@ function ConditionRow({
         legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
         #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
       */}
-      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning">not applied yet — needs a value</p>}
+      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning-text">not applied yet — needs a value</p>}
       {condition.label && !editingLabel && (
         <p className="mt-0.5 pl-[45px] text-meta text-muted">named “{condition.label}”</p>
       )}
@@ -2499,7 +2499,7 @@ function RecordPicker({
               onClick={() => toggle(row.id)}
             >
               <span className="truncate">{row.title || 'Untitled'}</span>
-              {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-accent" />}
+              {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-primary-text" />}
             </button>
           ))}
           {results.data?.length === 0 && (
@@ -2641,7 +2641,7 @@ export function SortButton({
             <div className="max-h-72 overflow-y-auto p-1">
               <button type="button" className={SORT_PICK_ROW} onClick={() => onChange([])}>
                 <span className="min-w-0 flex-1 truncate">Manual</span>
-                {sorts.length === 0 && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
+                {sorts.length === 0 && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
               </button>
               {sortableFields.map((f) => {
                 const active = sorts[0]?.field === f.apiName;
@@ -2658,9 +2658,9 @@ export function SortButton({
                       <>
                         <span className="shrink-0 text-meta text-muted">{directionLabel(f.type, first.direction, f.options)}</span>
                         {first.direction === 'asc' ? (
-                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-primary-text" />
                         ) : (
-                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-primary-text" />
                         )}
                       </>
                     )}
@@ -2827,7 +2827,7 @@ function SortRow({
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent-soft text-micro font-bold tabular-nums text-ink">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border-default bg-hover text-micro font-bold tabular-nums text-ink">
           {index + 1}
         </span>
         <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>

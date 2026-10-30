@@ -168,7 +168,7 @@ function EditorInner({
       }}
     >
       {conflict && (
-        <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-warning bg-accent-soft px-3 py-2 text-body text-ink">
+        <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-warning bg-hover px-3 py-2 text-body text-ink">
           <span>This description was edited elsewhere. Your latest change was not saved.</span>
           <span className="flex gap-2">
             <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>

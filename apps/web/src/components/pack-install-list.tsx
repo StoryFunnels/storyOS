@@ -27,7 +27,7 @@ export function RowIcon({ kind, viewType }: { kind: InstallRow['kind']; viewType
       className={cn(
         'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[var(--radius-chip,4px)]',
         kind === 'agent'
-          ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--bg-card))] text-accent-text'
+          ? 'bg-active text-primary-text'
           : 'bg-hover text-muted',
       )}
       data-gold={kind === 'agent' ? 'true' : undefined}

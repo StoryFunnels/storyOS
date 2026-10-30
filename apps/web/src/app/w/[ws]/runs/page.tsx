@@ -77,7 +77,7 @@ export default function RunsPage() {
                   Runs this month: <b className="font-semibold text-ink">{quota.data.used.toLocaleString()}</b> of{' '}
                   {quota.data.limit.toLocaleString()}
                   {quota.data.projected !== null && quota.data.projected > quota.data.limit && (
-                    <span className="ml-1 text-warning">(on pace for ~{quota.data.projected.toLocaleString()})</span>
+                    <span className="ml-1 text-warning-text">(on pace for ~{quota.data.projected.toLocaleString()})</span>
                   )}
                 </>
               )}

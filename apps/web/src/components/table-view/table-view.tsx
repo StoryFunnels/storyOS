@@ -941,7 +941,7 @@ export function TableView({
         }}
         className={cn(
           'group/cell relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
-          isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
+          isCursor && 'z-20 ring-2 ring-inset ring-[var(--focus-ring-color)]',
           pinned && colIndex < frozenCount
             ? cn(
                 'sticky z-10',
@@ -953,8 +953,8 @@ export function TableView({
                  * ticket's three named states (base/hover/selected) covers
                  * but which breaks the same way: the real bug was TWO
                  * classes both setting background-color on one element —
-                 * this branch's opaque bg-card/bg-accent-soft, and the
-                 * translucent bg-accent-soft/60 below — with the
+                 * this branch's opaque bg-card/bg-active, and the
+                 * translucent bg-active/60 below — with the
                  * translucent one winning the cascade, so a frozen cell
                  * mid-range-select let the row's own ground bleed through
                  * at 40%. Folding range selection into THIS branch (so a
@@ -963,12 +963,12 @@ export function TableView({
                  * which was never the reported defect.
                  */
                 inRange && !isCursor
-                  ? 'bg-accent-soft'
+                  ? 'bg-active'
                   : selected.has(row.id)
-                    ? 'bg-accent-soft'
+                    ? 'bg-active'
                     : 'bg-card group-hover:bg-hover',
               )
-            : inRange && !isCursor && 'z-10 bg-accent-soft/60',
+            : inRange && !isCursor && 'z-10 bg-active/60',
         )}
         onMouseDown={(e) => {
           suppressClickRef.current = false;
@@ -1293,14 +1293,14 @@ export function TableView({
               return (
                 <div
                   key={row.id}
-                  className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-accent-soft' : 'bg-card')}
+                  className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-active' : 'bg-card')}
                   style={{ top: item.start, height: rowHeight }}
                 >
                   <div
                     className={cn(
                       'relative flex w-14 shrink-0 items-center justify-center',
                       pinned && 'sticky left-0 z-10',
-                      selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
+                      selected.has(row.id) ? 'bg-active' : 'bg-card group-hover:bg-hover',
                     )}
                   >
                     {/*
@@ -1337,7 +1337,7 @@ export function TableView({
                             aria-label={`Select ${noun}`}
                             className={cn(
                               'peer h-3 w-3 cursor-pointer appearance-none rounded-[3px] border bg-transparent',
-                              'checked:border-accent checked:bg-accent',
+                              'checked:border-primary checked:bg-primary',
                               // faint at rest; full on row hover, keyboard focus, checked, or while selecting
                               selected.size > 0
                                 ? 'border-ink/60'
@@ -1353,7 +1353,7 @@ export function TableView({
                           <Check
                             aria-hidden
                             strokeWidth={3}
-                            className="pointer-events-none absolute inset-0 h-3 w-3 text-on-accent opacity-0 peer-checked:opacity-100"
+                            className="pointer-events-none absolute inset-0 h-3 w-3 text-[var(--text-on-dark)] opacity-0 peer-checked:opacity-100"
                           />
                         </span>
                       )}

@@ -46,7 +46,7 @@ export function EntityPickerRow({
       onMouseEnter={onMouseEnter}
       className={cn(
         'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink transition-colors',
-        active ? 'bg-accent-soft' : 'hover:bg-hover',
+        active ? 'bg-active' : 'hover:bg-hover',
       )}
     >
       {icon != null && (

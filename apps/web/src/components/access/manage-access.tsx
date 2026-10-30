@@ -293,7 +293,7 @@ export function AccessMain({
             </p>
           )}
           {v.stickyHidden.length > 0 && (
-            <p role="note" className="rounded-[var(--radius-control)] bg-accent-soft px-3 py-2 text-label text-ink">
+            <p role="note" className="rounded-[var(--radius-control)] border border-border-default bg-hover px-3 py-2 text-label text-ink">
               {nameList(v.stickyHidden.map((p) => p.name))} {v.stickyHidden.length === 1 ? 'has' : 'have'} access to {spaceName} but{' '}
               {v.stickyHidden.length === 1 ? 'does not' : 'do not'} see this database. Add {v.stickyHidden.length === 1 ? 'them' : 'them'} here to let them in.
             </p>
@@ -310,7 +310,7 @@ export function AccessMain({
             title={`From ${spaceName} · ${v.inherited.length}`}
             action={
               onOpenSpace && (
-                <button type="button" onClick={onOpenSpace} className="text-label font-medium text-accent-text hover:underline">
+                <button type="button" onClick={onOpenSpace} className="text-label font-medium text-primary-text underline">
                   Manage {spaceName}&rsquo;s access →
                 </button>
               )
@@ -455,7 +455,7 @@ export function OpenStep({
         </p>
       )}
       {p.widening.length > 0 && (
-        <p className="rounded-[var(--radius-control)] bg-accent-soft px-3 py-2 text-label text-ink">
+        <p className="rounded-[var(--radius-control)] border border-border-default bg-hover px-3 py-2 text-label text-ink">
           That includes {nameList(p.widening.map((w) => `${w.person.name} (${ROLE_WORDS[w.today].label} here today)`))}. A member&rsquo;s role here is ignored once it is open to everyone.
         </p>
       )}
