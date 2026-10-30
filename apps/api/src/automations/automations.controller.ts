@@ -4,7 +4,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { createAutomationSchema, updateAutomationSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -122,6 +122,8 @@ export class AutomationsController {
     );
   }
 
+  /** #1135: the response carries the NEW hook token + secret, which is all it takes to fire the rule's outward actions through the public receiver. */
+  @NoRunCredential()
   @Post(':id/regenerate-hook')
   @RequiresScope('write')
   @ApiOperation({

@@ -18,9 +18,11 @@ import {
   memberships as membershipsTable,
   recordFieldChanges,
   records as recordsTable,
+  relations as relationsTable,
   selectOptions,
 } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
+import { spaceCanHoldDatabases } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -61,6 +63,11 @@ import {
 } from './agent-runtime';
 import type { AgentRuntime, AgentRunAgent, AgentRunSkill, AgentStep, ProposedAction } from './agent-runtime';
 import { SkillsService } from '../skills/skills.service';
+import { AgentWakesService } from '../runners/agent-wakes.service';
+import type { EnqueueResult, WakeRow } from '../runners/agent-wakes.service';
+import type { WakeReason } from '../runners/wake.constants';
+import { EXIT_LABEL, RUNNER_RUN_FIELD_NAMES, addUsage, capSummary } from '../runners/run-record';
+import type { RunResult } from '../runners/run-record';
 
 type Database = typeof databasesTable.$inferSelect;
 
@@ -153,6 +160,17 @@ export interface DispatchRunInput {
   promptOverride?: string;
   /** MN-109 Phase A guardrails — see DispatchRunGuardrails. */
   guardrails?: DispatchRunGuardrails;
+  /**
+   * ticket #1130: the person whose action caused this run, for the wake's access check (they must be able to read the record
+   * and the agent). Defaults to `owner` (a person at their keyboard); null is a system cause with nobody to check.
+   */
+  requestedBy?: string | null;
+  /** ticket #1130: why, when the trigger's own label is not the reason (a relation binding is `assigned`). */
+  wakeReason?: WakeReason;
+  /** ticket #1130: idempotency for a replay of the same event. */
+  sourceKey?: string;
+  /** ticket #1130: a wake that already exists for this dispatch (a mention or a decided approval): only its Run is made here. */
+  wake?: WakeRow;
 }
 
 /**
@@ -206,6 +224,8 @@ export class AgentsService implements OnModuleInit {
     private readonly approvals: ApprovalsService,
     /** ticket #1106: resolves the skills an agent names, at run time, as its owner sees them. */
     private readonly skillsService: SkillsService,
+    /** ticket #1130 / ADR-0021: the wake queue a `Your own AI` dispatch enqueues into instead of producing a finished handoff Run. */
+    private readonly wakes: AgentWakesService,
   ) {}
 
   /**
@@ -239,6 +259,7 @@ export class AgentsService implements OnModuleInit {
    * through the durable queue automatically (JobRunnerService.hasExecutor) —
    * no change needed there. */
   onModuleInit(): void {
+    this.registerWakeRunHooks();
     this.jobs.registerExecutor(
       'run_agent',
       async (payload) => {
@@ -268,6 +289,8 @@ export class AgentsService implements OnModuleInit {
           maxSteps: action.max_steps,
           maxCostCents: action.max_cost_cents,
           dryRun: action.dry_run,
+          // ticket #1130: the person behind the rule's firing, for a Your-own-AI agent's wake access check.
+          requestedBy: ctx.actorId ?? null,
         });
         return { runId: run.id, status: run.values['status'] };
       },
@@ -321,6 +344,44 @@ export class AgentsService implements OnModuleInit {
       where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
     });
     if (!existing) await this.fields.create(databaseId, spec);
+  }
+
+  /**
+   * #1133 / ADR-0021 §5-6: the run record a Runner run leaves. No migration: a field is a row, added here for a new workspace and for
+   * a workspace whose Runs database predates it alike. Idempotent and ONE query once they all exist (this runs on every ensure,
+   * which every dispatch calls), and a run that predates a field simply has no value for it, the honest answer, never a guessed one.
+   * All of them are runtime-owned (records/runtime-owned-fields.ts). `Agent` and `Input record` (the agent and the record),
+   * `Started at` and `Finished at` are the fields created with the database.
+   */
+  private async ensureRunnerRunFields(runsDbId: string): Promise<void> {
+    const have = new Set(
+      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, runsDbId), inArray(fieldsTable.apiName, [...RUNNER_RUN_FIELD_NAMES])))).map((r) => r.apiName),
+    );
+    const specs: Record<(typeof RUNNER_RUN_FIELD_NAMES)[number], Parameters<FieldsService['create']>[1]> = {
+      wake_reason: { display_name: 'Wake reason', type: 'text', config: {} },
+      runner: { display_name: 'Runner', type: 'text', config: {} },
+      tool: { display_name: 'Tool', type: 'text', config: {} },
+      tool_version: { display_name: 'Tool version', type: 'text', config: {} },
+      exit: {
+        display_name: 'Exit',
+        type: 'select',
+        config: {},
+        options: [
+          { label: EXIT_LABEL.ok, color: 'green' },
+          { label: EXIT_LABEL.error, color: 'red' },
+          { label: EXIT_LABEL.limit_reached, color: 'gold' },
+          { label: EXIT_LABEL.aborted, color: 'brown' },
+          { label: EXIT_LABEL.timeout, color: 'red' },
+        ],
+      },
+      // Tokens as the tool reported them. EMPTY when it did not: never zero-filled (CLAUDE.md, never guess numbers).
+      tokens_in: { display_name: 'Tokens in', type: 'number', config: {} },
+      tokens_out: { display_name: 'Tokens out', type: 'number', config: {} },
+      summary: { display_name: 'Summary', type: 'text', config: { multiline: true } },
+      session_id: { display_name: 'Session id', type: 'text', config: {} },
+      limit_resumes_at: { display_name: 'Limit resumes at', type: 'date', config: { include_time: true } },
+    };
+    for (const name of RUNNER_RUN_FIELD_NAMES) if (!have.has(name)) await this.fields.create(runsDbId, specs[name]);
   }
 
   /**
@@ -426,6 +487,9 @@ export class AgentsService implements OnModuleInit {
     if (existing.agentsDb && existing.runsDb && existing.triggersDb) {
       // A complete pack skips every back-fill below; the retired "Schedule" label must still go (ticket #1056).
       await this.retireScheduleTrigger(existing.agentsDb.id, existing.runsDb.id);
+      // ticket #1130: and a pack provisioned before relation bindings gains their field (idempotent, one lookup once it exists).
+      await this.ensureField(existing.triggersDb.id, 'relation_field', { display_name: 'Relation field', type: 'text', config: {} });
+      await this.ensureRunnerRunFields(existing.runsDb.id); // ticket #1133: and the run record's fields
       return {
         agentsDb: existing.agentsDb,
         runsDb: existing.runsDb,
@@ -436,7 +500,8 @@ export class AgentsService implements OnModuleInit {
 
     const allSpaces = await this.spaces.list(membership);
     const space =
-      allSpaces.find((s) => s.name === 'Agentic OS') ??
+      // Ticket #1173: a personal space is never where the Agentic OS databases go, whatever it is named.
+      allSpaces.find((s) => spaceCanHoldDatabases(s) && s.name === 'Agentic OS') ??
       (await this.spaces.create(membership.workspaceId, { name: 'Agentic OS', icon: '🤖' }));
 
     let agentsDb = existing.agentsDb;
@@ -696,6 +761,8 @@ export class AgentsService implements OnModuleInit {
       config: {},
     });
 
+    await this.ensureRunnerRunFields(runsDb.id); // #1133
+
     // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
     // provisioned by an earlier release has a "Trigger" field on both Agents
     // and Runs with only three options — back-fill "Automation" onto both,
@@ -729,6 +796,10 @@ export class AgentsService implements OnModuleInit {
         // and validated against the target database by validateBinding().
         { display_name: 'State field', type: 'text', config: {} },
         { display_name: 'State option', type: 'text', config: {} },
+        // ticket #1130 / ADR-0021 §1: the OTHER kind of binding. Instead of a state, a RELATION field on the database that points at the
+        // Agents database: "when this field links to the agent, wake it" (how a `Next` field wakes an agent). Stored as the field's id,
+        // like the state field, and validated against live schema. A binding has EITHER the state pair OR this, never both.
+        { display_name: 'Relation field', type: 'text', config: {} },
         // ADR-0010 §5: a human-gate state never auto-fires an agent *out* of it.
         // Checkpoints are first-class — only a human move advances a gated state.
         { display_name: 'Human gate', type: 'checkbox', config: {} },
@@ -954,6 +1025,12 @@ export class AgentsService implements OnModuleInit {
    * dispatcher (AgentTriggerSubscriber, #212) and the run_agent automation
    * action (MN-109 Phase A) — both dispatch with nobody at the keyboard.
    */
+  /** ticket #1130: whether this agent's AI mode is "Your own AI" (the mode a Runner serves, which wakes instead of running in-process). */
+  async isOwnAi(agentsDbId: string, agentRecord: ProjectedRecord): Promise<boolean> {
+    const labels = await this.optionLabelsById(agentsDbId, 'ai_mode');
+    return labels.get((agentRecord.values['ai_mode'] as string | undefined) ?? '') === RUN_CLASS_LABEL.your_own_ai;
+  }
+
   async resolveAgentOwner(
     workspaceId: string,
     agentRecord: ProjectedRecord,
@@ -983,6 +1060,8 @@ export class AgentsService implements OnModuleInit {
    * dispatcher.
    */
   async runFromAutomation(input: {
+    /** ticket #1130: whose action fired the rule (the wake's access subject). */
+    requestedBy?: string | null;
     workspaceId: string;
     agentRef: string;
     inputRecordId?: string;
@@ -1025,6 +1104,7 @@ export class AgentsService implements OnModuleInit {
       // twice with backoff before the Run lands as the dead-letter.
       retries: 2,
       depth: input.depth ?? 0,
+      requestedBy: input.requestedBy,
       promptOverride: input.prompt,
       guardrails: {
         scopeCap: input.toolScope,
@@ -1169,15 +1249,33 @@ export class AgentsService implements OnModuleInit {
     const blockedBeforeExecution =
       overAllowance || costCapExceeded || managedCreditsUnavailable || skillsMissing;
 
+    // ── ticket #1130 / ADR-0021 §1, §11: a `Your own AI` dispatch ENQUEUES A WAKE ─────────────────────────────────────────
+    // This used to produce a Run that ended Succeeded straight away: a handoff page for an AI client a person had to open by
+    // hand. It is now a Queued Run attached to a wake, which a Runner claims. The step log is the same one (the runtime still
+    // runs and still stamps the class before any step), so everything that read that log still does; only the status word
+    // differs. Repeats for the same agent and record coalesce into ONE wake (and ONE Run): the existing Run is returned.
+    let wake: WakeRow | undefined = input.wake;
+    if (runtime.runClass === 'your_own_ai' && !blockedBeforeExecution && !wake) {
+      const queued = await this.enqueueOwnAiWake(input, runsDb.id);
+      if ('run' in queued) return queued.run;
+      wake = queued.wake;
+    } else if (wake && runtime.runClass !== 'your_own_ai') {
+      // The agent stopped being a Your-own-AI agent between the wake and its Run: that wake has nothing to wait for.
+      await this.wakes.failUnstarted(wake.id);
+      wake = undefined;
+    }
+
     let run = await asAgentRuntime(() => this.recordsService.create(
       workspaceId,
       runsDb.id,
       {
         name: `${agent.name} — ${trigger}`,
         trigger: triggerIds.get(trigger) ?? null,
-        status: statusIds.get(blockedBeforeExecution ? 'Failed' : 'Running') ?? null,
+        status: statusIds.get(blockedBeforeExecution ? 'Failed' : wake ? 'Queued' : 'Running') ?? null,
         run_class: runClassIds.get(runClassLabel) ?? null,
         started_at: new Date().toISOString(),
+        // #1133: why the agent was woken, as the wake queue knows it ('assigned', 'mention', 'must_comment' ...).
+        ...(wake ? { wake_reason: wake.reason } : {}),
         ...(blockedBeforeExecution
           ? {
               finished_at: new Date().toISOString(),
@@ -1205,7 +1303,12 @@ export class AgentsService implements OnModuleInit {
       input.depth ?? 0,
       'agent',
     ));
-    if (blockedBeforeExecution) return run;
+    if (blockedBeforeExecution) {
+      // A wake that was already made for this dispatch (a mention) has no Run that will ever be served: end it with the failed Run.
+      if (wake) await this.wakes.failUnstarted(wake.id);
+      return run;
+    }
+    if (wake) await this.wakes.attachRun(wake.id, run.id);
 
     // ── Execute ───────────────────────────────────────────────────────────────
     // A runtime failure is a *run* outcome, not a request failure: it lands in
@@ -1389,6 +1492,26 @@ export class AgentsService implements OnModuleInit {
       return waiting;
     }
 
+    // ticket #1130: a Your-own-AI Run that executed cleanly is NOT finished: it is waiting for a Runner. Write the step log, say so,
+    // and leave it Queued (the Runner's completion, the lease reaper, the 7-day expiry or an admin cancel moves it on).
+    if (wake && !failure) {
+      steps.push({
+        tool: 'wake.queued',
+        summary: `Queued (${wake.reason}) — a Runner picks this up as soon as one is available for this agent`,
+        detail:
+          'This agent runs on your own AI through a Runner. Until a Runner is assigned and online it waits here; nothing is lost.' +
+          (input.promptOverride ? ` Prompt override for this run: ${input.promptOverride}` : ''),
+      });
+      return this.recordsService.update(
+        workspaceId,
+        runsDb.id,
+        run.id,
+        { steps: markdownToBlocks(stepsToMarkdown(steps)) },
+        actorId,
+      );
+    }
+    if (wake && failure) await this.wakes.failUnstarted(wake.id);
+
     const log = failure
       ? `${steps.length ? `${stepsToMarkdown(steps)}\n` : ''}- **error** — Run failed: ${failure}`
       : stepsToMarkdown(steps);
@@ -1435,6 +1558,117 @@ export class AgentsService implements OnModuleInit {
       );
     }
     return run;
+  }
+
+  /**
+   * ticket #1130 — enqueue (or coalesce into) the wake for a `Your own AI` dispatch. A new wake returns `{ wake }` and the caller makes
+   * its Run; a repeat returns `{ run }`, the Run the open wake already has, so five triggers in a minute are one Run. A wake that
+   * cannot be created (the person cannot see the record or the agent, a loop guard) is refused in words and creates nothing.
+   */
+  private async enqueueOwnAiWake(input: DispatchRunInput, runsDbId: string): Promise<{ wake: WakeRow } | { run: ProjectedRecord }> {
+    const reason: WakeReason = input.wakeReason ?? (input.trigger === 'Manual' ? 'manual' : input.trigger === 'State change' ? 'state_change' : 'automation');
+    const res: EnqueueResult = await this.wakes.enqueue({
+      workspaceId: input.workspaceId,
+      agentId: input.agentRecord.id,
+      reason,
+      recordId: input.inputRecordId ?? null,
+      requestedBy: input.requestedBy === undefined ? input.owner.userId : input.requestedBy,
+      depth: input.depth ?? 0,
+      sourceKey: input.sourceKey ?? null,
+      context: input.promptOverride ? { prompt: input.promptOverride } : null,
+    });
+    if (res.outcome === 'skipped') {
+      const notFound = res.code === 'record_not_found' || res.code === 'record_not_visible' || res.code === 'agent_not_visible' || res.code === 'agent_not_found';
+      if (notFound) throw new NotFoundException(res.message);
+      throw new UnprocessableEntityException(res.message);
+    }
+    if (res.outcome === 'created') return { wake: res.wake };
+    // Coalesced (or a replay): the Run is the one the open wake already carries. It may be a moment away if its creator is mid-write.
+    for (let i = 0; i < 20; i++) {
+      const wake = i === 0 ? res.wake : await this.wakes.get(res.wake.id);
+      if (wake?.runId) return { run: await this.recordsService.get(runsDbId, wake.runId) };
+      await delay(100);
+    }
+    throw new UnprocessableEntityException('This agent already has this queued; its Run is still being written. Try again in a moment.');
+  }
+
+  /**
+   * ticket #1130 — how the wake queue reaches the Run record, registered like a job executor: the queue (and the comment and
+   * approval paths that feed it) cannot import this service. `createRun` makes the Queued Run for a wake a mention or an approval
+   * created; `setRunStatus` moves a Run along as its wake does (claimed, finished, returned, expired).
+   */
+  private registerWakeRunHooks(): void {
+    this.wakes.registerRunHooks({
+      createRun: async (wake) => {
+        const { agentsDb, runsDb } = await this.findPackDbs(wake.workspaceId);
+        if (!agentsDb || !runsDb) throw new UnprocessableEntityException('The Agents pack is not provisioned in this workspace.');
+        const agentRecord = await this.resolveAgent(agentsDb.id, wake.agentId);
+        const owner = await this.resolveAgentOwner(wake.workspaceId, agentRecord);
+        if (!owner) throw new UnprocessableEntityException("This agent's owner is no longer an active member of this workspace");
+        const run = await this.dispatchRun({
+          workspaceId: wake.workspaceId,
+          agentsDb,
+          runsDb,
+          agentRecord,
+          trigger: wake.reason === 'state_change' || wake.reason === 'assigned' ? 'State change' : 'Manual',
+          inputRecordId: wake.recordId ?? undefined,
+          owner,
+          depth: wake.depth,
+          requestedBy: wake.requestedBy,
+          wakeReason: wake.reason as WakeReason,
+          wake,
+        });
+        return run.id;
+      },
+      setRunStatus: (wake, status, note, result) => this.setWakeRunStatus(wake, status, note, result),
+    });
+  }
+
+  private async setWakeRunStatus(
+    wake: WakeRow,
+    status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Canceled',
+    note?: string,
+    result?: RunResult,
+  ): Promise<void> {
+    if (!wake.runId) return;
+    const { agentsDb, runsDb } = await this.findPackDbs(wake.workspaceId);
+    if (!agentsDb || !runsDb) return;
+    const run = await this.recordsService.get(runsDb.id, wake.runId).catch(() => null);
+    if (!run) return;
+    const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
+    const ownerRow = await this.db.query.records.findFirst({ where: eq(recordsTable.id, wake.agentId), columns: { createdBy: true } });
+    const actorId = ownerRow?.createdBy ?? wake.requestedBy;
+    if (!actorId) return;
+    const values: Record<string, unknown> = { status: statusIds.get(status) ?? null };
+    if (status === 'Succeeded' || status === 'Failed' || status === 'Canceled') values['finished_at'] = new Date().toISOString();
+    // #1133: the run record. Written only for what the Runner actually told us; an absent number stays absent.
+    if (result) {
+      const prev = run.values;
+      const prevRunner = typeof prev['runner'] === 'string' && prev['runner'] !== '';
+      if (result.runner !== undefined) values['runner'] = result.runner;
+      if (result.tool !== undefined) values['tool'] = result.tool;
+      // The Run STARTED when a Runner first took it (until then `Started at` is the time it was queued).
+      if (result.startedAt && !prevRunner) values['started_at'] = result.startedAt.toISOString();
+      if (result.toolVersion) values['tool_version'] = result.toolVersion;
+      if (result.sessionId) values['session_id'] = result.sessionId;
+      const summary = capSummary(result.summary);
+      if (summary) values['summary'] = summary;
+      if (result.exit) {
+        const exitIds = await this.optionIdsByLabel(runsDb.id, 'exit');
+        values['exit'] = exitIds.get(EXIT_LABEL[result.exit]) ?? null;
+      }
+      if (result.limitResumesAt) values['limit_resumes_at'] = result.limitResumesAt.toISOString();
+      if (result.attemptEnded && result.usage) {
+        const asNumber = (v: unknown) => (typeof v === 'number' ? v : null);
+        values['tokens_in'] = addUsage(asNumber(prev['tokens_in']), result.usage.tokensIn);
+        values['tokens_out'] = addUsage(asNumber(prev['tokens_out']), result.usage.tokensOut);
+      }
+    }
+    if (note) {
+      const before = run.values['steps'] ? blocksToMarkdown(run.values['steps']) : '';
+      values['steps'] = markdownToBlocks(`${before ? `${before}\n` : ''}- **wake.${status.toLowerCase()}** — ${note}`);
+    }
+    await asAgentRuntime(() => this.recordsService.update(wake.workspaceId, runsDb.id, run.id, values, actorId));
   }
 
   /**
@@ -1979,13 +2213,17 @@ export class AgentsService implements OnModuleInit {
       );
     }
 
-    return this.recordsService.update(
+    const canceled = await this.recordsService.update(
       workspaceId,
       runsDb.id,
       run.id,
       { status: statusIds.get('Canceled') ?? null },
       actorId,
     );
+    // ticket #1130: a Queued/Running Your-own-AI Run has a wake behind it; cancelling the Run must cancel that too, or a Runner
+    // could still claim (or keep working on) a Run an operator stopped. A Runner mid-run learns on its next heartbeat: 409 lease_lost.
+    await this.wakes.cancelForRun(workspaceId, run.id);
+    return canceled;
   }
 
   // ── Trigger bindings (#211, ADR-0010 §5) ────────────────────────────────────
@@ -2048,19 +2286,50 @@ export class AgentsService implements OnModuleInit {
   }
 
   /**
+   * ticket #1130 — validate a RELATION binding: a relation field on the database that points at the Agents database. Without this a
+   * binding on the wrong field would simply never fire and nobody would know why, so it is a 422 at create time.
+   */
+  async validateRelationBinding(workspaceId: string, agentsDbId: string, binding: { database_id: string; relation_field_id: string }) {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databasesTable.id, binding.database_id), eq(databasesTable.workspaceId, workspaceId)),
+    });
+    if (!database) throw new UnprocessableEntityException('That database does not exist in this workspace');
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.id, binding.relation_field_id), eq(fieldsTable.databaseId, binding.database_id)),
+    });
+    if (!field) throw new UnprocessableEntityException(`That relation field does not exist on "${database.name}"`);
+    if (field.type !== 'relation') {
+      throw new UnprocessableEntityException(`An agent field must be a relation field — "${field.displayName}" is ${field.type}`);
+    }
+    const config = (field.config ?? {}) as { relation_id?: string; side?: 'a' | 'b' };
+    const relation = config.relation_id
+      ? await this.db.query.relations.findFirst({ where: and(eq(relationsTable.id, config.relation_id), eq(relationsTable.workspaceId, workspaceId)) })
+      : null;
+    const otherDatabaseId = relation ? (config.side === 'b' ? relation.databaseAId : relation.databaseBId) : null;
+    if (otherDatabaseId !== agentsDbId) {
+      throw new UnprocessableEntityException(`"${field.displayName}" does not point at the Agents database, so linking it cannot wake an agent`);
+    }
+    return { database, field };
+  }
+
+  /**
    * Create a binding record after validating it (#211).
    *
    * Only *create* is a bespoke endpoint, and only because validation has to
    * happen somewhere. List/read/update/remove go through the normal records API
    * on the Agent Triggers database — record CRUD is not duplicated here.
+   *
+   * Two kinds (ticket #1130): a STATE binding (`state_field_id` + `state_option_id`, unchanged) or a RELATION binding
+   * (`relation_field_id`: "when this field links to the agent, wake it"). Exactly one kind per binding.
    */
   async createBinding(
     membership: Membership,
     input: {
       agent: string;
       database_id: string;
-      state_field_id: string;
-      state_option_id: string;
+      state_field_id?: string;
+      state_option_id?: string;
+      relation_field_id?: string;
       human_gate?: boolean;
       enabled?: boolean;
     },
@@ -2068,7 +2337,40 @@ export class AgentsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     const { agentsDb, triggersDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
-    const { database, field, option } = await this.validateBinding(membership.workspaceId, input);
+    if (input.relation_field_id) {
+      if (input.state_field_id || input.state_option_id) {
+        throw new UnprocessableEntityException('A binding is either a state binding or a relation binding, not both');
+      }
+      if (input.human_gate) {
+        throw new UnprocessableEntityException('human_gate belongs to state bindings: a relation binding has no state to be gated out of');
+      }
+      const { database, field } = await this.validateRelationBinding(membership.workspaceId, agentsDb.id, {
+        database_id: input.database_id,
+        relation_field_id: input.relation_field_id,
+      });
+      return this.recordsService.create(
+        membership.workspaceId,
+        triggersDb.id,
+        {
+          name: `${agentRecord.title} ← ${database.name}.${field.displayName} links it`,
+          agent: [agentRecord.id],
+          database: input.database_id,
+          relation_field: input.relation_field_id,
+          enabled: input.enabled ?? true,
+        },
+        membership.userId,
+        0,
+        source,
+      );
+    }
+    if (!input.state_field_id || !input.state_option_id) {
+      throw new UnprocessableEntityException('A binding needs a state field and option, or a relation field');
+    }
+    const { database, field, option } = await this.validateBinding(membership.workspaceId, {
+      database_id: input.database_id,
+      state_field_id: input.state_field_id,
+      state_option_id: input.state_option_id,
+    });
 
     return this.recordsService.create(
       membership.workspaceId,

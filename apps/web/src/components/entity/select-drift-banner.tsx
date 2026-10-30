@@ -77,7 +77,7 @@ export function SelectDriftBanner({
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-label">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
-      <span className="text-warning">
+      <span className="text-warning-text">
         {d.missing_count} record{plural} {d.missing_count === 1 ? 'has' : 'have'}{' '}
         <strong>{d.select_field.display_name}</strong> = &ldquo;{d.matched_option.label}&rdquo; but{' '}
         {d.missing_count === 1 ? "isn't" : "aren't"} linked here.

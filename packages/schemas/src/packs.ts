@@ -277,6 +277,11 @@ export function resolveSampleDate(token: string, now: Date = new Date()): string
 export const packSampleRecordSchema = z.object({
   database: nameSchema,
   values: jsonObjectSchema.default({}),
+  /**
+   * ticket #1147 — the record's body (its description document), as Markdown. Optional, so every manifest written before it still
+   * validates. A wiki page's text is its description, so a starter page that installed with only a title would install empty.
+   */
+  description: z.string().max(20_000).optional(),
 });
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
 
@@ -616,6 +621,37 @@ export const packPreviewItemSchema = z.object({
   agent_update: packAgentUpdateSchema.optional(),
   gains: packDatabaseGainsSchema.optional(),
   /**
+   * #1156 — databases only. A database of this name lives in ANOTHER space than the one this pack installs into. Matching is per space,
+   * so by default the pack ignores it and creates its own; reusing it is the person's explicit choice (`reuse` in `resolutions`).
+   *  - `adopted`: the install WILL use it (the person chose `reuse` and it is reusable, or this pack adopted it on an earlier install).
+   *  - `reusable`: it CAN be used. When false, `reason` says why in plain language, for the review to show next to a disabled "use existing":
+   *      incompatible field types ("Status is a select here but this pack needs a workflow."), more than one editable match ("Can't use
+   *      one: you have more than one Clients database (in A and B). Create a new one here.") or no edit access ("There is no Clients
+   *      database you can edit."), the last worded exactly like a database that does not exist.
+   *  - `database_id`/`space_name` name the one database concerned; absent when there is no single one (ambiguous) or the person cannot
+   *    edit it. The whole object is absent when the person cannot even read a database of that name, so it never reveals one.
+   * An install with an explicit `reuse` of a non-reusable database fails with 422 and `reason` as its message.
+   */
+  existing_elsewhere: z
+    .object({
+      database_id: z.string().optional(),
+      space_name: z.string().optional(),
+      adopted: z.boolean(),
+      reusable: z.boolean(),
+      reason: z.string().optional(),
+      /**
+       * #1169 — present ONLY when `database_id` is present and `reusable` is true (the person can edit this one database and the pack fits it);
+       * absent in every other case, so a count never confirms a database the review is not naming.
+       *   record_count  how many live records the database holds, as the viewer counts them (trashed records and records the viewer cannot
+       *                 see are not counted); 0 is a real answer and is present
+       *   fields_added  the fields the pack would ADD to it if reused, {name, type}, in install order: the same list as `gains.fields`; a field
+       *                 already there with the pack's type is not listed, and [] means it already has every field the pack needs
+       */
+      record_count: z.number().int().nonnegative().optional(),
+      fields_added: z.array(z.object({ name: z.string(), type: z.string() })).optional(),
+    })
+    .optional(),
+  /**
    * #1107 — automations only, and only when this install would CREATE the rule: whether it would be on (`enabled_on_install`), and, if it
    * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
    */
@@ -760,6 +796,15 @@ export const packPublicPreviewSchema = z.object({
   name: z.string(),
   summary: z.string(),
   highlights: z.array(z.string()).default([]),
+  /**
+   * #1169 — the same copy the authenticated registry listing returns (#1145), so the signup picker can show it before signup. `why` is
+   * null and `can`/`relations` are empty when the pack declares none: never invented, never undefined.
+   */
+  why: z.string().nullable(),
+  can: z.array(z.string()),
+  relations: z.array(
+    z.object({ from: z.string(), to: z.string(), cardinality: z.string(), from_field: z.string(), to_field: z.string() }),
+  ),
   requires: packRequiresSchema,
   contents: z.object({
     databases: z.array(z.string()),

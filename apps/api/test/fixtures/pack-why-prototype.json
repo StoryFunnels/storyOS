@@ -78,5 +78,21 @@
       "Open “Assigned to me” to see only your own work",
       "Assign a task and the person is told straight away"
     ]
+  },
+  "team-wiki": {
+    "why": "Your team keeps answering the same questions, or nobody knows which document is still true.",
+    "can": [
+      "Give every page an owner people can ask",
+      "See which pages nobody has checked in 90 days",
+      "Send new starters to Onboarding instead of answering in chat"
+    ]
+  },
+  "dev-tracker": {
+    "why": "You build software and want bugs and features in one queue, next to the rest of your work.",
+    "can": [
+      "Drop in a bug and it lands in Triage for someone to sort",
+      "Put issues into projects and sprints, the way Linear does",
+      "Ship a release, and its page becomes the changelog"
+    ]
   }
 }

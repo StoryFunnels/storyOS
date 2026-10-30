@@ -87,7 +87,7 @@ export const MentionScopeContext = createContext<{
 }>({ ws: '', memberNames: new Map() });
 
 const chipCls =
-  'rounded bg-accent-soft px-1 py-0.5 text-[0.9em] font-medium text-[var(--accent)]';
+  'rounded bg-hover px-1 py-0.5 text-[0.9em] font-medium text-primary-text';
 
 function MentionChip(props: MentionProps) {
   const { ws, memberNames } = useContext(MentionScopeContext);
@@ -462,10 +462,10 @@ function FilterOption({
       }}
       className={cn(
         'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-label text-ink transition-colors hover:bg-hover',
-        active && 'bg-accent-soft',
+        active && 'bg-active',
       )}
     >
-      <Check className={cn('h-3 w-3 shrink-0', active ? 'text-accent' : 'opacity-0')} />
+      <Check className={cn('h-3 w-3 shrink-0', active ? 'text-primary-text' : 'opacity-0')} />
       <span className="truncate">{label}</span>
     </button>
   );

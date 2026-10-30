@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { runWithCredential } from '../common/credential-context';
-import type { RequestActor } from '../common/credential-context';
+import type { RequestActor, RunStamp } from '../common/credential-context';
 
 /**
  * #861 — a memo whose lifetime IS one HTTP request, and nothing wider.
@@ -51,7 +51,7 @@ export class RequestMemoInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // #882 — interceptors run AFTER the guards, so the auth guard has already set `auth.tokenId` (PATs only).
     const request = context.switchToHttp().getRequest<{
-      auth?: { tokenId?: string; source?: RequestActor['source']; agentId?: string; agentName?: string };
+      auth?: { tokenId?: string; source?: RequestActor['source']; agentId?: string; agentName?: string; run?: RunStamp };
       user?: { id?: string };
     }>();
     const tokenId = request?.auth?.tokenId ?? null;
@@ -68,6 +68,7 @@ export class RequestMemoInterceptor implements NestInterceptor {
             return () => subscription.unsubscribe();
           }),
         actor,
+        request?.auth?.run ?? null, // #1132 — set by the guard only for a run credential
       ),
     );
   }

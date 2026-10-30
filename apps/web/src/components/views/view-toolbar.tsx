@@ -22,11 +22,11 @@
  */
 
 import { BackLayer } from '@/lib/back-layers';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
 import { useViewSearch } from './view-search';
-import { filterButtonState } from './filter-state';
+import { filterButtonState, isUnfinished } from './filter-state';
 import { DisplayMenu } from './display-menu';
 import { GroupChip, showsGroupChip, viewGroups } from './group-chip';
 import { buildViewMenu } from './view-menu';
@@ -34,6 +34,17 @@ import type { ViewMenuHandlers, ViewMenuTarget } from './view-menu';
 import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
+import {
+  RELATIVE_DATE_KINDS,
+  amountProblem,
+  buildRelativeDate,
+  describeRelativeDateCondition,
+  kindOf,
+  maxAmountFor,
+  parseRelativeDate,
+  splitKind,
+} from './relative-date';
+import type { RelativeDateKind } from './relative-date';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -643,7 +654,7 @@ export function ColorByButton({
           className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
           onClick={() => onChange(undefined)}
         >
-          None {!value && <Check className="h-3.5 w-3.5 text-accent" />}
+          None {!value && <Check className="h-3.5 w-3.5 text-primary-text" />}
         </button>
         {fields.map((field) => (
           <button
@@ -652,7 +663,7 @@ export function ColorByButton({
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
-            {value === field.id && <Check className="h-3.5 w-3.5 text-accent" />}
+            {value === field.id && <Check className="h-3.5 w-3.5 text-primary-text" />}
           </button>
         ))}
       </DropdownMenuContent>
@@ -779,7 +790,7 @@ export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
  * eye finds the control that is missing its value.
  */
 const FILTER_CTL =
-  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong focus-visible:border-accent';
+  'h-[25px] rounded-[4px] border border-border-default bg-card px-1.5 text-label text-ink outline-none hover:border-border-strong';
 const unfinishedCtl = (on: boolean) => (on ? 'border-dashed' : '');
 /** A row's inline action (eye, pin, ⋯, ✕): 22px, resting at --faint, never hover-only (#900). */
 const ROW_ICON_BTN =
@@ -864,6 +875,18 @@ export function FilterValueEditor({
     );
   }
   if (activeOp.input === 'date') {
+    // #1155 — `before`/`after` also take a RELATIVE date ("90 days ago"); `on`/`is not` take a day, never a token (the API refuses it).
+    if (condition.op === 'before' || condition.op === 'after') {
+      return (
+        <DateOperandEditor
+          key={condition.op}
+          value={condition.value == null ? null : String(condition.value)}
+          boxed={boxed}
+          fill={fill}
+          onChange={(v) => onChange({ ...condition, value: v ?? '' })}
+        />
+      );
+    }
     return (
       <DateFilterInput
         value={condition.value == null ? null : String(condition.value)}
@@ -877,9 +900,15 @@ export function FilterValueEditor({
     return (
       <select
         className={boxed}
-        value={String(condition.value ?? 'next_7_days')}
+        value={String(condition.value ?? '')}
         onChange={(e) => onChange({ ...condition, value: e.target.value })}
       >
+        {/* #1161 — no stored value is not "next 7 days": show it as unchosen instead of drawing a default that was never saved. */}
+        {(condition.value === undefined || condition.value === null || condition.value === '') && (
+          <option value="" disabled>
+            pick a range…
+          </option>
+        )}
         {RELATIVE_RANGES.map((r) => (
           <option key={r} value={r}>
             {r.replaceAll('_', ' ')}
@@ -892,9 +921,14 @@ export function FilterValueEditor({
     return (
       <select
         className={boxed}
-        value={String(condition.value ?? 'true')}
+        value={String(condition.value ?? '')}
         onChange={(e) => onChange({ ...condition, value: e.target.value === 'true' })}
       >
+        {typeof condition.value !== 'boolean' && (
+          <option value="" disabled>
+            pick…
+          </option>
+        )}
         <option value="true">checked</option>
         <option value="false">unchecked</option>
       </select>
@@ -1009,7 +1043,7 @@ export function OptionChipSet({
             className={cn(
               'inline-flex h-[21px] max-w-full items-center gap-1 rounded-full border px-2 text-micro font-semibold',
               on
-                ? 'border-[color-mix(in_srgb,var(--accent)_55%,transparent)] text-ink'
+                ? 'border-border-strong text-ink'
                 : 'border-border-default bg-card text-muted hover:border-border-strong hover:text-ink',
               !on && unfinished && 'border-dashed',
             )}
@@ -1042,6 +1076,13 @@ function DateFilterInput({
   onChange: (value: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // #1155 — the picker's input holds focus while it is open; when it closes (Escape, a date, Today/Clear) focus goes back to this
+  // button instead of falling to the page, so the keyboard user is not dropped at the top of the document.
+  const close = () => {
+    setEditing(false);
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
   /*
    * #423 — there is deliberately NO PopoverParentAnchor here.
    *
@@ -1063,11 +1104,15 @@ function DateFilterInput({
   return (
     <span className={cn('relative', fill ? 'block w-full min-w-0' : 'inline-block')}>
       <button
+        ref={buttonRef}
         type="button"
         className={cn(boxed, !value && 'text-muted', fill && 'flex items-center justify-between gap-2 text-left')}
+        aria-haspopup="dialog"
+        aria-expanded={editing}
+        aria-label={value ? `Date: ${value}. Change date` : 'Pick a date'}
         onClick={() => setEditing((v) => !v)}
       >
-        <span className="truncate">{value ? value.slice(0, 10) : fill ? 'Pick a date…' : 'pick date…'}</span>
+        <span className="truncate">{value ? (/^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value) : fill ? 'Pick a date…' : 'pick date…'}</span>
         {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
       </button>
       {editing && (
@@ -1075,10 +1120,145 @@ function DateFilterInput({
           value={value}
           onCommit={(v) => {
             onChange(v);
-            setEditing(false);
+            close();
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={close}
         />
+      )}
+    </span>
+  );
+}
+
+/**
+ * #1155 — the value of a `before`/`after` date condition: an exact date (the app's own picker, as before) OR a relative one
+ * ("90 days ago", "3 weeks from now"), which is stored as the API's `$date:-90d` token and so keeps meaning "90 days before today"
+ * as the days pass. One select picks the kind; the control beside it is the date button or the amount. Both render through the same
+ * `boxed` look as the selects in the row (the caller's class), and the stored value is the only state that outlives the control —
+ * `kind`/`amount` are the mid-edit draft: a blank or invalid amount stores '' (an unfinished condition, dashed, never applied)
+ * rather than keeping a stale token the person can no longer see.
+ */
+export function DateOperandEditor({
+  value,
+  boxed,
+  fill = false,
+  nativeDate = false,
+  onChange,
+}: {
+  value: string | null;
+  boxed: string;
+  fill?: boolean;
+  /**
+   * The exact-date arrangement uses the browser's own `<input type=date>` instead of the app's popover picker. For a host that is a modal
+   * dialog (the automations panel): the picker is a Radix Popover, and inside a modal Dialog it closes the moment it opens (the
+   * dialog's focus trap pulls focus back to the button), which was live-verified — so there the native control stays, as it was.
+   */
+  nativeDate?: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const parsed = parseRelativeDate(value);
+  const [kind, setKind] = useState<RelativeDateKind>(kindOf(parsed));
+  const [amount, setAmount] = useState(parsed ? String(parsed.amount) : '');
+  // The stored value changed under us (undo, a reloaded view): adopt it. A token this control wrote itself is skipped — adopting it would
+  // re-read "14 days" as "2 weeks" under the person's fingers while they are still typing "140".
+  useEffect(() => {
+    const own = splitKind(kind);
+    if (own && value && value === buildRelativeDate(amount === '' ? NaN : Number(amount), own.unit, own.direction)) return;
+    const next = parseRelativeDate(value);
+    if (next) {
+      setKind(kindOf(next));
+      setAmount(String(next.amount));
+    } else if (value) {
+      setKind('date');
+    }
+  }, [value]);
+
+  const parts = splitKind(kind);
+  const hintId = useId();
+  // #1155 — a blank amount, or one past the API's 9999 days, is an unfinished condition (value ''): say so to a screen reader
+  // (aria-invalid + a described-by hint with the allowed range) as well as by the dashed border, so it never rests on colour or style alone.
+  const unit = parts?.unit === 'weeks' ? 'weeks' : 'days';
+  const maxAmount = maxAmountFor(unit);
+  const problem = parts ? amountProblem(amount, unit) : null;
+  const amountInvalid = Boolean(parts) && value === '';
+  const tooLarge = problem === 'too-large';
+  const hintText = tooLarge
+    ? `Too large: the most is ${maxAmount} ${unit}${unit === 'weeks' ? ' (9999 days)' : ''}`
+    : amountInvalid
+      ? `Not set yet: enter a whole number of ${unit}, 1 to ${maxAmount}`
+      : `A whole number of ${unit}, 1 to ${maxAmount}`;
+  function commit(nextKind: RelativeDateKind, nextAmount: string) {
+    const p = splitKind(nextKind);
+    if (!p) return;
+    const n = nextAmount.trim() === '' ? NaN : Number(nextAmount);
+    onChange(buildRelativeDate(n, p.unit, p.direction));
+  }
+
+  const unitSelect = (
+    <select
+      aria-label="Date unit"
+      // Exact-date arrangement: `boxed` carries `w-full` for a lone control, so the unit select must OPT OUT (`!w-auto`) or it fills the
+      // row and the date button beside it collapses to 14px (the defect measured at 1270 and 390).
+      className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : '!w-auto shrink-0 !px-1'))}
+      value={kind}
+      onChange={(e) => {
+        const next = e.target.value as RelativeDateKind;
+        setKind(next);
+        if (next === 'date') {
+          onChange('');
+        } else {
+          // Keep a typed amount across a unit switch; start blank (unfinished) rather than inventing a number.
+          commit(next, amount);
+        }
+      }}
+    >
+      {RELATIVE_DATE_KINDS.map((k) => (
+        <option key={k.kind} value={k.kind}>
+          {k.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  // The DOM order IS the visual order (so Tab follows what the eye sees): a relative date reads "3 | days from now" — the number the
+  // person is here to type leads — and an exact date reads "exact date | 2026-07-31". The unit select sits in the SAME slot of both
+  // arrangements (the others are `false` placeholders), so switching kind with the keyboard does not remount it and drop focus.
+  return (
+    <span className={cn('flex min-w-0 flex-col gap-0.5', fill ? 'w-full' : 'inline-flex')}>
+      <span className="flex min-w-0 items-center gap-1">
+        {parts && (
+          <input
+            aria-label={`Amount of ${unit}`}
+            aria-invalid={amountInvalid || undefined}
+            aria-describedby={hintId}
+            className={cn(boxed, fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
+            inputMode="numeric"
+            placeholder="N"
+            value={amount}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+              setAmount(digits);
+              commit(kind, digits);
+            }}
+          />
+        )}
+        {unitSelect}
+        {!parts &&
+          (nativeDate ? (
+            <input
+              type="date"
+              aria-label="Date"
+              className={boxed}
+              value={parsed || !value ? '' : value.slice(0, 10)}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          ) : (
+            <DateFilterInput value={parsed ? null : value} boxed={boxed} fill={fill} onChange={(v) => onChange(v ?? '')} />
+          ))}
+      </span>
+      {parts && (
+        <span id={hintId} className={tooLarge ? 'text-micro text-warning-text' : 'sr-only'}>
+          {hintText}
+        </span>
       )}
     </span>
   );
@@ -1132,6 +1312,9 @@ export function describeCondition(
   if (activeOp.input === 'relative') {
     return `${field.displayName} ${activeOp.label} ${String(condition.value ?? '').replaceAll('_', ' ')}`;
   }
+  // #1155 — a relative date reads in words: "Last reviewed more than 90 days ago", never "before $date:-90d".
+  const relative = activeOp.input === 'date' ? describeRelativeDateCondition(condition.op, condition.value) : null;
+  if (relative) return `${field.displayName} ${relative}`;
   const v = String(condition.value ?? '').trim();
   return v ? `${field.displayName} ${activeOp.label} ${v}` : `${field.displayName} ${activeOp.label}`;
 }
@@ -1159,8 +1342,17 @@ export function FilterChip({
   const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
+  // #1161 — a chip with no value yet says so, the way the Filter panel's row does: dashed border + "not applied yet".
+  const unfinished = isUnfinished(condition);
+
   return (
-    <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label">
+    <span
+      className={cn(
+        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label',
+        unfinishedCtl(unfinished),
+      )}
+      title={unfinished ? 'not applied yet — needs a value' : undefined}
+    >
       <span className="font-medium text-ink">{field.displayName}</span>
       <select
         className="bg-card text-muted outline-none"
@@ -1178,6 +1370,7 @@ export function FilterChip({
       </select>
 
       <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} compact />
+      {unfinished && <span className="text-micro text-warning-text">not applied yet</span>}
 
       <button onClick={onRemove} className="text-faint hover:text-error">
         <X className="h-3 w-3" />
@@ -1351,6 +1544,26 @@ export function FiltersSection({
     setOpen(false);
   }
 
+  // #1155 — the panel had NO keyboard way out: Escape did nothing (it is a hand-rolled backdrop, not Radix), so a keyboard user who opened
+  // it could only leave by Tabbing past it with it still open over the page. Same rule as the Sort panel (#1118): a Radix menu or the date
+  // picker open inside it has already claimed this Escape to close itself (defaultPrevented) and the panel stays open under it; a native
+  // select's popup swallows its own Escape. A keyboard drag of a row owns Escape too (dnd-kit cancels the lift) — its handle is the one
+  // element marked aria-pressed while lifted. Otherwise claim it (so a record page behind does not also close, #834), close, and give
+  // focus back to the Filter button.
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('.phone-sheet [aria-roledescription][aria-pressed="true"]')) return;
+      e.preventDefault();
+      closeBuilder();
+      filterButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
   return (
     <>
       {visibleLeaves.map((leaf) => {
@@ -1369,6 +1582,7 @@ export function FiltersSection({
       })}
       <span className="relative">
         <button
+          ref={filterButtonRef}
           type="button"
           onClick={() => (open ? closeBuilder() : openBuilder())}
           aria-label={
@@ -1978,6 +2192,9 @@ function ConditionRow({
   const defaultLabel = describeCondition(field, condition, members);
   const unfinished = isIncompleteCondition(condition) && !condition.disabled;
   const chipSet = usesChipSet(field, activeOp, members);
+  // #1155 — a `before`/`after` date value is a kind select + an amount or a date: too wide for the room beside the operator, so (like
+  // the phone layout) it takes its own line under the rule. Per OPERATOR, never per mode, so switching "exact date" / "days ago" does not move the row.
+  const wideValue = activeOp.input === 'date' && (condition.op === 'before' || condition.op === 'after');
   const dim = condition.disabled ? 'opacity-45' : '';
   // Inside a group the row is narrower, so its two selects give up width to the value.
   const nested = path.length > 1;
@@ -2036,7 +2253,7 @@ function ConditionRow({
           ))}
         </select>
         {/* A chip set renders UNDER the rule, so the value slot collapses to a spacer and the actions stay on the line. */}
-        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
+        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', wideValue ? 'order-4 basis-full' : 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
           <FilterValueEditor
             field={field}
             members={members}
@@ -2048,7 +2265,7 @@ function ConditionRow({
             unfinished={unfinished}
           />
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-px max-md:order-3">
+        <div className={cn('ml-auto flex shrink-0 items-center gap-px max-md:order-3', wideValue && 'order-3')}>
           {/*
             #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
             looks identical to an enabled one is SILENT WRONGNESS - the user
@@ -2068,7 +2285,7 @@ function ConditionRow({
           <button
             type="button"
             onClick={onPin}
-            className={cn(ROW_ICON_BTN, condition.pinned && 'text-accent-text')}
+            className={cn(ROW_ICON_BTN, condition.pinned && 'text-primary-text')}
             title={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar as a chip'}
             aria-label={condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar'}
             aria-pressed={Boolean(condition.pinned)}
@@ -2153,7 +2370,7 @@ function ConditionRow({
         legitimately carry no value and are never marked: isIncompleteCondition already encodes that.
         #991 — the control's border is dashed too, so the eye finds the one that is missing its value.
       */}
-      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning">not applied yet — needs a value</p>}
+      {unfinished && <p className="mt-0.5 pl-[45px] text-micro text-warning-text">not applied yet — needs a value</p>}
       {condition.label && !editingLabel && (
         <p className="mt-0.5 pl-[45px] text-meta text-muted">named “{condition.label}”</p>
       )}
@@ -2510,7 +2727,7 @@ function RecordPicker({
               onClick={() => toggle(row.id)}
             >
               <span className="truncate">{row.title || 'Untitled'}</span>
-              {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-accent" />}
+              {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-primary-text" />}
             </button>
           ))}
           {results.data?.length === 0 && (
@@ -2652,7 +2869,7 @@ export function SortButton({
             <div className="max-h-72 overflow-y-auto p-1">
               <button type="button" className={SORT_PICK_ROW} onClick={() => onChange([])}>
                 <span className="min-w-0 flex-1 truncate">Manual</span>
-                {sorts.length === 0 && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
+                {sorts.length === 0 && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
               </button>
               {sortableFields.map((f) => {
                 const active = sorts[0]?.field === f.apiName;
@@ -2669,9 +2886,9 @@ export function SortButton({
                       <>
                         <span className="shrink-0 text-meta text-muted">{directionLabel(f.type, first.direction, f.options)}</span>
                         {first.direction === 'asc' ? (
-                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-primary-text" />
                         ) : (
-                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-primary-text" />
                         )}
                       </>
                     )}
@@ -2838,7 +3055,7 @@ function SortRow({
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent-soft text-micro font-bold tabular-nums text-ink">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border-default bg-hover text-micro font-bold tabular-nums text-ink">
           {index + 1}
         </span>
         <span className="w-12 shrink-0 text-label text-muted">{index === 0 ? 'Sort by' : 'then by'}</span>

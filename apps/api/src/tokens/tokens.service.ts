@@ -1,10 +1,12 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import type { ResourceScope, TokenScope } from '@storyos/schemas';
-import { apiTokens, databases, memberships, spaces, type ChangeSource } from '../db/schema';
+import { agentWakes, apiTokens, databases, memberships, runners, spaces, type ChangeSource } from '../db/schema';
+import type { RunStamp } from '../common/credential-context';
+import { RunCredentialsService } from './run-credentials.service';
 import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
 import { resolveAgentIdentity } from '../agents/agent-identity';
@@ -17,6 +19,7 @@ export class TokensService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly runCredentials: RunCredentialsService,
   ) {}
 
   /**
@@ -145,7 +148,8 @@ export class TokensService {
 
   async list(userId: string) {
     const rows = await this.db.query.apiTokens.findMany({
-      where: and(eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt)),
+      // #1132 — a run credential is the server's, minted per run for an agent: never a person's token, so never listed here.
+      where: and(eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt), isNull(apiTokens.runnerId)),
       orderBy: [desc(apiTokens.createdAt)],
     });
     return {
@@ -167,7 +171,7 @@ export class TokensService {
     const [revoked] = await this.db
       .update(apiTokens)
       .set({ revokedAt: new Date() })
-      .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt)))
+      .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt), isNull(apiTokens.runnerId))) // #1132: not a run credential
       .returning();
     if (!revoked) throw new NotFoundException('Token not found');
     return { revoked: true };
@@ -208,11 +212,14 @@ export class TokensService {
     agentId: string | null;
     /** #543 — null for an unrestricted token. Read from the row on EVERY request, never cached. */
     resourceScope: { space_ids: string[]; database_ids: string[] } | null;
+    /** #1132 — set only for a per-run credential (ADR-0021 §4); every other token resolves exactly as before. */
+    run: RunStamp | null;
   } | null> {
     const row = await this.db.query.apiTokens.findFirst({
       where: and(eq(apiTokens.tokenHash, sha256(token)), isNull(apiTokens.revokedAt)),
     });
     if (!row) return null;
+    const run = row.runnerId ? await this.assertRunCredentialLive(row) : null;
     const now = Date.now();
     if (!row.lastUsedAt || now - row.lastUsedAt.getTime() > 60_000) {
       await this.db
@@ -229,6 +236,30 @@ export class TokensService {
       origin: row.origin,
       agentId: row.agentId,
       resourceScope: row.resourceScope,
+      run,
     };
+  }
+
+  /**
+   * #1132 / ADR-0021 §2 and §4 — "the fence is the credential". A run credential is live only while ALL of these hold, checked on
+   * every request (never cached, so a lease that lapsed a second ago is already refused, before any sweeper has run): it is within
+   * its expiry (which follows the lease), its wake is still claimed by the same Runner with an unexpired lease, the Runner is not
+   * revoked and the agent is still enabled. Anything else is a 401 that says why, so a Runner whose lease was lost kills its session.
+   * Credentials for run X cannot serve run Y: the credential row itself names the wake, the Run and the Runner it was minted for.
+   */
+  private async assertRunCredentialLive(row: typeof apiTokens.$inferSelect): Promise<RunStamp> {
+    const refuse = (why: string): never => {
+      throw new UnauthorizedException(`This run credential is no longer valid: ${why}. Stop the session; StoryOS will not accept more tool calls from it.`);
+    };
+    const now = new Date();
+    if (!row.expiresAt || row.expiresAt.getTime() <= now.getTime()) return refuse('its lease ended');
+    const wake = row.wakeId ? await this.db.query.agentWakes.findFirst({ where: eq(agentWakes.id, row.wakeId) }) : null;
+    if (!wake || wake.status !== 'claimed' || wake.runnerId !== row.runnerId || !wake.leaseExpiresAt || wake.leaseExpiresAt.getTime() <= now.getTime()) {
+      return refuse('the run it belongs to is over or was taken back');
+    }
+    const runner = await this.db.query.runners.findFirst({ where: eq(runners.id, row.runnerId!), columns: { name: true, status: true } });
+    if (!runner || runner.status === 'revoked') return refuse('its Runner was removed');
+    if (row.agentId && !(await this.runCredentials.agentEnabled(row.workspaceId, row.agentId))) return refuse('its agent is turned off');
+    return { runId: row.runId, runnerId: row.runnerId!, runnerName: runner.name, depth: row.runDepth ?? 0 };
   }
 }

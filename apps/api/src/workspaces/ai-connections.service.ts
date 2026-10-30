@@ -137,7 +137,7 @@ export class AiConnectionsService {
       const revoked = await this.db
         .update(apiTokens)
         .set({ revokedAt: new Date() })
-        .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt)))
+        .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt), isNull(apiTokens.runnerId))) // #1132: not a run credential
         .returning({ id: apiTokens.id });
       if (revoked.length === 0) throw new NotFoundException('Connection not found');
       return { disconnected: true };

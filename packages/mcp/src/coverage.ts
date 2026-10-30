@@ -116,6 +116,21 @@ export const EXCLUDED: CoverageRule[] = [
       "#1104 — declaring, switching off or removing a gate on an agent's record writes is the platform's own restraint on that agent (\"the platform stops the agent, not the prompt\"). An agent that could reach the write half could lift the very gate meant to hold its writes for approval, so the API additionally refuses any token or connected AI for it (a person who is an admin only). The read half is reachable (list_agent_write_gates): an admin (with an admin-scoped token) sees any agent's gates, and an agent's owner sees that agent's (#1111) — but an agent-scoped token never takes the owner path, so an agent acting for an admin can see what applies to it and why a write answered pending_approval, while an agent acting for a member cannot.",
   },
   {
+    match: /^(POST|PATCH|DELETE|GET) \/api\/v1\/workspaces\/\{ws\}\/runners(\/pairing-codes(\/\{id\})?|\/\{id\}(\/activate)?)$|^PUT \/api\/v1\/workspaces\/\{ws\}\/runner-assignments\/\{agent\}$/,
+    reason:
+      "#1131 / ADR-0021 §11 — pairing a Runner, turning it on (Done), switching its tool, removing it and sending an agent to it decide WHERE AN AGENT'S INSTRUCTIONS AND THE WORKSPACE'S DATA GO: onto one person's own computer and model account. A model, the agent itself included, must not be able to route its own prompts, pair a machine, or cut off its peers, so every one of these needs a signed-in person and the API refuses any token, connected AI or agent credential for them (the #441 and #859 shape). Polling a pairing code is part of the same ceremony (it is the dialog's own progress bar). The read half IS a tool (list_runners): an agent-first workspace can see what its agents are waiting on, it just cannot change it.",
+  },
+  {
+    match: 'GET /api/v1/workspaces/{ws}/runner-assignments/{agent}',
+    reason:
+      "ticket #1130 / ADR-0021 §11 (f) — which Runner one agent runs on, for the agent's owner or an admin. Its read is INSIDE get_agent_wake_summary (each agent's `runner` and `can_run`, for everyone who can read the agent), and list_runners shows each of YOUR Runners' agents[]: the endpoint adds nothing a tool does not already return. Its write half (PUT) is excluded above for the reason given there.",
+  },
+  {
+    match: /^POST \/api\/v1\/runner\/v1\//,
+    reason:
+      "#1131 / #1130 / ADR-0021 §2-3 — the Runner program's OWN protocol (pair with a code, heartbeat, claim a wake, renew its lease, complete it). The caller is the Runner binary on a person's computer, authenticated with a Runner token that no other route accepts, and a Runner token is refused everywhere else. A model has no business pairing a machine, claiming work as one or reporting a run's result: a claim hands out a lease and (from #1132) a credential, and completion writes the Run. Nothing a workspace agent could usefully invoke is here; the queue itself is READABLE (list_agent_wakes, get_agent_wake_summary).",
+  },
+  {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
     reason:
       'Inbound receiver, unauthenticated by design and signature-verified. Something calls US here; there is nothing for an agent to invoke.',

@@ -1,3 +1,4 @@
+import { resolveSampleDate } from '@storyos/schemas';
 import { isFilterGroup, nodeChildren, nodeConnector } from '@/components/views/filter-config';
 import type { FilterGroup, FilterNode } from '@/components/views/filter-config';
 import { isCategoryOp, matchesCategory } from '@/components/views/category-filter';
@@ -65,10 +66,12 @@ function matchOne(value: unknown, op: string, target: unknown): boolean {
       return Number(value) < Number(target);
     case 'lte':
       return Number(value) <= Number(target);
+    // #1155 — `before`/`after` take the API's relative token (`$date:-90d`), which the server resolves against today; resolve it with
+    // the API's own reader so this evaluator and the query compiler cannot disagree on what "90 days ago" is.
     case 'before':
-      return String(value) < String(target);
+      return String(value) < (resolveSampleDate(String(target)) ?? String(target));
     case 'after':
-      return String(value) > String(target);
+      return String(value) > (resolveSampleDate(String(target)) ?? String(target));
     case 'on':
       return String(value).slice(0, 10) === String(target).slice(0, 10);
     // MN-297: select/multi_select/relation "is any of" / "is none of" (view-toolbar.tsx's

@@ -37,6 +37,7 @@ import { SourcesModule } from './sources/sources.module';
 import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AgentsModule } from './agents/agents.module';
+import { RunnersModule } from './runners/runners.module';
 import { SkillsModule } from './skills/skills.module';
 import { TemplatesModule } from './templates/templates.module';
 import { PacksModule } from './packs/packs.module';
@@ -111,6 +112,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     EventsModule,
     IntegrationsModule,
     AgentsModule,
+    RunnersModule,
     SkillsModule,
     TemplatesModule,
     PacksModule,

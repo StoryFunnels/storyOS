@@ -1,0 +1,16 @@
+StoryOS Runner
+Copyright (c) 2026 Ievgen Krasovytskyi
+
+This package (packages/runner, published as @storyos/runner) is licensed under
+the Apache License, Version 2.0. See the LICENSE file in this directory for the
+full text.
+
+The rest of the StoryOS repository, including the server, is licensed under the
+GNU Affero General Public License v3.0 or later. This package contains no AGPL
+code and depends on none: a CI check (scripts/check-runner-license-boundary.mjs)
+fails the build if it ever does.
+
+The copyright holder above will move to the company entity once incorporated.
+
+"StoryOS" is a name and mark of its owner. The Apache License grants no
+trademark rights (section 6).

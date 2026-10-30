@@ -173,7 +173,8 @@ export class DatabasesService {
       throw new ForbiddenException('Moving databases requires membership');
     }
     if (destinationSpaceId) {
-      await this.access.assertSpace(membership, destinationSpaceId, 'creator');
+      // Ticket #1173: not a personal space (documents and views only). 404 first for someone else's, so the 422 never confirms one.
+      await this.access.assertDatabaseHome(membership, destinationSpaceId, 'creator');
     }
   }
 
@@ -399,11 +400,14 @@ export class DatabasesService {
       }
     }
 
+    const optionIdsByField = new Map(
+      [...optionsByField].map(([fieldId, list]) => [fieldId, new Set(list.map((o) => o.id))] as const),
+    );
     const liveIds = new Set(fieldRows.map((f) => f.id));
     const liveNames = new Set(fieldRows.map((f) => f.apiName));
     const cleanedViews = viewRows.map((v) => ({
       ...v,
-      config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames),
+      config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames, optionIdsByField),
     }));
 
     const space = await this.db.query.spaces.findFirst({
@@ -448,20 +452,10 @@ export class DatabasesService {
   ) {
     // #945: creating INTO a space needs edit access to that space. Inside `create` (not the controller) so the template,
     // Shopify, pack, Linear and architect callers are covered too; their internal role-less membership is never narrowed.
-    await this.access.assertSpace(membership, input.space_id, 'editor');
-    const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, membership.workspaceId)),
-    });
-    if (!space) throw new NotFoundException('Space not found');
-    // #291/#290 §2: v1 Personal holds documents and views only. A private DATABASE is
-    // a private SCHEMA — relations, rollups and automations pointing at it would have
-    // to reason about data the reader can't see, and that leak would be silent.
+    // #291/#290 §2 + ticket #1173: v1 Personal holds documents and views only (a private DATABASE is a private SCHEMA). The one guard
+    // `assertDatabaseHome` is also what `update` (a move) and every pack/template/duplicate/Architect caller reach through this method.
     // Revisit only through #296, never by relaxing this quietly.
-    if (space.personal) {
-      throw new UnprocessableEntityException(
-        'A personal space holds documents and views only — create the database in a shared space.',
-      );
-    }
+    const space = await this.access.assertDatabaseHome(membership, input.space_id, 'editor');
 
     const siblings = await this.db.query.databases.findMany({
       where: eq(databases.spaceId, input.space_id),
@@ -625,6 +619,8 @@ export class DatabasesService {
         where: and(eq(spaces.id, patch.space_id), eq(spaces.workspaceId, membership.workspaceId)),
       });
       if (!space) throw new NotFoundException('Target space not found');
+      // Ticket #1173: the controller already ran `assertDatabaseHome`; this is the same guard for any other caller of `update`.
+      this.access.assertSpaceCanHoldDatabases(space);
       apiSlug = await this.uniqueSlugFor(patch.space_id, current.apiSlug);
     }
 

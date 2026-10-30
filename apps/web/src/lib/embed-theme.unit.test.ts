@@ -320,4 +320,40 @@ describe('embedThemeStyle', () => {
       expect(readableTextFor('#111111', 'not-a-colour')).toBe('#111111');
     });
   });
+
+  /**
+   * #1163 — links, ticks and glyphs are drawn in --primary-text, so an embedder's colour must reach it, but only where it
+   * is READABLE as text: >= 4.5:1 on the themed surface (or on both of our card colours when the surface is ours).
+   */
+  describe('--primary-text follows the embedder, behind a 4.5:1 guard', () => {
+    it('follows a readable accent on a themed surface', () => {
+      const s = embedThemeStyle({ accent: '#1d4ed8', surface: '#ffffff' }) as Record<string, string>;
+      expect(s['--primary-text']).toBe('#1d4ed8');
+      expect(ratio(s['--primary-text'], s['--bg-card'])).toBeGreaterThanOrEqual(4.5);
+    });
+    it('does NOT follow a pale accent (white-on-white would hide every link): falls back to ours', () => {
+      const s = embedThemeStyle({ accent: '#f5e663', surface: '#ffffff' }) as Record<string, string>;
+      expect(s).not.toHaveProperty('--primary-text');
+      expect(s['--primary']).toBe('#f5e663'); // the button still takes the colour
+    });
+    it('measures against the SURFACE, not against white: a pale accent is fine on a dark surface', () => {
+      const s = embedThemeStyle({ accent: '#f5e663', surface: '#111111' }) as Record<string, string>;
+      expect(s['--primary-text']).toBe('#f5e663');
+    });
+    it('without a themed surface requires BOTH of our card colours: navy fails the dark one, pale the light one', () => {
+      expect(embedThemeStyle({ accent: '#0f1729' })).not.toHaveProperty('--primary-text');
+      expect(embedThemeStyle({ accent: '#f5e663' })).not.toHaveProperty('--primary-text');
+    });
+    it.each(['#e11d48', '#d4a017', '#2f7d32', '#1d4ed8', '#7c3aed', '#0f1729', '#f5e663', '#808080', '#777777', '#bbbbbb'])(
+      'never emits a failing pair for accent %s on any surface',
+      (a) => {
+        for (const surface of ['#ffffff', '#fafafa', '#111111', '#171c26', '#f5e663', '#0f1729', undefined]) {
+          const s = embedThemeStyle({ accent: a, surface }) as Record<string, string>;
+          if (!s['--primary-text']) continue;
+          const bgs = surface ? [surface] : ['#ffffff', '#171c26'];
+          for (const bg of bgs) expect(ratio(s['--primary-text'], bg)).toBeGreaterThanOrEqual(4.5);
+        }
+      },
+    );
+  });
 });

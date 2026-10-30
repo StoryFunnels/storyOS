@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { currentCredentialId } from '../common/credential-context';
+import { currentCredentialId, currentRunStamp } from '../common/credential-context';
 import {
   boolean,
   check,
@@ -771,6 +771,14 @@ export const comments = pgTable(
     source: changeSource('source'),
     agentId: uuid('agent_id'),
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     editedAt: timestamp('edited_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
@@ -872,6 +880,20 @@ export const apiTokens = pgTable('api_tokens', {
    * ANONYMISES the row rather than deleting it: gdpr.service.ts has the column-by-column rule.
    */
   resourceScope: jsonb('resource_scope').$type<{ space_ids: string[]; database_ids: string[] }>(),
+  /**
+   * #1132 / ADR-0021 §4 — a RUN credential: the short-lived agent token the server mints when a Runner claims a wake. Null on every
+   * other token. `runId` is the Runs-database record the wake produces and `runnerId` the Runner holding the lease (no FKs, same
+   * reason as `agentId`: history must outlive both). `expiresAt` follows the wake's lease (it slides on each heartbeat); the guard
+   * refuses a token past it. `runDepth` is the wake's loop-guard depth, so an agent comment made under this credential wakes
+   * another agent at depth + 1. A run credential is NEVER a person's token: every "my tokens" surface filters `runnerId IS NULL`
+   * (`runnerId` is the discriminator because it is always set; `runId` can be null for a wake that has no Run record).
+   */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  runId: uuid('run_id'),
+  runnerId: uuid('runner_id'),
+  /** The wake (agent_wakes.id) this credential was minted for: how it is revoked exactly, and what the guard checks is still claimed. */
+  wakeId: uuid('wake_id'),
+  runDepth: integer('run_depth'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -1242,6 +1264,14 @@ export const activityEvents = pgTable(
      * of what happens to the Agent record afterward. */
     agentName: text('agent_name'),
     /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
+    /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
      * session, an OAuth grant, an automation or a job: absence, never a person. No FK and no join to the token's user: the row it
@@ -1287,6 +1317,14 @@ export const recordVersions = pgTable(
     source: changeSource('source').notNull().default('human'),
     agentId: uuid('agent_id'),
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
@@ -1345,6 +1383,14 @@ export const recordFieldChanges = pgTable(
     agentId: uuid('agent_id'),
     /** #541 — see activity_events.agent_name's doc comment. */
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
@@ -2009,6 +2055,12 @@ export const bulkRecordJobs = pgTable(
       .references(() => databases.id, { onDelete: 'cascade' }),
     actorId: text('actor_id').notNull(),
     source: text('source').notNull().default('human'),
+    /**
+     * #1174 / ADR-0021 §7 — the agent run that enqueued this job, when it was a RUN credential (the EventOrigin shape). The job is
+     * processed on a timer, long after the request's AsyncLocalStorage is gone, so without this column the events it emits would
+     * read as a person's and an outward automation they fire would run unheld. Null for everything else.
+     */
+    origin: jsonb('origin'),
     op: text('op').notNull(), // 'update' | 'delete'
     /** Frozen at enqueue — the exact set this job will process, in order. */
     recordIds: jsonb('record_ids').notNull(),
@@ -2908,4 +2960,191 @@ export const templateInstalls = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('template_installs_slug_idx').on(t.slug)],
+);
+
+/**
+ * #1131 / ADR-0021 §3 — the StoryOS Runner: a program on a person's own computer that wakes their agents inside their own
+ * Claude Code or Cursor. A Runner has its OWN credential (`mn_run_…`), stored here and not in `api_tokens`, accepted by its own
+ * guard and valid ONLY on `/runner/v1/*`; a leaked one cannot read a record, so it is deliberately not a PAT.
+ */
+export const runnerStatus = pgEnum('runner_status', ['pending', 'active', 'revoked']);
+export type RunnerStatus = (typeof runnerStatus.enumValues)[number];
+
+/** What one tool the Runner found on its machine looks like (ADR-0021 §5). Stored per RUNNER, refreshed on every heartbeat. */
+export interface RunnerToolInfo {
+  id: string;
+  name?: string;
+  installed: boolean;
+  version?: string;
+  logged_in?: boolean;
+  capabilities?: Record<string, unknown>;
+}
+
+/**
+ * One pairing code: 6 characters, single use, ~10 minutes. Only an HMAC of the code is stored (`code_hash`), so the table never
+ * holds a code a person could still type. A code is issued to a signed-in, non-guest member and exchanged by the Runner.
+ */
+export const runnerPairingCodes = pgTable(
+  'runner_pairing_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The person who pressed "Add a Runner". No FK, like `api_tokens.user_id`: an erased person is anonymised, not cascaded. */
+    userId: text('user_id').notNull(),
+    codeHash: text('code_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** Set when the Runner exchanged it. A code is single use: this is its only transition. */
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    /** Set by Cancel, or by issuing a newer code (one live code per person and workspace). */
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_pairing_codes_user_idx').on(t.workspaceId, t.userId, t.createdAt)],
+);
+
+/** One failed attempt to exchange a code, by network address: the lockout counts these (a wrong guess matches no code to count against). */
+export const runnerPairingFailures = pgTable(
+  'runner_pairing_failures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ip: text('ip').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_pairing_failures_ip_idx').on(t.ip, t.createdAt), index('runner_pairing_failures_created_idx').on(t.createdAt)],
+);
+
+export const runners = pgTable(
+  'runners',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The person whose computer and subscription this is. The only person who lists, activates or removes it (admins included). */
+    userId: text('user_id').notNull(),
+    /** The code this Runner was exchanged from. */
+    pairingCodeId: uuid('pairing_code_id').references(() => runnerPairingCodes.id, { onDelete: 'set null' }),
+    /** Machine name as REPORTED by the Runner: unverified, shown as the Runner's name. */
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** mn_run_ + first/last 4 characters: the only recoverable fragment. */
+    tokenPrefix: text('token_prefix').notNull(),
+    status: runnerStatus('status').notNull().default('pending'),
+    /** The tools the Runner detected. Refreshed on every heartbeat. */
+    tools: jsonb('tools').$type<RunnerToolInfo[]>().notNull().default([]),
+    /** Which detected tool agents use on this machine. Per Runner, null until the person presses Done. */
+    chosenTool: text('chosen_tool'),
+    runnerVersion: text('runner_version'),
+    protocolVersion: integer('protocol_version'),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    /** De-duplication of the "Runner offline" notification, once per offline episode. NEVER shown; `offline_since` is derived from `last_seen_at`. */
+    offlineNotifiedAt: timestamp('offline_notified_at', { withTimezone: true }),
+    /** #1137 owns these two; they exist now so the Runner object has its final shape. */
+    pausedUntil: timestamp('paused_until', { withTimezone: true }),
+    pauseReason: text('pause_reason'),
+    /** While `pending`: the end of the pairing window. A pending Runner nobody activated by then is revoked. */
+    pendingExpiresAt: timestamp('pending_expires_at', { withTimezone: true }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** removed | cancelled | pairing_expired | member_inactive | erased */
+    revokedReason: text('revoked_reason'),
+    ...timestamps,
+  },
+  (t) => [index('runners_owner_idx').on(t.workspaceId, t.userId), index('runners_status_idx').on(t.status, t.lastSeenAt)],
+);
+
+/** Agent -> Runner assignment ("Runs on…"). A row, not a field on the Agent record: routing an agent's instructions to a computer is a security decision. */
+export const runnerAgents = pgTable(
+  'runner_agents',
+  {
+    /** An Agents-database record. No FK (agents are soft-deletable records, as `api_tokens.agent_id`); one Runner per agent. */
+    agentId: uuid('agent_id').primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    runnerId: uuid('runner_id')
+      .notNull()
+      .references(() => runners.id, { onDelete: 'cascade' }),
+    assignedBy: text('assigned_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('runner_agents_runner_idx').on(t.runnerId)],
+);
+
+/**
+ * #1130 / ADR-0021 §1 — the wake queue. A wake is a durable row meaning "this agent should look at this record now, for this
+ * reason". It is not the Run (that is `run_id`, created at enqueue, status Queued) and it carries NO record text: a Runner that
+ * claims one learns that something happened on a record, never what it said.
+ *
+ * Separate from `automation_jobs` on purpose: that table's claim loop runs EVERY queued row through the server's executor
+ * registry, so a wake there would be executed by the server. The PATTERN is reused (SKIP LOCKED, reaper), not the table.
+ *
+ * `agent_id` has no FK (agents are soft-deletable records, as `api_tokens.agent_id`). `reason` is text validated in code
+ * (`agents/agent-wakes.constants.ts`), so a new reason never needs a migration.
+ */
+export const agentWakes = pgTable(
+  'agent_wakes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id').notNull(),
+    /** Null together for a wake with no record (a schedule or a manual run with no context). */
+    recordId: uuid('record_id'),
+    databaseId: uuid('database_id'),
+    /** The reason that CREATED this wake; later repeats merge into `reasons`. */
+    reason: text('reason').notNull(),
+    /** The user whose action caused it (the access check's subject); null for a schedule. Text: better-auth user ids. */
+    requestedBy: text('requested_by'),
+    /** Idempotency for a REPLAY of the same event (comment id, approval id, link event). A coalesced repeat does not store its key. */
+    sourceKey: text('source_key'),
+    /** Loop-guard depth carried from the cause (ADR-0010 §5, max 2). */
+    depth: integer('depth').notNull().default(0),
+    /** queued | claimed | done | failed | canceled */
+    status: text('status').notNull().default('queued'),
+    runnerId: uuid('runner_id').references(() => runners.id, { onDelete: 'set null' }),
+    claimNonce: text('claim_nonce'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    /** When the current claim started: the 30-minute run ceiling is measured from here, not from the last heartbeat. */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    /** Lost leases so far; at the limit the wake fails (ADR-0021 §2). */
+    attempts: integer('attempts').notNull().default(0),
+    notBefore: timestamp('not_before', { withTimezone: true }).notNull().defaultNow(),
+    /** A repeat arrived while this wake was claimed: completion enqueues one fresh wake, so nothing is lost and nothing runs concurrently. */
+    rewake: boolean('rewake').notNull().default(false),
+    rewakeRequestedBy: text('rewake_requested_by'),
+    rewakeDepth: integer('rewake_depth'),
+    rewakeReason: text('rewake_reason'),
+    /** The Runs-database record this wake produces. Set right after insert; a record id, not a FK (a Run is a record). */
+    runId: uuid('run_id'),
+    /** The distinct reasons merged into this wake, with counts: `[{ reason, count, last_at, detail? }]`. */
+    reasons: jsonb('reasons').notNull().default(sql`'[]'::jsonb`),
+    /** What the cause carried that is not record text: a `run_agent` prompt override, an approval verdict. Last writer wins. */
+    context: jsonb('context'),
+    coalescedCount: integer('coalesced_count').notNull().default(0),
+    /** A queued wake nobody can serve is cancelled after this (ADR-0021 §11: the 7-day default approvals use). */
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    // One open wake per agent and record. This index IS the coalescing: the second insert conflicts and is merged.
+    uniqueIndex('agent_wakes_open_record_uq')
+      .on(t.agentId, t.recordId)
+      .where(sql`${t.recordId} IS NOT NULL AND ${t.status} IN ('queued', 'claimed')`),
+    uniqueIndex('agent_wakes_open_norecord_uq')
+      .on(t.agentId)
+      .where(sql`${t.recordId} IS NULL AND ${t.status} IN ('queued', 'claimed')`),
+    uniqueIndex('agent_wakes_source_key_uq')
+      .on(t.sourceKey)
+      .where(sql`${t.sourceKey} IS NOT NULL`),
+    index('agent_wakes_claim_idx').on(t.workspaceId, t.status, t.notBefore),
+    index('agent_wakes_runner_idx').on(t.runnerId, t.status),
+    index('agent_wakes_lease_idx').on(t.status, t.leaseExpiresAt),
+  ],
 );

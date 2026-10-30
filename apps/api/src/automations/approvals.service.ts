@@ -1,9 +1,11 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
+import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, databases, memberships, records as recordsTable, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import type { EventOrigin } from '../common/credential-context';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
@@ -159,7 +161,14 @@ export interface SkillPublishPublicSnapshot {
 export interface ApprovalActionSnapshot {
   action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot;
   /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
-  ctx: { workspaceId: string; databaseId: string | null; recordId: string | null; actorId: string };
+  ctx: {
+    workspaceId: string;
+    databaseId: string | null;
+    recordId: string | null;
+    actorId: string;
+    /** #1174 — the agent and Runner run that caused the event this action came from; absent when a person (or an automation) did. */
+    origin?: EventOrigin | null;
+  };
 }
 
 export interface CreateApprovalInput {
@@ -176,6 +185,11 @@ export interface CreateApprovalInput {
    * used as the approver only when no rule (and hence no owner) exists. */
   requesterActorId: string;
   /**
+   * #1174 / ADR-0021 §7 — the run credential that CAUSED this (an agent's write fired the rule). Named on the card (the preview
+   * text) and kept in the snapshot's ctx, so the approver sees WHICH agent and WHICH run before deciding.
+   */
+  origin?: EventOrigin | null;
+  /**
    * #603 — an agent run's gate wants the SAME notification the direct
    * `agents.service.ts` staging code always sent (`approval_requested`, a
    * summary naming the agent and the action), not the automation-shaped
@@ -191,7 +205,10 @@ export interface CreateApprovalInput {
 function presentSnapshot(snapshot: unknown): unknown {
   const snap = snapshot as Partial<ApprovalActionSnapshot> | null;
   if (!snap || typeof snap !== 'object' || !snap.action) return snapshot;
-  return { ...snap, action: presentActionHeaders([snap.action])[0] };
+  // #1174 — the stored origin is camelCase (it rides in job payloads); the API speaks snake_case.
+  const o = snap.ctx?.origin;
+  const ctx = snap.ctx && o ? { ...snap.ctx, origin: { agent_id: o.agentId, agent_name: o.agentName, run_id: o.runId, runner_id: o.runnerId, runner_name: o.runnerName } } : snap.ctx;
+  return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
 }
 
 function toDto(row: ApprovalRow) {
@@ -221,6 +238,14 @@ function toDto(row: ApprovalRow) {
  * `AutomationsService.tick()` via `expireStale()` rather than owning its own
  * timer, the same way `JobRunnerService`'s reaper piggybacks its own tick.
  */
+/** What a decided agent-write approval carries to the wake it causes. */
+interface AgentWriteDecision {
+  approval_id: string;
+  verdict: 'approved' | 'rejected';
+  decided_by: string;
+  reason?: string | null;
+}
+
 @Injectable()
 export class ApprovalsService implements OnModuleInit {
   private readonly logger = new Logger(ApprovalsService.name);
@@ -242,6 +267,8 @@ export class ApprovalsService implements OnModuleInit {
     // imports DatabasesModule one-way, so this is a free edge, not a new
     // cycle. Applies an approved 'database_cascade' gate (see onModuleInit).
     private readonly databases: DatabasesService,
+    // ticket #1130 / ADR-0021 §1: a decided approval the agent ASKED for (a held write) wakes that agent. RunnersModule is global.
+    private readonly agentWakes: AgentWakesService,
   ) {}
 
   /** Registers the executor JobRunnerService.enqueue() looks up by `kind`
@@ -251,8 +278,10 @@ export class ApprovalsService implements OnModuleInit {
     // #1104 — a per-agent record create/update held by AgentWriteGatesService. Same executor registry as the other gates:
     // approving enqueues it from the server-side snapshot (never from anything the approver or the agent sends).
     this.jobs.registerExecutor('agent_write_gate', async (payload) => {
-      const { action, ctx } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      const { action, ctx, decision } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx']; decision?: AgentWriteDecision };
       await this.applyAgentWriteGate(action, ctx.workspaceId);
+      // Approved AND applied: only now does the agent have something new to look at, so wake it after the write, not before.
+      if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, action, decision);
     });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
@@ -280,6 +309,29 @@ export class ApprovalsService implements OnModuleInit {
         true,
       );
     });
+  }
+
+  /**
+   * ticket #1130 / ADR-0021 §1 — "an approval the agent asked for being decided" wakes the agent, with the verdict on the wake.
+   * Idempotent on the approval id (a retried job or a replayed decision never makes a second wake). A wake that is refused (the
+   * agent is not a Your-own-AI agent, its owner left) is the queue's rule working: it must not fail the decision.
+   */
+  private async wakeAgentAfterDecision(workspaceId: string, action: AgentWriteGateSnapshot, decision: AgentWriteDecision): Promise<void> {
+    try {
+      await this.agentWakes.enqueue({
+        workspaceId,
+        agentId: action.agent_id,
+        reason: 'approval_decided',
+        recordId: action.record_id,
+        requestedBy: decision.decided_by,
+        sourceKey: `approval:${decision.approval_id}`,
+        detail: { approval_id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) },
+        context: { approval: { id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) } },
+        materialize: true,
+      });
+    } catch (error) {
+      this.logger.warn(`could not wake agent ${action.agent_id} after approval ${decision.approval_id}: ${String(error)}`);
+    }
   }
 
   /**
@@ -333,6 +385,18 @@ export class ApprovalsService implements OnModuleInit {
     return fallbackActorId;
   }
 
+  /** #1174 — 'Caused by agent "X" (run 12): ' — the sentence an approver reads first. The run's public number is looked up live. */
+  private async describeOrigin(origin: EventOrigin): Promise<string> {
+    let runNumber: number | null = null;
+    if (origin.runId) {
+      const row = await this.db.query.records.findFirst({ where: eq(recordsTable.id, origin.runId), columns: { number: true } });
+      runNumber = row?.number ?? null;
+    }
+    const agent = origin.agentName ? `agent "${origin.agentName}"` : 'an agent';
+    const run = origin.runId ? ` (run ${runNumber ?? origin.runId}${origin.runnerName ? `, on ${origin.runnerName}` : ''})` : origin.runnerName ? ` (on ${origin.runnerName})` : '';
+    return `Caused by ${agent}${run}: `;
+  }
+
   /**
    * #603 — the shared insert+notify core, extracted so a non-automation
    * producer (agents.service.ts) can get the real row back (it needs the id
@@ -344,7 +408,8 @@ export class ApprovalsService implements OnModuleInit {
   async createRow(input: CreateApprovalInput): Promise<ApprovalRow> {
     // #1068 — the preview names the webhook URL; its userinfo must not reach the
     // stored preview or the approver's notification.
-    const previewText = maskUserinfoInText(input.previewText);
+    const causedBy = input.origin ? await this.describeOrigin(input.origin) : '';
+    const previewText = maskUserinfoInText(`${causedBy}${input.previewText}`);
     const approverId = await this.approverFor(input.ruleId, input.requesterActorId);
     const snapshot: ApprovalActionSnapshot = {
       action: input.action,
@@ -353,6 +418,7 @@ export class ApprovalsService implements OnModuleInit {
         databaseId: input.databaseId,
         recordId: input.recordId,
         actorId: input.requesterActorId,
+        ...(input.origin ? { origin: input.origin } : {}),
       },
     };
     const [created] = await this.db
@@ -620,10 +686,18 @@ export class ApprovalsService implements OnModuleInit {
         runId: updated.runId,
         actionIndex: updated.actionIndex,
         kind: snapshot.action.type,
-        payload: { action: snapshot.action, ctx: snapshot.ctx },
+        payload: {
+          action: snapshot.action,
+          ctx: snapshot.ctx,
+          // The person who decided, carried to the executor so the agent's wake is made as THEIR action (the access check's subject).
+          decision: { approval_id: updated.id, verdict: 'approved', decided_by: actorId } satisfies AgentWriteDecision,
+        },
         idempotencyKey: `approval:${updated.id}`,
         approvalId: updated.id,
       });
+    } else if (snapshot.action.type === 'agent_write_gate') {
+      // Rejected: nothing is applied, but the agent asked and was told no, so it is woken to read the answer (and the reason).
+      await this.wakeAgentAfterDecision(workspaceId, snapshot.action, { approval_id: updated.id, verdict: 'rejected', decided_by: actorId, reason: reason ?? null });
     } else if (snapshot.action.type === 'write_back_push') {
       // #282 AC — rejecting makes no outbound call (nothing enqueued above),
       // but is still recorded in the source's own run log, not only as an

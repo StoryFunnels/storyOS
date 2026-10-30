@@ -1,7 +1,10 @@
+import { logAgentOriginOutward } from '../activity/agent-origin-log';
+import { currentRunStamp } from '../common/credential-context';
 import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -13,7 +16,8 @@ import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { MentionsService } from '../mentions/mentions.service';
+import { MentionsService, collectMentions } from '../mentions/mentions.service';
+import { AgentWakesService } from '../runners/agent-wakes.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService, escapeSlackText } from '../integrations/slack.service';
 import { AccessService } from '../access/access.service';
@@ -64,6 +68,8 @@ export function commentBodyText(body: CommentBody): string {
 
 @Injectable()
 export class CommentsService {
+  private readonly logger = new Logger(CommentsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
@@ -72,6 +78,8 @@ export class CommentsService {
     private readonly preferences: PreferencesService,
     private readonly slackService: SlackService,
     private readonly access: AccessService,
+    /** ticket #1130: an @-mention of an agent wakes it (at emit time, here). */
+    private readonly agentWakes: AgentWakesService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4).
@@ -167,6 +175,9 @@ export class CommentsService {
         source: c.source,
         agent_id: c.agentId,
         agent_name: c.agentName,
+        run_id: c.runId, // ticket #1132
+        runner_id: c.runnerId,
+        runner_name: c.runnerName,
         edited_at: c.editedAt,
         created_at: c.createdAt,
       })),
@@ -257,6 +268,9 @@ export class CommentsService {
         type: 'comment.created',
         payload: { comment_id: comment!.id },
         source,
+        // ticket #1132: the agent behind the comment, so the event reads like the comment row does (the run is stamped by default).
+        agentId,
+        agentName,
       });
       return comment!;
     });
@@ -300,14 +314,74 @@ export class CommentsService {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
+    const agentWakes = await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
     return {
       id: created.id,
       body: created.body,
       source: created.source,
       agent_id: created.agentId,
       agent_name: created.agentName,
+      // ticket #1132 - present only when the comment mentioned an agent: whether each was woken (see `wakeMentionedAgents`).
+      ...(agentWakes.length > 0 ? { agent_wakes: agentWakes } : {}),
       created_at: created.createdAt,
     };
+  }
+
+  /**
+   * ticket #1130 / ADR-0021 §1 — an @-mention of an AGENT in a comment wakes it. Done HERE, when the comment is written (emit time),
+   * never by filtering what a reader sees later: a wake that is not created cannot leak. AgentWakesService.enqueue refuses unless the
+   * author can read the record AND the agent, and the agent's owner can read the record; a record in a personal space never wakes
+   * anything.
+   *
+   * ticket #1132 - an AGENT-authored comment wakes another agent only when it was written under a per-run credential, because that
+   * is the one thing that carries a depth: the wake is created at the run's depth + 1, so a mention loop (A mentions B, B mentions A)
+   * is cut by the same cap (`WAKE_MAX_DEPTH`) every other wake source obeys. An agent comment with no run behind it (an older agent
+   * token, a server-run agent) has no depth to prove it is bounded, so it still wakes nothing. At the cap NO wake is created, and the
+   * author (the agent) is told so in the response: `agent_wakes[].woken = false` with the reason, instead of the mention silently
+   * doing nothing. Only the loop-guard reason is spelled out; every other refusal stays the 404-style non-answer `enqueue` gives.
+   * Best-effort by design: waking an agent never fails the comment someone just wrote.
+   */
+  private async wakeMentionedAgents(
+    workspaceId: string,
+    recordId: string,
+    authorId: string,
+    commentId: string,
+    body: CommentBody,
+    source: ChangeSource,
+  ): Promise<Array<{ agent_id: string; woken: boolean; message?: string }>> {
+    if (!isBlocknoteCommentBody(body)) return [];
+    let depth = 0;
+    if (source === 'agent') {
+      const run = currentRunStamp();
+      if (!run) return [];
+      depth = run.depth + 1;
+    }
+    const { agentIds } = collectMentions(body.doc);
+    const out: Array<{ agent_id: string; woken: boolean; message?: string }> = [];
+    for (const agentId of agentIds) {
+      try {
+        const result = await this.agentWakes.enqueue({
+          workspaceId,
+          agentId,
+          reason: 'mention',
+          recordId,
+          requestedBy: authorId,
+          depth,
+          sourceKey: `mention:${commentId}:${agentId}`,
+          detail: { comment_id: commentId },
+          materialize: true,
+        });
+        if (result.outcome === 'skipped') {
+          out.push({ agent_id: agentId, woken: false, ...(result.code === 'loop_guard' ? { message: result.message } : {}) });
+        } else {
+          out.push({ agent_id: agentId, woken: true });
+        }
+      } catch (error) {
+        this.logger.warn(`@-mention wake for agent ${agentId} failed: ${String(error)}`);
+        out.push({ agent_id: agentId, woken: false });
+      }
+    }
+    return out;
   }
 
   private async notifyMentions(
@@ -330,6 +404,7 @@ export class CommentsService {
     // #880 — email and the Slack mirror carry the comment text and the record title OUT of the app, so they ask at SEND time
     // whether each mentioned person can read this record (the in-app leg already does, in notify()).
     const readable = new Set(await this.notificationsService.readableRecipients(workspaceId, record?.databaseId, recordId, mentioned.map((m) => m.id)));
+    let mentionMails = 0;
     for (const target of mentioned) {
       if (!readable.has(target.id)) continue;
       if (target.id === authorId) continue;
@@ -348,6 +423,12 @@ export class CommentsService {
         },
         workspaceId, // MN-194 — attributes this send's cost to the mentioning workspace
       );
+      mentionMails += 1;
+    }
+    // #1174 — members-only and fixed by the product, so it runs as it always did; but if an agent's run credential wrote this
+    // comment, the mail and the Slack mirror below are logged with the agent and the run.
+    if (mentionMails > 0) {
+      await logAgentOriginOutward(this.db, { workspaceId, recordId, recordTitle: record?.title, channel: 'mention_email', summary: `${mentionMails} mention email(s) to workspace members` }).catch(() => undefined);
     }
 
     // #268 — mirror the mention to the workspace's default Slack channel (channel
@@ -360,7 +441,10 @@ export class CommentsService {
     const slackText =
       `💬 *${escapeSlackText(author?.name ?? 'Someone')}* mentioned you on *${escapeSlackText(record?.title ?? 'a record')}*\n` +
       `> ${escapeSlackText(excerpt)}\n<${commentDeepLink(env().WEB_URL, recordId, commentId)}|Open in StoryOS>`;
-    await this.slackService.sendMessage(workspaceId, { text: slackText }).catch(() => undefined);
+    const mirrored = await this.slackService.sendMessage(workspaceId, { text: slackText }).then(() => true, () => false);
+    if (mirrored) {
+      await logAgentOriginOutward(this.db, { workspaceId, recordId, recordTitle: record?.title, channel: 'slack_mention_mirror', summary: 'mention mirrored to the workspace Slack channel' }).catch(() => undefined);
+    }
   }
 
   async update(

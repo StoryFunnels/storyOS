@@ -73,7 +73,7 @@ export default function DelegateToAgentIntegrationPage() {
         <Bot className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Delegate to agent</h1>
         {enabled && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
+          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
             enabled
           </span>
         )}

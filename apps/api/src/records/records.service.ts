@@ -3895,6 +3895,9 @@ export class RecordsService {
         source: v.source,
         agent_id: v.agentId,
         agent_name: v.agentName,
+        run_id: v.runId, // ticket #1132
+        runner_id: v.runnerId,
+        runner_name: v.runnerName,
         created_at: v.createdAt,
       })),
       next_cursor:

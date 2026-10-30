@@ -28,7 +28,7 @@ export const EMBED_FORM = {
   field: 'flex flex-col gap-1.5',
   label: 'text-body font-medium text-ink-secondary',
   control:
-    'rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none focus:border-accent',
+    'rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none',
   help: 'text-label text-muted',
   submit:
     'mt-1 rounded-[var(--radius-control)] bg-primary px-4 py-2.5 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50',

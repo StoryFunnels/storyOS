@@ -53,7 +53,7 @@ interface Submission {
 }
 
 const STATUS_STYLE: Record<Submission['status'], string> = {
-  pending: 'bg-warning/10 text-warning',
+  pending: 'bg-warning/10 text-warning-text',
   approved: 'bg-success/10 text-success',
   rejected: 'bg-error/10 text-error',
 };

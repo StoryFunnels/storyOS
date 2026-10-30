@@ -114,7 +114,7 @@ export function SidebarViewRow({
       </GlyphSlot>
       <span className="overflow-hidden whitespace-nowrap">{view.name}</span>
       {/* #994 — a view pinned to the viewer's tabs carries a small gold star at the right edge (the prototype's pinned mark). */}
-      {pinned && <Star className="h-[11px] w-[11px] shrink-0 text-accent" aria-label="Pinned to your tabs" />}
+      {pinned && <Star className="h-[11px] w-[11px] shrink-0 text-primary-text" aria-label="Pinned to your tabs" />}
     </>
   );
 

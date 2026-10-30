@@ -9,7 +9,8 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
-import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, Lock, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
+import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -68,6 +69,9 @@ import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
 import { markNewDocument } from '@/lib/new-doc-focus';
+import { markNewSpace, UNTITLED_SPACE } from '@/lib/new-space-focus';
+import { nextSpaceColor } from '@/lib/space-color';
+import { RestrictedLock } from '@/components/restricted-lock';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -110,7 +114,7 @@ function FavoritesSection({ ws }: { ws: string }) {
               className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
             >
               <GlyphSlot>
-                <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+                <Star className="h-3.5 w-3.5 shrink-0 fill-primary-text text-primary-text" />
               </GlyphSlot>
               <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
             </Link>
@@ -124,6 +128,7 @@ function FavoritesSection({ ws }: { ws: string }) {
 export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) {
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
+  const router = useRouter();
   const signOut = useSignOut();
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
@@ -492,7 +497,27 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </DragPreview>
         </DndContext>
 
-        {canEdit && <NewSpaceButton ws={ws} onCreate={(name) => mutations.createSpace.mutate({ name })} />}
+        {canEdit && (
+          <NewSpaceButton
+            disabled={mutations.createSpace.isPending}
+            // #1094 — ONE click: the space is made as "Untitled space" and opens on its page with the name in edit mode
+            // (marked before navigating, consumed once by the page). New opens what it made.
+            onCreate={() =>
+              mutations.createSpace.mutate(
+                // Born with a colour: the next hue of the default palette (lib/space-color.ts), never grey.
+                { name: UNTITLED_SPACE, color: nextSpaceColor(spaces.data ?? []) },
+                {
+                  onSuccess: (created) => {
+                    markNewSpace(created.id);
+                    router.push(`/w/${ws}/s/${created.id}`);
+                    onCloseMobile?.();
+                  },
+                  onError: () => toast.error('Could not create space'),
+                },
+              )
+            }
+          />
+        )}
         {canEdit && (
           <>
             <button
@@ -604,7 +629,7 @@ function SidebarResizeHandle({
         className={cn(
           'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
           dragging
-            ? 'bg-accent'
+            ? 'bg-primary-text'
             : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
         )}
       />
@@ -822,7 +847,7 @@ function RailButton({
         {children}
         <RailName>{title}</RailName>
         {badge && (
-          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
+          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
             {badge}
           </span>
         )}
@@ -1028,7 +1053,7 @@ function RootDropZone({ spaceId, children }: { spaceId: string; children: React.
       // this block, space-level views, docs) never reached the rows INSIDE
       // it. This is the div actually stacking Members/Agents/Runs etc., so
       // the fix belongs here.
-      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {children}
     </div>
@@ -1082,7 +1107,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'sticky top-0 z-30 h-auto cursor-grab touch-manipulation bg-frame active:cursor-grabbing',
-        isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
+        isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40',
       )}
       draggable
       {...attributes}
@@ -1107,7 +1132,7 @@ function UngroupedDropZone({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={setNodeRef}
-      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {children}
     </div>
@@ -1288,11 +1313,19 @@ function SpaceSection({
   const [describing, setDescribing] = useState(false);
 
   // Per-user, per-space collapse (MN-088) so a packed sidebar stays scannable.
-  const collapseKey = `storyos:space-collapsed:${space.id}`;
+  const collapseKey = spaceCollapseKey(space.id);
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     if (typeof window !== 'undefined') setCollapsed(window.localStorage.getItem(collapseKey) === '1');
   }, [collapseKey]);
+  // #1167 — a pack install that lands inside this space expands it (see `expandSpaceInSidebar`, which also wrote the stored state).
+  useEffect(() => {
+    const onExpand = (e: Event) => {
+      if ((e as CustomEvent<{ spaceId?: string }>).detail?.spaceId === space.id) setCollapsed(false);
+    };
+    window.addEventListener(EXPAND_SPACE_EVENT, onExpand);
+    return () => window.removeEventListener(EXPAND_SPACE_EVENT, onExpand);
+  }, [space.id]);
   // "Collapse all" (issue #34): one button collapses every space at once.
   useEffect(() => {
     const onCollapseAll = () => {
@@ -1801,15 +1834,7 @@ function SpaceSection({
             {/* #994 — one mark: the space's colour, with its chosen icon inside, or its two letters when it has none. */}
             <LetterMark name={space.name} color={space.color} icon={space.icon} />
             <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
-              {showsLock(space) && (
-                <Lock
-                  className="h-[11px] w-[11px] shrink-0 text-faint"
-                  aria-label="Restricted"
-                  role="img"
-                >
-                  <title>Restricted — only the people added can see it</title>
-                </Lock>
-              )}
+              {showsLock(space) && <RestrictedLock />}
           </Link>
         )}
         {/* #805 AC6 — the artifact's database count on the space header, shown
@@ -2319,8 +2344,11 @@ function PromptDialog({
             </button>
             <button
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium text-white',
-                state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
+                'rounded-[var(--radius-control)] px-3 py-1 text-body font-medium',
+                // #1170 — a solid red fill takes --text-on-error (white is 3.13:1 on the lifted dark --error).
+                state.kind === 'confirm' && state.danger
+                  ? 'bg-error text-[var(--text-on-error)]'
+                  : 'bg-ink text-white',
               )}
               onClick={confirm}
             >
@@ -2424,7 +2452,7 @@ function FolderSection({
   return (
     <div
       ref={setDropRef}
-      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {/* #380/#742 — a folder sits on the SAME left edge as the databases
           beside it (founder's spec: "folders, dashboards — the same padding
@@ -2885,15 +2913,7 @@ function DatabaseRow({
             />
           </GlyphSlot>
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
-          {showsLock(db) && (
-                <Lock
-                  className="h-[11px] w-[11px] shrink-0 text-faint"
-                  aria-label="Restricted"
-                  role="img"
-                >
-                  <title>Restricted — only the people added can see it</title>
-                </Lock>
-              )}
+          {showsLock(db) && <RestrictedLock />}
         </Link>
         </>
       )}
@@ -3124,17 +3144,20 @@ const SPACE_ACT =
 
 const ROW_COUNT = 'ml-auto shrink-0 text-micro font-semibold tabular-nums text-faint';
 
-function LetterMark({
+export function LetterMark({
   name,
   color,
   icon,
   className,
+  iconClassName,
 }: {
   name: string;
   color?: string | null;
   /** #994 — a CHOSEN icon sits inside the mark instead of the two letters, so no icon a person picked is lost. */
   icon?: string | null;
   className?: string;
+  /** #1094 — the chosen icon's size inside a larger mark (the space page's 34px header mark). */
+  iconClassName?: string;
 }) {
   const letter = markInitials(name);
   return (
@@ -3149,7 +3172,7 @@ function LetterMark({
       style={{ backgroundColor: color ? (OPTION_COLORS[color] ?? color) : 'var(--text-faint)' }}
       aria-hidden
     >
-      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className="text-[12px]" /> : letter}
+      {icon ? <EntityIcon icon={icon} color={null} fallback={letter} className={iconClassName ?? 'text-[12px]'} /> : letter}
     </span>
   );
 }
@@ -3284,54 +3307,20 @@ function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function NewSpaceButton({ ws, onCreate }: { ws: string; onCreate: (name: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
+function NewSpaceButton({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover max-md:min-h-11">
-          <Plus className="h-3.5 w-3.5" /> New space
-        </button>
-      </DialogTrigger>
-      <DialogContent title="New space" unsaved>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) onCreate(name.trim());
-            setName('');
-            setOpen(false);
-          }}
-        >
-          <Input
-            autoFocus
-            placeholder="e.g. Client Work"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <div className="flex items-center justify-between gap-2">
-            {/* #967 — a space can also start from a business pack; the whole Packs page (Installed,
-                Gallery, Marketplace) is one click away from here as well as from the AI section. */}
-            <Link href={`/w/${ws}/packs`} className="text-label text-muted underline-offset-2 hover:text-ink hover:underline">
-              Start from a pack…
-            </Link>
-            <div className="flex gap-2">
-              <DialogClose asChild>
-                <Button type="button" variant="secondary">
-                  Cancel
-                </Button>
-              </DialogClose>
-              <Button type="submit">Create space</Button>
-            </div>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <button
+      type="button"
+      onClick={onCreate}
+      disabled={disabled}
+      className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted disabled:opacity-60 hover:bg-hover max-md:min-h-11"
+    >
+      <Plus className="h-3.5 w-3.5" /> New space
+    </button>
   );
 }
 
-function NewDatabaseDialog({ onCreate }: { onCreate: (name: string) => void }) {
+export function NewDatabaseDialog({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('');
   return (
     <DialogContent title="New database" unsaved>

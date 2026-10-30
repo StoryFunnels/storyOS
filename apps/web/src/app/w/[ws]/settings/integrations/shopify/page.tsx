@@ -171,7 +171,7 @@ export default function ShopifyIntegrationPage() {
             </Button>
           </div>
           {created && (
-            <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3">
+            <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-hover p-3">
               <p className="text-body text-ink">
                 Your catalogue is ready. Open <strong>Products</strong> and press <strong>Sync now</strong>{' '}
                 (or wait for the daily schedule). Variants and collections link back to products as they

@@ -848,6 +848,34 @@
       "when": 1793137179400,
       "tag": "0120_purple_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1793299329784,
+      "tag": "0121_shocking_wiccan",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1793301394247,
+      "tag": "0122_many_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1793304669344,
+      "tag": "0123_dark_clint_barton",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1793363113717,
+      "tag": "0124_first_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

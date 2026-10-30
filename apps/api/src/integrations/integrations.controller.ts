@@ -30,7 +30,7 @@ import { toWebHeaders } from '../auth/auth.guard';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import type { RawBodyRequest } from '../app.setup';
 import { env } from '../config/env';
 import { redactSecrets } from '../common/redact-secrets';
@@ -362,6 +362,8 @@ export class GithubReviewsController {
     return this.reviews.listComments(req.membership, `${owner}/${repo}`, number);
   }
 
+  /** #1135: the four writes below act on GitHub with the workspace's credential (an APPROVE review included); a run credential is refused them. */
+  @NoRunCredential()
   @Post(':owner/:repo/:number/comments')
   @ApiOperation({ summary: 'Post a new inline (file/line-anchored) review comment' })
   createComment(
@@ -374,6 +376,7 @@ export class GithubReviewsController {
     return this.reviews.createComment(req.membership, owner, repo, number, body);
   }
 
+  @NoRunCredential()
   @Post(':owner/:repo/:number/comments/:commentId/replies')
   @ApiOperation({ summary: 'Reply within an existing comment thread' })
   reply(
@@ -387,6 +390,7 @@ export class GithubReviewsController {
     return this.reviews.replyComment(req.membership, owner, repo, number, commentId, body.body);
   }
 
+  @NoRunCredential()
   @Post(':owner/:repo/:number/comments/:commentId/reactions')
   @ApiOperation({ summary: 'React to a review comment' })
   react(
@@ -411,6 +415,7 @@ export class GithubReviewsController {
     return { synced };
   }
 
+  @NoRunCredential()
   @Post(':owner/:repo/:number/reviews')
   @ApiOperation({ summary: 'Approve / Request changes / Comment — submits a GitHub PR review' })
   submitReview(

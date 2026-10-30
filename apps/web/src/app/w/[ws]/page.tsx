@@ -109,7 +109,7 @@ export default function WorkspaceHome() {
        ultrawide, but the content now starts where the eye already is. */
     <div className="max-w-6xl p-4 sm:p-10">
       {sampleCount > 0 && (
-        <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
+        <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-hover px-4 py-3">
           <span className="text-body text-ink">
             This workspace contains {sampleCount} sample records to explore.
           </span>

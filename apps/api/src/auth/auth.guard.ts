@@ -15,15 +15,17 @@ import type { OauthGrant } from './oauth-grant';
 import { scopeSatisfies, type ResourceScope, type TokenScope } from '@storyos/schemas';
 import { RESOURCE_SCOPABLE_KEY } from '../access/resource-scope';
 import type { ChangeSource } from '../db/schema';
+import type { RunStamp } from '../common/credential-context';
 import { AUTH } from './auth.tokens';
 import type { Auth } from './auth';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
-import { RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
+import { NO_RUN_CREDENTIAL_KEY, RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
 import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+import { RUNNER_TOKEN_PREFIX } from '../runners/runner.constants';
 
 /**
  * The scope a token needs for a route. An explicit `@RequiresScope` wins. Otherwise a route that needs the ADMIN ROLE
@@ -85,6 +87,8 @@ export interface AuthContext {
   agentName?: string;
   /** #882 — the api_tokens row acting (only `via: 'token'`); the request's credential context is entered from it. */
   tokenId?: string;
+  /** #1132 — set only for a per-run credential (ADR-0021 §4). `RequestMemoInterceptor` enters it into the credential context. */
+  run?: RunStamp;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -178,6 +182,12 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
 
     const header = request.headers.authorization;
+    // #1131 — a Runner's credential is NOT a PAT and works only on /runner/v1/* (RunnerAuthGuard). Say so, rather than letting it
+    // fall through the session and OAuth lookups to a bare "Authentication required": the refusal is the same either way, but this
+    // one is explicit, pinned by test, and cannot quietly become "accepted" if a later lookup ever learns the prefix.
+    if (typeof header === 'string' && header.startsWith(`Bearer ${RUNNER_TOKEN_PREFIX}`)) {
+      throw new UnauthorizedException('A Runner token works only on the Runner endpoints, not on this one.');
+    }
     if (typeof header === 'string' && header.startsWith('Bearer mn_pat_')) {
       const resolved = await this.tokens.resolve(header.slice('Bearer '.length));
       if (!resolved) throw new UnauthorizedException('Invalid or revoked token');
@@ -203,6 +213,13 @@ export class AuthGuard implements CanActivate {
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
       this.enforceTokenScope(context, resolved);
       this.enforceResourceBinding(context, resolved.resourceScope);
+      // #1135 — a per-run credential is refused the routes marked @NoRunCredential() (outward effects with no staging path, and
+      // anything that would mint a wider credential than the caller's). Only a run credential carries `run`.
+      if (resolved.run && this.reflector.getAllAndOverride<boolean>(NO_RUN_CREDENTIAL_KEY, [context.getHandler(), context.getClass()])) {
+        throw new ForbiddenException(
+          'A Runner run credential cannot do this: it has an effect outside StoryOS (or would widen the credential) and needs a person. Ask the member who owns this agent to do it in StoryOS.',
+        );
+      }
 
       /**
        * MN-122: a PAT is minted FOR a workspace, so it must only work there.
@@ -239,6 +256,8 @@ export class AuthGuard implements CanActivate {
         // a write path that doesn't know about this ticket yet still stores
         // nothing for it, rather than an empty string reading as "captured".
         ...(agentIdentity ? { agentId: agentIdentity.agentId, agentName: agentIdentity.agentName } : {}),
+        // #1132 — a per-run credential: the run, the Runner and the loop-guard depth, so the request's audit rows can name them.
+        ...(resolved.run ? { run: resolved.run } : {}),
       };
       return true;
     }

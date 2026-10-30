@@ -689,7 +689,7 @@ describe('create_view / update_view (#270)', () => {
     name: 'Leads',
     apiSlug: 'leads_2',
     fields: [
-      { id: 'f-stage', apiName: 'pipeline_stage', displayName: 'Pipeline stage', type: 'select', options: [{ id: 'opt-new', label: 'New' }] },
+      { id: 'f-stage', apiName: 'pipeline_stage', displayName: 'Pipeline stage', type: 'select', options: [{ id: 'opt-new', label: 'New' }, { id: 'opt-won', label: 'Won' }] },
       { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'text' },
       { id: 'f-email', apiName: 'email', displayName: 'Email', type: 'email' },
     ],
@@ -702,6 +702,7 @@ describe('create_view / update_view (#270)', () => {
         // merges onto it, so these must survive a filter-only edit.
         config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
       },
+      { id: 'view-board', name: 'Hidden Board', type: 'board', config: { group_by_field_id: 'f-stage', hidden_option_ids: ['opt-new'] } },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
       // #718 — a form that is LIVE: fields, a real token, link access, and a
       // theme (#711) that update_view does not model. The pre-existing
@@ -864,6 +865,42 @@ describe('create_view / update_view (#270)', () => {
     })) as { isError?: boolean; content: Array<{ text: string }> };
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toMatch(/No field matches "not_a_real_field"/);
+  });
+
+  it('#1158 create_view maps hidden_columns labels to option ids on the group-by field', async () => {
+    const { handlers, posted } = registerAndGet(['create_view']);
+    const res = (await handlers.create_view!({
+      workspace: 'JCM Agency', database: 'leads_2', name: 'Active', type: 'board',
+      group_by: 'pipeline_stage', hidden_columns: ['won', 'New'],
+    })) as { isError?: boolean };
+    expect(res.isError).toBeUndefined();
+    const config = (posted[0]!.body as { config: Record<string, unknown> }).config;
+    expect(config.hidden_option_ids).toEqual(['opt-won', 'opt-new']);
+  });
+
+  it('#1158 an unknown column label is refused naming the real ones, not stored', async () => {
+    const { handlers, posted } = registerAndGet(['create_view']);
+    const res = (await handlers.create_view!({
+      workspace: 'JCM Agency', database: 'leads_2', name: 'Bad', type: 'board',
+      group_by: 'pipeline_stage', hidden_columns: ['Nope'],
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('Available: New, Won');
+    expect(posted).toHaveLength(0);
+  });
+
+  it('#1158 update_view resolves against the STORED group-by, and [] clears', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', hidden_columns: ['Won'] });
+    expect((patched[0]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual(['opt-won']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', hidden_columns: [] });
+    expect((patched[1]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual([]);
+  });
+
+  it('#1158 update_view leaves hidden columns alone when an unrelated key changes', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'Hidden Board', sorts: [] });
+    expect((patched[0]!.body as { config: Record<string, unknown> }).config.hidden_option_ids).toEqual(['opt-new']);
   });
 
   it('update_view mints a public_token moving a NEVER-shared form to link (there is none yet to reuse)', async () => {
@@ -5493,5 +5530,78 @@ describe('attach_file never fetches the URL itself (#1033)', () => {
     const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', content_base64: Buffer.from('hi').toString('base64') });
     expect(res.isError).toBe(true); // filename is required with content_base64: the old rule is intact
     expect(res.content[0]!.text).toContain('filename');
+  });
+});
+
+/**
+ * #1130 / ADR-0021 §11 — the wake queue's MCP reads, and the relation kind of agent trigger. The reads pass the caller's filters
+ * straight to the one REST read (so the web and MCP see the same rows and the same derived run_state), resolve a record NUMBER
+ * through its database, and never offer a write (waking, claiming and finishing a wake have no tool: coverage.ts says why).
+ */
+describe('agent wake queue tools (#1130)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      { id: 'f-next', apiName: 'next', displayName: 'Next', type: 'relation' },
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'opt-todo', label: 'ToDo' }] },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const gets: Array<{ path: string; query?: unknown }> = [];
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string, o?: { params?: { query?: unknown } }) => {
+        gets.push({ path, query: o?.params?.query });
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: { id: 'rec-uuid-7' } };
+        if (path === '/api/v1/workspaces/{ws}/agent-wakes') return { data: { data: [{ id: 'w1', run_state: { state: 'waiting_for_runner' } }], next_cursor: null } };
+        if (path === '/api/v1/workspaces/{ws}/agent-wakes/summary') return { data: { agents: [], waiting_total: 3, agents_that_cannot_run: 1 } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        return { data: { id: 'binding-1' } };
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, gets, posted };
+  }
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) => (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('list_agent_wakes sends the filters through, resolving a record number via its database', async () => {
+    const { handlers, gets } = harness();
+    const res = await call(handlers.get('list_agent_wakes')!, { workspace: 'JCM Agency', agent: 'agent-uuid', record: '7', database: 'issues', limit: 5 });
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('waiting_for_runner');
+    expect(gets.find((g) => g.path.endsWith('/agent-wakes'))!.query).toEqual({ agent: 'agent-uuid', record: 'rec-uuid-7', limit: 5 });
+  });
+
+  it('get_agent_wake_summary returns the server counts as they are', async () => {
+    const { handlers } = harness();
+    const res = await call(handlers.get('get_agent_wake_summary')!, { workspace: 'JCM Agency' });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ waiting_total: 3, agents_that_cannot_run: 1 });
+  });
+
+  it('create_agent_trigger takes a relation field instead of a state, and refuses mixing the two', async () => {
+    const { handlers, posted } = harness();
+    const ok = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', relation_field: 'Next' });
+    expect(ok.isError).toBeUndefined();
+    expect(posted.find((p) => p.path.endsWith('/agents/triggers'))!.body).toEqual({ agent: '7', database_id: 'db-1', relation_field_id: 'f-next' });
+    const mixed = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', relation_field: 'Next', state_field: 'state', state: 'ToDo' });
+    expect(mixed.isError).toBe(true);
+    const neither = await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues' });
+    expect(neither.isError).toBe(true);
+    // The state kind is unchanged.
+    await call(handlers.get('create_agent_trigger')!, { workspace: 'JCM Agency', agent: '7', database: 'issues', state_field: 'state', state: 'ToDo' });
+    expect(posted[posted.length - 1]!.body).toEqual({ agent: '7', database_id: 'db-1', state_field_id: 'f-state', state_option_id: 'opt-todo' });
   });
 });
