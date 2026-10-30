@@ -124,6 +124,10 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
     const env: NodeJS.ProcessEnv = { ...this.env };
     for (const name of STRIPPED) if (!(name === 'ANTHROPIC_API_KEY' && this.options.keepApiKey)) delete env[name];
     env[TOKEN_ENV] = wake.mcp.token;
+    // Real CLI 2.1.104: with --setting-sources restricted, `-p` sends its first request while the MCP server is still "pending",
+    // so the session has NO StoryOS tools and the model writes tool calls as plain text. Forcing blocking connection fixes it
+    // (observed: pending without it, connected with it, same flags otherwise).
+    env.MCP_CONNECTION_NONBLOCKING = '0';
 
     const state = newStreamState();
     try {

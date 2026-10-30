@@ -59,6 +59,7 @@ if (record) {
       cwd: process.cwd(),
       tokenInEnv: process.env.STORYOS_RUN_TOKEN ?? null,
       apiKeyInEnv: process.env.ANTHROPIC_API_KEY ?? null,
+      mcpNonblockingInEnv: process.env.MCP_CONNECTION_NONBLOCKING ?? null,
       runnerTokenInEnv: process.env.STORYOS_RUNNER_TOKEN ?? null,
       mcpConfigPath: cfgPath ?? null,
       mcpConfig: cfg,

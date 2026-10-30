@@ -55,6 +55,7 @@ interface Recorded {
   cwd: string;
   tokenInEnv: string | null;
   apiKeyInEnv: string | null;
+  mcpNonblockingInEnv: string | null;
   runnerTokenInEnv: string | null;
   mcpConfigPath: string | null;
   mcpConfig: string | null;
@@ -116,6 +117,8 @@ describe('how the CLI is called', () => {
 
     // The subscription, not an API key; and none of the Runner's own secrets reach the session.
     expect(r.apiKeyInEnv).toBeNull();
+    // without blocking MCP connection the real CLI starts the session with no StoryOS tools (pending)
+    expect(r.mcpNonblockingInEnv).toBe('0');
     expect(r.runnerTokenInEnv).toBeNull();
     // Nothing secret or content-bearing in the log.
     const log = lines.join('\n');
