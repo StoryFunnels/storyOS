@@ -14,6 +14,11 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../acti
 export interface CollectedMentions {
   userIds: string[];
   recordIds: string[];
+  /**
+   * ticket #1130 / ADR-0021 §1 — a third mention kind: an AGENT (a record in the Agents database). Additive: collected here so the
+   * comment write path can wake it at emit time, and ignored by every other caller (document and field syncs wake nothing).
+   */
+  agentIds: string[];
 }
 
 /**
@@ -24,6 +29,7 @@ export interface CollectedMentions {
 export function collectMentions(content: unknown): CollectedMentions {
   const userIds = new Set<string>();
   const recordIds = new Set<string>();
+  const agentIds = new Set<string>();
   const walk = (node: unknown): void => {
     if (node == null) return;
     if (Array.isArray(node)) return node.forEach(walk);
@@ -34,12 +40,13 @@ export function collectMentions(content: unknown): CollectedMentions {
       if (typeof props.id === 'string' && props.id) {
         if (props.kind === 'record') recordIds.add(props.id);
         else if (props.kind === 'user') userIds.add(props.id);
+        else if (props.kind === 'agent') agentIds.add(props.id);
       }
     }
     Object.values(obj).forEach(walk);
   };
   walk(content);
-  return { userIds: [...userIds], recordIds: [...recordIds] };
+  return { userIds: [...userIds], recordIds: [...recordIds], agentIds: [...agentIds] };
 }
 
 @Injectable()

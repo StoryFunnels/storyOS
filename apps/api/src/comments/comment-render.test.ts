@@ -62,7 +62,8 @@ describe('renderCommentText (#235)', () => {
 
   it('collects deduped mention ids from either shape', () => {
     expect(commentMentionIds(legacy)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'] });
-    expect(commentMentionIds(blocknote)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'] });
+    // ticket #1130: a BlockNote body also reports the agents it mentions (none here); the legacy shape has no agent mention kind.
+    expect(commentMentionIds(blocknote)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'], agentIds: [] });
   });
 });
 

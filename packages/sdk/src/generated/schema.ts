@@ -4436,6 +4436,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runner/v1/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Long-poll for wakes for the agents assigned to this Runner. 200 with the claimed wakes (each with a 90-second lease and a nonce), or 204 when there is nothing. Atomic: a wake is handed to exactly one claim. 409 wake_already_claimed if wake_id names one that is taken. */
+        post: operations["RunnerApiController_claim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runner/v1/wakes/{id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew the lease on a wake this Runner holds (every 30 s). Also a liveness signal. 409 lease_lost if the lease lapsed, the run was cancelled or the wake was taken back: kill the session and discard its result. */
+        post: operations["RunnerApiController_leaseHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runner/v1/wakes/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report the adapter result for a wake this Runner holds. Idempotent on (id, nonce): a retry after a dropped response gets the same answer. Writes the Run, ends the wake, and enqueues one fresh wake if a repeat arrived mid-run. */
+        post: operations["RunnerApiController_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agent-wakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted. */
+        get: operations["AgentWakesController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agent-wakes/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. */
+        get: operations["AgentWakesController_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -7004,9 +7089,11 @@ export interface components {
             /** Format: uuid */
             database_id: string;
             /** Format: uuid */
-            state_field_id: string;
+            state_field_id?: string;
             /** Format: uuid */
-            state_option_id: string;
+            state_option_id?: string;
+            /** Format: uuid */
+            relation_field_id?: string;
             human_gate?: boolean;
             enabled?: boolean;
         };
@@ -7075,6 +7162,29 @@ export interface components {
             }[];
             runner_version: string;
             protocol_version: number;
+        };
+        WakeClaimDto: {
+            max?: number;
+            wait_seconds?: number;
+            wake_id?: string;
+        };
+        WakeLeaseDto: {
+            nonce: string;
+        };
+        WakeCompleteDto: {
+            nonce: string;
+            /** @enum {string} */
+            exit: "ok" | "error" | "limit_reached" | "aborted" | "timeout";
+            usage?: {
+                tokens_in: number;
+                tokens_out: number;
+            } | null;
+            session_id?: string;
+            summary?: string;
+            error?: string;
+            /** Format: date-time */
+            limit_reached_until?: string;
+            tool_version?: string;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -14101,6 +14211,112 @@ export interface operations {
                 "application/json": components["schemas"]["RunnerHeartbeatDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnerApiController_claim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WakeClaimDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnerApiController_leaseHeartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WakeLeaseDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnerApiController_complete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WakeCompleteDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWakesController_list: {
+        parameters: {
+            query?: {
+                agent?: string;
+                record?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentWakesController_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

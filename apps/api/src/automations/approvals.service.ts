@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
+import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
@@ -221,6 +222,14 @@ function toDto(row: ApprovalRow) {
  * `AutomationsService.tick()` via `expireStale()` rather than owning its own
  * timer, the same way `JobRunnerService`'s reaper piggybacks its own tick.
  */
+/** What a decided agent-write approval carries to the wake it causes. */
+interface AgentWriteDecision {
+  approval_id: string;
+  verdict: 'approved' | 'rejected';
+  decided_by: string;
+  reason?: string | null;
+}
+
 @Injectable()
 export class ApprovalsService implements OnModuleInit {
   private readonly logger = new Logger(ApprovalsService.name);
@@ -242,6 +251,8 @@ export class ApprovalsService implements OnModuleInit {
     // imports DatabasesModule one-way, so this is a free edge, not a new
     // cycle. Applies an approved 'database_cascade' gate (see onModuleInit).
     private readonly databases: DatabasesService,
+    // ticket #1130 / ADR-0021 §1: a decided approval the agent ASKED for (a held write) wakes that agent. RunnersModule is global.
+    private readonly agentWakes: AgentWakesService,
   ) {}
 
   /** Registers the executor JobRunnerService.enqueue() looks up by `kind`
@@ -251,8 +262,10 @@ export class ApprovalsService implements OnModuleInit {
     // #1104 — a per-agent record create/update held by AgentWriteGatesService. Same executor registry as the other gates:
     // approving enqueues it from the server-side snapshot (never from anything the approver or the agent sends).
     this.jobs.registerExecutor('agent_write_gate', async (payload) => {
-      const { action, ctx } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
+      const { action, ctx, decision } = payload as { action: AgentWriteGateSnapshot; ctx: ApprovalActionSnapshot['ctx']; decision?: AgentWriteDecision };
       await this.applyAgentWriteGate(action, ctx.workspaceId);
+      // Approved AND applied: only now does the agent have something new to look at, so wake it after the write, not before.
+      if (decision) await this.wakeAgentAfterDecision(ctx.workspaceId, action, decision);
     });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
@@ -280,6 +293,29 @@ export class ApprovalsService implements OnModuleInit {
         true,
       );
     });
+  }
+
+  /**
+   * ticket #1130 / ADR-0021 §1 — "an approval the agent asked for being decided" wakes the agent, with the verdict on the wake.
+   * Idempotent on the approval id (a retried job or a replayed decision never makes a second wake). A wake that is refused (the
+   * agent is not a Your-own-AI agent, its owner left) is the queue's rule working: it must not fail the decision.
+   */
+  private async wakeAgentAfterDecision(workspaceId: string, action: AgentWriteGateSnapshot, decision: AgentWriteDecision): Promise<void> {
+    try {
+      await this.agentWakes.enqueue({
+        workspaceId,
+        agentId: action.agent_id,
+        reason: 'approval_decided',
+        recordId: action.record_id,
+        requestedBy: decision.decided_by,
+        sourceKey: `approval:${decision.approval_id}`,
+        detail: { approval_id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) },
+        context: { approval: { id: decision.approval_id, verdict: decision.verdict, ...(decision.reason ? { reason: decision.reason } : {}) } },
+        materialize: true,
+      });
+    } catch (error) {
+      this.logger.warn(`could not wake agent ${action.agent_id} after approval ${decision.approval_id}: ${String(error)}`);
+    }
   }
 
   /**
@@ -620,10 +656,18 @@ export class ApprovalsService implements OnModuleInit {
         runId: updated.runId,
         actionIndex: updated.actionIndex,
         kind: snapshot.action.type,
-        payload: { action: snapshot.action, ctx: snapshot.ctx },
+        payload: {
+          action: snapshot.action,
+          ctx: snapshot.ctx,
+          // The person who decided, carried to the executor so the agent's wake is made as THEIR action (the access check's subject).
+          decision: { approval_id: updated.id, verdict: 'approved', decided_by: actorId } satisfies AgentWriteDecision,
+        },
         idempotencyKey: `approval:${updated.id}`,
         approvalId: updated.id,
       });
+    } else if (snapshot.action.type === 'agent_write_gate') {
+      // Rejected: nothing is applied, but the agent asked and was told no, so it is woken to read the answer (and the reason).
+      await this.wakeAgentAfterDecision(workspaceId, snapshot.action, { approval_id: updated.id, verdict: 'rejected', decided_by: actorId, reason: reason ?? null });
     } else if (snapshot.action.type === 'write_back_push') {
       // #282 AC — rejecting makes no outbound call (nothing enqueued above),
       // but is still recorded in the source's own run log, not only as an

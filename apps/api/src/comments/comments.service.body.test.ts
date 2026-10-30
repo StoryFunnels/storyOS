@@ -54,7 +54,7 @@ describe('comment body (#180) — legacy segments vs BlockNote', () => {
   });
 
   it('extracts @user + #record mentions from a BlockNote doc', () => {
-    expect(commentBodyMentions(blocknote)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'] });
+    expect(commentBodyMentions(blocknote)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'], agentIds: [] }); // ticket #1130: the agents it mentions (none)
   });
 
   it('builds a plain-text preview from a legacy body (#235 — unresolved @user → @someone, #record → #record)', () => {

@@ -76,9 +76,73 @@ export class AgentTriggerSubscriber implements OnModuleInit {
     await (this.chains.get(recordId) ?? Promise.resolve());
   }
 
+  /**
+   * ticket #1130 / ADR-0021 §1 — a RELATION binding: "when relation field F on database D links to this agent, wake it". It fires on
+   * the `record_linked` event, which carries `relationFieldId`, `linkDirection` and the other side's ids (the agents now linked).
+   * Only `link` fires (an unlink wakes nothing). The wake's author is the event's actor, so a person who cannot see the agent or the
+   * record can never wake it (AgentWakesService.enqueue is the one place that rule lives).
+   *
+   * Honest limit: an inline write carries the SET attached to the record, not the delta, so a write that re-sends an unchanged
+   * relation value looks like a link. The app sends only fields that changed, and the open wake coalesces a burst, so the cost is
+   * at most one extra wake after the previous one finished.
+   */
+  private async handleLinked(event: DomainEvent): Promise<void> {
+    if (event.linkDirection !== 'link' || !event.relationFieldId) return;
+    const { agentsDb, runsDb, triggersDb } = await this.agents.findPackDbs(event.workspaceId);
+    if (!agentsDb || !runsDb || !triggersDb) return;
+    if (event.databaseId === runsDb.id || event.databaseId === triggersDb.id) return;
+
+    const bindings = await this.recordsService.list(triggersDb.id, { limit: MAX_BINDINGS });
+    const armed = bindings.data.filter(
+      (b) => b.values['enabled'] === true && b.values['database'] === event.databaseId && b.values['relation_field'] === event.relationFieldId,
+    );
+    if (armed.length === 0) return;
+    const linkedAgentIds = new Set(
+      (event.linkedRelations ?? [])
+        .filter((l) => l.fieldId === event.relationFieldId && l.otherDatabaseId === agentsDb.id)
+        .flatMap((l) => l.otherRecordIds),
+    );
+    if (linkedAgentIds.size === 0) return;
+
+    for (const binding of armed) {
+      const agentRef = (binding.values['agent'] as Array<{ id: string }> | undefined)?.[0];
+      if (!agentRef || !linkedAgentIds.has(agentRef.id)) continue;
+      if (event.depth >= MAX_DEPTH) {
+        this.logger.warn(`agent trigger ${binding.id}: depth ${event.depth} — loop guard, not dispatching`);
+        continue;
+      }
+      const agentRecord = await this.recordsService.get(agentsDb.id, agentRef.id).catch(() => null);
+      if (!agentRecord || agentRecord.values['enabled'] !== true) continue;
+      const owner = await this.agents.resolveAgentOwner(event.workspaceId, agentRecord);
+      if (!owner) {
+        this.logger.warn(`agent ${agentRecord.id}: owner is not a member of this workspace — not dispatching`);
+        continue;
+      }
+      try {
+        await this.agents.dispatchRun({
+          workspaceId: event.workspaceId,
+          agentsDb,
+          runsDb,
+          agentRecord,
+          // The Runs "Trigger" select has no label for this yet; a binding is a binding, so it reads like the state kind.
+          trigger: 'State change',
+          wakeReason: 'assigned',
+          inputRecordId: event.recordId,
+          owner,
+          requestedBy: event.actorId,
+          retries: 2,
+          depth: event.depth + 1,
+        });
+      } catch (error) {
+        // A refusal (the author cannot see the record or the agent) is the rule working; it must not stop the other bindings.
+        this.logger.warn(`agent trigger ${binding.id}: not dispatched — ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
   private async handle(event: DomainEvent): Promise<void> {
+    if (event.type === 'record_linked') return this.handleLinked(event);
     // A state transition is a create-into-a-state or an update-of-the-state.
-    // record_linked is not a state change.
     if (event.type !== 'record_created' && event.type !== 'record_updated') return;
 
     const { agentsDb, runsDb, triggersDb } = await this.agents.findPackDbs(event.workspaceId);
@@ -160,27 +224,39 @@ export class AgentTriggerSubscriber implements OnModuleInit {
       // ── Loop guard (b): per-record, per-agent cooldown ──────────────────────
       // Claimed last, and only for a dispatch we are actually about to make, so
       // a skipped run never burns the window.
-      const key = `${agentRecord.id}:${event.recordId}`;
-      const until = this.cooldowns.get(key);
-      if (until !== undefined && until > Date.now()) continue;
-      this.cooldowns.set(key, Date.now() + this.cooldownMs);
+      // ticket #1130 / ADR-0021 §1: for a Your-own-AI agent the in-memory cooldown is replaced by DURABLE coalescing (one open wake per
+      // agent and record, which survives a restart and is shared between replicas), so a second transition inside the window merges
+      // into the open wake instead of being dropped. Every other mode keeps the cooldown exactly as it was.
+      if (!(await this.agents.isOwnAi(agentsDb.id, agentRecord))) {
+        const key = `${agentRecord.id}:${event.recordId}`;
+        const until = this.cooldowns.get(key);
+        if (until !== undefined && until > Date.now()) continue;
+        this.cooldowns.set(key, Date.now() + this.cooldownMs);
+      }
 
       // Dispatch through the shared run path: run class stamped before any step
       // executes, failures land as a Failed Run with the error in Steps rather
       // than as an exception (ADR-0010 §3, §5).
-      await this.agents.dispatchRun({
-        workspaceId: event.workspaceId,
-        agentsDb,
-        runsDb,
-        agentRecord,
-        trigger: 'State change',
-        inputRecordId: event.recordId,
-        owner,
-        // Unattended: retry a transient failure twice with backoff before the
-        // Run lands as the dead-letter.
-        retries: 2,
-        depth: event.depth + 1,
-      });
+      try {
+        await this.agents.dispatchRun({
+          workspaceId: event.workspaceId,
+          agentsDb,
+          runsDb,
+          agentRecord,
+          trigger: 'State change',
+          inputRecordId: event.recordId,
+          owner,
+          // ticket #1130: whose action moved the record (a Your-own-AI wake is created only if they can see the record and the agent).
+          requestedBy: event.actorId,
+          // Unattended: retry a transient failure twice with backoff before the
+          // Run lands as the dead-letter.
+          retries: 2,
+          depth: event.depth + 1,
+        });
+      } catch (error) {
+        // A wake that is refused (the person who moved the record cannot see the agent or the record) must not stop the other bindings.
+        this.logger.warn(`agent trigger ${binding.id}: not dispatched — ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 

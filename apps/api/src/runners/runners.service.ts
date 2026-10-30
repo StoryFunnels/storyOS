@@ -33,6 +33,8 @@ import {
 import type { RunnerPairInput, RunnerReport } from './runner.dto';
 import { generatePairingCode, hashPairingCode, hashRunnerToken, mintRunnerToken, normalizePairingCode, safeEqualHex } from './runner-secrets';
 import { canonicalJson, presentRunner, recordRunnerEvent } from './runner-present';
+import { AgentWakesService, returnClaimedWakesTx } from './agent-wakes.service';
+import type { WakeRow } from './agent-wakes.service';
 import type { RunnerRow } from './runner-present';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
@@ -55,7 +57,10 @@ export const GUEST_RUNNER_MESSAGE = 'Guests cannot pair a Runner. Ask a workspac
  */
 @Injectable()
 export class RunnersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly wakes: AgentWakesService,
+  ) {}
 
   // ---------------------------------------------------------------- pairing (the person, in the app)
 
@@ -440,6 +445,7 @@ export class RunnersService {
    * refused on its next call), unassigns every agent, and hands the Runner's claimed wakes back to the queue (see below).
    */
   async revoke(runner: RunnerRow, reason: RunnerRevokeReason, actor: { actorId: string | null; source: ChangeSource | null }, now = new Date()): Promise<boolean> {
+    let returned: WakeRow[] = [];
     const revoked = await this.db.transaction(async (tx) => {
       const [row] = await tx
         .update(runners)
@@ -448,6 +454,8 @@ export class RunnersService {
         .returning();
       if (!row) return false;
       await tx.delete(runnerAgents).where(eq(runnerAgents.runnerId, runner.id));
+      // ADR-0021 §3: its claimed wakes go back to the queue in the SAME transaction (ticket #1131 AC3, wired by ticket #1130).
+      returned = await returnClaimedWakesTx(tx, runner.id);
       await recordRunnerEvent(tx, {
         workspaceId: runner.workspaceId,
         action: 'revoked',
@@ -458,20 +466,8 @@ export class RunnersService {
       });
       return true;
     });
-    if (revoked) await this.returnClaimedWakes(runner.id);
+    if (revoked) await this.wakes.afterReturned(returned);
     return revoked;
-  }
-
-  /**
-   * Removing a Runner returns the wakes it had claimed to the queue (ADR-0021 §3, ticket #1131 AC3).
-   *
-   * THERE IS NO WAKE QUEUE YET: `agent_wakes` is ticket #1130. This is the documented hook #1130 fills in
-   * (`UPDATE agent_wakes SET status = 'queued', runner_id = NULL … WHERE runner_id = $1 AND status = 'claimed'`, in the same
-   * transaction as the revoke). Until then there is nothing to return, so AC3's first half is NOT verified by this ticket; its
-   * second half (the token is refused on the next call) is, and is tested.
-   */
-  protected async returnClaimedWakes(runnerId: string): Promise<void> {
-    void runnerId;
   }
 
   // ---------------------------------------------------------------- agent -> Runner assignment

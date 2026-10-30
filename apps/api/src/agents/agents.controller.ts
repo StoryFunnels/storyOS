@@ -8,19 +8,29 @@ import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.gu
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AgentsService } from './agents.service';
 
-/** A `(database, state, agent)` binding (#211, ADR-0010 §5). */
-const createTriggerSchema = z.object({
-  /** The agent record's uuid or public number. */
-  agent: z.string().min(1),
-  database_id: z.uuid(),
-  /** The select field on that database whose options are the states. */
-  state_field_id: z.uuid(),
-  /** The option that fires the agent when a record enters it. */
-  state_option_id: z.uuid(),
-  /** A gated state never auto-fires an agent out of it — humans only. */
-  human_gate: z.boolean().optional(),
-  enabled: z.boolean().optional(),
-});
+/**
+ * An agent binding (#211, ADR-0010 §5; ticket #1130 adds the second kind): EITHER `(database, state, agent)` — a record entering a
+ * state runs the agent — OR `(database, relation field, agent)` — a record's relation field linking to the agent wakes it.
+ */
+const createTriggerSchema = z
+  .object({
+    /** The agent record's uuid or public number. */
+    agent: z.string().min(1),
+    database_id: z.uuid(),
+    /** State binding: the select field on that database whose options are the states. */
+    state_field_id: z.uuid().optional(),
+    /** State binding: the option that fires the agent when a record enters it. */
+    state_option_id: z.uuid().optional(),
+    /** Relation binding: a relation field on that database that points at the Agents database. Linking it to the agent wakes it. */
+    relation_field_id: z.uuid().optional(),
+    /** A gated state never auto-fires an agent out of it — humans only. State bindings only. */
+    human_gate: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine(
+    (v) => (v.relation_field_id ? !v.state_field_id && !v.state_option_id : Boolean(v.state_field_id && v.state_option_id)),
+    { message: 'Give either state_field_id and state_option_id (a state binding) or relation_field_id (a relation binding), not both and not neither' },
+  );
 
 class CreateAgentTriggerDto extends createZodDto(createTriggerSchema) {}
 

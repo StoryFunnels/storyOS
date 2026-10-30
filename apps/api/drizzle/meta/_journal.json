@@ -855,6 +855,13 @@
       "when": 1793299329784,
       "tag": "0121_shocking_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1793301394247,
+      "tag": "0122_many_mantis",
+      "breakpoints": true
     }
   ]
 }

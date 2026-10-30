@@ -545,10 +545,8 @@ describe('removing a Runner, and the agents on it', () => {
     expect(revoked.actor_id).toBe(owner.id);
   });
 
-  it('returning claimed wakes is a documented no-op hook until #1130 builds the wake queue', async () => {
-    // There is no agent_wakes table yet, so there is nothing to return. Pinning that this is a hook, not a silent claim.
-    expect((await pool.query("select to_regclass('public.agent_wakes') as t")).rows[0].t).toBeNull();
-  });
+  // Returning a removed Runner's claimed wakes to the queue (ADR-0021 §3, ticket #1131 AC3's first half) is wired by ticket #1130 and
+  // tested with the wake queue in test/agent-wakes.test.ts ('removing a Runner returns the wakes it had claimed').
 
   it('a Runner whose owner leaves the workspace is refused on its next call and revoked by the sweeper', async () => {
     const leaver = await joinAs(app, admin.token, ws, 'RunnerLeaver', 'member');
