@@ -44,7 +44,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
   const pathname = usePathname();
   const approvals = usePendingApprovalCount(ws);
   const packUpdates = usePackUpdateCount(ws);
-  // #967 — "Connect your AI": a gold 1 and a tint until the workspace has a connected AI, then it is gone.
+  // #967 — "Connect your AI": a 1 (neutral, #1163) until the workspace has a connected AI, then it is gone.
   // A guest cannot open the page (settings-nav `canConnectAi`), so a guest is never nudged toward it.
   const aiConnected = useAiConnected(ws);
   const hints = useDismissedHints(ws);
@@ -101,7 +101,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
             active: pathname === `/w/${ws}/settings/connect-ai`,
             count: '1' as string | null,
             countHint: 'Your workspace has no connected AI yet' as string | undefined,
-            tint: true,
+            agentBadge: false,
           },
         ]
       : []),
@@ -112,11 +112,12 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
       active: pathname === `/w/${ws}/packs` || !!pathname?.startsWith(`/w/${ws}/packs/`),
       count: goldCountLabel(packUpdates.data ?? 0),
       countHint: 'Installed packs with an update available',
+      agentBadge: false,
     },
-  ].map((r) => ({ tint: false, ...r }));
+  ].map((r) => ({ agentBadge: true, ...r }));
 
-  const renderRow = ({ href, label, Icon, active, count, countHint, tint }: (typeof rows)[number]) => (
-    <SidebarRow key={href} depth={0} active={active} className={tint ? 'bg-accent-soft' : undefined}>
+  const renderRow = ({ href, label, Icon, active, count, countHint, agentBadge }: (typeof rows)[number]) => (
+    <SidebarRow key={href} depth={0} active={active}>
       <Link
         href={href}
         aria-current={active ? 'page' : undefined}
@@ -130,7 +131,11 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
           <span
             title={countHint}
             aria-label={countHint ? `${count}: ${countHint}` : count}
-            className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent"
+            className={cn(
+              'flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-micro font-bold tabular-nums',
+              // #1163 — gold counts AGENT work waiting on you; a setup nudge or an update count is not that.
+              agentBadge ? 'bg-accent text-on-accent' : 'bg-primary text-[var(--text-on-dark)]',
+            )}
           >
             {count}
           </span>

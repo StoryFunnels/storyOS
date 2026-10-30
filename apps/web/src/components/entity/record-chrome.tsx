@@ -157,7 +157,7 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
         aria-label={starred ? 'Unstar' : 'Star'}
         className={HEADER_ICON_BTN}
       >
-        <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
+        <Star className={cn('h-4 w-4', starred && 'fill-primary-text text-primary-text')} />
       </button>
     </Tooltip>
   );
@@ -168,7 +168,7 @@ export function StarMenuItem({ ws, rec }: { ws: string; rec: string }) {
   const { starred, toggle } = useStarred(ws, rec);
   return (
     <DropdownMenuItem onSelect={() => toggle.mutate()}>
-      <Star className={cn('mr-2 h-3.5 w-3.5', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />{' '}
+      <Star className={cn('mr-2 h-3.5 w-3.5', starred && 'fill-primary-text text-primary-text')} />{' '}
       {starred ? 'Unstar' : 'Star'}
     </DropdownMenuItem>
   );
@@ -180,7 +180,7 @@ export function WatchMenuItem({ ws, db, rec }: { ws: string; db: string; rec: st
   const watching = query.data?.watching ?? false;
   return (
     <DropdownMenuItem disabled={toggle.isPending} onSelect={() => toggle.mutate(!watching)}>
-      <Eye className={cn('mr-2 h-3.5 w-3.5', watching && 'text-[var(--accent)]')} /> {watching ? 'Unwatch' : 'Watch'}
+      <Eye className={cn('mr-2 h-3.5 w-3.5', watching && 'text-primary-text')} /> {watching ? 'Unwatch' : 'Watch'}
     </DropdownMenuItem>
   );
 }
@@ -199,7 +199,7 @@ export function WatchButton({ ws, db, rec }: { ws: string; db: string; rec: stri
         aria-label={watching ? 'Unwatch' : 'Watch'}
         className={HEADER_ICON_BTN}
       >
-        <Eye className={cn('h-4 w-4', watching && 'text-[var(--accent)]')} />
+        <Eye className={cn('h-4 w-4', watching && 'text-primary-text')} />
       </button>
     </Tooltip>
   );
@@ -442,7 +442,7 @@ function DelegateToAgentDialog({
           {!pack.data?.exists ? (
             <p className="text-body text-ink-secondary">
               Agents aren&apos;t enabled yet — enable them from{' '}
-              <a href={`/w/${ws}/settings/integrations/delegate-agent`} className="text-accent hover:underline">
+              <a href={`/w/${ws}/settings/integrations/delegate-agent`} className="text-primary-text underline">
                 Integrations → Delegate to agent
               </a>
               , then create at least one enabled agent record.

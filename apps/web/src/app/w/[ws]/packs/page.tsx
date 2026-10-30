@@ -247,7 +247,7 @@ export default function PacksPage() {
               <div className="flex items-start justify-between gap-2">
                 <p className="text-prose font-medium text-ink">{pack.name}</p>
                 {installState && (
-                  <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
+                  <span className="shrink-0 rounded-full border border-border-default bg-hover px-2 py-0.5 text-micro font-medium text-ink">
                     {installState.update_available ? 'Update available' : 'Installed'}
                   </span>
                 )}
@@ -311,7 +311,7 @@ export default function PacksPage() {
                 <p className="text-prose font-medium text-ink">{pack.name}</p>
                 <div className="flex items-center gap-1">
                   {installState && (
-                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium text-ink">
+                    <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-micro font-medium text-ink">
                       {installState.update_available ? 'Update' : 'Installed'}
                     </span>
                   )}

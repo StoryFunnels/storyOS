@@ -658,7 +658,7 @@ function SplitPaneDivider({
         className={cn(
           'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-default transition-colors',
           'group-hover:bg-border-strong group-focus-visible:bg-[var(--focus-ring-color)]',
-          active && 'bg-[var(--accent)]',
+          active && 'bg-primary-text',
         )}
       />
     </div>
@@ -748,7 +748,7 @@ function PeekDivider({
         className={cn(
           'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-default transition-colors',
           'group-hover:bg-border-strong group-focus-visible:bg-[var(--focus-ring-color)]',
-          active && 'bg-[var(--accent)]',
+          active && 'bg-primary-text',
         )}
       />
     </div>

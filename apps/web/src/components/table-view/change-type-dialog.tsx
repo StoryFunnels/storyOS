@@ -111,7 +111,7 @@ export function ChangeTypeDialog({
           <p className="text-body text-ink-secondary">
             {dryRun.records_affected} record(s) will convert.{' '}
             {dryRun.lossy_conversions > 0 ? (
-              <span className="text-warning">
+              <span className="text-warning-text">
                 {dryRun.lossy_conversions} value(s) cannot convert and will be cleared.
               </span>
             ) : (

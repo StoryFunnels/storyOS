@@ -243,9 +243,9 @@ function collisionEntries(preview: PreviewResult): CollisionEntry[] {
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
   const style =
     action === 'collision'
-      ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning,#92400e)]'
+      ? 'bg-warning/10 text-warning-text'
       : action === 'create'
-        ? 'bg-accent-soft text-[var(--accent)]'
+        ? 'bg-primary text-[var(--text-on-dark)]'
         : 'bg-hover text-muted';
   const label =
     action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
@@ -379,14 +379,14 @@ function AgentChoiceControl({
             type="button"
             onClick={() => setShowDiff((v) => !v)}
             aria-expanded={showDiff}
-            className="text-label font-medium text-accent hover:underline"
+            className="text-label font-medium text-primary-text underline"
           >
             {showDiff ? 'Hide changes' : 'Show changes'}
           </button>
         )}
       </span>
       {changesWhatItMayDo(update.changed_fields) && (
-        <span className="mt-1 block text-label text-warning">
+        <span className="mt-1 block text-label text-warning-text">
           Taking the update also changes what this agent is allowed to do:{' '}
           {changedFieldsText(
             update.changed_fields.filter((f) => f === 'scopes' || f === 'approval_policy'),

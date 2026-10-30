@@ -87,13 +87,13 @@ function Preview({ ws, db, rec, snapshot }: { ws: string; db: string; rec: strin
         </span>
       )}
       {snapshot.media_field_id && imageKnown && !image && (
-        <span className="mt-2 flex items-start gap-1.5 text-label text-warning">
+        <span className="mt-2 flex items-start gap-1.5 text-label text-warning-text">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           This record has no image in “{mediaField?.displayName}” — the post will go out without one.
         </span>
       )}
       {reading.over && (
-        <span className="mt-2 flex items-start gap-1.5 text-label text-warning">
+        <span className="mt-2 flex items-start gap-1.5 text-label text-warning-text">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           {reading.length} of {reading.limit} characters — too long for {TARGET_LABEL[snapshot.target]}; it will be refused before it is sent.
         </span>
