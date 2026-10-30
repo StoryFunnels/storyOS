@@ -60,6 +60,8 @@ export class FakeServer {
   leaseSeconds = 90;
   heartbeatSeconds = 30;
   pausedUntil = 0;
+  /** Called synchronously at the moment a completion arrives, before it is recorded (lets a test look at the Runner's disk at that instant). */
+  onCompletion: ((wake: FakeWake) => void) | null = null;
 
   async listen(): Promise<void> {
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -177,8 +179,11 @@ export class FakeServer {
         return;
       }
       const until = Date.now() + waitMs;
+      // A client that hung up must not claim anything afterwards: the wake would be marked claimed and delivered to nobody.
+      let gone = false;
+      req.socket.once('close', () => (gone = true));
       const tick = (): void => {
-        if (res.destroyed) return;
+        if (gone || res.destroyed || req.socket.destroyed) return;
         const taken: ClaimedWake[] = [];
         if (this.runnerStatus === 'active' && !paused) {
           for (const w of this.wakes.values()) {
@@ -220,6 +225,7 @@ export class FakeServer {
       if (!w || w.nonce === null || w.nonce !== body.nonce) return fail(409, 'lease_lost', 'This Runner no longer holds that wake.', { wake_id: done[1] });
       if (w.status !== 'claimed') return json(200, { wake_id: w.id, status: w.status, requeued: w.status === 'queued', repeated: true });
       const c = body as unknown as CompleteRequest;
+      this.onCompletion?.(w);
       w.completions.push(c);
       if (c.exit === 'limit_reached' && c.limit_reached_until) this.pausedUntil = Date.parse(c.limit_reached_until);
       w.status = c.exit === 'ok' ? 'done' : c.exit === 'limit_reached' ? 'queued' : c.exit === 'aborted' ? 'canceled' : 'failed';

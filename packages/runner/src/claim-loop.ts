@@ -292,6 +292,10 @@ export class ClaimLoop {
         store.remove(wake.id);
         return;
       }
+      // Tidy BEFORE reporting: once the server has the result the wake is over, and nothing from this run may be left lying where the
+      // next one will look (ADR-0021 section 7, point 4). Doing it after the report would leave a window in which the report is
+      // visible and the folder is not yet clean.
+      if (workdir) clearScratchQuietly(workdir);
       const completion = toCompleteRequest(wake.nonce, result);
       phase = 'completing';
       claim.phase = 'completing';
@@ -301,13 +305,7 @@ export class ClaimLoop {
     } finally {
       heartbeat.abort();
       await lease.catch(() => undefined);
-      if (workdir) {
-        try {
-          clearScratch(workdir);
-        } catch {
-          // the folder is the Runner's own; a failure to tidy it must not hide the result
-        }
-      }
+      if (workdir) clearScratchQuietly(workdir);
       forgetSecret(wake.credential.token);
     }
   }
@@ -369,6 +367,15 @@ export class ClaimLoop {
       allowedNativeTools: [],
       protocol: PROTOCOL_VERSION,
     };
+  }
+}
+
+/** The folder is the Runner's own; a failure to tidy it must not hide the result. */
+function clearScratchQuietly(workdir: string): void {
+  try {
+    clearScratch(workdir);
+  } catch {
+    // ignored on purpose
   }
 }
 

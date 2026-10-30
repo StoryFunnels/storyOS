@@ -104,6 +104,17 @@ describe('pair, start, claim, run with the stub adapter, report', () => {
     expect(state().inflight).toEqual([]);
   });
 
+  it('the agent folder is already clean at the instant the server receives the report', async () => {
+    server.runnerStatus = 'active';
+    writeConfig(h.home, { server: server.url, token: TOKEN, runnerId: 'runner-1', runnerName: 'Test', workspaceId: server.workspaceId, pairedAt: new Date().toISOString() });
+    const wake = server.enqueue();
+    let seen: string[] | null = null;
+    server.onCompletion = (w) => (seen = readdirSync(join(h.home.agents, server.workspaceId, w.agentId, 'scratch')));
+    startRunner(new StubAdapter());
+    await until(() => wake.completions.length === 1, 'the report');
+    expect(seen).toEqual([]); // not "eventually": at the moment of the report
+  });
+
   it('says what happened when the person cancels, and forgets the token', async () => {
     const io = testIo();
     const p = pair({ home: h.home, io, server: server.url, code: CODE, detect: async () => FAKE_TOOLS, pollMs: 10 });
@@ -363,8 +374,9 @@ describe('concurrency and results', () => {
     writeConfig(h.home, { server: server.url, token: TOKEN, runnerId: 'runner-1', runnerName: 'Test', workspaceId: server.workspaceId, pairedAt: new Date().toISOString() });
   };
 
-  it('runs one wake at a time by default, and two when told it may', async () => {
-    for (const [limit, expectedMax] of [[1, 1], [2, 2]] as const) {
+  // One test per limit: each gets its own fake server and Runner home (beforeEach), so a long poll left open by one cannot claim the other's wakes.
+  for (const [limit, expectedMax] of [[1, 1], [2, 2]] as const) {
+    it(`runs at most ${expectedMax} wake(s) at once with --concurrency ${limit}`, async () => {
       seed();
       let live = 0;
       let max = 0;
@@ -387,10 +399,8 @@ describe('concurrency and results', () => {
       r.ctl.abort();
       await r.promise;
       expect(max).toBe(expectedMax);
-      server.wakes.clear();
-      clearSecrets();
-    }
-  });
+    });
+  }
 
   it('reports a failure, a limit stop with its time, and redacts a credential an error quoted', async () => {
     seed();
