@@ -246,7 +246,7 @@ export function WorkspaceBuild({
         type="button"
         disabled={!description.trim()}
         onClick={() => build.mutate(description.trim())}
-        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--text-on-accent)] disabled:opacity-40"
       >
         Build my workspace
       </button>
