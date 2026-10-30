@@ -148,7 +148,7 @@ export function TemplateCard({
       type="button"
       className={cn(
         'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
-        selected ? 'border-[var(--accent)] bg-accent-soft' : 'border-border-default hover:bg-hover',
+        selected ? 'border-primary-text bg-active' : 'border-border-default hover:bg-hover',
       )}
       onClick={onClick}
     >

@@ -274,7 +274,7 @@ function PendingInviteRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm text-ink">{invite.email}</p>
-          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-meta font-medium text-warning">
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-meta font-medium text-warning-text">
             Pending
           </span>
         </div>

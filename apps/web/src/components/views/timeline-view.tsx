@@ -647,7 +647,7 @@ export function TimelineView({
                   const last = leftFields[leftFields.length - 1]!;
                   beginResize(last.id, colW(last), e.clientX);
                 }}
-                className="absolute bottom-0 right-0 top-0 z-30 w-1.5 cursor-col-resize hover:bg-[var(--accent)]/40"
+                className="absolute bottom-0 right-0 top-0 z-30 w-1.5 cursor-col-resize hover:bg-border-strong"
                 title="Drag to resize"
               />
             )}
@@ -668,7 +668,7 @@ export function TimelineView({
             {/* Today marker */}
             {today >= range.min && today <= range.max && (
               <div
-                className="pointer-events-none absolute z-[3] w-0.5 bg-[var(--accent)]/70"
+                className="pointer-events-none absolute z-[3] w-0.5 bg-primary-text"
                 style={{ left: (today - range.min) * px, top: HEADER_H, bottom: 0 }}
               />
             )}
@@ -747,7 +747,7 @@ export function TimelineView({
                 pointerup, via startBarPointer. */}
             {displayBars.map((bar) => {
               const { row, start, end, milestone, fromBaseline } = bar;
-              const color = (colorField && optionColor(colorField, row.values[colorField.apiName])) || 'var(--accent)';
+              const color = (colorField && optionColor(colorField, row.values[colorField.apiName])) || 'var(--primary-text)';
               const x = (start - range.min) * px;
               const handleClick = (e: MouseEvent) => {
                 if (didDragRef.current) {
@@ -848,13 +848,13 @@ export function TimelineView({
                     <>
                       <span
                         onPointerDown={(e) => startBarPointer(e, bar, 'resize-start')}
-                        className="absolute cursor-ew-resize hover:bg-[var(--accent)]/40"
+                        className="absolute cursor-ew-resize hover:bg-border-strong"
                         style={{ left: x - 3, top: ROW_H / 2 - 11, width: 8, height: 22 }}
                         title="Drag to resize"
                       />
                       <span
                         onPointerDown={(e) => startBarPointer(e, bar, 'resize-end')}
-                        className="absolute cursor-ew-resize hover:bg-[var(--accent)]/40"
+                        className="absolute cursor-ew-resize hover:bg-border-strong"
                         style={{ left: x + width - 5, top: ROW_H / 2 - 11, width: 8, height: 22 }}
                         title="Drag to resize"
                       />

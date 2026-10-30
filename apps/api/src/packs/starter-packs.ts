@@ -72,6 +72,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'agency-os',
       name: 'Agency OS',
       version: '1.0.0',
+      why: 'You run client work and need to see every client, what you are doing for them, and what is slipping.',
+      can: [
+        'See every client’s health on one board',
+        'Link projects and tasks to the client they are for',
+        'Spot a client going quiet before they leave',
+      ],
       scenario: 'pack',
       summary:
         'Clients, projects and a task system to run an agency, with a gated onboarding agent and a ' +
@@ -297,6 +303,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'client-portal',
       name: 'Client Portal',
       version: '1.0.0',
+      why: 'You want a client to approve work without the email back-and-forth.',
+      can: [
+        'Share one space with a client, and nothing else',
+        'Let the client approve each task or ask for changes',
+        'See what is waiting on the client at a glance',
+      ],
       scenario: 'pack',
       summary:
         'A client-shareable space with tasks, deliverables, meetings and requests, a client-approval ' +
@@ -504,6 +516,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'dev-project-os',
       name: 'Dev Project OS',
       version: '1.0.0',
+      why: 'You want the original dev setup: issues, sprints and releases in one space.',
+      can: [
+        'Sort new issues in a Triage inbox',
+        'Run lightweight sprints',
+        'Write release notes as you ship',
+      ],
       scenario: 'pack',
       summary:
         'Issues, sprints and releases for a dev team, with a gated triage agent and a release-status ' +
@@ -731,6 +749,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'content-engine',
       name: 'Content Engine',
       version: '1.0.0',
+      why: 'You publish articles and need to see what is an idea, being written, in edit or ready.',
+      can: [
+        'Move each article through its stages on a board',
+        'Group articles into topic clusters',
+        'Plan campaigns around what is ready to go',
+      ],
       scenario: 'pack',
       summary:
         'An editorial pipeline with topic clusters and campaigns, a gated drafting agent, and a ' +
@@ -919,6 +943,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'book-launch',
       name: 'Book Launch',
       version: '1.0.0',
+      why: 'You are writing a book and planning its launch.',
+      can: [
+        'Track every chapter from outline to final',
+        'Keep research notes next to the chapter they belong to',
+        'Plan launch tasks and appearances on one list',
+      ],
       scenario: 'pack',
       summary:
         'A manuscript board, research notes and a launch campaign, with a gated revision agent and a ' +
@@ -1151,6 +1181,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'coaching-os',
       name: 'Coaching OS',
       version: '1.0.0',
+      why: 'You coach people through programs and regular sessions.',
+      can: [
+        'See every session on a calendar',
+        'Know which client is in which program',
+        'Keep the action items each session produces',
+      ],
       scenario: 'pack',
       summary:
         'Clients, programs and sessions for a coaching practice, with a gated session-notes agent and ' +
@@ -1352,6 +1388,12 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       slug: 'consulting-os',
       name: 'Consulting OS',
       version: '1.0.0',
+      why: 'You sell consulting work and then deliver it.',
+      can: [
+        'Track proposals from draft to won or lost',
+        'Watch hours against each engagement’s budget',
+        'Turn a won proposal into delivery tasks',
+      ],
       scenario: 'pack',
       summary:
         'A proposal pipeline and engagement tracker for consulting work, with a gated follow-up agent ' +

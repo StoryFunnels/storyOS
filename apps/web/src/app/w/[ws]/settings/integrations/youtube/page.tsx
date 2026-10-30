@@ -319,7 +319,7 @@ export default function YouTubeIntegrationPage() {
             ))}
           </div>
           {created && (
-            <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3 sm:flex-row sm:items-center">
+            <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-hover p-3 sm:flex-row sm:items-center">
               <p className="flex-1 text-body text-ink">
                 {created.sourceAttached ? (
                   <>

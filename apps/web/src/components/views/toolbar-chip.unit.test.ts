@@ -6,10 +6,12 @@ import { CHIP_COUNT, TOOLBAR_BTN, chipClass } from './toolbar-chip';
 const read = (f: string) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8');
 
 describe('toolbar chips (#992)', () => {
-  it('an active chip carries the gold border and tint; an idle one does not', () => {
-    expect(chipClass(true)).toMatch(/border-\[color-mix\(in_srgb,var\(--accent\)_55%/);
-    expect(chipClass(true)).toMatch(/bg-\[color-mix\(in_srgb,var\(--accent\)_10%/);
-    expect(chipClass(false)).not.toMatch(/--accent/);
+  // #1163 — was "the gold border and tint". An active filter is not an agent acting: it is the neutral selected treatment.
+  it('an active chip carries the neutral selected border and fill, never gold; an idle one does not', () => {
+    expect(chipClass(true)).toMatch(/border-border-strong/);
+    expect(chipClass(true)).toMatch(/\bbg-active\b/);
+    expect(chipClass(true)).not.toMatch(/accent/);
+    expect(chipClass(false)).not.toMatch(/accent|bg-active/);
     expect(chipClass(false)).toMatch(/border-border-default/);
   });
 
