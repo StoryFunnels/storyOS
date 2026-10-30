@@ -641,3 +641,30 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
     expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
   });
 });
+
+describe('cleanViewConfig — hidden board columns (#1158)', () => {
+  const GROUP = '11111111-1111-4111-8111-111111111111';
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+  const [TRIAGE, TODO, GONE] = [
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  ];
+  const options = new Map([
+    [GROUP, new Set([TRIAGE, TODO])],
+    [OTHER, new Set(['dddddddd-dddd-4ddd-8ddd-dddddddddddd'])],
+  ]);
+  const clean = (cfg: Partial<ViewConfig>) =>
+    cleanViewConfig({ ...BASE, ...cfg } as ViewConfig, new Set([GROUP, OTHER]), new Set(), options).hidden_option_ids;
+
+  it('keeps live ids and drops only the dangling one', () => {
+    expect(clean({ group_by_field_id: GROUP, hidden_option_ids: [TRIAGE, GONE, TODO] })).toEqual([TRIAGE, TODO]);
+  });
+  it('drops ids that belong to a different field than the current group-by', () => {
+    expect(clean({ group_by_field_id: OTHER, hidden_option_ids: [TRIAGE] })).toEqual([]);
+  });
+  it('absent stays absent, and an explicit [] stays []', () => {
+    expect(clean({ group_by_field_id: GROUP })).toBeUndefined();
+    expect(clean({ group_by_field_id: GROUP, hidden_option_ids: [] })).toEqual([]);
+  });
+});

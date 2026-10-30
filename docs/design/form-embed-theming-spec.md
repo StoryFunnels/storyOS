@@ -273,7 +273,7 @@ A "Match your site" section in the existing share/embed panel.
   Match your site                                   [ Reset to default ]
 
   Theme      ( ) Light   ( ) Dark
-  Accent     [swatch] #0F1729      ← button, links, focus ring
+  Accent     [swatch] #0F1729      ← button and links
   Surface    [swatch] #FFFFFF      ← the form's background
   Text       [swatch] #0F1729      ← headings and labels
   Corners    [——•————] 6px
@@ -299,7 +299,7 @@ The load-bearing parts, in priority order:
    `text` vs `surface` on every change; below 7:1 warn, and offer one-click
    correction. Our form looking broken on a customer's site is our problem
    regardless of who picked the colours.
-3. **Each control says what it affects** ("← button, links, focus ring"). Five
+3. **Each control says what it affects** ("← button and links"). Five
    abstract colour slots are five guesses otherwise.
 4. **Reset to default** must return to today's appearance exactly — which §2
    makes trivial, since default means "emit nothing".

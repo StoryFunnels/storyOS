@@ -99,6 +99,7 @@ personal view is only reachable from here today.
 | `list_comments` | A record's comment thread, newest first, each with its id, author, and `source`. |
 | `update_comment` / `delete_comment` | Edit or delete a comment **you** wrote (admins may delete any; editing someone else's is refused). Deleting is final — a comment has no browsable trash. |
 | `list_action_gates` / `list_approvals` | Workspace-declared approval gates and the held items. Read-only by design — approving is a person's act, in the app Inbox. |
+| `list_agent_write_gates` | The gates that hold an agent's record create/update for approval. Admins read all or one agent's; an agent's owner reads that agent's only (`agent_id` required); anyone else gets not found. Read-only by design. See [Approval gates](/concepts/approval-gates/#gating-an-agents-record-writes). |
 
 ## Documents and folders
 
@@ -121,7 +122,7 @@ plan instead of cramming prose into a record or inventing a database for one pag
 |---|---|
 | `propose_schema` → `build_schema` | Turn a plain-language goal into a plan of databases, fields, relations and states (each create-new or reuse-existing) — creates nothing; then build the approved plan in one call. |
 | `list_templates` / `apply_template` | Single-database or small-space starter templates. They seed sample rows; `remove_sample_data` deletes exactly those and nothing a person added. |
-| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery; install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Install reuses what already exists by name, so installing a pack again reuses the databases it created before instead of making a second copy. |
+| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery, each pack with its `why`, `can` and `relations` (see [Writing a pack manifest](/guides/pack-manifest/#why-and-can-what-a-pack-says-about-itself)); install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Install reuses what already exists by name, so installing a pack again reuses the databases it created before instead of making a second copy. |
 | `browse_pack_marketplace` / `list_pack_submissions` / `export_pack` | Community packs; your submissions' review status (read-only); turn part of this workspace into an installable pack manifest. |
 | `duplicate_database` / `duplicate_view` | Copy a database's schema, views and self-relations into a new independent database; copy a view with its filters, sorts and layout. |
 | `set_auto_link` / `run_auto_link` | Teach a relation to link itself from matching field pairs; apply the rules to records that already exist (use after an import). |
@@ -152,6 +153,28 @@ space, and the pack's own space is not created. With no `space` the install beha
 - **No second pack space is made, but a pack that includes agents or triggers still creates the
   workspace's one shared *Agentic OS* space** they live in, if the workspace does not have it yet.
   Only the pack's own space is skipped.
+
+### Uninstalling a pack
+
+`uninstall_pack` (REST: `POST /workspaces/:ws/packs/:installId/uninstall`, with the install id from
+`list_installed_packs`) removes what that install made and returns two lists, `removed` and `kept`. A kept
+item carries a reason.
+
+- **Views the install created are removed if nobody has edited them.** A view whose name, type or
+  configuration differs from what the install stored is kept, with the reason `Changed since install.`
+- **A view the install only reused is kept**, with the reason `Existed before the install.` This is the
+  case when the pack's databases and views were already there, for example from another pack.
+- **A database's default view is never removed.**
+- **Databases, fields, relations and sample records are not touched.** Uninstall covers views,
+  automations, agents and skills only.
+- **Installing the pack again** after an uninstall brings its views back.
+
+### Automations a pack installs switched off
+
+A pack automation that sends email, Slack, webhook, HTTP or social-post actions, or runs an agent, installs
+**switched off**. Pass `enable_automations` (labels written `Database.Rule name`, as `preview` lists them) to
+switch chosen ones on. The preview and the install result say which rules are off and why. Details:
+[Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
 
 ### Space-level views and groups
 

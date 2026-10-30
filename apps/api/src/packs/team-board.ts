@@ -6,12 +6,10 @@ import type { PackRegistryEntry } from '@storyos/schemas';
  * Built from the prototype's Team Board (the pack gallery card, its why/can lines, its "how it fits together" map and its install list),
  * and the wording below is that prototype's, not a rewrite of it.
  *
- * What is deliberately NOT here, because the prototype does not have it: a Status on Projects, any Labels options, an agent, a
- * second automation. The prototype's own install list names two views (Board, Assigned to me) and one automation; its gallery
- * count of "3 views" is not a third view this pack invents.
+ * What is deliberately NOT here, because the prototype does not have it: a Status on Projects, an agent. The install list names
+ * three views (Board, Assigned to me, All projects) and one automation (shipped as two rules, see below).
  *
- * Known limit: "Tell the assignee" fires when a task's Assignee is CHANGED (`record_updated` on that field). A task that is created
- * already assigned to someone does not notify them; that would take a second rule the prototype does not list.
+ * "Tell the assignee" is two rules because a rule has one trigger: one on a change of Assignee, one on creation with an Assignee.
  */
 export const TEAM_BOARD_PACK: PackRegistryEntry = {
   slug: 'team-board',
@@ -49,7 +47,16 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
         fields: [
           { name: 'Assignee', type: 'user' },
           { name: 'Due date', type: 'date' },
-          { name: 'Labels', type: 'multi_select' },
+          {
+            name: 'Labels',
+            type: 'multi_select',
+            options: [
+              { label: 'Urgent', color: 'red' },
+              { label: 'Blocked', color: 'orange' },
+              { label: 'Quick win', color: 'green' },
+              { label: 'Idea', color: 'purple' },
+            ],
+          },
         ],
       },
       {
@@ -81,7 +88,21 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
     ],
     agents: [],
     triggers: [],
-    derived_fields: [],
+    derived_fields: [
+      {
+        // "how many tasks are open": a count of the project's tasks that are not Done. A rollup filter cannot say "state category is
+        // completed" (the filter AST has no category operator), so it names the Done option, which is the one completed state this
+        // pack ships. A completed state a person adds later would be counted as open until this filter is edited.
+        database: 'Projects',
+        name: 'Open tasks',
+        type: 'rollup',
+        config: {
+          relation_field_id: fieldRef('Projects', 'Tasks'),
+          op: 'count',
+          filter: { field: 'status', op: 'has_none', value: [optionRef('Tasks', 'Status', 'Done')] },
+        },
+      },
+    ],
     views: [
       {
         database: 'Tasks',
@@ -105,6 +126,13 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
           filters: { field: 'assignee', op: 'has', value: ['me'] },
         },
       },
+      {
+        database: 'Projects',
+        name: 'All projects',
+        type: 'table',
+        // owner, target date and how many tasks are open: the Tasks link column is hidden, the count says it better.
+        config: { hidden_field_ids: [fieldRef('Projects', 'Tasks')] },
+      },
     ],
     automations: [
       {
@@ -112,6 +140,17 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
         name: 'Tell the assignee',
         trigger: { type: 'record_updated', field_id: fieldRef('Tasks', 'Assignee') },
         // 'assignee' is the api_name of the person field: whoever the task is now assigned to.
+        actions: [{ type: 'notify_user', user: 'assignee', message: 'A task was assigned to you.' }],
+        enabled: true,
+      },
+      {
+        // A rule has ONE trigger, and `record_updated` does not fire for a task that is created already assigned, so the same job is
+        // done by a second rule on `record_created`, with the condition "Assignee is not empty" (an unassigned new task tells nobody).
+        // The two triggers are disjoint (creation vs a later change), so one event never produces two notifications.
+        database: 'Tasks',
+        name: 'Tell the assignee of a new task',
+        trigger: { type: 'record_created' },
+        condition: { field: 'assignee', op: 'not_empty' },
         actions: [{ type: 'notify_user', user: 'assignee', message: 'A task was assigned to you.' }],
         enabled: true,
       },

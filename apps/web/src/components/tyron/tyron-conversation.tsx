@@ -408,7 +408,7 @@ export function TyronConversation({ ws }: { ws: string }) {
             aria-label="Message Tyron"
             // #689 — bespoke min/max-height: a chat composer that grows with
             // content up to a cap, not a fixed prose box.
-            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint"
           />
           <button
             type="button"
