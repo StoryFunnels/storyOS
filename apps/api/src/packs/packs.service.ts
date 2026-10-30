@@ -1286,6 +1286,7 @@ export class PacksService {
       const hint = plan.hints.get(norm(item.name));
       if (hint) item.existing_elsewhere = hint;
     }
+    await this.describeReusable(membership, manifest, databases);
     // #1107 — what each rule this install would create would BE: on or off, and why off. A rule that already exists is left alone, so says nothing.
     const turnedOn = this.labelSet(enableAutomations);
     const plannedByLabel = new Map<string, (typeof manifest.automations)[number]>(manifest.automations.map((a) => [`${a.database}.${a.name}`, a]));
@@ -1297,6 +1298,32 @@ export class PacksService {
       if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
     }
     return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
+  }
+
+  /**
+   * #1169 — what the review needs to word "Use your existing Clients": how many records it holds, and which fields the pack would add to it.
+   *
+   * Only for an `existing_elsewhere` that carries `database_id` AND is `reusable`: the one database the person can EDIT (so can read) and the
+   * pack fits. Every other hint (type clash, ambiguous, no edit access) stays exactly as `planAdoptions` made it, so a number never confirms a
+   * database the review is deliberately not naming; and a database the person cannot read has no hint to begin with.
+   *
+   *  - `record_count` is `RecordsService.aggregate` count: live records only (not the trashed), and narrowed to the records this person may
+   *    see (#474), so it is what they could count themselves. 0 is a real answer.
+   *  - `fields_added` is `databaseGains` for that one database (the replay the install runs). An ADOPTED database already carries its `gains`
+   *    (it is part of the install's plan), so those are reused rather than recomputed; otherwise it is a what-if of reusing THIS database alone.
+   */
+  private async describeReusable(membership: Membership, manifest: PackManifest, databases: PackPreviewItem[]): Promise<void> {
+    const open = databases.filter((i) => i.existing_elsewhere?.database_id && i.existing_elsewhere.reusable);
+    if (open.length === 0) return;
+    for (const item of open) {
+      const hint = item.existing_elsewhere!;
+      const dbId = hint.database_id!;
+      const counted = await this.records.aggregate(dbId, { op: 'count' }, membership.userId, membership);
+      hint.record_count = counted.value ?? 0;
+      const gains =
+        item.gains ?? (await this.databaseGains(membership, manifest, new Map([[norm(item.name), { id: dbId, name: item.name }]]), [])).get(norm(item.name));
+      hint.fields_added = (gains?.fields ?? []).map((f) => ({ name: f.name, type: f.type }));
+    }
   }
 
   /**
