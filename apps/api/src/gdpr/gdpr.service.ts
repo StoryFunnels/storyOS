@@ -298,6 +298,7 @@ export class GdprService {
         and(
           eq(apiTokens.workspaceId, workspaceId),
           eq(apiTokens.userId, userId),
+          isNull(apiTokens.runnerId), // #1132: a run credential is the server's, not something the person holds
         ),
       );
 

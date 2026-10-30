@@ -1,3 +1,4 @@
+import { RunCredentialsService } from '../tokens/run-credentials.service';
 import { ForbiddenException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, count, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -60,6 +61,7 @@ export class RunnersService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly wakes: AgentWakesService,
+    private readonly runCredentials: RunCredentialsService,
   ) {}
 
   // ---------------------------------------------------------------- pairing (the person, in the app)
@@ -456,6 +458,8 @@ export class RunnersService {
       await tx.delete(runnerAgents).where(eq(runnerAgents.runnerId, runner.id));
       // ADR-0021 §3: its claimed wakes go back to the queue in the SAME transaction (ticket #1131 AC3, wired by ticket #1130).
       returned = await returnClaimedWakesTx(tx, runner.id);
+      // ticket #1132 / ADR-0021 §3: every run credential minted for this Runner dies with it, in the same transaction.
+      await this.runCredentials.revokeForRunner(runner.id, now, tx);
       await recordRunnerEvent(tx, {
         workspaceId: runner.workspaceId,
         action: 'revoked',

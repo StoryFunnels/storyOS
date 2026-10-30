@@ -17,7 +17,8 @@ import { oauthAccessToken } from '../db/auth-schema';
  * as "not agent", which is the point.
  */
 export const liveAiTokenCondition = () =>
-  and(isNull(apiTokens.revokedAt), sql`(${apiTokens.origin} IS DISTINCT FROM 'agent' OR ${apiTokens.agentId} IS NOT NULL)`);
+  // #1132 — a per-run credential (runner_id set) is the server's, minted per run for an agent: it is not a connection a person made.
+  and(isNull(apiTokens.revokedAt), isNull(apiTokens.runnerId), sql`(${apiTokens.origin} IS DISTINCT FROM 'agent' OR ${apiTokens.agentId} IS NOT NULL)`);
 
 /**
  * An OAuth token that can still be used. There is no revoked flag: revoking deletes the row (and so does erasure), and an access token

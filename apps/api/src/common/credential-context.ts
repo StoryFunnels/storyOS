@@ -22,10 +22,26 @@ export interface RequestActor {
   agentName: string | null;
 }
 
-const store = new AsyncLocalStorage<{ tokenId: string | null; actor: RequestActor | null }>();
+/**
+ * #1132 — the Runner run behind this request, when the credential is a RUN credential (ADR-0021 §4): the Run record, the Runner, the
+ * Runner's name as it is now (snapshotted onto each audit row) and the wake's loop-guard depth. Absent for every other request.
+ */
+export interface RunStamp {
+  /** Null for a wake that has no Run record. */
+  runId: string | null;
+  runnerId: string;
+  runnerName: string | null;
+  depth: number;
+}
 
-export function runWithCredential<T>(tokenId: string | null, fn: () => T, actor: RequestActor | null = null): T {
-  return store.run({ tokenId, actor }, fn);
+const store = new AsyncLocalStorage<{ tokenId: string | null; actor: RequestActor | null; run: RunStamp | null }>();
+
+export function runWithCredential<T>(tokenId: string | null, fn: () => T, actor: RequestActor | null = null, run: RunStamp | null = null): T {
+  return store.run({ tokenId, actor, run }, fn);
+}
+
+export function currentRunStamp(): RunStamp | null {
+  return store.getStore()?.run ?? null;
 }
 
 export function currentActor(): RequestActor | null {
