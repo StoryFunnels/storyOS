@@ -399,12 +399,13 @@ The Runner server code is still on draft PRs stacked on this one, so these are c
 - **Depth** rides on the credential: an agent comment written under a run credential wakes mentioned agents at depth plus 1, within the cap of 2.
 - **Run credentials** are excluded from every "my tokens" surface (list, revoke, AI connections, the activation count, the GDPR export), closing the gap §4 names.
 
-**Ticket #1133, PR #1360** (no migration; new Runs fields through the idempotent ensure). Its deviations are listed in the PR body; **I found no ruling by Otto on them yet**, so treat them as built and not yet ruled:
-- The must-comment re-wake **reuses the wake** (same wake, same Run, reason `must_comment` added) rather than creating a row.
-- The **1-hour fallback** (when the tool states no limit time) and the **7-day clamp** on a stated one are the author's; the step log says which was used. `paused_until` only ever moves later.
-- **No backstop** for a wake with no record, or for `error`, `timeout` or `aborted` exits (already visible failures).
-- **Tokens are summed** across the attempts of one Run, and `usage: null` leaves the fields empty, never 0 (§5).
-- A wake requeued by a completion keeps the last holder's runner and nonce, so a retried `complete` is answered (`repeated: true`) instead of `409 lease_lost`.
+**Ticket #1133, PR #1360** (no migration; new Runs fields through the idempotent ensure). **Ruled: all six deviations accepted by Otto on #1133 (2026-10-30):**
+1. The must-comment re-wake **reuses the same wake and Run** (reason `must_comment` added): one Run per job, and "once" is a property of the row.
+2. The **1-hour fallback** (when the tool states no limit time) and the **7-day clamp** on a stated one, with the Steps log saying when the tool gave no time. A Runner must never be paused for years by a bad value; `paused_until` only ever moves later.
+3. **Manager = the agent's owner** (the existing deviation).
+4. **No must-comment backstop** for a wake with no record, or for `error`, `timeout` or `aborted` exits: those are already visible failures.
+5. **Tokens are summed** across the attempts of one Run; empty, never 0, when nothing was reported (§5), with each attempt in Steps.
+6. A wake **requeued by a completion keeps the last holder's runner and nonce**, so a retried `complete` answers `repeated: true` instead of `409 lease_lost` (welcome beyond scope).
 
 **Still open after approval:** the #1135 outward-tool gate audit (a precondition for the Claude Code adapter, §7); written vendor terms before customers (question 7); the trademark policy before publishing and the CI boundary check landing with #1134 (question 9); Dara's failed and canceled run states (question 17); the catch-up ticket for records already in a trigger state (question 15); the security review #1140 before anyone outside the team installs the Runner.
 
