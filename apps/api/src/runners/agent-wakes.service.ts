@@ -1,8 +1,10 @@
+import type { TokenScope } from '@storyos/schemas';
+import { RunCredentialsService } from '../tokens/run-credentials.service';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { agentWakes, databases, fields, memberships, records, runnerAgents, runners, selectOptions, spaces } from '../db/schema';
+import { agentWakes, comments, databases, fields, memberships, records, runnerAgents, runners, selectOptions, spaces } from '../db/schema';
 import { codedException } from '../common/coded-exception';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -24,6 +26,8 @@ import type { WakeReason, WakeStatus } from './wake.constants';
 import { deriveRunState } from './run-state';
 import type { RunState } from './run-state';
 import type { WakeCompleteInput } from './runner.dto';
+import { attemptLine, capSummary, describeLimitSource, resolveLimitUntil } from './run-record';
+import type { RunResult } from './run-record';
 
 export type WakeRow = typeof agentWakes.$inferSelect;
 
@@ -77,7 +81,7 @@ export interface WakeRunHooks {
   /** Create the Queued Run for a new wake (mention, approval): the same Run `dispatchRun` makes for its own wakes. Returns the Run's id. */
   createRun(wake: WakeRow): Promise<string>;
   /** Move the Run along. `note` is appended to its step log. Best-effort: a Run that cannot be updated never undoes a wake transition. */
-  setRunStatus(wake: WakeRow, status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Canceled', note?: string): Promise<void>;
+  setRunStatus(wake: WakeRow, status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Canceled', note?: string, result?: RunResult): Promise<void>;
 }
 
 const SKIP_MESSAGES: Record<SkipCode, string> = {
@@ -112,8 +116,12 @@ export interface ClaimedWake {
   agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; target_databases: string | null };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;
-  /** The per-run credential is ticket #1132: it mints here and is revoked by `revokeRunCredential`. Null until then, and the ADR says so. */
-  credential: null;
+  /**
+   * ticket #1132 / ADR-0021 §4 — the per-run credential, minted by the server at claim and shown ONCE here (only its hash is stored).
+   * It acts as the agent (never above `write`), expires with the lease and is revoked at completion, lease loss, cancel and Runner removal.
+   * The Runner never chooses it, never keeps it past the run and never sends it to a `/runner/v1/*` route (those refuse it).
+   */
+  credential: { token: string; scope: TokenScope; expires_at: Date };
 }
 
 /** Plain text of a rich_text value (BlockNote block array) without importing the schemas package's markdown converter into this module. */
@@ -161,6 +169,7 @@ export class AgentWakesService {
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
     private readonly notifications: NotificationsService,
+    private readonly runCredentials: RunCredentialsService,
   ) {}
 
   registerRunHooks(hooks: WakeRunHooks): void {
@@ -347,7 +356,7 @@ export class AgentWakesService {
   /** After a Runner's removal committed: the Runs of the wakes it held read Queued again, and their credentials (#1132) are revoked. */
   async afterReturned(rows: WakeRow[]): Promise<void> {
     for (const wake of rows) {
-      this.revokeRunCredential(wake);
+      await this.revokeRunCredential(wake);
       await this.hooks?.setRunStatus(wake, 'Queued', 'The Runner was removed; this was returned to the queue.').catch(() => undefined);
     }
   }
@@ -375,17 +384,18 @@ export class AgentWakesService {
       .set({ status: 'canceled', finishedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(agentWakes.workspaceId, workspaceId), eq(agentWakes.runId, runId), inArray(agentWakes.status, ['queued', 'claimed'])))
       .returning();
-    for (const wake of rows) this.revokeRunCredential(wake);
+    for (const wake of rows) await this.revokeRunCredential(wake);
     return rows.length;
   }
 
   /**
-   * HOOK for ticket #1132 (the per-run credential). It is minted at claim and must be revoked the moment the lease ends, the wake
-   * completes, a Runner is removed or the agent is disabled (ADR-0021 §2: "the fence is the credential, not the nonce"). #1132
-   * fills this in; until then there is no credential to revoke and every call site below already calls it.
+   * ticket #1132 (the per-run credential): minted at claim, revoked the moment the lease ends, the wake completes or is cancelled, or
+   * its Runner is removed (that one in `RunnersService.revoke`'s transaction); a disabled agent's is refused by the guard live
+   * (ADR-0021 §2: "the fence is the credential, not the nonce"). Awaited at every call site, so the revocation has happened before the
+   * response that caused it.
    */
-  protected revokeRunCredential(wake: Pick<WakeRow, 'id' | 'runId'>): void {
-    void wake;
+  protected async revokeRunCredential(wake: Pick<WakeRow, 'id' | 'runId'>): Promise<void> {
+    await this.runCredentials.revokeForWake(wake.id);
   }
 
   // ---------------------------------------------------------------- claim (the Runner)
@@ -446,7 +456,7 @@ export class AgentWakesService {
         SELECT w.id FROM agent_wakes w
           JOIN runner_agents ra ON ra.agent_id = w.agent_id AND ra.runner_id = ${runner.id}::uuid
           JOIN records a ON a.id = w.agent_id AND a.deleted_at IS NULL AND (a.values ->> ${enabledId}) = 'true'
-          JOIN memberships m ON m.workspace_id = w.workspace_id AND m.user_id = a.created_by AND m.status = 'active'
+          JOIN memberships m ON m.workspace_id = w.workspace_id AND m.user_id = a.created_by AND m.status = 'active' AND m.role <> 'guest'
         WHERE w.workspace_id = ${runner.workspaceId}::uuid AND w.status = 'queued' AND w.not_before <= ${now.toISOString()}::timestamptz ${only}
         ORDER BY w.created_at, w.id
         LIMIT ${max}
@@ -457,13 +467,36 @@ export class AgentWakesService {
     const rows = await this.db.select().from(agentWakes).where(inArray(agentWakes.id, ids)).orderBy(asc(agentWakes.createdAt));
     const out: ClaimedWake[] = [];
     for (const wake of rows) {
-      await this.hooks?.setRunStatus(wake, 'Running').catch((e) => this.logger.warn(`could not mark Run running for wake ${wake.id}: ${String(e)}`));
-      out.push(await this.present(wake, info));
+      // ticket #1132: the server mints this run's credential at the moment of the claim, bound to (agent, run, Runner, depth) and to
+      // the lease. When none may exist (the agent or its owner went away between the eligibility check and here) the wake goes
+      // back to the queue instead of being handed over without the only thing a session can act with.
+      const credential = await this.runCredentials.mint({
+        workspaceId: wake.workspaceId,
+        agentId: wake.agentId,
+        wakeId: wake.id,
+        runId: wake.runId,
+        runnerId: runner.id,
+        depth: wake.depth,
+        expiresAt: wake.leaseExpiresAt!,
+      });
+      if (!credential) {
+        await this.db
+          .update(agentWakes)
+          .set({ status: 'queued', runnerId: null, claimNonce: null, leaseExpiresAt: null, claimedAt: null, updatedAt: new Date() })
+          .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.status, 'claimed'), eq(agentWakes.runnerId, runner.id)));
+        continue;
+      }
+      await this.hooks?.setRunStatus(wake, 'Running', undefined, { runner: runner.name, tool: runner.chosenTool ?? undefined, startedAt: now }).catch((e) => this.logger.warn(`could not mark Run running for wake ${wake.id}: ${String(e)}`));
+      out.push(await this.present(wake, info, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
     }
     return out;
   }
 
-  private async present(wake: WakeRow, info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>): Promise<ClaimedWake> {
+  private async present(
+    wake: WakeRow,
+    info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>,
+    credential: ClaimedWake['credential'],
+  ): Promise<ClaimedWake> {
     const agent = await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { title: true, values: true } });
     const values = (agent?.values ?? {}) as Record<string, unknown>;
     const text = (apiName: string) => {
@@ -491,7 +524,7 @@ export class AgentWakesService {
       },
       record: rec ? { id: rec.id, database_id: rec.databaseId, number: rec.number } : null,
       context: wake.context,
-      credential: null,
+      credential,
     };
   }
 
@@ -516,6 +549,7 @@ export class AgentWakesService {
       .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.runnerId, runner.id), eq(agentWakes.claimNonce, nonce), eq(agentWakes.status, 'claimed')))
       .returning();
     if (!row) throw this.leaseLost(wakeId);
+    await this.runCredentials.extendForWake(row.id, lease); // the credential's expiry slides with the lease (ADR-0021 §4)
     return { wake_id: row.id, lease_expires_at: lease, lease_seconds: WAKE_LEASE_SECONDS };
   }
 
@@ -545,58 +579,121 @@ export class AgentWakesService {
   }
 
   /**
-   * Completion. Idempotent on (id, nonce): a retry after a dropped response gets the same answer. It writes the Run, revokes the
-   * credential, ends the wake and, if a repeat arrived mid-run, enqueues the one fresh wake that carries it.
+   * Completion. Idempotent on (id, nonce): a retry after a dropped response gets the same answer, whatever the first one did (a wake
+   * requeued BY a completion keeps the last holder's Runner and nonce for exactly this; the next claim overwrites both). It writes the
+   * run record (ticket #1133), revokes the credential, ends the wake and, if a repeat arrived mid-run, enqueues the one fresh wake.
+   *
+   * Three ways a completion does not simply end the wake:
+   *  - `limit_reached`: back to the queue, not claimable before the time the tool gave (or the named fallback), the Runner paused.
+   *  - the must-comment backstop (ADR-0021 §6): an `ok` run on a wake WITH a record whose Run never commented on that record is woken
+   *    ONCE more (reason `must_comment`, same wake, same Run); the second time it fails visibly and its owner is told once.
+   *  - otherwise: done / failed / canceled by the exit.
    */
   async complete(runner: RunnerRow, wakeId: string, input: WakeCompleteInput, now = new Date()) {
     if (!/^[0-9a-f-]{36}$/i.test(wakeId)) throw this.leaseLost(wakeId);
     const existing = await this.db.query.agentWakes.findFirst({ where: and(eq(agentWakes.id, wakeId), eq(agentWakes.runnerId, runner.id), eq(agentWakes.claimNonce, input.nonce)) });
-    if (existing && existing.status !== 'claimed') return { wake_id: existing.id, status: existing.status as WakeStatus, requeued: false, repeated: true };
+    if (existing && existing.status !== 'claimed') return this.repeatedAnswer(existing);
     if (!existing) throw this.leaseLost(wakeId);
 
     const limit = input.exit === 'limit_reached';
-    const until = limit ? (input.limit_reached_until ? new Date(input.limit_reached_until) : new Date(now.getTime() + 3_600_000)) : null;
-    const terminal: WakeStatus = input.exit === 'ok' ? 'done' : input.exit === 'aborted' ? 'canceled' : 'failed';
-    const summary = (input.summary ?? '').slice(0, 2_000);
-    const note =
-      input.exit === 'ok'
-        ? `Runner finished.${summary ? ` ${summary}` : ''}`
-        : limit
-          ? `The tool reached its limit${until ? `; this will be retried after ${until.toISOString()}` : ''}.`
-          : `Runner ended with "${input.exit}".${input.error ? ` ${input.error.slice(0, 500)}` : ''}${summary ? ` ${summary}` : ''}`;
+    const resolved = limit ? resolveLimitUntil(input.limit_reached_until, now) : null;
+    const until = resolved?.until ?? null;
+    const hadMustComment = (existing.reasons as WakeReasonEntry[]).some((r) => r.reason === 'must_comment');
+    const silent = input.exit === 'ok' && Boolean(existing.recordId) && !(await this.runCommented(existing));
+    const mustComment: 'rewoken' | 'failed' | null = silent ? (hadMustComment ? 'failed' : 'rewoken') : null;
+    const terminal: WakeStatus = mustComment === 'failed' ? 'failed' : input.exit === 'ok' ? 'done' : input.exit === 'aborted' ? 'canceled' : 'failed';
+    const requeue = limit || mustComment === 'rewoken';
+
+    const tool = runner.chosenTool ?? null;
+    const toolVersion = input.tool_version ?? runner.tools.find((t) => t.id === tool)?.version ?? null;
+    const usage = input.usage ? { tokensIn: input.usage.tokens_in, tokensOut: input.usage.tokens_out } : null;
+    const line = attemptLine({ exit: input.exit, runner: runner.name, tool, toolVersion, usage, summary: capSummary(input.summary), error: input.error });
+    const note = limit
+      ? `${line} It resumes at ${until!.toISOString()}.${describeLimitSource(resolved!.source)}`
+      : mustComment === 'rewoken'
+        ? `${line} It ended without commenting on its record, so it is woken once more (must_comment) to say what it did.`
+        : mustComment === 'failed'
+          ? `${line} It ended without commenting on its record for the second time, so it is marked failed and its owner has been told.`
+          : line;
+    const result: RunResult = {
+      runner: runner.name,
+      ...(tool ? { tool } : {}),
+      toolVersion,
+      exit: input.exit,
+      usage,
+      sessionId: input.session_id,
+      summary: input.summary,
+      ...(until ? { limitResumesAt: until } : {}),
+      attemptEnded: true,
+    };
 
     const flipped = await this.db.transaction(async (tx) => {
+      // A wake sent back to the queue by a completion keeps `runner_id` and `claim_nonce`: the Runner's retry of THIS completion must
+      // find it. The next claim overwrites both; the reaper and a Runner's removal (not completions) still clear them.
+      const back = { status: 'queued', leaseExpiresAt: null, claimedAt: null, updatedAt: now };
+      const patch = limit
+        ? { ...back, notBefore: until! }
+        : mustComment === 'rewoken'
+          ? {
+              ...back,
+              notBefore: now,
+              reasons: sql`${agentWakes.reasons} || ${JSON.stringify([{ reason: 'must_comment', count: 1, last_at: now.toISOString() } satisfies WakeReasonEntry])}::jsonb`,
+            }
+          : { status: terminal, finishedAt: now, leaseExpiresAt: null, updatedAt: now };
       const [row] = await tx
         .update(agentWakes)
-        .set(
-          limit
-            ? { status: 'queued', runnerId: null, claimNonce: null, leaseExpiresAt: null, claimedAt: null, notBefore: until!, updatedAt: now }
-            : { status: terminal, finishedAt: now, leaseExpiresAt: null, updatedAt: now },
-        )
+        .set(patch)
         .where(and(eq(agentWakes.id, wakeId), eq(agentWakes.runnerId, runner.id), eq(agentWakes.claimNonce, input.nonce), eq(agentWakes.status, 'claimed')))
         .returning();
       if (row && limit) {
         // The ONE source of "waiting for limit" (ADR-0021 §11): the Runner is paused until then, so no claim is handed out meanwhile.
-        await tx.update(runners).set({ pausedUntil: until, pauseReason: 'limit_reached' }).where(eq(runners.id, runner.id));
+        // Only ever LATER: a shorter limit reported by another run must not shorten a longer pause the Runner already has.
+        await tx
+          .update(runners)
+          .set({ pausedUntil: sql`GREATEST(COALESCE(${runners.pausedUntil}, ${until!.toISOString()}::timestamptz), ${until!.toISOString()}::timestamptz)`, pauseReason: 'limit_reached' })
+          .where(eq(runners.id, runner.id));
       }
       return row ?? null;
     });
     if (!flipped) {
       const again = await this.db.query.agentWakes.findFirst({ where: and(eq(agentWakes.id, wakeId), eq(agentWakes.runnerId, runner.id), eq(agentWakes.claimNonce, input.nonce)) });
-      if (again && again.status !== 'claimed') return { wake_id: again.id, status: again.status as WakeStatus, requeued: false, repeated: true };
+      if (again && again.status !== 'claimed') return this.repeatedAnswer(again);
       throw this.leaseLost(wakeId);
     }
 
-    this.revokeRunCredential(flipped);
-    if (limit) {
-      await this.hooks?.setRunStatus(flipped, 'Queued', note).catch((e) => this.logger.warn(`Run update failed for wake ${wakeId}: ${String(e)}`));
-      return { wake_id: flipped.id, status: 'queued' as WakeStatus, requeued: true, repeated: false, not_before: until };
+    await this.revokeRunCredential(flipped);
+    const runStatus = requeue ? 'Queued' : terminal === 'done' ? 'Succeeded' : terminal === 'canceled' ? 'Canceled' : 'Failed';
+    await this.hooks?.setRunStatus(flipped, runStatus, note, result).catch((e) => this.logger.warn(`Run update failed for wake ${wakeId}: ${String(e)}`));
+    if (requeue) {
+      return { wake_id: flipped.id, status: 'queued' as WakeStatus, requeued: true, repeated: false, ...(limit ? { not_before: until } : { must_comment: 'rewoken' as const }) };
     }
-    await this.hooks
-      ?.setRunStatus(flipped, terminal === 'done' ? 'Succeeded' : terminal === 'canceled' ? 'Canceled' : 'Failed', note)
-      .catch((e) => this.logger.warn(`Run update failed for wake ${wakeId}: ${String(e)}`));
+    if (mustComment === 'failed') await this.notifyFailed(flipped, 'must_comment');
     await this.afterTerminal(flipped);
-    return { wake_id: flipped.id, status: terminal, requeued: false, repeated: false };
+    return { wake_id: flipped.id, status: terminal, requeued: false, repeated: false, ...(mustComment ? { must_comment: mustComment } : {}) };
+  }
+
+  /** The answer to a completion that was already applied: the wake's state now, flagged as a repeat. Never writes anything. */
+  private repeatedAnswer(wake: WakeRow) {
+    const queued = wake.status === 'queued';
+    return { wake_id: wake.id, status: wake.status as WakeStatus, requeued: queued, repeated: true, ...(queued ? { not_before: wake.notBefore } : {}) };
+  }
+
+  /**
+   * Did this Run comment on the record it was woken for? The comment carries the Run's id since #1132 (stamped from the run
+   * credential, never from anything the Runner sends), so a person's comment, the agent's comment on another record, a deleted
+   * comment and an EARLIER run's comment do not count. A wake with no Run record falls back to "the agent, on that record, since the
+   * claim". Counts across the whole Run: a comment written before a limit stop still counts. A wake with no record has nothing to
+   * comment on and is exempt.
+   */
+  private async runCommented(wake: WakeRow): Promise<boolean> {
+    if (!wake.recordId) return true;
+    const mine = wake.runId ? eq(comments.runId, wake.runId) : and(eq(comments.agentId, wake.agentId), gte(comments.createdAt, wake.claimedAt ?? wake.createdAt));
+    const [row] = await this.db
+      .select({ id: comments.id })
+      .from(comments)
+      .where(and(eq(comments.recordId, wake.recordId), isNull(comments.deletedAt), mine))
+      .limit(1);
+    return Boolean(row);
   }
 
   /** A repeat arrived while the wake ran: enqueue the ONE fresh wake that carries it (the full access check runs again). */
@@ -642,13 +739,13 @@ export class AgentWakesService {
     let failed = 0;
     for (const wake of rows) {
       // The credential dies with the lease (ADR-0021 §2): a stale Runner's next tool call must be a 401.
-      this.revokeRunCredential(wake);
+      await this.revokeRunCredential(wake);
       if (wake.status === 'failed') {
         failed++;
         await this.hooks
           ?.setRunStatus(wake, 'Failed', `The Runner stopped answering: ${WAKE_MAX_ATTEMPTS} attempts lost their lease.`)
           .catch((e) => this.logger.warn(`Run update failed for wake ${wake.id}: ${String(e)}`));
-        await this.notifyFailed(wake);
+        await this.notifyFailed(wake, 'lease');
         await this.afterTerminal(wake);
       } else {
         await this.hooks?.setRunStatus(wake, 'Queued', 'The Runner stopped answering; this was returned to the queue.').catch(() => undefined);
@@ -657,7 +754,8 @@ export class AgentWakesService {
     return { returned: rows.length - failed, failed };
   }
 
-  private async notifyFailed(wake: WakeRow): Promise<void> {
+  /** The agent's owner (its manager) is told once why a job failed. `lease`: the Runner stopped answering. `must_comment`: it twice ended without a comment. */
+  private async notifyFailed(wake: WakeRow, why: 'lease' | 'must_comment'): Promise<void> {
     try {
       const owner = (await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { createdBy: true, title: true } })) ?? null;
       if (!owner?.createdBy) return;
@@ -669,7 +767,10 @@ export class AgentWakesService {
         type: 'agent_wake_failed',
         recipients: [owner.createdBy],
         allowSelf: true,
-        snippet: `${owner.title} could not finish a job: its Runner stopped answering ${WAKE_MAX_ATTEMPTS} times.`,
+        snippet:
+          why === 'lease'
+            ? `${owner.title} could not finish a job: its Runner stopped answering ${WAKE_MAX_ATTEMPTS} times.`
+            : `${owner.title} could not finish a job: it ended twice without commenting on its record, so nobody can see what it did.`,
       });
     } catch (error) {
       this.logger.warn(`failure notification for wake ${wake.id} failed: ${String(error)}`);
@@ -807,6 +908,7 @@ export class AgentWakesService {
         runStatus: w.runId ? (statuses.get(w.runId) ?? null) : null,
         runner,
         agentBusy: busyAgents.has(w.agentId) || (runner ? busyRunners.has(runner.id) : false),
+        notBefore: w.notBefore,
         now,
       });
       const rec = w.recordId ? recById.get(w.recordId) : undefined;

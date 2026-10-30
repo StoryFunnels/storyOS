@@ -77,6 +77,15 @@ async function pairRunner(who: Person, agentIds: string[] = []) {
   return { token, id: runner.id };
 }
 
+/**
+ * ticket #1133: a run that ends `ok` on a wake with a record must have commented on it, else the backstop wakes it once more. These
+ * tests are about the queue, not the backstop (test/run-record.test.ts owns that), so the agent "says something" first.
+ */
+async function agentSaid(wakeId: string) {
+  const w = (await pool.query('select record_id, run_id, agent_id from agent_wakes where id = $1', [wakeId])).rows[0];
+  if (!w.record_id) return;
+  await pool.query("insert into comments (record_id, author_id, body, source, agent_id, run_id) values ($1, 'test-author', '[]'::jsonb, 'agent', $2, $3)", [w.record_id, w.agent_id, w.run_id]);
+}
 const claim = (token: string, body: Record<string, unknown> = {}) => asRunner(token, 'POST', '/runner/v1/claim', { wait_seconds: 0, ...body });
 const wakeRows = async (agentId: string) => (await pool.query('select * from agent_wakes where agent_id = $1 order by created_at', [agentId])).rows;
 const openWakes = async (agentId: string) => (await wakeRows(agentId)).filter((w: { status: string }) => w.status === 'queued' || w.status === 'claimed');
@@ -344,13 +353,13 @@ describe('a wake is NEVER created for something its author cannot see', () => {
     expect(await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: rec, requestedBy: owner.id })).toMatchObject({ outcome: 'skipped', code: 'personal_content' });
   });
 
-  it('a mention inside a DOCUMENT or a rich-text field wakes nothing (only a comment does), and an agent-authored comment wakes nothing yet', async () => {
+  it('a mention inside a DOCUMENT or a rich-text field wakes nothing (only a comment does), and an agent comment with no run behind it wakes nothing (run credentials: test/run-credentials.test.ts)', async () => {
     const agent = await mkAgent(owner, 'Doc bot');
     const ticket = await mkTicket('Doc ticket');
     const put = await as(admin.token, 'PUT', `/workspaces/${ws}/databases/${ticketsDbId}/records/${ticket}/document`, { content: [para(agentMention(agent))], expected_version: 0 });
     expect(put.statusCode, put.body).toBeLessThan(300);
     expect(await wakeRows(agent)).toHaveLength(0);
-    // An agent credential's comment: mention ping-pong is bounded only by run depth (#1132), so an agent cannot wake another by mention yet.
+    // An older agent token carries no run and so no depth: mention ping-pong would be unbounded, so it wakes nothing (#1132 covers a run credential).
     const otherAgent = await mkAgent(owner, 'Authoring bot');
     const tok = await as(owner.token, 'POST', '/me/tokens', { name: 'authoring token', workspace_id: ws, scope: 'write', agent_id: otherAgent });
     const res = await comment(tok.json().token, ticket, [para(agentMention(agent))]);
@@ -429,6 +438,7 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     const got = (await claim(runner.token)).json().wakes[0];
     expect(await state()).toMatchObject({ state: 'running', runner_name: "Owner's MacBook" });
     expect(await runStatus(got.run_id)).toBe('Running');
+    await agentSaid(got.id);
     const done = await asRunner(runner.token, 'POST', `/runner/v1/wakes/${got.id}/complete`, { nonce: got.nonce, exit: 'ok', summary: 'Triaged it' });
     expect(done.statusCode, done.body).toBe(200);
     expect(await state()).toMatchObject({ state: 'done' });
@@ -492,7 +502,7 @@ describe('the claim: atomic, leased, fenced', () => {
     const res = await claim(runnerA.token);
     expect(res.statusCode, res.body).toBe(200);
     const [got] = res.json().wakes;
-    expect(got).toMatchObject({ id: w.id, reason: 'manual', lease_seconds: WAKE_LEASE_SECONDS, credential: null, agent: { id: agentA, name: 'Claim bot' }, record: { id: ticketA } });
+    expect(got).toMatchObject({ id: w.id, reason: 'manual', lease_seconds: WAKE_LEASE_SECONDS, credential: { scope: 'read' }, agent: { id: agentA, name: 'Claim bot' }, record: { id: ticketA } });
     expect(got.nonce).toBeTruthy();
     expect(JSON.stringify(got)).not.toContain('Claimed ticket'); // an id and a reference, never the record's text
     const row = (await wakeRows(agentA)).find((r: { id: string }) => r.id === w.id);
@@ -600,6 +610,7 @@ describe('the claim: atomic, leased, fenced', () => {
   it('COMPLETION removes the wake from the queue, writes the Run, is idempotent on (id, nonce), and the next trigger is a NEW wake', async () => {
     const w = await freshWake();
     const got = (await claim(runnerA.token)).json().wakes[0];
+    await agentSaid(w.id);
     const done = await asRunner(runnerA.token, 'POST', `/runner/v1/wakes/${w.id}/complete`, { nonce: got.nonce, exit: 'ok', summary: 'Done it', usage: null, tool_version: '2.1.104' });
     expect(done.statusCode, done.body).toBe(200);
     expect(done.json()).toMatchObject({ status: 'done', requeued: false, repeated: false });
@@ -649,6 +660,7 @@ describe('the claim: atomic, leased, fenced', () => {
     const claimed = (await wakeRows(agentA)).find((r: { id: string }) => r.id === w.id);
     expect(claimed).toMatchObject({ status: 'claimed', rewake: true });
     expect(await openWakes(agentA)).toHaveLength(1); // never a second concurrent one
+    await agentSaid(w.id);
     const res = await asRunner(runnerA.token, 'POST', `/runner/v1/wakes/${w.id}/complete`, { nonce: got.nonce, exit: 'ok' });
     expect(res.statusCode).toBe(200);
     const open = await openWakes(agentA);

@@ -64,6 +64,9 @@ const DECLARED_SAFE: Record<string, string> = {
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
   sourceKey: "ticket #1130 — the idempotency key of a wake's cause (`mention:<comment id>:<agent id>`, `approval:<id>`): it makes a REPLAYED event harmless and is not a credential. It lives on the agent_wakes row and in code, never in a settings or config blob",
+  tokens_in: "ticket #1133 — LLM token COUNTS on a Run record (a number the tool reported), not a credential",
+  tokens_out: "ticket #1133 — LLM token COUNTS on a Run record (a number the tool reported), not a credential",
+  session_id: "ticket #1133 — the coding tool's own conversation id on a Run record, kept for diagnosis; it grants nothing and is never a login",
   system_key: "ticket #1063 — which system database a row is ('agents', 'agent_runs', ...): an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
   has_key: 'a presence BOOLEAN on the Linear config response (#906) — it reports that a key is stored and never carries the key',

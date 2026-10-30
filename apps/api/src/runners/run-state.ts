@@ -35,6 +35,8 @@ export interface RunStateInput {
   runner: RunnerRow | null;
   /** The agent, or its Runner, already has a claimed wake ("one job at a time"). */
   agentBusy: boolean;
+  /** The wake's own `not_before`: a run stopped by the subscription limit may not be claimed before it (ticket #1133). */
+  notBefore?: Date | null;
   now: Date;
 }
 
@@ -55,8 +57,13 @@ export function deriveRunState(i: RunStateInput): RunState {
     const since = offlineSince(r, i.now);
     return { state: 'runner_offline', ...(since ? { since: since.toISOString() } : {}), runner_name: r.name };
   }
-  if (r.pausedUntil && r.pausedUntil.getTime() > i.now.getTime()) {
-    return { state: 'waiting_for_limit', until: r.pausedUntil.toISOString(), ...(r.chosenTool ? { tool: r.chosenTool } : {}), runner_name: r.name };
+  // The Runner's pause is the live source (ADR-0021 §11). A wake also holds its OWN time (`not_before`, set when the tool hit its
+  // limit): if that is later than the Runner's pause (the pause was cleared, or a shorter limit from another run did not extend it)
+  // the wake still cannot be claimed before it, so it still reads "waiting for the limit", until the LATER of the two.
+  const pausedMs = r.pausedUntil && r.pausedUntil.getTime() > i.now.getTime() ? r.pausedUntil.getTime() : 0;
+  const heldMs = i.notBefore && i.notBefore.getTime() > i.now.getTime() ? i.notBefore.getTime() : 0;
+  if (pausedMs || heldMs) {
+    return { state: 'waiting_for_limit', until: new Date(Math.max(pausedMs, heldMs)).toISOString(), ...(r.chosenTool ? { tool: r.chosenTool } : {}), runner_name: r.name };
   }
   if (i.agentBusy) return { state: 'waiting_for_turn', runner_name: r.name };
   return { state: 'waiting_for_runner', runner_name: r.name };

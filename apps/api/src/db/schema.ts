@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { currentCredentialId } from '../common/credential-context';
+import { currentCredentialId, currentRunStamp } from '../common/credential-context';
 import {
   boolean,
   check,
@@ -771,6 +771,14 @@ export const comments = pgTable(
     source: changeSource('source'),
     agentId: uuid('agent_id'),
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     editedAt: timestamp('edited_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
@@ -872,6 +880,20 @@ export const apiTokens = pgTable('api_tokens', {
    * ANONYMISES the row rather than deleting it: gdpr.service.ts has the column-by-column rule.
    */
   resourceScope: jsonb('resource_scope').$type<{ space_ids: string[]; database_ids: string[] }>(),
+  /**
+   * #1132 / ADR-0021 §4 — a RUN credential: the short-lived agent token the server mints when a Runner claims a wake. Null on every
+   * other token. `runId` is the Runs-database record the wake produces and `runnerId` the Runner holding the lease (no FKs, same
+   * reason as `agentId`: history must outlive both). `expiresAt` follows the wake's lease (it slides on each heartbeat); the guard
+   * refuses a token past it. `runDepth` is the wake's loop-guard depth, so an agent comment made under this credential wakes
+   * another agent at depth + 1. A run credential is NEVER a person's token: every "my tokens" surface filters `runnerId IS NULL`
+   * (`runnerId` is the discriminator because it is always set; `runId` can be null for a wake that has no Run record).
+   */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  runId: uuid('run_id'),
+  runnerId: uuid('runner_id'),
+  /** The wake (agent_wakes.id) this credential was minted for: how it is revoked exactly, and what the guard checks is still claimed. */
+  wakeId: uuid('wake_id'),
+  runDepth: integer('run_depth'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -1242,6 +1264,14 @@ export const activityEvents = pgTable(
      * of what happens to the Agent record afterward. */
     agentName: text('agent_name'),
     /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
+    /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
      * session, an OAuth grant, an automation or a job: absence, never a person. No FK and no join to the token's user: the row it
@@ -1287,6 +1317,14 @@ export const recordVersions = pgTable(
     source: changeSource('source').notNull().default('human'),
     agentId: uuid('agent_id'),
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a
@@ -1345,6 +1383,14 @@ export const recordFieldChanges = pgTable(
     agentId: uuid('agent_id'),
     /** #541 — see activity_events.agent_name's doc comment. */
     agentName: text('agent_name'),
+    /**
+     * #1132 / ADR-0021 §4 — the Runner run behind this write, when it was made with a run credential: the Run record, the Runner and
+     * the Runner's name AT WRITE TIME (a rename must not retcon history, the reason `agent_name` is a snapshot). Stamped by a column
+     * default from the request's credential context, like `token_id`, so no write path has to remember. Null for everything else.
+     */
+    runId: uuid('run_id').$defaultFn(() => (currentRunStamp()?.runId ?? null) as string),
+    runnerId: uuid('runner_id').$defaultFn(() => (currentRunStamp()?.runnerId ?? null) as string),
+    runnerName: text('runner_name').$defaultFn(() => (currentRunStamp()?.runnerName ?? null) as string),
     /**
      * #882 — WHICH credential (api_tokens.id) made this write, when it was made with a personal access token. Stamped by a column
      * default from the request's credential context (common/credential-context.ts), so no write path has to remember. Null for a

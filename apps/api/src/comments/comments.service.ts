@@ -1,3 +1,4 @@
+import { currentRunStamp } from '../common/credential-context';
 import {
   ForbiddenException,
   Inject,
@@ -173,6 +174,9 @@ export class CommentsService {
         source: c.source,
         agent_id: c.agentId,
         agent_name: c.agentName,
+        run_id: c.runId, // ticket #1132
+        runner_id: c.runnerId,
+        runner_name: c.runnerName,
         edited_at: c.editedAt,
         created_at: c.createdAt,
       })),
@@ -263,6 +267,9 @@ export class CommentsService {
         type: 'comment.created',
         payload: { comment_id: comment!.id },
         source,
+        // ticket #1132: the agent behind the comment, so the event reads like the comment row does (the run is stamped by default).
+        agentId,
+        agentName,
       });
       return comment!;
     });
@@ -306,13 +313,15 @@ export class CommentsService {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
-    await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
+    const agentWakes = await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
     return {
       id: created.id,
       body: created.body,
       source: created.source,
       agent_id: created.agentId,
       agent_name: created.agentName,
+      // ticket #1132 - present only when the comment mentioned an agent: whether each was woken (see `wakeMentionedAgents`).
+      ...(agentWakes.length > 0 ? { agent_wakes: agentWakes } : {}),
       created_at: created.createdAt,
     };
   }
@@ -321,30 +330,57 @@ export class CommentsService {
    * ticket #1130 / ADR-0021 §1 — an @-mention of an AGENT in a comment wakes it. Done HERE, when the comment is written (emit time),
    * never by filtering what a reader sees later: a wake that is not created cannot leak. AgentWakesService.enqueue refuses unless the
    * author can read the record AND the agent, and the agent's owner can read the record; a record in a personal space never wakes
-   * anything. An AGENT-authored comment wakes nothing for now: a mention ping-pong between two agents is bounded by the run's depth,
-   * which rides on the per-run credential (ticket #1132), so until that exists an agent cannot wake another by mention at all.
+   * anything.
+   *
+   * ticket #1132 - an AGENT-authored comment wakes another agent only when it was written under a per-run credential, because that
+   * is the one thing that carries a depth: the wake is created at the run's depth + 1, so a mention loop (A mentions B, B mentions A)
+   * is cut by the same cap (`WAKE_MAX_DEPTH`) every other wake source obeys. An agent comment with no run behind it (an older agent
+   * token, a server-run agent) has no depth to prove it is bounded, so it still wakes nothing. At the cap NO wake is created, and the
+   * author (the agent) is told so in the response: `agent_wakes[].woken = false` with the reason, instead of the mention silently
+   * doing nothing. Only the loop-guard reason is spelled out; every other refusal stays the 404-style non-answer `enqueue` gives.
    * Best-effort by design: waking an agent never fails the comment someone just wrote.
    */
-  private async wakeMentionedAgents(workspaceId: string, recordId: string, authorId: string, commentId: string, body: CommentBody, source: ChangeSource): Promise<void> {
-    if (source === 'agent' || !isBlocknoteCommentBody(body)) return;
+  private async wakeMentionedAgents(
+    workspaceId: string,
+    recordId: string,
+    authorId: string,
+    commentId: string,
+    body: CommentBody,
+    source: ChangeSource,
+  ): Promise<Array<{ agent_id: string; woken: boolean; message?: string }>> {
+    if (!isBlocknoteCommentBody(body)) return [];
+    let depth = 0;
+    if (source === 'agent') {
+      const run = currentRunStamp();
+      if (!run) return [];
+      depth = run.depth + 1;
+    }
     const { agentIds } = collectMentions(body.doc);
+    const out: Array<{ agent_id: string; woken: boolean; message?: string }> = [];
     for (const agentId of agentIds) {
       try {
-        await this.agentWakes.enqueue({
+        const result = await this.agentWakes.enqueue({
           workspaceId,
           agentId,
           reason: 'mention',
           recordId,
           requestedBy: authorId,
-          depth: 0,
+          depth,
           sourceKey: `mention:${commentId}:${agentId}`,
           detail: { comment_id: commentId },
           materialize: true,
         });
+        if (result.outcome === 'skipped') {
+          out.push({ agent_id: agentId, woken: false, ...(result.code === 'loop_guard' ? { message: result.message } : {}) });
+        } else {
+          out.push({ agent_id: agentId, woken: true });
+        }
       } catch (error) {
         this.logger.warn(`@-mention wake for agent ${agentId} failed: ${String(error)}`);
+        out.push({ agent_id: agentId, woken: false });
       }
     }
+    return out;
   }
 
   private async notifyMentions(
