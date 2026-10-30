@@ -101,6 +101,19 @@ describe('mapFilterValues (#204)', () => {
     });
   });
 
+  // #1154: a category op carries category NAMES, which are not option labels — mapping them would throw "No option completed".
+  it('passes category_is / category_is_not through untouched (categories are not option labels)', () => {
+    expect(mapFilterValues(detail, { field: 'priority', op: 'category_is_not', value: ['completed', 'canceled'] })).toEqual({
+      field: 'priority',
+      op: 'category_is_not',
+      value: ['completed', 'canceled'],
+    });
+    expect(OPS_BY_FIELD_TYPE.workflow).toEqual(expect.arrayContaining(['category_is', 'category_is_not']));
+    expect(OPS_BY_FIELD_TYPE.select).toEqual(expect.arrayContaining(['category_is', 'category_is_not']));
+    expect(OPS_BY_FIELD_TYPE.multi_select).not.toContain('category_is');
+    expect(FILTER_GUIDE).toContain('category_is_not');
+  });
+
   it('throws a helpful error naming valid options on an unknown label', () => {
     expect(() => mapFilterValues(detail, { field: 'priority', op: 'eq', value: 'Nope' })).toThrow(
       /No option "Nope".*Urgent, High/,
@@ -5039,7 +5052,7 @@ describe('describe_database advertises an `ops` array per field, including workf
     const state = detail.fields.find((f) => f.api_name === 'state')!;
     const priority = detail.fields.find((f) => f.api_name === 'priority')!;
     expect(state.ops).toEqual(priority.ops);
-    expect(state.ops).toEqual(['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty']);
+    expect(state.ops).toEqual(['eq', 'neq', 'has', 'has_none', 'category_is', 'category_is_not', 'is_empty', 'not_empty']); // #1154 widened both
   });
 
   it('omits `ops` (not an empty array) for a type with no statically-known filter behaviour', async () => {

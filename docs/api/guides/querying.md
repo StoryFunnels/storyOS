@@ -23,6 +23,7 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 ```
 
 - Ops per type (full matrix: `docs/architecture/api-conventions.md`): `eq neq contains gt gte lt lte before after within has has_none is_empty not_empty`
+- `workflow` / `select` fields also take `category_is` / `category_is_not` with a state category or a list of them (`backlog unstarted started completed canceled`): `{ "field": "state", "op": "category_is_not", "value": ["completed", "canceled"] }` is "open", and keeps being right when a done-like state is added later, which a list of option ids does not. Resolved against the live options at query time; works in views, queries and rollup filters. `multi_select` has no categories and refuses it.
 - `within` accepts `today yesterday tomorrow last_7_days next_7_days this_month next_30_days`
 - User fields accept the literal `"me"`
 - Responses page with keyset cursors: pass `next_cursor` back as `cursor`

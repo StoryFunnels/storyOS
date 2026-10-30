@@ -277,6 +277,13 @@ export class RecordsService {
       optionsByField.set(option.fieldId, list);
     }
     // #961 — ids in the field's own option order (position, then id so equal positions are still a total order).
+    // #1154 — option id → state category, so a `category_is` filter reads the LIVE categories.
+    const categoriesByField = new Map<string, Record<string, string | null>>();
+    for (const option of options) {
+      const map = categoriesByField.get(option.fieldId) ?? {};
+      map[option.id] = option.category ?? null;
+      categoriesByField.set(option.fieldId, map);
+    }
     const optionOrderByField = new Map<string, string[]>();
     for (const fieldId of optionsByField.keys()) {
       optionOrderByField.set(
@@ -325,6 +332,7 @@ export class RecordsService {
           : ((f.config ?? {}) as Record<string, unknown>),
       option_ids: optionsByField.get(f.id),
       option_order: optionOrderByField.get(f.id),
+      option_categories: categoriesByField.get(f.id),
     }));
   }
 

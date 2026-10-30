@@ -13349,6 +13349,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -13558,6 +13560,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -13665,6 +13669,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -14427,6 +14433,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -14562,6 +14570,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -17294,6 +17304,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -18081,6 +18093,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -18862,6 +18876,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]
@@ -19659,6 +19675,8 @@
                   "within",
                   "has",
                   "has_none",
+                  "category_is",
+                  "category_is_not",
                   "is_empty",
                   "not_empty"
                 ]

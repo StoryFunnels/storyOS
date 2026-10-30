@@ -90,16 +90,15 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
     triggers: [],
     derived_fields: [
       {
-        // "how many tasks are open": a count of the project's tasks that are not Done. A rollup filter cannot say "state category is
-        // completed" (the filter AST has no category operator), so it names the Done option, which is the one completed state this
-        // pack ships. A completed state a person adds later would be counted as open until this filter is edited.
+        // "how many tasks are open": a count of the project's tasks whose Status is not in a finished category. It says CATEGORY (ticket
+        // #1154), not "not the Done option", so a completed or canceled state someone adds to Status later is not counted as open.
         database: 'Projects',
         name: 'Open tasks',
         type: 'rollup',
         config: {
           relation_field_id: fieldRef('Projects', 'Tasks'),
           op: 'count',
-          filter: { field: 'status', op: 'has_none', value: [optionRef('Tasks', 'Status', 'Done')] },
+          filter: { field: 'status', op: 'category_is_not', value: ['completed', 'canceled'] },
         },
       },
     ],
