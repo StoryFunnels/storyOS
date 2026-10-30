@@ -1,5 +1,5 @@
 import { fieldRef, optionRef } from '@storyos/schemas';
-import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
+import type { PackManifest, PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
 import { SOCIAL_COMMAND_CENTER_PACK } from './social-command-center';
 import { STARTER_PACKS } from './starter-packs';
 import { TEAM_BOARD_PACK } from './team-board';
@@ -142,6 +142,25 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
 ];
 
 /**
+ * #1145 / #1169 — the copy a pack card carries: why it exists, what a person can do with it, how its databases link. ONE function for the
+ * authenticated listing and both public routes, so "the same text as the registry" is true by construction. Absent copy is null / [] / [],
+ * never invented and never undefined (an undefined key vanishes from the JSON).
+ */
+export function packCopy(manifest: PackManifest): Pick<PackPublicPreview, 'why' | 'can' | 'relations'> {
+  return {
+    why: manifest.why ?? null,
+    can: manifest.can ?? [],
+    relations: manifest.relations.map((r) => ({
+      from: r.from,
+      to: r.to,
+      cardinality: r.cardinality,
+      from_field: r.from_field,
+      to_field: r.to_field,
+    })),
+  };
+}
+
+/**
  * The shallow, public-safe shape of a registry entry (#272) — names only, no
  * ref-encoded configs. Used by the unauthenticated `public/packs` routes so a
  * pack link works for someone who has never logged in; see
@@ -154,6 +173,7 @@ export function toPublicPreview(entry: PackRegistryEntry): PackPublicPreview {
     name: entry.name,
     summary: entry.summary,
     highlights: entry.highlights,
+    ...packCopy(manifest),
     requires: manifest.requires,
     contents: {
       databases: manifest.databases.map((d) => d.name),

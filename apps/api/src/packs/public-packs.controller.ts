@@ -1,6 +1,6 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PACK_REGISTRY, toPublicPreview } from './registry';
+import { PACK_REGISTRY, packCopy, toPublicPreview } from './registry';
 
 /**
  * Public, pre-signup Business Pack preview (#272).
@@ -27,7 +27,7 @@ export class PublicPacksController {
   @Get('registry')
   @ApiOperation({ summary: 'The built-in Business Pack gallery — public, pre-signup' })
   registry() {
-    return PACK_REGISTRY.map(({ manifest: _manifest, ...card }) => card);
+    return PACK_REGISTRY.map(({ manifest, ...card }) => ({ ...card, ...packCopy(manifest) }));
   }
 
   @Get('registry/:slug')
