@@ -87,18 +87,26 @@ describe('renamedAfterInstall (#1094)', () => {
 
 describe('rename after install: wiring (#1094)', () => {
   const dialog = readFileSync(join(__dirname, '../components/pack-install-dialog.tsx'), 'utf8');
-  const mutationFn = dialog.slice(dialog.indexOf('const install = useMutation'), dialog.indexOf('onSuccess: (data) => {'));
-  const onSuccess = dialog.slice(dialog.indexOf('onSuccess: (data) => {'), dialog.indexOf('// With a target space the server'));
+  const mutationFn = dialog.slice(dialog.indexOf('const install = useMutation'), dialog.indexOf('onSuccess: async (data) => {'));
+  const onSuccess = dialog.slice(dialog.indexOf('onSuccess: async (data) => {'), dialog.indexOf('// With a target space the server'));
   const onError = dialog.slice(dialog.indexOf('// With a target space the server'), dialog.indexOf('// #569 — a reuse-only row'));
   it('renames only in onSuccess, through the ordinary space rename, never in the request or on a failed install', () => {
     expect(onSuccess).toContain('renamedAfterInstall(target.name');
-    expect(onSuccess).toContain('updateSpace.mutate(');
+    expect(onSuccess).toContain('updateSpace.mutateAsync(');
     expect(mutationFn).not.toContain('updateSpace');
     expect(onError).not.toContain('updateSpace');
   });
   it('a failed rename is a toast and never fails the install', () => {
-    expect(onSuccess).toMatch(/onError: \(e\) => toast\.error\(/);
-    expect(onSuccess.indexOf('updateSpace.mutate(')).toBeLessThan(onSuccess.indexOf('setResult(data)'));
+    expect(onSuccess).toMatch(/const failed = \(e: unknown\) => toast\.error\(/);
+    expect(onSuccess).toContain('rename.catch(failed)');
+    expect(onSuccess.indexOf('updateSpace.mutateAsync(')).toBeLessThan(onSuccess.indexOf('setResult(data)'));
+  });
+  it('#1167 — when the install navigates, the rename is awaited BEFORE router.push, and nothing navigates on a failed install', () => {
+    expect(onSuccess).toContain('if (route) await rename.catch(failed)');
+    expect(onSuccess.indexOf('await rename.catch(failed)')).toBeLessThan(onSuccess.indexOf('router.push(route)'));
+    // router.push lives only in onSuccess (the success path): never in the request or the error handler.
+    expect(mutationFn).not.toContain('router.push');
+    expect(onError).not.toContain('router.push');
   });
 });
 
