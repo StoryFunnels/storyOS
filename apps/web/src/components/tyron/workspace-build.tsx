@@ -240,13 +240,13 @@ export function WorkspaceBuild({
         }}
         placeholder="We run a small design studio — client projects, invoices, and a content calendar."
         aria-label="Describe your business"
-        className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+        className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint"
       />
       <button
         type="button"
         disabled={!description.trim()}
         onClick={() => build.mutate(description.trim())}
-        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--on-accent,#fff)] disabled:opacity-40"
+        className="mt-2 rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-1.5 text-body font-medium text-[var(--text-on-accent)] disabled:opacity-40"
       >
         Build my workspace
       </button>

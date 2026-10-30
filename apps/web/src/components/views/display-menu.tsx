@@ -426,7 +426,7 @@ export function DisplayMenu({
                         className={cn(
                           'flex-1 rounded-[var(--radius-control)] border px-1.5 py-1 text-label',
                           (config.card_size ?? 'medium') === opt
-                            ? 'border-[var(--accent)] bg-accent-soft text-ink'
+                            ? 'border-primary-text bg-active text-ink'
                             : 'border-border-default text-muted hover:bg-hover',
                         )}
                       >
@@ -629,7 +629,7 @@ function RowGutterToggle({
         <span
           className={cn(
             'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
-            shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
+            shown ? 'justify-end bg-primary-text' : 'justify-start bg-border-default',
           )}
         >
           <span className="h-3 w-3 rounded-full bg-card" />

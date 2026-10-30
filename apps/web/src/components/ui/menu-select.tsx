@@ -51,7 +51,7 @@ export function MenuSelect({
             className="justify-between text-label data-[disabled]:opacity-40"
           >
             <span className="min-w-0 truncate">{o.label}</span>
-            {o.value === value && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
+            {o.value === value && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

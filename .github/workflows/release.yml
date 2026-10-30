@@ -1,3 +1,16 @@
+# Give a version name to images that already exist (#1126).
+#
+# A `v*` tag on a main commit adds `:<version>` to that commit's three
+# `:<sha>` images, which build-images.yml published when the commit landed.
+# Nothing is rebuilt, so a release is byte-identical to what staging ran and
+# what deploy-production.yml ships by sha.
+#
+# The earlier version REBUILT api and web here and also pushed `:latest`.
+# Its web build had none of build-images.yml's build args (PostHog, WEB_URL,
+# GIT_SHA), it released no mcp image, and build-images.yml re-tags an unchanged
+# service's `:latest` onto every new main commit, so one release would have
+# put that differently-built web image into the next staging and production
+# deploys. `:latest` is written only by build-images.yml.
 name: Release
 
 on:
@@ -9,38 +22,60 @@ permissions:
   packages: write
 
 jobs:
-  publish:
+  promote:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - image: storyos-api
-            dockerfile: docker/api.Dockerfile
-          - image: storyos-web
-            dockerfile: docker/web.Dockerfile
+    timeout-minutes: 10
+    env:
+      SHA: ${{ github.sha }}
     steps:
+      - name: The tag is a semver version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "::error::tag '$GITHUB_REF_NAME' is not v<major>.<minor>.<patch>[-prerelease]"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+        with:
+          fetch-depth: 0
+
+      - name: The tagged commit is on main
+        run: |
+          git merge-base --is-ancestor "$SHA" origin/main \
+            || { echo "::error::$SHA is not on main — only main commits have published images"; exit 1; }
+
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      # Check all three first, so a missing image tags nothing rather than some.
+      - name: All three images exist for this sha
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for svc in api web mcp; do
+            docker buildx imagetools inspect "ghcr.io/$owner/storyos-$svc:$SHA" > /dev/null \
+              || { echo "::error::ghcr.io/$owner/storyos-$svc:$SHA not found — is the Build & push images run for this commit green?"; exit 1; }
+            echo "ok: storyos-$svc:$SHA"
+          done
+
+      - name: Tag them ${{ steps.version.outputs.version }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for svc in api web mcp; do
+            docker buildx imagetools create \
+              -t "ghcr.io/$owner/storyos-$svc:$VERSION" \
+              "ghcr.io/$owner/storyos-$svc:$SHA"
+            echo "storyos-$svc:$VERSION -> $SHA"
+          done
+          {
+            echo "### Release $VERSION"
+            echo "api, web and mcp \`:$VERSION\` = \`:$SHA\` (no rebuild; \`:latest\` untouched)"
+          } >> "$GITHUB_STEP_SUMMARY"

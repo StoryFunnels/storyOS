@@ -243,7 +243,7 @@ function FieldRow({
         <span
           className={cn(
             'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
-            on ? 'justify-end bg-accent' : 'justify-start bg-border-default',
+            on ? 'justify-end bg-primary-text' : 'justify-start bg-border-default',
           )}
         >
           <span className="h-3 w-3 rounded-full bg-card" />

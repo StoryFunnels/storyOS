@@ -90,7 +90,9 @@ describe('#749 — pack-seeded sample records are registered and behave like tem
 
   it('AC2 — identity is the id this install produced, never a title match: a pre-existing user record sharing a sample\'s title is NOT registered as a sample and survives "Remove sample data"', async () => {
     const wsId = await newWorkspace('749d');
-    const spaceId = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    // #1156 — a pack matches databases only within ITS space, so the pre-existing Clients sits in the space agency-os names for it.
+    const clientsSpace = (agencyOs.manifest.databases.find((d) => d.name === 'Clients') as { space: string }).space;
+    const spaceId = (await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: clientsSpace })).json().id;
     const clientsDb = await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Clients' });
     // Pre-create a record with the EXACT title one of agency-os's own samples
     // uses, before the pack ever installs — this is a genuine user record

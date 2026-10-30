@@ -418,7 +418,7 @@ function DatabasePicker({
                   <input type="checkbox" readOnly checked={isSelected} />
                   <span className="truncate">{option.label}</span>
                 </span>
-                {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+                {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
               </button>
             );
           })}
@@ -483,7 +483,7 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
     <div className="flex items-center justify-end gap-2">
       <span className="text-body tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
       <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
-        <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${fill}%` }} />
+        <div className="h-full rounded-full bg-primary-text transition-[width]" style={{ width: `${fill}%` }} />
       </div>
     </div>
   );

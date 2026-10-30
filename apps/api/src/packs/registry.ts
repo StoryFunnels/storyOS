@@ -2,6 +2,8 @@ import { fieldRef, optionRef } from '@storyos/schemas';
 import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
 import { SOCIAL_COMMAND_CENTER_PACK } from './social-command-center';
 import { STARTER_PACKS } from './starter-packs';
+import { TEAM_BOARD_PACK } from './team-board';
+import { TEAM_WIKI_PACK } from './team-wiki';
 
 /**
  * The built-in Business Pack gallery (MN-219 / #161).
@@ -19,6 +21,8 @@ import { STARTER_PACKS } from './starter-packs';
 export const PACK_REGISTRY: PackRegistryEntry[] = [
   ...STARTER_PACKS,
   SOCIAL_COMMAND_CENTER_PACK,
+  TEAM_BOARD_PACK,
+  TEAM_WIKI_PACK,
   {
     slug: 'support-inbox',
     name: 'Support Inbox',
@@ -39,6 +43,12 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
       slug: 'support-inbox',
       name: 'Support Inbox',
       version: '1.0.0',
+      why: 'People send you problems and you need to make sure none get lost.',
+      can: [
+        'Move every ticket from New to Done on a board',
+        'Get told when a ticket’s status changes',
+        'Let the Triage agent suggest a type and priority',
+      ],
       summary: 'A lightweight support ticket tracker with a workflow, a board view and a triage agent.',
       scenario: 'pack',
       requires: { connections: ['email'], ai: 'byo' },

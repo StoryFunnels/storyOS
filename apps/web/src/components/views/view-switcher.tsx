@@ -91,7 +91,7 @@ export function ViewSwitcher({
           title={pinned ? 'Unpin from tabs' : 'Pin to tabs'}
           className={cn(
             'shrink-0 rounded p-1.5 hover:bg-active hover:text-ink',
-            pinned ? 'text-accent' : 'text-faint',
+            pinned ? 'text-primary-text' : 'text-faint',
           )}
         >
           <Star className={cn('h-3.5 w-3.5', pinned && 'fill-current')} />
