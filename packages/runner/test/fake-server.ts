@@ -60,6 +60,8 @@ export class FakeServer {
   leaseSeconds = 90;
   heartbeatSeconds = 30;
   pausedUntil = 0;
+  /** When set, a completion is APPLIED but its answer is held back until this settles (the report is in flight and unanswered). */
+  holdCompleteAnswer: Promise<void> | null = null;
   /** Called synchronously at the moment a completion arrives, before it is recorded (lets a test look at the Runner's disk at that instant). */
   onCompletion: ((wake: FakeWake) => void) | null = null;
 
@@ -233,6 +235,8 @@ export class FakeServer {
         this.dropCompleteResponses -= 1;
         return void req.socket.destroy();
       }
+      if (this.holdCompleteAnswer) await this.holdCompleteAnswer;
+      if (res.destroyed) return;
       return json(200, { wake_id: w.id, status: w.status, requeued: w.status === 'queued', repeated: false });
     }
 
