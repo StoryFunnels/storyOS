@@ -19,7 +19,13 @@ function leaves(group: FilterNode | undefined): FilterCondition[] {
     .filter((n): n is FilterCondition => !isFilterGroup(n));
 }
 
-const isApplied = (c: FilterCondition) => !c.disabled && !isIncompleteCondition(c);
+/** Applied = what the query actually runs. The one definition: the Filter button, the My Work list, the
+ * record-page collection filter and the chips all ask this, none re-derives it (#1161). */
+export const isApplied = (c: FilterCondition) => !c.disabled && !isIncompleteCondition(c);
+
+/** Unfinished = kept (mid-edit state is never dropped) but not applied for want of a value: it must LOOK that way
+ * (dashed, "not applied yet") and narrow nothing. A disabled condition is a choice, not unfinished. */
+export const isUnfinished = (c: FilterCondition) => !c.disabled && isIncompleteCondition(c);
 
 export interface FilterButtonState {
   /** Any applied condition, in either filter. */

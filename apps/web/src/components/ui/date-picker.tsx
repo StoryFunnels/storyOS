@@ -188,7 +188,7 @@ export function DatePicker({
                      problem — but a deliberate keep, not an oversight. */
                   inMonth ? 'text-ink' : 'text-faint',
                   iso === selected && 'bg-primary text-[var(--text-on-dark)] hover:bg-primary',
-                  iso === todayStr && iso !== selected && 'font-semibold text-[var(--accent)]',
+                  iso === todayStr && iso !== selected && 'font-semibold text-primary-text',
                 )}
                 onClick={() => commit(iso)}
               >

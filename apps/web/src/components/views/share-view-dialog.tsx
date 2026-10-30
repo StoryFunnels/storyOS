@@ -165,7 +165,7 @@ export function ShareViewDialog({
           {token ? (
             <>
               <div className="flex items-center gap-2">
-                <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-meta font-medium text-[var(--text-on-dark)]">
+                <span className="rounded-full bg-primary px-2 py-0.5 text-meta font-medium text-[var(--text-on-dark)]">
                   Live
                 </span>
                 <span className="text-label text-muted">This view is public</span>

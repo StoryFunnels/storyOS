@@ -983,7 +983,7 @@ function SubmissionStatusBadge({ status }: { status: PackSubmissionRow['status']
       ? 'bg-success/10 text-success'
       : status === 'rejected'
         ? 'bg-error/10 text-error'
-        : 'bg-warning/10 text-warning';
+        : 'bg-warning/10 text-warning-text';
   return (
     <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${tone}`}>{status}</span>
   );
@@ -1003,7 +1003,7 @@ function StatusBadge({ status }: { status: string | null }) {
         ? 'bg-success/10 text-success'
         : status === 'Canceled'
           ? 'bg-hover text-ink-secondary'
-          : 'bg-warning/10 text-warning';
+          : 'bg-warning/10 text-warning-text';
   return (
     <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${tone}`}>{status}</span>
   );
