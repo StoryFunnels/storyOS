@@ -36,7 +36,6 @@ function walk(dir: string, out: string[] = []): string[] {
  */
 const KNOWN_UNDECLARED = new Set([
   'app/w/[ws]/settings/account/page.tsx: --radius-pill', // the 9999px fallback is the intent; declare it
-  'components/pack-install-dialog.tsx: --warning-soft', // #fef3c7 renders in both themes (a light pastel in dark mode)
 ]);
 
 describe('var(--token, fallback) must name a declared token', () => {
