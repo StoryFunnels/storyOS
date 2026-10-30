@@ -227,7 +227,7 @@ function StatusPill({ hook, fmt }: { hook: Webhook; fmt: ReturnType<typeof useDa
     <span
       className={cn(
         'rounded px-1.5 py-0.5 text-meta',
-        ok ? 'bg-accent-soft text-ink' : 'bg-hover text-error',
+        ok ? 'border border-border-default bg-hover text-ink' : 'bg-hover text-error',
       )}
       title={hook.last_error ?? undefined}
     >

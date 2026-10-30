@@ -692,7 +692,7 @@ function SetValueEditor({
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-meta',
                   on
-                    ? 'border-[var(--accent)] bg-active text-ink'
+                    ? 'border-primary-text bg-active text-ink'
                     : 'border-border-default text-muted',
                 )}
               >
@@ -938,7 +938,7 @@ function RelationSetValuePicker({
                   onClick={() => toggle(row)}
                   trailing={
                     ids.includes(row.id) ? (
-                      <Check className="h-3.5 w-3.5 text-accent" />
+                      <Check className="h-3.5 w-3.5 text-primary-text" />
                     ) : undefined
                   }
                 />

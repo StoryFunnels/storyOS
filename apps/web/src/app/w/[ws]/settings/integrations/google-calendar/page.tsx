@@ -404,7 +404,7 @@ export default function GoogleCalendarIntegrationPage() {
         </div>
       ) : (
         <>
-          <section className="mt-6 rounded-[var(--radius-card)] border border-border-strong bg-accent-soft p-5">
+          <section className="mt-6 rounded-[var(--radius-card)] border border-border-strong bg-hover p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="flex-1">
                 <p className="text-meta font-semibold uppercase tracking-wide text-muted">
@@ -620,7 +620,7 @@ export default function GoogleCalendarIntegrationPage() {
             </div>
           </section>
           {syncSummary && (
-            <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-4 py-3 text-label text-ink">
+            <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-label text-ink">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               {syncSummary}
             </div>

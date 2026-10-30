@@ -368,6 +368,7 @@ describe('#555 board grouping in the public payload', () => {
       column_sort: null,
       hide_empty_groups: false,
       hide_empty_no_value_group: false,
+      hidden_option_ids: [],
     });
     expect(res.json().dashboard).toBeUndefined(); // never present on a board
   });

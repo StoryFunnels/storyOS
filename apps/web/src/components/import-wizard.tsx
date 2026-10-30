@@ -427,7 +427,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       before-image, so a failed import cannot undo it the way a
                       failed create-only import can. */}
                   {onMatch === 'update' && (
-                    <p className="text-label text-warning">
+                    <p className="text-label text-warning-text">
                       If this import fails partway through, newly created records are automatically
                       removed — but any records already updated stay updated. Only creates roll back.
                     </p>
@@ -479,7 +479,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                       <p className="truncate text-meta text-faint">
                         {/* #379 — say when the choice was made automatically. */}
                         {autoMatched.has(c.column) && to.kind === 'existing' ? (
-                          <span className="text-accent">matched to an existing field · </span>
+                          <span className="text-primary-text">matched to an existing field · </span>
                         ) : null}
                         {sample}
                       </p>

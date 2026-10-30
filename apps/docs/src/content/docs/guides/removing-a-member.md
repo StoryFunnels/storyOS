@@ -12,7 +12,8 @@ button, because they answer three different requests.
 
 Revokes the member's access to this workspace. **Their comments and history stay, still
 attributed to them** — nothing they wrote disappears, and you can re-invite them later. This is
-the ordinary offboarding action: someone left the team, not a legal request.
+the ordinary offboarding action: someone left the team, not a legal request. Remove asks for
+confirmation first, naming the member, and takes effect as soon as you confirm.
 
 ## Export
 

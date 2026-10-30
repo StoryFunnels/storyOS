@@ -6347,6 +6347,7 @@ export interface components {
                 column_sort?: "natural" | "alpha" | "count";
                 hide_empty_groups?: boolean;
                 hide_empty_no_value_group?: boolean;
+                hidden_option_ids?: string[];
                 /** Format: uuid */
                 cover_field_id?: string;
                 /** Format: uuid */
@@ -6550,6 +6551,7 @@ export interface components {
                 column_sort?: "natural" | "alpha" | "count";
                 hide_empty_groups?: boolean;
                 hide_empty_no_value_group?: boolean;
+                hidden_option_ids?: string[];
                 /** Format: uuid */
                 cover_field_id?: string;
                 /** Format: uuid */
@@ -6749,6 +6751,7 @@ export interface components {
                 column_sort?: "natural" | "alpha" | "count";
                 hide_empty_groups?: boolean;
                 hide_empty_no_value_group?: boolean;
+                hidden_option_ids?: string[];
                 /** Format: uuid */
                 cover_field_id?: string;
                 /** Format: uuid */
@@ -7089,6 +7092,8 @@ export interface components {
             /** @default Exported workspace slice */
             summary: string;
             upgrade_notes?: string;
+            why?: string;
+            can?: string[];
             /** @default All rights reserved */
             license: string;
             attribution?: string;

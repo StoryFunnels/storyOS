@@ -19,9 +19,13 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
 - **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
   optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
 - **List** — compact rows, optionally grouped by a select or status field. A row reads like a
-  tracker's: the record's state glyph, then its select and identifier fields before the title, the
-  rest in fixed slots after it. Click a column header to sort by it (again to reverse). A grouped
-  list loads every record of each group, not only the first page.
+  tracker's: the record's state glyph, then the card's select and status fields and the first text
+  field among the card fields (an identifier such as a key) before the title, and every other card
+  field in fixed slots after it. Click a column header to sort by it (again to reverse); a header
+  click replaces the view's sort with that one field, so keep secondary keys in the Sort panel's
+  **Then by**. Lists load
+  in pages, with a **Load more** link at the bottom — see
+  [how lists and boards load](#how-lists-and-boards-load).
 
 ## Creating a view
 
@@ -165,6 +169,45 @@ would see their own link working, and not notice):
 The check covers the view's filter at any depth (inside **and**/**or** groups) and the filters on
 a dashboard's tiles and widgets. A text filter whose value happens to be the word "me" is an
 ordinary value and is not affected.
+
+## State glyphs, percent chips and loading in lists and boards
+
+A **state** here means a workflow field, or a select whose options each carry a state category
+(backlog, unstarted, started, completed, canceled). A list or board that is grouped by such a field
+draws the state, not just a coloured dot.
+
+- **A group header shows the state's glyph.** On a list, and on a board column, the glyph stands
+  before the group's name: a dashed ring for backlog, an empty ring for unstarted, a ring with a pie
+  for started, a filled disc with a tick for completed and with a cross for canceled. It takes the
+  option's colour. An option with no state category keeps the plain coloured dot, and on a board an
+  option that has its own icon shows that icon instead.
+- **A list row shows its own state before the title.** The row's state is the database's workflow
+  field, or failing that its first select with state categories. That field is not repeated among
+  the row's chips; to change it, open the record.
+- **A percent shows as a chip with the state's glyph beside the figure.** A number field formatted
+  as a percent, or a formula whose result is a percent, reads as the figure with the glyph drawn
+  next to it, filled to that percent while the state is *started*. Down a list the glyphs line up
+  in a column. A row with a percent chip does not draw the state glyph a second time before its
+  title. If the row has no state of its own, a grouped list uses the glyph of the group it is in.
+- **A finished group starts folded.** When you open a grouped list, groups whose state is
+  completed or canceled are collapsed, since the list is for what is still moving. The state comes
+  from the option's category and, when the option has none, from its name. Open one with its caret.
+  Changing what the list is grouped by folds the finished groups of the new grouping the same way.
+
+### How lists and boards load
+
+Lists and boards load their records in pages, not all at once.
+
+- **A grouped list or board keeps loading pages as it opens**, so each group fills in without you
+  asking. On a very large database it stops before the end rather than loading without limit
+  (at most 20 pages are loaded this way).
+- **A Load more link appears at the bottom while records remain unloaded** — on a list, grouped or
+  not, and under a board. It fetches the next page, and shows *Loading…* while it does.
+- **Until everything has loaded, a group's count says so.** A list group header reads, for example,
+  *"63 loaded"* instead of *"63"*, so a partial count is never read as the total. A board
+  column's header shows a count taken across the whole database when that count is available, as
+  described under
+  [counts, slots and footers](#counts-slots-and-footers-in-board-list-calendar-and-feed).
 
 ## Sorting by a choice field
 

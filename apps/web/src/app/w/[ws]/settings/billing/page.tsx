@@ -253,7 +253,7 @@ function UsageRow({
     <div className="mb-3 last:mb-0">
       <div className="flex items-baseline justify-between text-body">
         <span className="text-ink-secondary">{label}</span>
-        <span className={over80 ? 'font-medium text-warning' : 'text-muted'}>
+        <span className={over80 ? 'font-medium text-warning-text' : 'text-muted'}>
           {used} {limit !== null ? `/ ${limit}` : '(unlimited)'} {suffix && <span className="text-faint">{suffix}</span>}
         </span>
       </div>

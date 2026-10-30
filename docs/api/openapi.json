@@ -17309,6 +17309,15 @@
               "hide_empty_no_value_group": {
                 "type": "boolean"
               },
+              "hidden_option_ids": {
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
               "cover_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -18087,6 +18096,15 @@
               "hide_empty_no_value_group": {
                 "type": "boolean"
               },
+              "hidden_option_ids": {
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
               "cover_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -18844,6 +18862,15 @@
               },
               "hide_empty_no_value_group": {
                 "type": "boolean"
+              },
+              "hidden_option_ids": {
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
               },
               "cover_field_id": {
                 "type": "string",
@@ -20108,6 +20135,21 @@
           "upgrade_notes": {
             "type": "string",
             "maxLength": 5000
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "can": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
           },
           "license": {
             "default": "All rights reserved",
