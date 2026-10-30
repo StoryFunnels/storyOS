@@ -316,6 +316,25 @@ export const viewConfigSchema = z.object({
   hide_empty_groups: z.boolean().optional(),
   hide_empty_no_value_group: z.boolean().optional(),
   /**
+   * #1158 — option ids of the board columns the viewer does not want drawn,
+   * whether or not they hold cards. This is NOT `hide_empty_groups`: that hides
+   * by emptiness (and would also hide an empty "To Do" a team wants to see), this
+   * hides by choice (a filtered board that never shows Triage/Backlog/Done).
+   *
+   * Only meaningful when `group_by_field_id` is a select or workflow field — the
+   * only groupings whose columns ARE option ids. A user/relation/date board has
+   * no stable option to name, so the API rejects the key there rather than store
+   * something no renderer can honour. Absent or `[]` = nothing hidden, i.e. every
+   * view saved before this key existed. Every id must belong to the group-by
+   * field (422 otherwise); a later delete of the option drops the id on read
+   * (#305: dangling ≠ unconfigured). Hiding every option is allowed — it is a
+   * state a user can reach one click at a time, and the board says so.
+   * Hidden columns' cards are still in the board's data, so the view's filter and
+   * record counts are unchanged; only the column is not drawn.
+   * In a pack manifest the ids are `$option:` refs like any other option id.
+   */
+  hidden_option_ids: z.array(z.uuid()).max(200).optional(),
+  /**
    * #391 — the attachment field a gallery card draws its image from.
    *
    * A gallery is the obvious view for media and until attachment fields existed

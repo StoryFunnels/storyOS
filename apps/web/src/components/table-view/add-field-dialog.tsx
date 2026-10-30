@@ -22,6 +22,7 @@ import {
 } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
 import { DraftOptionsEditor } from './option-editors';
+import { optionsAfterTypeChange, seedWorkflowOptions } from './workflow-seed';
 import { FormulaEditor } from './formula-editor';
 import { ButtonActionsEditor } from './button-actions-editor';
 import type { ButtonAction } from './button-actions-editor';
@@ -49,7 +50,8 @@ export function AddFieldDialog({
   const [name, setName] = useState('');
   const [type, setType] = useState<string>(initialType ?? 'text');
   const [config, setConfig] = useState<Record<string, unknown>>({});
-  const [options, setOptions] = useState<OptionDraft[]>([]);
+  // #1151 — a dialog opened on Workflow starts with the server's three states, as choosing Workflow later does.
+  const [options, setOptions] = useState<OptionDraft[]>(() => (initialType === 'workflow' ? seedWorkflowOptions() : []));
   const [targetDb, setTargetDb] = useState('');
   const [singleTarget, setSingleTarget] = useState(true);
   const [inverseName, setInverseName] = useState('');
@@ -203,6 +205,7 @@ export function AddFieldDialog({
             value={type}
             disabledTypes={disabledTypes}
             onChange={(next) => {
+              setOptions((cur) => optionsAfterTypeChange(type, next, cur));
               setType(next);
               setConfig({});
             }}
