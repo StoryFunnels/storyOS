@@ -10,6 +10,8 @@ import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
 import { summaryFor } from '@/lib/runners/agents';
 import { useAgents, useRunners, useWakeSummary } from '@/lib/runners/queries';
+import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
+import { useWorkspace } from '@/lib/queries';
 import { describeRunner } from '@/lib/runners/status';
 
 /**
@@ -23,6 +25,8 @@ export default function AgentsIndexPage() {
   const summary = useWakeSummary(ws);
   const runners = useRunners(ws);
   const [hireOpen, setHireOpen] = useState(false);
+  const role = useWorkspace(ws).data?.role;
+  const showMachine = canSeeRunnerDetails(role);
   const now = new Date();
 
   return (
@@ -32,7 +36,7 @@ export default function AgentsIndexPage() {
           <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Agents</h1>
           <p className="mt-0.5 text-body leading-normal text-muted">The agents you have hired, and where each one runs.</p>
         </div>
-        {dbId && (
+        {dbId && canHireAgents(role) && (
           <Button type="button" variant="secondary" size="sm" onClick={() => setHireOpen(true)}>
             <Plus className="h-[13px] w-[13px]" aria-hidden />
             Hire an agent
@@ -68,7 +72,7 @@ export default function AgentsIndexPage() {
                           ? 'Thinks with StoryOS AI'
                           : 'Runs without an AI'
                       : row?.runner
-                        ? `Runs on ${row.runner.name}`
+                        ? (showMachine ? `Runs on ${row.runner.name}` : 'Runs on a Runner')
                         : 'No Runner yet'}
                   </span>
                 </Link>
@@ -87,7 +91,7 @@ export default function AgentsIndexPage() {
           to see every agent’s definition as a table.
         </p>
       )}
-      {dbId && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
+      {dbId && canHireAgents(role) && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
     </div>
   );
 }

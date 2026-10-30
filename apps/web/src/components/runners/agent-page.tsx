@@ -12,6 +12,8 @@ import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, summaryFor, waitingLine } from '@/lib/runners/agents';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
+import { canSeeRunnerDetails, canHireAgents } from '@/lib/runners/access';
+import { useWorkspace } from '@/lib/queries';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
 import { shortDate } from '@/lib/runners/words';
 import { HireDialog } from './hire-dialog';
@@ -39,6 +41,8 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const members = useMembers(ws, true);
   const m = useRunnerMutations(ws);
   const [hireOpen, setHireOpen] = useState(false);
+  const role = useWorkspace(ws).data?.role;
+  const masked = !canSeeRunnerDetails(role);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (error || !agent) {
@@ -77,7 +81,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           <h1 className="m-0 text-[20px] font-bold leading-[24px] tracking-[-0.02em] text-ink">{agent.name}</h1>
           <p className="mt-0.5 text-body leading-normal text-muted">{agent.hiredAt ? `Hired ${shortDate(agent.hiredAt)} · ` : ''}Reports to {ownerName}</p>
         </div>
-        {dbId && (
+        {dbId && canHireAgents(role) && (
           <Button type="button" variant="secondary" size="sm" onClick={() => setHireOpen(true)}>
             <Plus className="h-[13px] w-[13px]" aria-hidden />
             Hire an agent
@@ -88,7 +92,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
       {usesRunner ? (
         <>
           {/* A non-owner sees where it runs, read-only: listing or assigning someone else's Runner is not possible. */}
-          <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
+          <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
           {!assigned &&
             (isOwner ? (
               <FirstRunCard
@@ -115,8 +119,8 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
       )}
 
       <Facts agent={agent} />
-      <RunList ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
-      {dbId && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
+      <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
+      {dbId && canHireAgents(role) && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
     </div>
   );
 }

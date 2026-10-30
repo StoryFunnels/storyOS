@@ -159,9 +159,10 @@ describe('the Runs on menu is the agent OWNER’s Runners and nothing else (ADR-
     expect(text).not.toMatch(/api key|apikey|api_key/i);
   });
   it('the line reads "Runs on <machine> · <tool>", the tool being the Runner’s own choice', () => {
-    expect(runsOnLine({ id: 'r1', name: 'Ievgen’s MacBook Pro' }, mine)).toEqual({ kind: 'runner', machine: 'Ievgen’s MacBook Pro', tool: 'Claude Code' });
+    expect(runsOnLine({ id: 'r1', name: 'Ievgen’s MacBook Pro' }, mine)).toEqual({ kind: 'runner', machine: 'Ievgen’s MacBook Pro', tool: 'Claude Code', masked: false });
     expect(runsOnLine({ id: 'r1', name: 'M' }, [runner({ chosen_tool: 'cursor' })]).tool).toBe('Cursor');
-    expect(runsOnLine(null, mine)).toEqual({ kind: 'none', machine: null, tool: null });
+    expect(runsOnLine(null, mine)).toEqual({ kind: 'none', machine: null, tool: null, masked: false });
+    expect(runsOnLine({ id: 'r1', name: 'Olga’s laptop' }, mine, true)).toEqual({ kind: 'runner', machine: null, tool: null, masked: true });
   });
 });
 

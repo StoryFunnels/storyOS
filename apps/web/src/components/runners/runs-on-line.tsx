@@ -23,6 +23,7 @@ export function RunsOnLine({
   onAdd,
   now,
   pending,
+  masked = false,
 }: {
   assigned: { id: string; name: string } | null;
   runners: readonly RunnerDto[];
@@ -31,14 +32,18 @@ export function RunsOnLine({
   onAdd: () => void;
   now: Date;
   pending?: boolean;
+  /** A viewer who may not be told the machine or tool (a guest): "Runs on a Runner", no Change. */
+  masked?: boolean;
 }) {
-  const line = runsOnLine(assigned, runners);
+  const line = runsOnLine(assigned, runners, masked);
   const items = buildRunsOnMenu(runners, assigned?.id);
   return (
     <div className="flex flex-wrap items-center gap-2 text-body text-ink-secondary" data-testid="runs-on">
       <span>
         Runs on{' '}
-        {line.kind === 'none' ? (
+        {line.masked ? (
+          <b className="font-semibold text-ink">a Runner</b>
+        ) : line.kind === 'none' ? (
           <b className="font-semibold text-ink">No Runner yet</b>
         ) : (
           <>
@@ -47,7 +52,7 @@ export function RunsOnLine({
           </>
         )}
       </span>
-      {canChange && (
+      {canChange && !masked && (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="secondary" size="sm" disabled={pending} aria-haspopup="menu">

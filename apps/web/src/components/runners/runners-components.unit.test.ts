@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
 import type { RunnerDto, RunStateName, WakeDto } from '@/lib/runners/types';
 import { FirstRunCard, namesLine } from './first-run-card';
 import { RunList } from './run-list';
@@ -186,5 +189,54 @@ describe('a Runner row on Settings › Runners', () => {
     expect(out).toContain('Its agents wait until you add another Runner. Nothing is deleted.');
     expect(out).toContain('Remove…');
     expect(out).not.toMatch(/No computer on all the time|API key/);
+  });
+});
+
+describe('a guest with a grant on the Agents database is not told which computer or tool (Vera, PR #1366)', () => {
+  const html = (assigned: { id: string; name: string } | null, o: { canChange: boolean; masked?: boolean }) =>
+    renderToStaticMarkup(createElement(RunsOnLine, { assigned, runners: [runner], onPick: () => {}, onAdd: () => {}, now: NOW, ...o }));
+  const assigned = { id: 'r1', name: 'Olga’s laptop' };
+  it('the Runs-on line: owner and member see machine and tool, a guest sees only "Runs on a Runner" and no Change', () => {
+    const owner = html(assigned, { canChange: true });
+    expect(owner).toContain('Olga’s laptop');
+    expect(owner).toContain('Change');
+    const member = html(assigned, { canChange: false });
+    expect(member).toContain('Olga’s laptop');
+    expect(member).not.toContain('Change');
+    const guest = html(assigned, { canChange: true, masked: true }); // even if the caller wrongly allowed Change
+    expect(guest).toContain('Runs on <b class="font-semibold text-ink">a Runner</b>');
+    expect(guest).not.toMatch(/Olga|Claude|Cursor|Change/);
+  });
+  it('the role predicates: guest and "not loaded yet" see nothing; member and admin see everything', () => {
+    for (const role of ['guest', undefined]) {
+      expect(canSeeRunnerDetails(role)).toBe(false);
+      expect(canHireAgents(role)).toBe(false);
+    }
+    for (const role of ['member', 'admin']) {
+      expect(canSeeRunnerDetails(role)).toBe(true);
+      expect(canHireAgents(role)).toBe(true);
+    }
+  });
+  it('run rows name no machine and no tool for a guest, in any state, and still name them for a member', () => {
+    const all = ALL.map((s) => wake(s, { run_state: { state: s, runner_name: 'Olga’s laptop', since: '2026-10-29T18:40:00Z', until: '2026-10-30T14:00:00Z', tool: 'claude-code' } }));
+    const guest = runList(all, { masked: true });
+    expect(guest).not.toMatch(/Olga|Claude|Cursor/);
+    expect(guest).toContain('Running<'); // "Running", not "Running on <machine>"
+    expect(guest).toContain('Waiting to start<');
+    expect(guest).toContain('Waiting for the limit to reset at 14:00');
+    expect(guest).toContain('Runner offline since 18:40');
+    const member = runList(all);
+    expect(member).toContain('Running on Olga’s laptop');
+    expect(member).toContain('Waiting for your Claude limit to reset at 14:00');
+  });
+  it('Hire is wrapped in the predicate on both screens that offer it (a guest gets neither the button nor the card)', () => {
+    for (const rel of ['./agent-page.tsx', '../../app/w/[ws]/agents/page.tsx']) {
+      const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+      expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(2);
+    }
+  });
+  it('the Agents page says "Runs on a Runner" to a guest and never the machine', () => {
+    const src = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
+    expect(src).toContain("showMachine ? `Runs on ${row.runner.name}` : 'Runs on a Runner'");
   });
 });

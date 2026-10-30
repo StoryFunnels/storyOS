@@ -80,7 +80,12 @@ export function reasonLine(w: Pick<WakeDto, 'reason' | 'coalesced_count'>): stri
  * one. Dara's example "Stopped part-way: Claude Code stopped responding. Nothing was changed." needs the Run record's steps
  * (Marek's #1133); until the row carries them the sub-line says only what is true, and never claims "nothing was changed".
  */
-export function describeRun(w: WakeDto, o: TimeOpts = {}): RunLine {
+export interface RunViewOpts extends TimeOpts {
+  /** A viewer who may not be told the machine or the tool (a guest): the row says what is happening, not on what. */
+  masked?: boolean;
+}
+
+export function describeRun(w: WakeDto, o: RunViewOpts = {}): RunLine {
   const s: RunState = w.run_state;
   const when = (iso: string | null | undefined) => (iso ? shortDate(iso, o) : null);
   const base = reasonLine(w);
@@ -88,7 +93,7 @@ export function describeRun(w: WakeDto, o: TimeOpts = {}): RunLine {
     case 'needs_approval':
       return { tone: 'ask', label: 'Needs your approval', sub: base, action: 'review' };
     case 'running':
-      return { tone: 'go', label: s.runner_name ? `Running on ${s.runner_name}` : 'Running', sub: base, action: null };
+      return { tone: 'go', label: s.runner_name && !o.masked ? `Running on ${s.runner_name}` : 'Running', sub: base, action: null };
     case 'done': {
       const d = when(w.finished_at);
       return { tone: 'done', label: d ? `Done · ${d}` : 'Done', sub: base, action: null };
@@ -116,7 +121,7 @@ export function describeRun(w: WakeDto, o: TimeOpts = {}): RunLine {
     case 'waiting_for_limit':
       return {
         tone: 'limit',
-        label: `Waiting for your ${limitBrand(s.tool)} limit to reset${s.until ? ` at ${clockTime(s.until, o)}` : ''}`,
+        label: `Waiting for ${o.masked ? 'the' : `your ${limitBrand(s.tool)}`} limit to reset${s.until ? ` at ${clockTime(s.until, o)}` : ''}`,
         sub: base,
         action: null,
       };
@@ -125,7 +130,7 @@ export function describeRun(w: WakeDto, o: TimeOpts = {}): RunLine {
     case 'waiting_for_runner':
       // With no Runner assigned this is Dara's "Waiting for a Runner". With one assigned and online (the server names it) the work
       // is simply queued to start, and saying "waiting for a Runner" would send someone off to add one they already have.
-      return { tone: 'off', label: s.runner_name ? `Waiting to start on ${s.runner_name}` : 'Waiting for a Runner', sub: base, action: null };
+      return { tone: 'off', label: s.runner_name ? (o.masked ? 'Waiting to start' : `Waiting to start on ${s.runner_name}`) : 'Waiting for a Runner', sub: base, action: null };
   }
 }
 

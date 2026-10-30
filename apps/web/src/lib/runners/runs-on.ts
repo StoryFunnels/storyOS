@@ -42,13 +42,16 @@ export interface RunsOnLine {
   kind: 'none' | 'runner';
   machine: string | null;
   tool: string | null;
+  /** The viewer may not be told which machine: the line reads "Runs on a Runner". */
+  masked: boolean;
 }
 
 /** "Ievgen's MacBook Pro · Claude Code", or "No Runner yet". The tool comes from the Runner's own chosen tool, not a default. */
-export function runsOnLine(assigned: { id: string; name: string } | null | undefined, runners: readonly RunnerDto[]): RunsOnLine {
-  if (!assigned) return { kind: 'none', machine: null, tool: null };
+export function runsOnLine(assigned: { id: string; name: string } | null | undefined, runners: readonly RunnerDto[], masked = false): RunsOnLine {
+  if (!assigned) return { kind: 'none', machine: null, tool: null, masked: false };
+  if (masked) return { kind: 'runner', machine: null, tool: null, masked: true };
   const r = runners.find((x) => x.id === assigned.id);
-  return { kind: 'runner', machine: assigned.name, tool: r ? toolName(r.chosen_tool, r.tools) : null };
+  return { kind: 'runner', machine: assigned.name, tool: r ? toolName(r.chosen_tool, r.tools) : null, masked: false };
 }
 
 export interface HireState {

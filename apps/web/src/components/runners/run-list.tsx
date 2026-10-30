@@ -18,6 +18,7 @@ export function RunList({
   loading,
   error,
   tz,
+  masked = false,
 }: {
   ws: string;
   wakes: readonly WakeDto[];
@@ -26,6 +27,8 @@ export function RunList({
   loading?: boolean;
   error?: boolean;
   tz?: TimeOpts;
+  /** The viewer may not be told machine or tool names (a guest). */
+  masked?: boolean;
 }) {
   const finished = wakes.filter(isFinishedRun).length;
   return (
@@ -49,7 +52,7 @@ export function RunList({
       ) : (
         <ul className="m-0 list-none p-0">
           {wakes.map((w) => {
-            const line = describeRun(w, tz);
+            const line = describeRun(w, { ...tz, masked });
             const href = w.record?.database_id ? `/w/${ws}/d/${w.record.database_id}/r/${w.record.id}` : null;
             const title = w.record?.title || (w.record ? 'Untitled' : 'No record');
             return (
