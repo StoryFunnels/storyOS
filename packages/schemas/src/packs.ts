@@ -754,6 +754,15 @@ export const packPublicPreviewSchema = z.object({
   name: z.string(),
   summary: z.string(),
   highlights: z.array(z.string()).default([]),
+  /**
+   * #1169 — the same copy the authenticated registry listing returns (#1145), so the signup picker can show it before signup. `why` is
+   * null and `can`/`relations` are empty when the pack declares none: never invented, never undefined.
+   */
+  why: z.string().nullable(),
+  can: z.array(z.string()),
+  relations: z.array(
+    z.object({ from: z.string(), to: z.string(), cardinality: z.string(), from_field: z.string(), to_field: z.string() }),
+  ),
   requires: packRequiresSchema,
   contents: z.object({
     databases: z.array(z.string()),
