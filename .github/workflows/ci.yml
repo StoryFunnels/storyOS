@@ -9,6 +9,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# #1127 — explicit, not inherited from the repo default. The collision check
+# lists open PRs and their files through the API; nothing here writes.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   # #953 — is this diff docs-only? Decides whether the two test jobs below run at all. Same base-SHA
   # logic as the `images` job's docker-inputs-changed.mjs, for both triggers. FAIL-SAFE: if the base
@@ -277,10 +283,16 @@ jobs:
   # run" through is a gate that lets anything through. The ONE exception (#953):
   # test-api / test-other may be `skipped` when `changes` succeeded and said
   # docs-only. The rule lives in scripts/ci-gate.mjs so it has a test.
+  #
+  # #1123 — `images` is in the list too. Before, a red `Docker images` (a broken
+  # Dockerfile, an mcp image that does not boot, an invalid compose file) did not
+  # stop the merge queue, and the first sign was the image build after the merge.
+  # A diff with no Docker inputs still passes: the job skips its own steps and
+  # reports success. scripts/ci-gate.test.mjs fails if a job is left out.
   ci:
     name: ci
     if: ${{ !cancelled() }}
-    needs: [changes, checks, test-api, test-other]
+    needs: [changes, checks, test-api, test-other, images]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

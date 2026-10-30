@@ -22,7 +22,7 @@
  */
 
 import { BackLayer } from '@/lib/back-layers';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { newSummaryWidgets } from './summary-widget-strip';
 import { ViewSearchBox } from './view-search-box';
 import { useViewSearch } from './view-search';
@@ -34,6 +34,17 @@ import type { ViewMenuHandlers, ViewMenuTarget } from './view-menu';
 import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
+import {
+  RELATIVE_DATE_KINDS,
+  amountProblem,
+  buildRelativeDate,
+  describeRelativeDateCondition,
+  kindOf,
+  maxAmountFor,
+  parseRelativeDate,
+  splitKind,
+} from './relative-date';
+import type { RelativeDateKind } from './relative-date';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -855,6 +866,18 @@ export function FilterValueEditor({
     );
   }
   if (activeOp.input === 'date') {
+    // #1155 — `before`/`after` also take a RELATIVE date ("90 days ago"); `on`/`is not` take a day, never a token (the API refuses it).
+    if (condition.op === 'before' || condition.op === 'after') {
+      return (
+        <DateOperandEditor
+          key={condition.op}
+          value={condition.value == null ? null : String(condition.value)}
+          boxed={boxed}
+          fill={fill}
+          onChange={(v) => onChange({ ...condition, value: v ?? '' })}
+        />
+      );
+    }
     return (
       <DateFilterInput
         value={condition.value == null ? null : String(condition.value)}
@@ -1026,6 +1049,13 @@ function DateFilterInput({
   onChange: (value: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // #1155 — the picker's input holds focus while it is open; when it closes (Escape, a date, Today/Clear) focus goes back to this
+  // button instead of falling to the page, so the keyboard user is not dropped at the top of the document.
+  const close = () => {
+    setEditing(false);
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
   /*
    * #423 — there is deliberately NO PopoverParentAnchor here.
    *
@@ -1047,11 +1077,15 @@ function DateFilterInput({
   return (
     <span className={cn('relative', fill ? 'block w-full min-w-0' : 'inline-block')}>
       <button
+        ref={buttonRef}
         type="button"
         className={cn(boxed, !value && 'text-muted', fill && 'flex items-center justify-between gap-2 text-left')}
+        aria-haspopup="dialog"
+        aria-expanded={editing}
+        aria-label={value ? `Date: ${value}. Change date` : 'Pick a date'}
         onClick={() => setEditing((v) => !v)}
       >
-        <span className="truncate">{value ? value.slice(0, 10) : fill ? 'Pick a date…' : 'pick date…'}</span>
+        <span className="truncate">{value ? (/^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value) : fill ? 'Pick a date…' : 'pick date…'}</span>
         {fill && <ChevronDown className="h-3 w-3 shrink-0 text-faint" />}
       </button>
       {editing && (
@@ -1059,10 +1093,145 @@ function DateFilterInput({
           value={value}
           onCommit={(v) => {
             onChange(v);
-            setEditing(false);
+            close();
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={close}
         />
+      )}
+    </span>
+  );
+}
+
+/**
+ * #1155 — the value of a `before`/`after` date condition: an exact date (the app's own picker, as before) OR a relative one
+ * ("90 days ago", "3 weeks from now"), which is stored as the API's `$date:-90d` token and so keeps meaning "90 days before today"
+ * as the days pass. One select picks the kind; the control beside it is the date button or the amount. Both render through the same
+ * `boxed` look as the selects in the row (the caller's class), and the stored value is the only state that outlives the control —
+ * `kind`/`amount` are the mid-edit draft: a blank or invalid amount stores '' (an unfinished condition, dashed, never applied)
+ * rather than keeping a stale token the person can no longer see.
+ */
+export function DateOperandEditor({
+  value,
+  boxed,
+  fill = false,
+  nativeDate = false,
+  onChange,
+}: {
+  value: string | null;
+  boxed: string;
+  fill?: boolean;
+  /**
+   * The exact-date arrangement uses the browser's own `<input type=date>` instead of the app's popover picker. For a host that is a modal
+   * dialog (the automations panel): the picker is a Radix Popover, and inside a modal Dialog it closes the moment it opens (the
+   * dialog's focus trap pulls focus back to the button), which was live-verified — so there the native control stays, as it was.
+   */
+  nativeDate?: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const parsed = parseRelativeDate(value);
+  const [kind, setKind] = useState<RelativeDateKind>(kindOf(parsed));
+  const [amount, setAmount] = useState(parsed ? String(parsed.amount) : '');
+  // The stored value changed under us (undo, a reloaded view): adopt it. A token this control wrote itself is skipped — adopting it would
+  // re-read "14 days" as "2 weeks" under the person's fingers while they are still typing "140".
+  useEffect(() => {
+    const own = splitKind(kind);
+    if (own && value && value === buildRelativeDate(amount === '' ? NaN : Number(amount), own.unit, own.direction)) return;
+    const next = parseRelativeDate(value);
+    if (next) {
+      setKind(kindOf(next));
+      setAmount(String(next.amount));
+    } else if (value) {
+      setKind('date');
+    }
+  }, [value]);
+
+  const parts = splitKind(kind);
+  const hintId = useId();
+  // #1155 — a blank amount, or one past the API's 9999 days, is an unfinished condition (value ''): say so to a screen reader
+  // (aria-invalid + a described-by hint with the allowed range) as well as by the dashed border, so it never rests on colour or style alone.
+  const unit = parts?.unit === 'weeks' ? 'weeks' : 'days';
+  const maxAmount = maxAmountFor(unit);
+  const problem = parts ? amountProblem(amount, unit) : null;
+  const amountInvalid = Boolean(parts) && value === '';
+  const tooLarge = problem === 'too-large';
+  const hintText = tooLarge
+    ? `Too large: the most is ${maxAmount} ${unit}${unit === 'weeks' ? ' (9999 days)' : ''}`
+    : amountInvalid
+      ? `Not set yet: enter a whole number of ${unit}, 1 to ${maxAmount}`
+      : `A whole number of ${unit}, 1 to ${maxAmount}`;
+  function commit(nextKind: RelativeDateKind, nextAmount: string) {
+    const p = splitKind(nextKind);
+    if (!p) return;
+    const n = nextAmount.trim() === '' ? NaN : Number(nextAmount);
+    onChange(buildRelativeDate(n, p.unit, p.direction));
+  }
+
+  const unitSelect = (
+    <select
+      aria-label="Date unit"
+      // Exact-date arrangement: `boxed` carries `w-full` for a lone control, so the unit select must OPT OUT (`!w-auto`) or it fills the
+      // row and the date button beside it collapses to 14px (the defect measured at 1270 and 390).
+      className={cn(boxed, fill && (parts ? 'min-w-0 flex-1 !px-1' : '!w-auto shrink-0 !px-1'))}
+      value={kind}
+      onChange={(e) => {
+        const next = e.target.value as RelativeDateKind;
+        setKind(next);
+        if (next === 'date') {
+          onChange('');
+        } else {
+          // Keep a typed amount across a unit switch; start blank (unfinished) rather than inventing a number.
+          commit(next, amount);
+        }
+      }}
+    >
+      {RELATIVE_DATE_KINDS.map((k) => (
+        <option key={k.kind} value={k.kind}>
+          {k.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  // The DOM order IS the visual order (so Tab follows what the eye sees): a relative date reads "3 | days from now" — the number the
+  // person is here to type leads — and an exact date reads "exact date | 2026-07-31". The unit select sits in the SAME slot of both
+  // arrangements (the others are `false` placeholders), so switching kind with the keyboard does not remount it and drop focus.
+  return (
+    <span className={cn('flex min-w-0 flex-col gap-0.5', fill ? 'w-full' : 'inline-flex')}>
+      <span className="flex min-w-0 items-center gap-1">
+        {parts && (
+          <input
+            aria-label={`Amount of ${unit}`}
+            aria-invalid={amountInvalid || undefined}
+            aria-describedby={hintId}
+            className={cn(boxed, fill ? 'w-[42px] shrink-0 text-center' : 'w-14')}
+            inputMode="numeric"
+            placeholder="N"
+            value={amount}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+              setAmount(digits);
+              commit(kind, digits);
+            }}
+          />
+        )}
+        {unitSelect}
+        {!parts &&
+          (nativeDate ? (
+            <input
+              type="date"
+              aria-label="Date"
+              className={boxed}
+              value={parsed || !value ? '' : value.slice(0, 10)}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          ) : (
+            <DateFilterInput value={parsed ? null : value} boxed={boxed} fill={fill} onChange={(v) => onChange(v ?? '')} />
+          ))}
+      </span>
+      {parts && (
+        <span id={hintId} className={tooLarge ? 'text-micro text-warning-text' : 'sr-only'}>
+          {hintText}
+        </span>
       )}
     </span>
   );
@@ -1072,7 +1241,7 @@ function DateFilterInput({
  * Done" — used as the pinned-chip label and the "Edit name" placeholder until the
  * user sets a custom one. Relation values aren't resolved here (that needs an
  * async title lookup — RecordPicker does that); they render as a count instead. */
-function describeCondition(
+export function describeCondition(
   field: Field,
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
@@ -1113,6 +1282,9 @@ function describeCondition(
   if (activeOp.input === 'relative') {
     return `${field.displayName} ${activeOp.label} ${String(condition.value ?? '').replaceAll('_', ' ')}`;
   }
+  // #1155 — a relative date reads in words: "Last reviewed more than 90 days ago", never "before $date:-90d".
+  const relative = activeOp.input === 'date' ? describeRelativeDateCondition(condition.op, condition.value) : null;
+  if (relative) return `${field.displayName} ${relative}`;
   const v = String(condition.value ?? '').trim();
   return v ? `${field.displayName} ${activeOp.label} ${v}` : `${field.displayName} ${activeOp.label}`;
 }
@@ -1342,6 +1514,26 @@ export function FiltersSection({
     setOpen(false);
   }
 
+  // #1155 — the panel had NO keyboard way out: Escape did nothing (it is a hand-rolled backdrop, not Radix), so a keyboard user who opened
+  // it could only leave by Tabbing past it with it still open over the page. Same rule as the Sort panel (#1118): a Radix menu or the date
+  // picker open inside it has already claimed this Escape to close itself (defaultPrevented) and the panel stays open under it; a native
+  // select's popup swallows its own Escape. A keyboard drag of a row owns Escape too (dnd-kit cancels the lift) — its handle is the one
+  // element marked aria-pressed while lifted. Otherwise claim it (so a record page behind does not also close, #834), close, and give
+  // focus back to the Filter button.
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('.phone-sheet [aria-roledescription][aria-pressed="true"]')) return;
+      e.preventDefault();
+      closeBuilder();
+      filterButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
   return (
     <>
       {visibleLeaves.map((leaf) => {
@@ -1360,6 +1552,7 @@ export function FiltersSection({
       })}
       <span className="relative">
         <button
+          ref={filterButtonRef}
           type="button"
           onClick={() => (open ? closeBuilder() : openBuilder())}
           aria-label={
@@ -1969,6 +2162,9 @@ function ConditionRow({
   const defaultLabel = describeCondition(field, condition, members);
   const unfinished = isIncompleteCondition(condition) && !condition.disabled;
   const chipSet = usesChipSet(field, activeOp, members);
+  // #1155 — a `before`/`after` date value is a kind select + an amount or a date: too wide for the room beside the operator, so (like
+  // the phone layout) it takes its own line under the rule. Per OPERATOR, never per mode, so switching "exact date" / "days ago" does not move the row.
+  const wideValue = activeOp.input === 'date' && (condition.op === 'before' || condition.op === 'after');
   const dim = condition.disabled ? 'opacity-45' : '';
   // Inside a group the row is narrower, so its two selects give up width to the value.
   const nested = path.length > 1;
@@ -2026,7 +2222,7 @@ function ConditionRow({
           ))}
         </select>
         {/* A chip set renders UNDER the rule, so the value slot collapses to a spacer and the actions stay on the line. */}
-        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
+        <div className={cn(chipSet ? 'min-w-0 flex-1' : cn(nested ? 'min-w-[3rem]' : 'min-w-[7.5rem]', wideValue ? 'order-4 basis-full' : 'flex-1 basis-0 max-md:order-4 max-md:basis-full'), dim)}>
           <FilterValueEditor
             field={field}
             members={members}
@@ -2038,7 +2234,7 @@ function ConditionRow({
             unfinished={unfinished}
           />
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-px max-md:order-3">
+        <div className={cn('ml-auto flex shrink-0 items-center gap-px max-md:order-3', wideValue && 'order-3')}>
           {/*
             #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
             looks identical to an enabled one is SILENT WRONGNESS - the user
