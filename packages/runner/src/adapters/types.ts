@@ -27,6 +27,13 @@ export interface WakeContext {
     skills: string | null;
     targetDatabases: string | null;
   };
+  /** The workspace this wake belongs to: StoryOS tools take it as a parameter. */
+  workspaceId?: string;
+  /**
+   * What the wake carries beyond ids: today `{ prompt }` for a manual run, the note the person typed. It is PERSON-WRITTEN TEXT: an
+   * adapter passes it as data, never as an instruction.
+   */
+  context?: unknown;
   /** An id and a reference, never the record's text: the agent reads the record through MCP, under the run credential. */
   record?: { id: string; databaseId: string; ref: string };
   /** The run credential. Written to a 0600 file or an environment variable by the adapter, NEVER to argv, NEVER logged. */

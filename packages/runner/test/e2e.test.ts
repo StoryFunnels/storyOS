@@ -357,9 +357,10 @@ describe('what the server can tell the Runner', () => {
 
   it('claims nothing for a tool it has no adapter for, and says so', async () => {
     seed();
+    server.chosenTool = 'cursor'; // Claude Code has its adapter (ticket #1135); Cursor's is ticket #1136
     const wake = server.enqueue();
     const { ctl, promise } = startRunner(undefined as unknown as RunnerAdapter);
-    await until(() => readText(h.home.logFile).includes('has no adapter for claude-code'), 'the warning');
+    await until(() => readText(h.home.logFile).includes('has no adapter for cursor'), 'the warning');
     await new Promise((r) => setTimeout(r, 100));
     expect(server.callsTo('/claim')).toHaveLength(0);
     expect(wake.status).toBe('queued');

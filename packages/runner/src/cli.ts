@@ -15,7 +15,7 @@ export interface ParsedArgs {
   flags: Record<string, string | true>;
 }
 
-const VALUE_FLAGS = new Set(['server', 'adapter', 'concurrency', 'mcp-url']);
+const VALUE_FLAGS = new Set(['server', 'adapter', 'concurrency', 'mcp-url', 'run-timeout']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const positional: string[] = [];
@@ -51,7 +51,8 @@ For scripts and the server guide
 Options
   --server <url>        The StoryOS server (default ${DEFAULT_SERVER}; or STORYOS_URL)
   --concurrency <n>     Wakes to run at once on this computer (default 1)
-  --adapter stub        A dry run: claims and reports wakes, does no real work
+  --adapter <name>      claude-code (the default once you chose Claude Code in StoryOS) or stub (a dry run that does no real work)
+  --run-timeout <min>   Stop one run after this many minutes (default 30; or STORYOS_RUNNER_RUN_TIMEOUT_MINUTES)
   --mcp-url <url>       Where the tool reaches StoryOS's MCP server (or STORYOS_MCP_URL)
   --version, --help
 `;
@@ -83,11 +84,13 @@ export async function main(argv: string[], ctx: MainContext): Promise<number> {
   const startOptions = () => {
     const concurrency = typeof args.flags.concurrency === 'string' ? Number.parseInt(args.flags.concurrency, 10) : undefined;
     const adapter = typeof args.flags.adapter === 'string' ? args.flags.adapter : undefined;
+    const runTimeout = typeof args.flags['run-timeout'] === 'string' ? Number.parseFloat(args.flags['run-timeout']) : undefined;
     return {
       ...common,
       signal,
       ...(concurrency && concurrency > 0 ? { concurrency } : {}),
       ...(adapter ? { adapterOverride: adapter } : {}),
+      ...(runTimeout && runTimeout > 0 ? { runTimeoutMinutes: runTimeout } : {}),
       ...(mcpUrl ? { mcpUrl } : {}),
     };
   };
