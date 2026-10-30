@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildServer } from './server.js';
 import { makeClientFor } from './client.js';
+import { resolveToolProfile } from './tool-profiles.js';
 import {
   fetchAuthorizationMetadata,
   protectedResourceMetadata,
@@ -124,7 +125,8 @@ export function createRequestListener(config: HttpConfig = resolveConfig()) {
       return;
     }
 
-    const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+    const pathname = requestUrl.pathname;
 
     // Health / liveness (for Caddy + uptime checks).
     if (pathname === '/' || pathname === '/health') {
@@ -183,9 +185,16 @@ export function createRequestListener(config: HttpConfig = resolveConfig()) {
       return;
     }
 
+    // #1177: `?profile=agent-run` (the Runner sets it) offers a run only its role's tools. Unknown profile = an error, never the full set.
+    const profile = resolveToolProfile(requestUrl.searchParams);
+    if (!profile.ok) {
+      rpcError(res, 400, -32602, profile.error);
+      return;
+    }
+
     const body = req.method === 'POST' ? await readBody(req) : undefined;
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    const mcp = await buildServer(makeClientFor(token));
+    const mcp = await buildServer(makeClientFor(token), profile.allow ? { onlyTools: profile.allow } : {});
     res.on('close', () => {
       void transport.close();
       void mcp.close();

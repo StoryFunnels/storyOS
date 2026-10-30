@@ -1032,6 +1032,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     handler: (args: never) => unknown,
   ): void => {
     const need = TOOL_SCOPE[name] ?? 'admin';
+    // #1177: a profile (an agent run) is an allowlist: what is not named is not offered, new tools included.
+    if (effective.onlyTools && !effective.onlyTools.has(name)) return;
     if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
     if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
     // #1081: a tool the person's role cannot use is not advertised (the API still answers 403 if it is called anyway).

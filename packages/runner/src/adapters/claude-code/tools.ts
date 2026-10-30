@@ -57,3 +57,27 @@ export function buildToolPolicy(allowedNativeTools: string[]): ToolPolicy {
     rejected,
   };
 }
+
+/** The MCP server's tool profile for an agent run (packages/mcp tool-profiles.ts, #1177). The server owns the list; this is its name. */
+export const MCP_RUN_PROFILE = 'agent-run';
+const MCP_TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * The MCP address for a run: the configured URL plus the profile, and the role's extra tools. The profile is what keeps ~120 tool
+ * definitions out of every request (measured ~31k tokens each). An older MCP server ignores the query and offers its full set: more
+ * tokens, never fewer tools than before. A name that is not a tool name is dropped here, loudly, not sent.
+ */
+export function withRunProfile(url: URL, extraTools: readonly string[] = []): { url: URL; dropped: string[] } {
+  const out = new URL(url.toString());
+  out.searchParams.set('profile', MCP_RUN_PROFILE);
+  const dropped: string[] = [];
+  const keep: string[] = [];
+  for (const raw of extraTools) {
+    const name = raw.trim();
+    if (MCP_TOOL_NAME.test(name)) keep.push(name);
+    else dropped.push(name);
+  }
+  if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
+  else out.searchParams.delete('tools');
+  return { url: out, dropped };
+}
