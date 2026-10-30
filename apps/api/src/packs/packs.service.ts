@@ -1124,10 +1124,8 @@ export class PacksService {
     targetSpaceId: string,
   ): Promise<{ id: string; name: string }> {
     await this.access.assertSpaceDoor(membership, targetSpaceId);
-    const space = await this.access.assertSpace(membership, targetSpaceId, 'editor');
-    if (space.personal) {
-      throw new UnprocessableEntityException('A pack cannot be installed into a personal space: it holds documents and views, not databases.');
-    }
+    // Ticket #1173: the shared guard, not a per-surface copy (a personal space holds documents and views only).
+    const space = await this.access.assertDatabaseHome(membership, targetSpaceId, 'editor');
     const planned = [...new Set(manifest.databases.map((d) => norm(d.space)))];
     if (planned.length > 1) {
       const names = [...new Set(manifest.databases.map((d) => d.space))].join(', ');
