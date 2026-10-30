@@ -758,21 +758,29 @@ export class RelationsService {
       }
     });
 
-    const affectedOtherIds = [...new Set([...removedIds, ...targets.map((t) => t.id)])];
-    if (affectedOtherIds.length) {
+    // #1139 — a replace is a SET operation, but the event consumers (the agent wake source, direction-scoped automations) need a
+    // DIRECTION. So diff the set that was there (removedIds: every row the delete took, read under the advisory lock) against the
+    // set now: ids newly present are a 'link', ids no longer present are an 'unlink', and an id that was and still is emitted nothing
+    // (re-saving the same set is not a link; it must not wake an agent or fire a link rule). Before this the one event carried no
+    // direction at all, which the wake source ignores, so an agent set from the relation editor was never woken.
+    const keptIds = new Set(targets.map((t) => t.id));
+    const previousIds = new Set(removedIds);
+    const unlinkedIds = removedIds.filter((id) => !keptIds.has(id));
+    const newlyLinkedIds = targets.map((t) => t.id).filter((id) => !previousIds.has(id));
+    const emitSet = (direction: 'link' | 'unlink', otherRecordIds: string[]) =>
       this.domainEvents.emit({
         type: 'record_linked',
         workspaceId,
         databaseId,
         recordId: ctx.record.id,
         relationFieldId: fieldId,
+        linkDirection: direction,
         actorId,
         depth: 0,
-        linkedRelations: [
-          { relationId: ctx.relation.id, fieldId, otherDatabaseId: ctx.targetDatabaseId, otherRecordIds: affectedOtherIds },
-        ],
+        linkedRelations: [{ relationId: ctx.relation.id, fieldId, otherDatabaseId: ctx.targetDatabaseId, otherRecordIds }],
       });
-    }
+    if (unlinkedIds.length) emitSet('unlink', unlinkedIds);
+    if (newlyLinkedIds.length) emitSet('link', newlyLinkedIds);
     return this.listLinks(databaseId, recordId, fieldId);
   }
 

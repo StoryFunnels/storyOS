@@ -2783,6 +2783,7 @@ export class RecordsService {
             databaseId,
             recordId: created.id,
             relationFieldId: def.id,
+            linkDirection: 'link', // #1139 — copying links is a pure link
             actorId,
             depth: 0,
             linkedRelations: [
@@ -2819,6 +2820,7 @@ export class RecordsService {
             databaseId,
             recordId: created.id,
             relationFieldId: def.id,
+            linkDirection: 'link', // #1139 — copying links is a pure link
             actorId,
             depth: 0,
             linkedRelations: [
