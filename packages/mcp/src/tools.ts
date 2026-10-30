@@ -346,7 +346,21 @@ export const FILTER_GUIDE = [
 ].join('\n');
 
 /** #1062 — mirrors RUNTIME_OWNED_RUN_FIELDS in apps/api/src/records/runtime-owned-fields.ts; the API refuses a write to these on an agent run. */
-const RUNTIME_OWNED_RUN_FIELDS = ['pending_action', 'run_class', 'cost'];
+const RUNTIME_OWNED_RUN_FIELDS = [
+  'pending_action',
+  'run_class',
+  'cost',
+  'wake_reason',
+  'runner',
+  'tool',
+  'tool_version',
+  'exit',
+  'tokens_in',
+  'tokens_out',
+  'summary',
+  'session_id',
+  'limit_resumes_at',
+];
 
 function describeFields(db: DatabaseDetail) {
   // Non-system stored fields (title + user-defined) as-is. System columns come

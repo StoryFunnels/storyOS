@@ -13,7 +13,7 @@ export const WAKE_REASONS = [
   'automation',
   'manual',
   'approval_decided',
-  /** Reserved for #1133 (the must-comment backstop). */
+  /** #1133, the must-comment backstop: a run that ended without commenting on its record is woken ONCE more with this reason. */
   'must_comment',
   'retry',
 ] as const;
@@ -41,3 +41,10 @@ export const WAKE_HISTORY_TTL_MS = 30 * 24 * 3_600_000;
 export const WAKE_MAX_DEPTH = 2;
 /** Most wakes one claim may take, however many the Runner asks for. */
 export const WAKE_CLAIM_MAX = 10;
+
+/** #1133: when a tool hit its subscription limit and said nothing usable about when it resets, retry after this. */
+export const WAKE_LIMIT_FALLBACK_MS = 3_600_000;
+/** #1133: a stated reset further away than this is cut to it (the queue's own life), so one bad time cannot silence a Runner for years. */
+export const WAKE_LIMIT_MAX_MS = WAKE_QUEUE_TTL_MS;
+/** #1133: the Run's Summary field holds at most this many characters, and says so when it cut. */
+export const WAKE_SUMMARY_MAX_CHARS = 2_000;
