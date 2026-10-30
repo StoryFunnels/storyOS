@@ -176,7 +176,7 @@ export function TyronPanel() {
           }}
           className={cn(
             'hidden w-1 shrink-0 cursor-col-resize bg-border-default/40 transition-colors md:block',
-            'hover:bg-[var(--accent)]/50 focus:bg-[var(--accent)]/50 focus:outline-none',
+            'hover:bg-[var(--accent)]/50 focus-visible:bg-[var(--focus-ring-color)]',
             dragging && 'bg-[var(--accent)]/60',
           )}
         />

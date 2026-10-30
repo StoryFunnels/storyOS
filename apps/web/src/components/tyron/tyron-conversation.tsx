@@ -358,7 +358,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               <button
                 type="button"
                 onClick={() => confirm.mutate(true)}
-                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--on-accent,#fff)]"
+                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-label font-medium text-[var(--text-on-error)]"
               >
                 Yes, do it
               </button>
@@ -408,14 +408,14 @@ export function TyronConversation({ ws }: { ws: string }) {
             aria-label="Message Tyron"
             // #689 — bespoke min/max-height: a chat composer that grows with
             // content up to a cap, not a fixed prose box.
-            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            className="max-h-32 min-h-8 flex-1 resize-none px-2.5 placeholder:text-faint"
           />
           <button
             type="button"
             onClick={submit}
             disabled={!draft.trim() || send.isPending}
             aria-label="Send"
-            className="shrink-0 rounded-[var(--radius-control)] bg-[var(--accent)] p-1.5 text-[var(--on-accent,#fff)] disabled:opacity-40"
+            className="shrink-0 rounded-[var(--radius-control)] bg-[var(--accent)] p-1.5 text-[var(--text-on-accent)] disabled:opacity-40"
           >
             <ArrowUp className="h-4 w-4" />
           </button>

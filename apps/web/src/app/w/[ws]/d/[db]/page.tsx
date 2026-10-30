@@ -675,7 +675,7 @@ function NewViewDialog({
               title={need ?? undefined}
               onClick={() => createView(kind)}
               className={cn(
-                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-body border-border-default text-muted hover:border-[var(--accent)] hover:bg-accent-soft hover:text-ink',
+                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-body border-border-default text-muted hover:border-primary-text hover:bg-hover hover:text-ink',
                 need && 'cursor-not-allowed opacity-50 hover:border-border-default hover:bg-transparent hover:text-muted',
               )}
             >

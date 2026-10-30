@@ -146,7 +146,7 @@ export default function SlackIntegrationPage() {
         <MessageSquare className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Slack</h1>
         {connected && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta text-ink">
+          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
             connected
           </span>
         )}
@@ -232,7 +232,7 @@ export default function SlackIntegrationPage() {
         )}
       </ol>
       <p className="mb-5 text-body">
-        <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+        <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-primary-text underline">
           Full setup guide with screenshots →
         </a>
       </p>
@@ -327,7 +327,7 @@ export default function SlackIntegrationPage() {
             className={cn(
               'flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-body',
               testResult.ok
-                ? 'border-border-default bg-accent-soft text-ink'
+                ? 'border-border-default bg-hover text-ink'
                 : 'border-error/40 bg-error/5 text-error',
             )}
           >

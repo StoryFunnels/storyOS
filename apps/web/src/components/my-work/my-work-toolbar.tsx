@@ -74,7 +74,7 @@ export function MyWorkToolbar({
           {(Object.keys(SORT_LABELS) as MyWorkSortKey[]).map((k) => (
             <DropdownMenuItem key={k} onSelect={() => onSort(k)} className="justify-between">
               {SORT_LABELS[k]}
-              {sort === k && <Check className="h-3.5 w-3.5 text-accent" />}
+              {sort === k && <Check className="h-3.5 w-3.5 text-primary-text" />}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -90,7 +90,7 @@ export function MyWorkToolbar({
           {(Object.keys(GROUPING_LABELS) as MyWorkGrouping[]).map((g) => (
             <DropdownMenuItem key={g} onSelect={() => onGrouping(g)} className="justify-between">
               {GROUPING_LABELS[g]}
-              {grouping === g && <Check className="h-3.5 w-3.5 text-accent" />}
+              {grouping === g && <Check className="h-3.5 w-3.5 text-primary-text" />}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -170,7 +170,7 @@ function FilterPopover({
           className={cn(
             TOOL_BUTTON,
             on
-              ? 'border-[var(--accent)] bg-accent-soft text-ink'
+              ? 'border-primary-text bg-active text-ink'
               : 'border-border-default text-muted hover:bg-hover hover:text-ink',
           )}
         >

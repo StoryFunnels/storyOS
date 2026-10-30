@@ -14,7 +14,7 @@ export function LinearDriftNotice({ text }: { text: string }) {
     <div className="mb-1.5 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-label">
       <div className="flex flex-wrap items-center gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
-        <span className="text-warning">Linear&rsquo;s description changed since import.</span>
+        <span className="text-warning-text">Linear&rsquo;s description changed since import.</span>
         <button
           type="button"
           className="ml-auto shrink-0 rounded px-1.5 py-0.5 font-medium text-info hover:bg-hover"

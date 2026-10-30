@@ -135,7 +135,7 @@ export function IconColorPicker({
                 title={d.name.replace(/-/g, ' ')}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                  selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
+                  selected && 'bg-active ring-1 ring-inset ring-primary-text',
                 )}
                 onClick={() => pickIcon(d.name)}
                 style={color ? { color: entityColor(color) } : undefined}
@@ -153,7 +153,7 @@ export function IconColorPicker({
                 title={d.name}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                  selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
+                  selected && 'bg-active ring-1 ring-inset ring-primary-text',
                 )}
                 onClick={() => pickBrand(d.slug)}
                 style={color ? { color: entityColor(color) } : undefined}
@@ -179,7 +179,7 @@ export function IconColorPicker({
               title={c}
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                c === color && 'ring-1 ring-inset ring-[var(--accent)]',
+                c === color && 'ring-1 ring-inset ring-primary-text',
               )}
               onClick={() => onChange({ color: c === color ? null : c })}
             >
@@ -215,7 +215,7 @@ function CatChip({
       onClick={onClick}
       className={cn(
         'rounded-full px-2 py-0.5 text-meta',
-        active ? 'bg-accent-soft font-medium text-ink' : 'text-muted hover:bg-hover',
+        active ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
       )}
     >
       {children}

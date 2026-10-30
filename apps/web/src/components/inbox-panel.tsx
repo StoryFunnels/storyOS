@@ -391,7 +391,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   tabIndex={0}
                   className={cn(
                     'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
-                    !n.read_at && 'bg-accent-soft/60',
+                    !n.read_at && 'bg-hover-soft',
                   )}
                   onClick={() => {
                     markRead.mutate(n.id);
@@ -537,7 +537,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <span className="text-meta text-muted">{relativeTime(n.created_at)}</span>
-                    {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
+                    {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-primary-text" />}
                   </span>
                 </div>
               </div>

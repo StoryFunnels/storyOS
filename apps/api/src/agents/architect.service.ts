@@ -3,8 +3,9 @@ import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos
 import type { PlanAgent, PlanAgentWriteGate } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
 import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
+import { assertSpaceCanHoldDatabases, spaceCanHoldDatabases } from '../access/access.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
-import { decideField, decideState, optionsMissing, relationExists } from './plan-decisions';
+import { decideField, decideState, isSystemDatabase, optionsMissing, relationExists } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -174,6 +175,20 @@ export class ArchitectService {
     options: {
       targetSpace?: { id: string; name: string };
       /**
+       * #1156 — match each planned database only among the databases of the space it is going into (the target space, else the space
+       * its plan names), never workspace-wide. A pack install sets this: a pack is its own space's content, and a database of the same
+       * name in some other space is somebody else's, not "already installed". Left off, a plan keeps reusing by name anywhere — that is
+       * the reviewed "reuse my Leads database" an agent-proposed plan carries.
+       */
+      scopeToHomeSpace?: boolean;
+      /**
+       * #1156 — with `scopeToHomeSpace`: databases (by normalised name) the person EXPLICITLY chose to reuse from another space. Looked up
+       * only after the home space has no match, so it never overrides the default.
+       */
+      adopt?: Map<string, { id: string }>;
+      /** #1156 — with `scopeToHomeSpace`: normalised planned name -> the id of the database an earlier install of this pack recorded for it. */
+      trackedIds?: Map<string, string>;
+      /**
        * #1112 — filled IN PLACE as the build creates things, so a caller still holds the partial ledger when the build throws partway.
        * Without it the result only exists once the whole build has returned, and a failure leaves the caller no way to know what the
        * build had already created.
@@ -215,9 +230,15 @@ export class ArchitectService {
     // space and three databases the install never asked for. (#1095 made this so for installs that target a space; this is every
     // install.) Anything that later needs the databases goes through `AgentsService.ensurePack` itself.
     const needsAgentOs = plan.agents.length > 0 || plan.triggers.length > 0;
+    // Ticket #1173 — before ANYTHING is written (the Agentic OS pack below is a write): a planned space that names only a personal
+    // space is refused up front, so a refused build leaves nothing behind. `ensureSpace` is the backstop for the same rule.
+    if (!options.targetSpace) {
+      const all = await this.spaces.list(membership);
+      for (const d of plan.databases) this.sharedSpaceNamed(all, d.space);
+    }
     const agentOs = needsAgentOs ? await this.agents.ensurePack(membership) : null;
 
-    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace);
+    const dbIds = await this.buildDatabases(membership, plan, result, options.targetSpace, options.scopeToHomeSpace, options.adopt, options.trackedIds);
     await this.buildRelations(membership, plan, dbIds, result);
     await this.buildStates(membership, plan, dbIds, result);
     const agentIds = await this.buildAgents(membership, plan, agentOs?.agentsDb.id ?? '', dbIds, result);
@@ -232,6 +253,18 @@ export class ArchitectService {
   private async liveFields(membership: Membership, databaseId: string): Promise<LiveField[]> {
     const detail = await this.databases.get(membership, databaseId);
     return detail.fields as unknown as LiveField[];
+  }
+
+  /**
+   * Ticket #1173 — the space a planned name refers to, among spaces that CAN hold databases. The caller's own personal space is in
+   * `spaces.list` and is named "Personal", so a name lookup that ignored the flag would land databases there. A name that matches
+   * ONLY a personal space is refused (422), never silently re-homed; one that also matches a shared space resolves to the shared one.
+   */
+  private sharedSpaceNamed<S extends { name: string; personal: boolean | null }>(all: S[], name: string): S | undefined {
+    const sameName = all.filter((s) => norm(s.name) === norm(name));
+    const shared = sameName.find((s) => spaceCanHoldDatabases(s));
+    if (!shared && sameName[0]) assertSpaceCanHoldDatabases(sameName[0]);
+    return shared;
   }
 
   private async ensureSpace(
@@ -249,7 +282,7 @@ export class ArchitectService {
     if (already) return already.id;
 
     const all = await this.spaces.list(membership);
-    const existing = all.find((s) => norm(s.name) === norm(name));
+    const existing = this.sharedSpaceNamed(all, name);
     if (existing) {
       result.spaces.push({ name, action: 'reused', id: existing.id });
       return existing.id;
@@ -257,6 +290,27 @@ export class ArchitectService {
     const created = await this.spaces.create(membership.workspaceId, { name });
     result.spaces.push({ name, action: 'created', id: created.id });
     return created.id;
+  }
+
+  /**
+   * #1156 — "the live database a pack's planned database is", looked for ONLY in the space it goes into: the target space when the
+   * caller chose one (#1095), otherwise the existing space named `plannedSpace` (the space `ensureSpace` would reuse). A space that does
+   * not exist yet holds nothing, so nothing matches and the database is created. Shared by `buildDatabases` and the pack preview, so what
+   * preview reports is what install does.
+   */
+  async homeSpaceMatcher(membership: Membership, targetSpace?: { id: string }, trackedIds?: Map<string, string>) {
+    const live = await this.databases.list(membership);
+    const spaces = targetSpace ? [] : await this.spaces.list(membership);
+    return (plannedName: string, plannedSpace: string) => {
+      // #1173 — a personal space is never "the space this planned database goes into" (a pre-guard row in one is not reused as a match).
+      const spaceId = targetSpace?.id ?? spaces.find((s) => spaceCanHoldDatabases(s) && norm(s.name) === norm(plannedSpace))?.id;
+      if (!spaceId) return undefined;
+      // #1156 — the database this install recorded for that name wins, whatever it is called now; a same-named one is found only after.
+      const tracked = trackedIds?.get(norm(plannedName));
+      const own = tracked ? live.find((d) => d.id === tracked && d.spaceId === spaceId && !isSystemDatabase(d)) : undefined;
+      // #1166 — a system database is never what a pack's database "is", whatever it is called.
+      return own ?? live.find((d) => d.spaceId === spaceId && norm(d.name) === norm(plannedName) && !isSystemDatabase(d));
+    };
   }
 
   /** Add a planned field unless one of that display name is already there. */
@@ -293,13 +347,18 @@ export class ArchitectService {
     plan: ArchitectPlan,
     result: ArchitectBuildResult,
     targetSpace?: { id: string; name: string },
+    scopeToHomeSpace = false,
+    adopt?: Map<string, { id: string }>,
+    trackedIds?: Map<string, string>,
   ): Promise<Map<string, string>> {
     const live = await this.databases.list(membership);
     const byName = new Map(live.map((d) => [norm(d.name), d]));
+    const inHomeSpace = scopeToHomeSpace ? await this.homeSpaceMatcher(membership, targetSpace, trackedIds) : undefined;
     const ids = new Map<string, string>();
 
     for (const planned of plan.databases) {
-      const existing = byName.get(norm(planned.name));
+      // #1157 — `adopt` (a database this pack's install tracked, or the person chose to reuse) wins over a same-named one in the home space.
+      const existing = inHomeSpace ? ((adopt?.get(norm(planned.name)) as (typeof live)[number] | undefined) ?? inHomeSpace(planned.name, planned.space)) : byName.get(norm(planned.name));
 
       if (planned.action === 'reuse' && !existing) {
         // The plan was written against a workspace that no longer looks like

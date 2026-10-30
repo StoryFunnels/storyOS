@@ -27,7 +27,7 @@ export function RowIcon({ kind, viewType }: { kind: InstallRow['kind']; viewType
       className={cn(
         'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[var(--radius-chip,4px)]',
         kind === 'agent'
-          ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--bg-card))] text-accent-text'
+          ? 'bg-active text-primary-text'
           : 'bg-hover text-muted',
       )}
       data-gold={kind === 'agent' ? 'true' : undefined}
@@ -61,7 +61,7 @@ export function InstallList({
           )}
         >
           <RowIcon kind={row.kind} viewType={row.viewType} />
-          <span className="flex min-w-0 flex-col gap-px text-body leading-[1.4]">
+          <span className="flex min-w-0 flex-1 flex-col gap-px text-body leading-[1.4]">
             <b className="font-medium text-ink">{row.name}</b>
             <span className="text-label text-muted">{row.sub}</span>
             {row.note && <em className="mt-0.5 text-label not-italic text-ink-secondary">{row.note}</em>}

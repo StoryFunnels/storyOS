@@ -628,3 +628,153 @@ describe('#470 — calendar day/week mode config round-trips', () => {
     expect(saved.calendar_mode).toBe('week');
   });
 });
+
+/**
+ * #1158 — per-option hidden board columns (`hidden_option_ids`).
+ *
+ * Own database so deleting an option here cannot disturb the shared fixtures.
+ * What must hold: it saves and comes back (cleanViewConfig is an allowlist, the
+ * trap #227/#391 fell into); only a real option of the GROUP-BY field is
+ * accepted; a deleted option is dropped on read while the others stay; absent
+ * stays absent; a guest cannot set it; a personal view takes it too.
+ */
+describe('#1158 — hidden board columns', () => {
+  let hdb: string;
+  let groupId: string;
+  let groupOpts: Array<{ id: string; label: string }>;
+  let otherOpts: Array<{ id: string; label: string }>;
+  let otherId: string;
+  let userFieldId: string;
+  const base = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+  const path = () => `/workspaces/${wsId}/databases/${hdb}`;
+
+  async function board(config: Record<string, unknown>) {
+    return inject('POST', `${path()}/views`, { name: `Board ${Math.random()}`, type: 'board', config: { ...base, ...config } });
+  }
+  async function savedConfig(viewId: string) {
+    const detail = await inject('GET', path());
+    return detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+  }
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    hdb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Hidden1158' })).json().id;
+    const g = (
+      await inject('POST', `${path()}/fields`, {
+        display_name: 'Stage',
+        type: 'select',
+        options: [{ label: 'Triage' }, { label: 'To Do' }, { label: 'Done' }],
+      })
+    ).json();
+    groupId = g.id;
+    groupOpts = g.options;
+    const o = (
+      await inject('POST', `${path()}/fields`, { display_name: 'Kind', type: 'select', options: [{ label: 'Bug' }, { label: 'Chore' }] })
+    ).json();
+    otherId = o.id;
+    otherOpts = o.options;
+    userFieldId = (await inject('POST', `${path()}/fields`, { display_name: 'Owner', type: 'user' })).json().id;
+  });
+
+  it('stores hidden columns on a board and returns them', async () => {
+    const hide = [groupOpts[0]!.id, groupOpts[2]!.id];
+    const res = await board({ group_by_field_id: groupId, hidden_option_ids: hide });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((await savedConfig(res.json().id)).hidden_option_ids).toEqual(hide);
+  });
+
+  it('a view that never set it reads back without the key (nothing hidden)', async () => {
+    const res = await board({ group_by_field_id: groupId });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((await savedConfig(res.json().id)).hidden_option_ids).toBeUndefined();
+  });
+
+  it('allows hiding every column, and [] shows them all again', async () => {
+    const all = groupOpts.map((o) => o.id);
+    const created = await board({ group_by_field_id: groupId, hidden_option_ids: all });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = created.json().id;
+    expect((await savedConfig(id)).hidden_option_ids).toEqual(all);
+    const patch = await inject('PATCH', `${path()}/views/${id}`, {
+      config: { ...base, group_by_field_id: groupId, hidden_option_ids: [] },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+    expect((await savedConfig(id)).hidden_option_ids).toEqual([]);
+  });
+
+  it('rejects an option that is not on the group-by field, an unknown id, and a non-select grouping', async () => {
+    const foreign = await board({ group_by_field_id: groupId, hidden_option_ids: [otherOpts[0]!.id] });
+    expect(foreign.statusCode, foreign.body).toBe(422);
+    expect(foreign.body).toContain('not an option of the board');
+    const unknown = await board({ group_by_field_id: groupId, hidden_option_ids: ['00000000-0000-4000-8000-000000000000'] });
+    expect(unknown.statusCode, unknown.body).toBe(422);
+    const userBoard = await board({ group_by_field_id: userFieldId, hidden_option_ids: [groupOpts[0]!.id] });
+    expect(userBoard.statusCode, userBoard.body).toBe(422);
+    expect(userBoard.body).toContain('select or workflow');
+  });
+
+  it('rejects hidden columns on a view that is not a board', async () => {
+    const res = await inject('POST', `${path()}/views`, {
+      name: 'Table with hidden',
+      type: 'table',
+      config: { ...base, hidden_option_ids: [groupOpts[0]!.id] },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+  });
+
+  it('regrouping to another field with the old ids still set is refused; with them cleared it saves', async () => {
+    const created = await board({ group_by_field_id: groupId, hidden_option_ids: [groupOpts[0]!.id] });
+    const id = created.json().id;
+    const stale = await inject('PATCH', `${path()}/views/${id}`, {
+      config: { ...base, group_by_field_id: otherId, hidden_option_ids: [groupOpts[0]!.id] },
+    });
+    expect(stale.statusCode, stale.body).toBe(422);
+    const cleared = await inject('PATCH', `${path()}/views/${id}`, {
+      config: { ...base, group_by_field_id: otherId, hidden_option_ids: [] },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+  });
+
+  it('drops a deleted option on read and keeps the other hidden columns', async () => {
+    const added = await inject('POST', `${path()}/fields/${groupId}/options`, { label: 'Scrap' });
+    expect(added.statusCode, added.body).toBeLessThan(300);
+    const body = added.json();
+    const scrapId = (body.options ?? []).find((o: { label: string }) => o.label === 'Scrap')?.id ?? body.id;
+    const keep = groupOpts[0]!.id;
+    const created = await board({ group_by_field_id: groupId, hidden_option_ids: [keep, scrapId] });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = created.json().id;
+    const del = await inject('DELETE', `${path()}/fields/${groupId}/options/${scrapId}`, { confirm: true });
+    expect(del.statusCode, del.body).toBeLessThan(300);
+    expect((await savedConfig(id)).hidden_option_ids).toEqual([keep]);
+  });
+
+  it('a guest cannot set it, and a personal view can carry it', async () => {
+    const created = await board({ group_by_field_id: groupId });
+    const id = created.json().id;
+    const guest = await signUpUser(app, 'HiddenGuest');
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ space_id: spaceId, role: 'commenter' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await app.inject({ method: 'POST', url: '/api/v1/invites/accept', headers: authed(guest.token), payload: { token } });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1${path()}/views/${id}`,
+      headers: authed(guest.token),
+      payload: { config: { ...base, group_by_field_id: groupId, hidden_option_ids: [groupOpts[0]!.id] } },
+    });
+    expect(res.statusCode).toBe(403);
+    expect((await savedConfig(id)).hidden_option_ids).toBeUndefined();
+
+    const personal = await inject('POST', `${path()}/views/personal`, {
+      name: 'Mine',
+      type: 'board',
+      config: { ...base, group_by_field_id: groupId, hidden_option_ids: [groupOpts[1]!.id] },
+    });
+    expect(personal.statusCode, personal.body).toBe(201);
+  });
+});
