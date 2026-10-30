@@ -7,6 +7,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { linearCommentPushes, memberships, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { env } from '../config/env';
+import { spaceCanHoldDatabases } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommentsService } from '../comments/comments.service';
@@ -688,7 +689,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         where: and(eq(spacesTable.workspaceId, membership.workspaceId), isNull(spacesTable.deletedAt)),
       })
     )
-      .filter((s) => s.name === spaceName)
+      // Ticket #1173: a personal space (documents and views only) is never the team's mirror home, whatever it is named.
+      .filter((s) => s.name === spaceName && spaceCanHoldDatabases(s))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     let space = liveSpaces[0];
     if (liveSpaces.length > 1) {

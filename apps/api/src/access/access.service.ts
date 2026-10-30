@@ -14,6 +14,20 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { BOUNDARY_REFUSAL } from './resource-scope';
 import { forgetForRequest, memoizeForRequest } from './request-memo';
 
+/** Ticket #1173 — the one sentence every refusal to place a database in a personal space carries. */
+export const PERSONAL_SPACE_HOLDS_NO_DATABASES =
+  'A personal space holds documents and views only, so a database cannot live there.';
+
+/** Ticket #1173 — the predicate: only a space whose `personal` flag is off can hold a database. Never the name. */
+export function spaceCanHoldDatabases(space: { personal: boolean | null }): boolean {
+  return !space.personal;
+}
+
+/** Ticket #1173 — the pure refusal, for callers with no AccessService (the Architect, the integration mirrors). 422. */
+export function assertSpaceCanHoldDatabases(space: { personal: boolean | null }): void {
+  if (!spaceCanHoldDatabases(space)) throw new UnprocessableEntityException(PERSONAL_SPACE_HOLDS_NO_DATABASES);
+}
+
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
 export type EffectiveRole =
   | 'viewer'
@@ -546,6 +560,31 @@ export class AccessService {
     const effective = await this.effectiveForSpace(membership, spaceId);
     if (effective === null && membership.bound) throw new ForbiddenException(BOUNDARY_REFUSAL);
     this.assertRank(effective, min, 'Space');
+    return space;
+  }
+
+  /**
+   * Ticket #1173 — THE rule for where a database may live: never in a PERSONAL space (personal-space.md §2: documents and views only,
+   * since a private database is a private schema). Keyed on the `personal` flag, never the name. Every path that places a database —
+   * create, move, template, pack install, duplicate, the Architect, the integration mirrors — goes through one of these three, so the
+   * rule cannot drift per surface. A database already sitting in one (a pre-#1173 move) is not touched here; this only stops new ones.
+   */
+  spaceCanHoldDatabases(space: { personal: boolean | null }): boolean {
+    return spaceCanHoldDatabases(space);
+  }
+
+  /** The pure half: refuse (422) a space row that is personal. Call it AFTER the visibility check, so the refusal never confirms a space exists. */
+  assertSpaceCanHoldDatabases(space: { personal: boolean | null }): void {
+    assertSpaceCanHoldDatabases(space);
+  }
+
+  /**
+   * The whole check for a destination: `assertSpace` first (another member's personal space, a missing, trashed or other-workspace one
+   * are all the same 404, ADR-0018 b), THEN refuse a personal space the caller does own. Returns the space row.
+   */
+  async assertDatabaseHome(membership: Membership, spaceId: string, min: EffectiveRole) {
+    const space = await this.assertSpace(membership, spaceId, min);
+    this.assertSpaceCanHoldDatabases(space);
     return space;
   }
 
