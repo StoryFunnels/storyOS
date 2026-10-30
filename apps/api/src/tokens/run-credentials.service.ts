@@ -95,7 +95,9 @@ export class RunCredentialsService {
         tokenHash: sha256(token),
         tokenPrefix: `mn_pat_${secret.slice(0, 4)}…${secret.slice(-4)}`,
         scope,
-        allowRunButton: scope === 'write',
+        // #1135 — never: a button runs the admin-authored action list (send_email to a member, http_request, send_webhook,
+        // send_slack_message, post_social) with no approval step for an agent, and a Runner agent takes no approval_policy staging path.
+        allowRunButton: false,
         origin: 'agent',
         agentId: input.agentId,
         runId: input.runId,

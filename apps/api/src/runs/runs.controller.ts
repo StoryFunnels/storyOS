@@ -1,7 +1,7 @@
 import { Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -80,6 +80,8 @@ export class RunsController {
     return this.runs.detail(req.membership.workspaceId, req.membership, id);
   }
 
+  /** #1135: both reruns re-fire a rule's actions, ungated kinds included (http_request, send_webhook, send_slack_message). */
+  @NoRunCredential()
   @Post(':id/rerun')
   @RequiresScope('write')
   @ApiOperation({
@@ -90,6 +92,7 @@ export class RunsController {
     return this.runs.rerunWhole(req.membership.workspaceId, req.membership, id);
   }
 
+  @NoRunCredential()
   @Post(':id/actions/:index/rerun')
   @RequiresScope('write')
   @ApiOperation({ summary: 'Re-run one failed action from this run with its original frozen inputs' })
