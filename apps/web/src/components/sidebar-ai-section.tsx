@@ -20,8 +20,27 @@ import {
 } from '@/lib/sidebar-ai';
 import { useDismissedHints } from '@/lib/dismissed-hints';
 import { useDatabases } from '@/lib/queries';
+import { cannotRunCount } from '@/lib/runners/agents';
+import { useWakeSummary } from '@/lib/runners/queries';
 import { AGENT_SYSTEM_LABELS, agentSystemDatabases } from '@/lib/system-databases';
 import { cn } from '@/lib/utils';
+
+/** The number on an AI row. Gold only when it counts AGENT work waiting on you (#1163); a setup nudge or an update count is neutral. */
+function CountBadge({ count, hint, agent }: { count: string; hint?: string; agent: boolean }) {
+  return (
+    <span
+      title={hint}
+      aria-label={hint ? `${count}: ${hint}` : count}
+      className={cn(
+        'flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-micro font-bold tabular-nums',
+        // #1163 — gold counts AGENT work waiting on you; a setup nudge or an update count is not that.
+        agent ? 'bg-accent text-on-accent' : 'bg-primary text-[var(--text-on-dark)]',
+      )}
+    >
+      {count}
+    </span>
+  );
+}
 
 /**
  * #967 — the AI layer's own home, in gold (#831: gold means agency). "Collections" is gone.
@@ -32,8 +51,8 @@ import { cn } from '@/lib/utils';
  * (#706), so the same hue is used one step darker where it carries text or a glyph.
  *
  * #1058 — Skills · Agents ▸ (Agent runs, Triggers) · Automation runs · Connect your AI (until connected) · Business Packs.
- * The three Agentic OS system databases are reached from HERE and no longer sit in the Spaces list; "Agents" opens the Agents
- * database and its two children each keep their own URL. A child (or the group) is absent until its database exists.
+ * The three Agentic OS system databases are reached from HERE and no longer sit in the Spaces list; "Agents" opens the agents page
+ * (ticket #1139: each agent and where it runs, with the Agents database one link away) and its two children each keep their own URL. A child (or the group) is absent until its database exists.
  *
  * Rows: Skills · Automation runs (gold count = actions waiting for approval) · Business Packs (gold
  * count = installed packs with an update). "Connect your AI" is NOT here yet: whether the
@@ -67,10 +86,14 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
     { key: 'runs' as const, db: agentDbs.runs },
     { key: 'agent triggers' as const, db: agentDbs['agent triggers'] },
   ].flatMap((c) => (c.db ? [{ label: AGENT_SYSTEM_LABELS[c.key], href: dbHref(c.db.id) }] : []));
-  const agentsHref = agentDbs.agents ? dbHref(agentDbs.agents.id) : null;
+  const agentsDbHref = agentDbs.agents ? dbHref(agentDbs.agents.id) : null;
+  // ticket #1139 — the row opens the agents PAGE (each agent, and where it runs); the Agents database stays one link away from it.
+  const agentsHref = agentsDbHref ? `/w/${ws}/agents` : null;
   const onAgents = (href: string | null) => href !== null && (pathname === href || !!pathname?.startsWith(`${href}/`));
+  // The number of agents that SHOULD be working and cannot: no Runner serves them. The server derives it (`agents_that_cannot_run`).
+  const cannotRun = cannotRunCount(useWakeSummary(ws).data);
   // Open on arrival at one of the group's pages, so the active row is never hidden inside a closed group.
-  const inGroup = onAgents(agentsHref) || agentChildren.some((c) => onAgents(c.href));
+  const inGroup = onAgents(agentsHref) || onAgents(agentsDbHref) || agentChildren.some((c) => onAgents(c.href));
   useEffect(() => {
     if (inGroup) setAgentsOpen(true);
   }, [inGroup]);
@@ -127,19 +150,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
           <Icon className="h-3.5 w-3.5 text-accent-text" />
         </GlyphSlot>
         <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{label}</span>
-        {count && (
-          <span
-            title={countHint}
-            aria-label={countHint ? `${count}: ${countHint}` : count}
-            className={cn(
-              'flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-micro font-bold tabular-nums',
-              // #1163 — gold counts AGENT work waiting on you; a setup nudge or an update count is not that.
-              agentBadge ? 'bg-accent text-on-accent' : 'bg-primary text-[var(--text-on-dark)]',
-            )}
-          >
-            {count}
-          </span>
-        )}
+        {count && <CountBadge count={count} hint={countHint} agent={agentBadge} />}
       </Link>
     </SidebarRow>
   );
@@ -177,6 +188,9 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
                 <Bot className="h-3.5 w-3.5 text-accent-text" />
               </GlyphSlot>
               <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{AGENT_SYSTEM_LABELS.agents}</span>
+              {cannotRun !== null && (
+                <CountBadge count={String(cannotRun)} hint="Agents waiting for a Runner before they can start work" agent />
+              )}
             </Link>
           </SidebarRow>
           {agentsOpen &&
