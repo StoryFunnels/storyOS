@@ -99,7 +99,13 @@ export type NotificationType =
    * opt-out ping, same reasoning as `send_email_cap_reached` — it explains
    * why the workspace is about to lose a capability, not an FYI to mute.
    */
-  | 'usage_threshold_reached';
+  | 'usage_threshold_reached'
+  /**
+   * #1131 / ADR-0021 §3 — a Runner (a person's own computer running their agents) has stopped answering, so the agents on it are
+   * waiting. Bare (no record), sent once per offline episode to the owners of the agents on that Runner. Not an opt-out ping, the
+   * same reasoning as `automation_disabled`: it explains why work silently stopped.
+   */
+  | 'runner_offline';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

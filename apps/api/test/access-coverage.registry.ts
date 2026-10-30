@@ -381,4 +381,16 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'PUT /api/v1/workspaces/:ws/databases/:db/records/:rec/links/:field': scoped('assertAccess + effectiveForDatabase + visibleRecordIds', 'relations/relations.controller.ts'),
   'PUT /api/v1/workspaces/:ws/databases/:db/views/:view/personal-filter': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/personal-filter.controller.ts'),
   'PUT /api/v1/workspaces/:ws/dismissed-hints': workspaceLevel('a dismissal hides a card from the caller only: the target is the caller\'s own workspace (ViewerStateService.reach), membership is the whole rule'),
+  // #1131 / ADR-0021 §11 — the Runner API. A Runner is one person's computer: every route is the OWNER's own, someone else's id is the same 404 as a missing one.
+  'DELETE /api/v1/workspaces/:ws/runners/pairing-codes/:id': workspaceLevel('the issuer\'s own pairing code only (userId = the caller), anyone else\'s is the same 404; touches no workspace content'),
+  'DELETE /api/v1/workspaces/:ws/runners/:id': workspaceLevel('the owner\'s own Runner only, admins included (userId = the caller), anyone else\'s is the same 404; touches no workspace content'),
+  'GET /api/v1/workspaces/:ws/runner-assignments/:agent': workspaceLevel('the agent\'s owner or an admin only (resolveAgentIdentity), anyone else the same 404 as an unknown agent; returns the Runner\'s id and name, no record or database content'),
+  'GET /api/v1/workspaces/:ws/runners': workspaceLevel('returns the caller\'s own Runners only (userId = the caller), never a colleague\'s, admins included; the agents on each are names only'),
+  'GET /api/v1/workspaces/:ws/runners/pairing-codes/:id': workspaceLevel('the issuer\'s own pairing code only (userId = the caller), anyone else\'s is the same 404; touches no workspace content'),
+  'PATCH /api/v1/workspaces/:ws/runners/:id': workspaceLevel('the owner\'s own Runner only, admins included (userId = the caller); touches no workspace content'),
+  'POST /api/v1/runner/v1/heartbeat': publicRoute('no AuthGuard on purpose: it authenticates with a Runner token (RunnerAuthGuard), which no other route accepts, and returns only that Runner\'s own assigned agents'),
+  'POST /api/v1/runner/v1/pair': publicRoute('no AuthGuard on purpose: the pairing code is the credential (single use, ~10 minutes, hashed, lockout on wrong guesses); it returns a PENDING Runner that does nothing until the person presses Done'),
+  'POST /api/v1/workspaces/:ws/runners/:id/activate': workspaceLevel('the owner\'s own pending Runner only, admins included (userId = the caller); touches no workspace content'),
+  'POST /api/v1/workspaces/:ws/runners/pairing-codes': workspaceLevel('issues the caller a pairing code (a session, never a guest); touches no workspace content'),
+  'PUT /api/v1/workspaces/:ws/runner-assignments/:agent': workspaceLevel('the agent\'s owner or an admin only (resolveAgentIdentity), anyone else the same 404 as an unknown agent; returns the Runner\'s id and name, no record or database content'),
 };

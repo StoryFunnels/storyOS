@@ -4297,6 +4297,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/runners/pairing-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start "Add a Runner": a 6-character, single-use pairing code valid about 10 minutes. A new code burns your previous unused one. Not for guests. */
+        post: operations["RunnersController_issueCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runners/pairing-codes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll a pairing code you issued: waiting, connected (with the Runner and the tools it found), expired or cancelled */
+        get: operations["RunnersController_codeStatus"];
+        put?: never;
+        post?: never;
+        /** Cancel pairing: burns the code AND revokes the pending Runner it produced, at once */
+        delete: operations["RunnersController_cancelCode"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your own Runners (never anyone else's, admins included): status, connection, tools, chosen tool, versions, offline_since and the agents on each */
+        get: operations["RunnersController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runners/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Done: turn a pending Runner on and choose its tool. 409 pairing_expired if the pairing window has closed; 422 if the tool was not found on that computer */
+        post: operations["RunnersController_activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runners/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a Runner: revokes its token (refused on its next call), unassigns its agents and returns its claimed wakes to the queue. Also how a pending Runner is taken away */
+        delete: operations["RunnersController_remove"];
+        options?: never;
+        head?: never;
+        /** Change which detected tool your agents use on this Runner */
+        patch: operations["RunnersController_setTool"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runner-assignments/{agent}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which Runner an agent runs on (the agent's owner, or an admin) */
+        get: operations["RunnersController_getAssignment"];
+        /** Send an agent to one of its owner's own active Runners, or pass runner_id null to unassign. 422 unless the agent's AI mode is "Your own AI" and the Runner is the owner's own and active */
+        put: operations["RunnersController_assign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runner/v1/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a pairing code for a Runner token. The Runner is PENDING: it does nothing until the person presses Done in StoryOS, and is revoked if that does not happen inside the pairing window. The token is shown once. */
+        post: operations["RunnerApiController_pair"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runner/v1/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report liveness, machine name, tools and versions. Answers with the supported protocol range and the agents assigned to THIS Runner. A Runner below the minimum protocol gets 426 with the one command that updates it. */
+        post: operations["RunnerApiController_heartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -6898,6 +7037,44 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
+        };
+        RunnerToolChoiceDto: {
+            tool: string;
+        };
+        RunnerAssignmentDto: {
+            /** Format: uuid */
+            runner_id: string | null;
+        };
+        RunnerPairDto: {
+            code: string;
+            machine_name: string;
+            tools: {
+                id: string;
+                name?: string;
+                installed: boolean;
+                version?: string;
+                logged_in?: boolean;
+                capabilities?: {
+                    [key: string]: unknown;
+                };
+            }[];
+            runner_version: string;
+            protocol_version: number;
+        };
+        RunnerHeartbeatDto: {
+            machine_name: string;
+            tools: {
+                id: string;
+                name?: string;
+                installed: boolean;
+                version?: string;
+                logged_in?: boolean;
+                capabilities?: {
+                    [key: string]: unknown;
+                };
+            }[];
+            runner_version: string;
+            protocol_version: number;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -13705,6 +13882,227 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_issueCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_codeStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_cancelCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_activate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerToolChoiceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_setTool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerToolChoiceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_getAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerAssignmentDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnerApiController_pair: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerPairDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnerApiController_heartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerHeartbeatDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
