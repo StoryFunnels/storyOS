@@ -15,10 +15,12 @@ import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
   AddFilterButton,
+  defaultValueFor,
   FilterChip,
   opsForField,
   SortButton,
 } from '@/components/views/view-toolbar';
+import { isApplied } from '@/components/views/filter-state';
 import type { FilterCondition } from '@/components/views/use-view-state';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
@@ -167,13 +169,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     placeholderData: keepPreviousData,
     enabled: Boolean(targetDbId && inverseApi) && !collapsed,
     queryFn: async () => {
-      // Only apply conditions that are actually complete — a half-built filter (no value yet) must not 422.
-      const valueless = new Set(['is_empty', 'not_empty']);
-      const usable = (cv.filters?.and ?? []).filter(
-        (c) =>
-          valueless.has(c.op) ||
-          (c.value !== undefined && c.value !== '' && !(Array.isArray(c.value) && c.value.length === 0)),
-      );
+      // Only APPLIED conditions run — a half-built filter (no value yet) must not 422 and must not narrow (#1161:
+      // one shared definition, views/filter-state.ts, the same one the Filter button and the panel use).
+      const usable = (cv.filters?.and ?? []).filter(isApplied);
       const filter = { and: [{ field: inverseApi!, op: 'has', value: [rec] }, ...usable] };
       // MN-252: same nulls-only-when-diverging-from-default rule as sortsBodyFromConfig.
       const nulls = cv.sorts?.length && cv.sorts_nulls === 'first' ? 'first' : undefined;
@@ -187,7 +185,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   });
   const rows = linked.data ?? [];
   const shown = showAll ? rows : rows.slice(0, COLLECTION_CAP);
-  const filtersActive = (cv.filters?.and?.length ?? 0) > 0 || (cv.sorts?.length ?? 0) > 0;
+  const filtersActive = (cv.filters?.and ?? []).some(isApplied) || (cv.sorts?.length ?? 0) > 0;
   const total = filtersActive ? rows.length : chips.length;
   // #642 item 3 — see collection-empty.ts: keyed on the UNFILTERED link count, so
   // a filter that narrows a populated list to zero never removes its own controls.
@@ -253,7 +251,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
               fields={filterable}
               onAdd={(f) => {
                 const op = opsForField(f)[0]!;
-                setConditions([...conditions, { field: f.apiName, op: op.op as FilterCondition['op'], value: undefined }]);
+                // #1161 — the value the editor SHOWS is the value that is SAVED (every other surface adds it this way): the
+                // old `undefined` stored nothing while the chip read "within next 7 days", so it looked applied and wasn't.
+                setConditions([...conditions, { field: f.apiName, op: op.op as FilterCondition['op'], value: defaultValueFor(op.input) }]);
               }}
             />
             <SortButton
