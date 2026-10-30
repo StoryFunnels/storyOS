@@ -82,8 +82,8 @@ describe('the adapter interface', () => {
     expect(limit.limitReachedUntil).toBe('2026-11-01T14:00:00.000Z');
   });
 
-  it('the stub is only ever chosen by name; a real tool with no adapter yet gets none', () => {
-    expect(resolveAdapter('claude-code', undefined)).toBeNull();
+  it('the stub is only ever chosen by name; a real tool with no adapter yet gets none (Claude Code has one: ticket #1135)', () => {
+    expect(resolveAdapter('claude-code', undefined)?.id).toBe('claude-code');
     expect(resolveAdapter('cursor', undefined)).toBeNull();
     expect(resolveAdapter('claude-code', 'stub')?.id).toBe('stub');
     expect(resolveAdapter('claude-code', 'nope')).toBeNull();

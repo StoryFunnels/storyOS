@@ -362,6 +362,8 @@ export class ClaimLoop {
         targetDatabases: wake.agent.target_databases,
       },
       ...(wake.record ? { record: { id: wake.record.id, databaseId: wake.record.database_id, ref: wake.record.number != null ? `#${wake.record.number}` : wake.record.id } } : {}),
+      workspaceId: this.o.workspaceId,
+      ...(wake.context != null ? { context: wake.context } : {}),
       mcp: { url: this.o.mcpUrl, token: wake.credential.token },
       workdir,
       allowedNativeTools: [],
