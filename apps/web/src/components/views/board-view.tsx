@@ -704,7 +704,7 @@ function BoardColumn({
         // h-full: the bare column is the drop target, so it spans the board's height — a card can be dropped anywhere in
         // its lane, not only on the strip its cards happen to cover.
         'flex h-full w-[85vw] shrink-0 flex-col gap-[7px] md:w-[258px]',
-        isOver && 'rounded-[var(--radius-card)] outline outline-2 outline-offset-4 outline-[var(--accent)]',
+        isOver && 'rounded-[var(--radius-card)] outline outline-2 outline-offset-4 outline-[var(--primary-text)]',
       )}
     >
       <div className="flex items-center justify-between px-[3px]">

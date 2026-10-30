@@ -399,11 +399,14 @@ export class DatabasesService {
       }
     }
 
+    const optionIdsByField = new Map(
+      [...optionsByField].map(([fieldId, list]) => [fieldId, new Set(list.map((o) => o.id))] as const),
+    );
     const liveIds = new Set(fieldRows.map((f) => f.id));
     const liveNames = new Set(fieldRows.map((f) => f.apiName));
     const cleanedViews = viewRows.map((v) => ({
       ...v,
-      config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames),
+      config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames, optionIdsByField),
     }));
 
     const space = await this.db.query.spaces.findFirst({

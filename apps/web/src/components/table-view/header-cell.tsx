@@ -244,7 +244,7 @@ export function HeaderCell({
         {/* The sort direction and its rank, inline, only when this column is sorted (prototype `.hdir`). */}
         {currentSort && (
           <span
-            className="shrink-0 font-bold text-accent-text"
+            className="shrink-0 font-bold text-primary-text"
             title={
               currentSort.direction === 'asc'
                 ? `Sorted ascending${rank ? `, rule ${rank}` : ''}`
@@ -259,7 +259,7 @@ export function HeaderCell({
             user needs to see without hunting for it. */}
         {isFiltered && (
           <span
-            className="shrink-0 text-accent"
+            className="shrink-0 text-primary-text"
             title={
               filteredCount === 1
                 ? `Filtered by ${field.displayName}`
@@ -357,7 +357,7 @@ export function HeaderCell({
         )}
       </Dialog>
       <div
-        className="absolute -right-0.5 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-accent"
+        className="absolute -right-0.5 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-border-strong"
         onPointerDown={(e) => {
           // Keep the resize gesture off the reorder sensor and any header-level
           // click/sort handler — a drag on the handle is only ever a resize (MN-225).

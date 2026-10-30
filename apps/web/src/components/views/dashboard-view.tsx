@@ -593,7 +593,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addTile}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-primary-text hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add tile
@@ -601,7 +601,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={addWidget}
-            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-body text-muted hover:border-primary-text hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add chart

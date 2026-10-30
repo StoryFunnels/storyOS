@@ -86,12 +86,12 @@ function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: 
   const deleted = record.data && 'deleted' in record.data;
   const title = record.data && 'title' in record.data ? record.data.title : '…';
   if (deleted) {
-    return <span className="rounded bg-accent-soft px-1 font-medium text-muted line-through">#deleted</span>;
+    return <span className="rounded bg-hover px-1 font-medium text-muted line-through">#deleted</span>;
   }
   return (
     <Link
       href={`/w/${ws}/d/${segment.database_id}/r/${segment.record_id}`}
-      className="rounded bg-accent-soft px-1 font-medium text-[var(--accent)] no-underline"
+      className="rounded bg-hover px-1 font-medium text-primary-text no-underline"
     >
       #{title || 'Untitled'}
     </Link>
@@ -357,7 +357,7 @@ export function CommentsPanel({
                 ) : segment.type === 'record' ? (
                   <CommentRecordChip key={i} ws={ws} segment={segment} />
                 ) : (
-                  <span key={i} className="rounded bg-accent-soft px-1 font-medium text-ink">
+                  <span key={i} className="rounded bg-hover px-1 font-medium text-ink">
                     @{memberNames.get(segment.user_id) ?? 'unknown'}
                   </span>
                 ),
@@ -432,7 +432,7 @@ function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
   return (
     <span
       title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
-      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-micro font-medium text-accent"
+      className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-micro font-medium text-primary-text"
     >
       <Icon className="h-3 w-3" />
       {label}
@@ -901,7 +901,7 @@ export function AttachmentsStrip({
     <div
       className={cn(
         'mb-6 mt-5 rounded-[var(--radius-card)] border border-dashed border-border-strong p-3',
-        dragOver && 'border-[var(--accent)] bg-accent-soft',
+        dragOver && 'border-primary-text bg-active',
       )}
       onDragOver={(e) => {
         if (readOnly) return;

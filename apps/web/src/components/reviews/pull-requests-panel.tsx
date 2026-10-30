@@ -103,7 +103,7 @@ export function PullRequestsPanel({ ws }: { ws: string }) {
               </span>
             </span>
             {bucket === 'needs_review' && (
-              <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent-text">
+              <span className="shrink-0 rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta font-medium text-ink">
                 waiting for your review
               </span>
             )}

@@ -246,6 +246,8 @@ export class PublicViewsService {
       column_sort: string | null;
       hide_empty_groups: boolean;
       hide_empty_no_value_group: boolean;
+      /** #1158 — option ids of columns the owner hides; an id with no matching column is harmless to the renderer. */
+      hidden_option_ids: string[];
     } | undefined;
     if (view.type === 'board') {
       const groupField = config.group_by_field_id ? defs.find((f) => f.id === config.group_by_field_id) : undefined;
@@ -255,6 +257,7 @@ export class PublicViewsService {
         column_sort: config.column_sort ?? null,
         hide_empty_groups: config.hide_empty_groups ?? false,
         hide_empty_no_value_group: config.hide_empty_no_value_group ?? false,
+        hidden_option_ids: config.hidden_option_ids ?? [],
       };
     }
 

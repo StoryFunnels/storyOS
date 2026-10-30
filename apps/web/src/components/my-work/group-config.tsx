@@ -206,7 +206,7 @@ export function MyWorkGroupToolbar({
                 }}
               >
                 {f.display_name}
-                {on && <Check className="h-3.5 w-3.5 text-accent" />}
+                {on && <Check className="h-3.5 w-3.5 text-primary-text" />}
               </button>
             );
           })}
