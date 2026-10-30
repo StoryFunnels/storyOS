@@ -1,3 +1,5 @@
+import type { TokenScope } from '@storyos/schemas';
+import { RunCredentialsService } from '../tokens/run-credentials.service';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -112,8 +114,12 @@ export interface ClaimedWake {
   agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; target_databases: string | null };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;
-  /** The per-run credential is ticket #1132: it mints here and is revoked by `revokeRunCredential`. Null until then, and the ADR says so. */
-  credential: null;
+  /**
+   * ticket #1132 / ADR-0021 §4 — the per-run credential, minted by the server at claim and shown ONCE here (only its hash is stored).
+   * It acts as the agent (never above `write`), expires with the lease and is revoked at completion, lease loss, cancel and Runner removal.
+   * The Runner never chooses it, never keeps it past the run and never sends it to a `/runner/v1/*` route (those refuse it).
+   */
+  credential: { token: string; scope: TokenScope; expires_at: Date };
 }
 
 /** Plain text of a rich_text value (BlockNote block array) without importing the schemas package's markdown converter into this module. */
@@ -161,6 +167,7 @@ export class AgentWakesService {
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
     private readonly notifications: NotificationsService,
+    private readonly runCredentials: RunCredentialsService,
   ) {}
 
   registerRunHooks(hooks: WakeRunHooks): void {
@@ -347,7 +354,7 @@ export class AgentWakesService {
   /** After a Runner's removal committed: the Runs of the wakes it held read Queued again, and their credentials (#1132) are revoked. */
   async afterReturned(rows: WakeRow[]): Promise<void> {
     for (const wake of rows) {
-      this.revokeRunCredential(wake);
+      await this.revokeRunCredential(wake);
       await this.hooks?.setRunStatus(wake, 'Queued', 'The Runner was removed; this was returned to the queue.').catch(() => undefined);
     }
   }
@@ -375,17 +382,18 @@ export class AgentWakesService {
       .set({ status: 'canceled', finishedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(agentWakes.workspaceId, workspaceId), eq(agentWakes.runId, runId), inArray(agentWakes.status, ['queued', 'claimed'])))
       .returning();
-    for (const wake of rows) this.revokeRunCredential(wake);
+    for (const wake of rows) await this.revokeRunCredential(wake);
     return rows.length;
   }
 
   /**
-   * HOOK for ticket #1132 (the per-run credential). It is minted at claim and must be revoked the moment the lease ends, the wake
-   * completes, a Runner is removed or the agent is disabled (ADR-0021 §2: "the fence is the credential, not the nonce"). #1132
-   * fills this in; until then there is no credential to revoke and every call site below already calls it.
+   * ticket #1132 (the per-run credential): minted at claim, revoked the moment the lease ends, the wake completes or is cancelled, or
+   * its Runner is removed (that one in `RunnersService.revoke`'s transaction); a disabled agent's is refused by the guard live
+   * (ADR-0021 §2: "the fence is the credential, not the nonce"). Awaited at every call site, so the revocation has happened before the
+   * response that caused it.
    */
-  protected revokeRunCredential(wake: Pick<WakeRow, 'id' | 'runId'>): void {
-    void wake;
+  protected async revokeRunCredential(wake: Pick<WakeRow, 'id' | 'runId'>): Promise<void> {
+    await this.runCredentials.revokeForWake(wake.id);
   }
 
   // ---------------------------------------------------------------- claim (the Runner)
@@ -446,7 +454,7 @@ export class AgentWakesService {
         SELECT w.id FROM agent_wakes w
           JOIN runner_agents ra ON ra.agent_id = w.agent_id AND ra.runner_id = ${runner.id}::uuid
           JOIN records a ON a.id = w.agent_id AND a.deleted_at IS NULL AND (a.values ->> ${enabledId}) = 'true'
-          JOIN memberships m ON m.workspace_id = w.workspace_id AND m.user_id = a.created_by AND m.status = 'active'
+          JOIN memberships m ON m.workspace_id = w.workspace_id AND m.user_id = a.created_by AND m.status = 'active' AND m.role <> 'guest'
         WHERE w.workspace_id = ${runner.workspaceId}::uuid AND w.status = 'queued' AND w.not_before <= ${now.toISOString()}::timestamptz ${only}
         ORDER BY w.created_at, w.id
         LIMIT ${max}
@@ -457,13 +465,36 @@ export class AgentWakesService {
     const rows = await this.db.select().from(agentWakes).where(inArray(agentWakes.id, ids)).orderBy(asc(agentWakes.createdAt));
     const out: ClaimedWake[] = [];
     for (const wake of rows) {
+      // ticket #1132: the server mints this run's credential at the moment of the claim, bound to (agent, run, Runner, depth) and to
+      // the lease. When none may exist (the agent or its owner went away between the eligibility check and here) the wake goes
+      // back to the queue instead of being handed over without the only thing a session can act with.
+      const credential = await this.runCredentials.mint({
+        workspaceId: wake.workspaceId,
+        agentId: wake.agentId,
+        wakeId: wake.id,
+        runId: wake.runId,
+        runnerId: runner.id,
+        depth: wake.depth,
+        expiresAt: wake.leaseExpiresAt!,
+      });
+      if (!credential) {
+        await this.db
+          .update(agentWakes)
+          .set({ status: 'queued', runnerId: null, claimNonce: null, leaseExpiresAt: null, claimedAt: null, updatedAt: new Date() })
+          .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.status, 'claimed'), eq(agentWakes.runnerId, runner.id)));
+        continue;
+      }
       await this.hooks?.setRunStatus(wake, 'Running').catch((e) => this.logger.warn(`could not mark Run running for wake ${wake.id}: ${String(e)}`));
-      out.push(await this.present(wake, info));
+      out.push(await this.present(wake, info, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
     }
     return out;
   }
 
-  private async present(wake: WakeRow, info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>): Promise<ClaimedWake> {
+  private async present(
+    wake: WakeRow,
+    info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>,
+    credential: ClaimedWake['credential'],
+  ): Promise<ClaimedWake> {
     const agent = await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { title: true, values: true } });
     const values = (agent?.values ?? {}) as Record<string, unknown>;
     const text = (apiName: string) => {
@@ -491,7 +522,7 @@ export class AgentWakesService {
       },
       record: rec ? { id: rec.id, database_id: rec.databaseId, number: rec.number } : null,
       context: wake.context,
-      credential: null,
+      credential,
     };
   }
 
@@ -516,6 +547,7 @@ export class AgentWakesService {
       .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.runnerId, runner.id), eq(agentWakes.claimNonce, nonce), eq(agentWakes.status, 'claimed')))
       .returning();
     if (!row) throw this.leaseLost(wakeId);
+    await this.runCredentials.extendForWake(row.id, lease); // the credential's expiry slides with the lease (ADR-0021 §4)
     return { wake_id: row.id, lease_expires_at: lease, lease_seconds: WAKE_LEASE_SECONDS };
   }
 
@@ -587,7 +619,7 @@ export class AgentWakesService {
       throw this.leaseLost(wakeId);
     }
 
-    this.revokeRunCredential(flipped);
+    await this.revokeRunCredential(flipped);
     if (limit) {
       await this.hooks?.setRunStatus(flipped, 'Queued', note).catch((e) => this.logger.warn(`Run update failed for wake ${wakeId}: ${String(e)}`));
       return { wake_id: flipped.id, status: 'queued' as WakeStatus, requeued: true, repeated: false, not_before: until };
@@ -642,7 +674,7 @@ export class AgentWakesService {
     let failed = 0;
     for (const wake of rows) {
       // The credential dies with the lease (ADR-0021 §2): a stale Runner's next tool call must be a 401.
-      this.revokeRunCredential(wake);
+      await this.revokeRunCredential(wake);
       if (wake.status === 'failed') {
         failed++;
         await this.hooks

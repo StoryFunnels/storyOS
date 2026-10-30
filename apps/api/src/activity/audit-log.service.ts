@@ -3,7 +3,7 @@ import { and, desc, eq, getTableColumns, gte, inArray, lte, or, sql } from 'driz
 import type { ChangeSource } from '../db/schema';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, recordFieldChanges } from '../db/schema';
+import { activityEvents, recordFieldChanges, records } from '../db/schema';
 import { MembersDbService } from '../members/members-db.service';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } from './keyset-cursor';
 
@@ -127,6 +127,11 @@ export class AuditLogService {
         credential_id: e.tokenId,
         agent_id: e.agentId,
         agent_name: e.agentName,
+        // ticket #1132 / ADR-0021 §4 - the Runner run behind the action, so the line reads "Sales assistant, run 42, on Ievgen's
+        // MacBook". run_number is looked up below (the Run's public number); runner_name is the snapshot taken when it was written.
+        run_id: e.runId,
+        runner_id: e.runnerId,
+        runner_name: e.runnerName,
         payload: e.payload,
         created_at: e.createdAt,
         cursorTs: e.cursorTs,
@@ -140,6 +145,11 @@ export class AuditLogService {
         actor_name: actorName(c.actorUserId),
         source: c.source,
         credential_id: c.tokenId,
+        agent_id: c.agentId,
+        agent_name: c.agentName,
+        run_id: c.runId,
+        runner_id: c.runnerId,
+        runner_name: c.runnerName,
         old_value: c.oldValue,
         new_value: c.newValue,
         created_at: c.createdAt,
@@ -150,11 +160,19 @@ export class AuditLogService {
     const page = merged.slice(0, limit);
     const hasMore = merged.length > limit;
     const last = page[page.length - 1];
+    // ticket #1132 - "run 42": the Run record's public number, read for the rows on THIS page only. A Run that was since deleted
+    // reads null (the row still carries run_id and the Runner's name).
+    const runIds = [...new Set(page.map((r) => r.run_id).filter((id): id is string => Boolean(id)))];
+    const runNumbers = new Map<string, number>();
+    if (runIds.length > 0) {
+      const runRows = await this.db.select({ id: records.id, number: records.number }).from(records).where(inArray(records.id, runIds));
+      for (const r of runRows) if (r.number != null) runNumbers.set(r.id, r.number);
+    }
     return {
       // cursorTs is a transport detail of the merge; it never reaches the client.
       data: page.map(({ cursorTs: _ts, ...row }) => {
         void _ts;
-        return row;
+        return { ...row, run_number: row.run_id ? (runNumbers.get(row.run_id) ?? null) : null };
       }),
       next_cursor: hasMore && last ? encodeKeysetCursor({ t: last.cursorTs, id: last.id }) : null,
       has_more: hasMore,

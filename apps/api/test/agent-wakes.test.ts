@@ -344,13 +344,13 @@ describe('a wake is NEVER created for something its author cannot see', () => {
     expect(await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: rec, requestedBy: owner.id })).toMatchObject({ outcome: 'skipped', code: 'personal_content' });
   });
 
-  it('a mention inside a DOCUMENT or a rich-text field wakes nothing (only a comment does), and an agent-authored comment wakes nothing yet', async () => {
+  it('a mention inside a DOCUMENT or a rich-text field wakes nothing (only a comment does), and an agent comment with no run behind it wakes nothing (run credentials: test/run-credentials.test.ts)', async () => {
     const agent = await mkAgent(owner, 'Doc bot');
     const ticket = await mkTicket('Doc ticket');
     const put = await as(admin.token, 'PUT', `/workspaces/${ws}/databases/${ticketsDbId}/records/${ticket}/document`, { content: [para(agentMention(agent))], expected_version: 0 });
     expect(put.statusCode, put.body).toBeLessThan(300);
     expect(await wakeRows(agent)).toHaveLength(0);
-    // An agent credential's comment: mention ping-pong is bounded only by run depth (#1132), so an agent cannot wake another by mention yet.
+    // An older agent token carries no run and so no depth: mention ping-pong would be unbounded, so it wakes nothing (#1132 covers a run credential).
     const otherAgent = await mkAgent(owner, 'Authoring bot');
     const tok = await as(owner.token, 'POST', '/me/tokens', { name: 'authoring token', workspace_id: ws, scope: 'write', agent_id: otherAgent });
     const res = await comment(tok.json().token, ticket, [para(agentMention(agent))]);
@@ -492,7 +492,7 @@ describe('the claim: atomic, leased, fenced', () => {
     const res = await claim(runnerA.token);
     expect(res.statusCode, res.body).toBe(200);
     const [got] = res.json().wakes;
-    expect(got).toMatchObject({ id: w.id, reason: 'manual', lease_seconds: WAKE_LEASE_SECONDS, credential: null, agent: { id: agentA, name: 'Claim bot' }, record: { id: ticketA } });
+    expect(got).toMatchObject({ id: w.id, reason: 'manual', lease_seconds: WAKE_LEASE_SECONDS, credential: { scope: 'read' }, agent: { id: agentA, name: 'Claim bot' }, record: { id: ticketA } });
     expect(got.nonce).toBeTruthy();
     expect(JSON.stringify(got)).not.toContain('Claimed ticket'); // an id and a reference, never the record's text
     const row = (await wakeRows(agentA)).find((r: { id: string }) => r.id === w.id);

@@ -15,6 +15,7 @@ import type { OauthGrant } from './oauth-grant';
 import { scopeSatisfies, type ResourceScope, type TokenScope } from '@storyos/schemas';
 import { RESOURCE_SCOPABLE_KEY } from '../access/resource-scope';
 import type { ChangeSource } from '../db/schema';
+import type { RunStamp } from '../common/credential-context';
 import { AUTH } from './auth.tokens';
 import type { Auth } from './auth';
 import { DB } from '../db/db.module';
@@ -86,6 +87,8 @@ export interface AuthContext {
   agentName?: string;
   /** #882 — the api_tokens row acting (only `via: 'token'`); the request's credential context is entered from it. */
   tokenId?: string;
+  /** #1132 — set only for a per-run credential (ADR-0021 §4). `RequestMemoInterceptor` enters it into the credential context. */
+  run?: RunStamp;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -246,6 +249,8 @@ export class AuthGuard implements CanActivate {
         // a write path that doesn't know about this ticket yet still stores
         // nothing for it, rather than an empty string reading as "captured".
         ...(agentIdentity ? { agentId: agentIdentity.agentId, agentName: agentIdentity.agentName } : {}),
+        // #1132 — a per-run credential: the run, the Runner and the loop-guard depth, so the request's audit rows can name them.
+        ...(resolved.run ? { run: resolved.run } : {}),
       };
       return true;
     }

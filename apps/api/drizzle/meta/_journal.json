@@ -862,6 +862,13 @@
       "when": 1793301394247,
       "tag": "0122_many_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1793304669344,
+      "tag": "0123_dark_clint_barton",
+      "breakpoints": true
     }
   ]
 }
