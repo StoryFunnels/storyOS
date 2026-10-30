@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../../auth/auth.guard';
+import { NoRunCredential } from '../../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../../workspaces/workspace-access.guard';
 import { TyronThreadsService } from './threads.service';
@@ -41,6 +42,13 @@ class BuildDto extends createZodDto(
  * scoped to the calling member by the service, and adding an "all threads" read
  * would be the first crack in "private, including from admins" (#290).
  */
+/**
+ * #1135 — a Runner run credential is refused every route here. TyronService mints its turn token from the OWNER's role
+ * (`scopeForRole`, tyron.service.ts), not from the credential calling it, so a write-capped run credential reaching `takeTurn` would
+ * act as admin when its owner is one; `confirm` would let the agent approve its own pending action; the threads are the owner's private
+ * conversations. Tyron is a person's surface, not an agent's.
+ */
+@NoRunCredential()
 @ApiTags('tyron')
 @ApiBearerAuth()
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
