@@ -176,7 +176,7 @@ function TypeButtonGrid({
             className={cn(
               'flex items-start gap-2 rounded-[var(--radius-card)] border p-2 text-left',
               value === t.value
-                ? 'border-[var(--accent)] bg-accent-soft'
+                ? 'border-primary-text bg-active'
                 : 'border-border-default hover:bg-hover',
               disabledReason && 'cursor-not-allowed opacity-50 hover:bg-transparent',
             )}
@@ -313,7 +313,7 @@ export function ColorDot({ color, onPick }: { color: string; onPick: (color: str
             title={c}
             className={cn(
               'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-              c === color && 'ring-1 ring-[var(--accent)]',
+              c === color && 'ring-1 ring-primary-text',
             )}
             onClick={() => onPick(c)}
           >
@@ -685,7 +685,7 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
       </div>
       <button
         type="button"
-        className="w-fit text-body text-accent hover:underline"
+        className="w-fit text-body text-primary-text underline"
         onClick={addBin}
       >
         + Add bin

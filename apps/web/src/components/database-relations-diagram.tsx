@@ -71,7 +71,7 @@ export function DatabaseRelationsDiagram({
                 y2={s.y}
                 stroke="var(--border-strong)"
                 strokeWidth={1.5}
-                className="cursor-pointer hover:stroke-[var(--accent)]"
+                className="cursor-pointer hover:stroke-[var(--primary-text)]"
                 onClick={() => onOpenDatabase(s.database.id)}
               >
                 <title>{e.label}</title>
@@ -119,7 +119,7 @@ export function DatabaseRelationsDiagram({
             cy={layout.cy}
             r={CENTER_R}
             fill="var(--card)"
-            stroke={(center.color && OPTION_COLORS[center.color]) || 'var(--accent)'}
+            stroke={(center.color && OPTION_COLORS[center.color]) || 'var(--border-strong)'}
             strokeWidth={2.5}
           />
           <foreignObject x={layout.cx - CENTER_R} y={layout.cy - CENTER_R} width={CENTER_R * 2} height={CENTER_R * 2}>

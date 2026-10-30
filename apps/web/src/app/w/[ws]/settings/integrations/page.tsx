@@ -204,7 +204,7 @@ export default function IntegrationsPage() {
       </p>
 
       <section className="mb-8 overflow-hidden rounded-[var(--radius-card)] border border-border-strong bg-card">
-        <div className="border-b border-border-default bg-accent-soft p-5">
+        <div className="border-b border-border-default bg-hover p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card">
               <Cable className="h-5 w-5 text-ink" />
@@ -278,7 +278,7 @@ export default function IntegrationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-ink">{entry.label}</span>
-                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-ink">
+                      <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta font-medium text-ink">
                         Connected
                       </span>
                       {entry.id === 'linear' && <LinearMirrorChip ws={ws} />}

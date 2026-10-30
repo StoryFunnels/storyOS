@@ -91,7 +91,7 @@ export function GroupChip({
               onPatch(groupingPatch({ viewType, config, fieldId: '', isDateField: false }))
             }
           >
-            None {!config.group_by_field_id && <Check className="h-3.5 w-3.5 text-accent-text" />}
+            None {!config.group_by_field_id && <Check className="h-3.5 w-3.5 text-primary-text" />}
           </button>
         )}
         {/* Only the fields that can group this view, by name — a list of greyed-out
@@ -107,7 +107,7 @@ export function GroupChip({
               }
             >
               <span className="min-w-0 flex-1 truncate">{f.displayName}</span>
-              {config.group_by_field_id === f.id && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
+              {config.group_by_field_id === f.id && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
             </button>
           );
         })}
@@ -126,7 +126,7 @@ export function GroupChip({
                     onClick={() => onPatch({ group_by_granularity: p })}
                   >
                     <span className="capitalize">By {p}</span>
-                    {(config.group_by_granularity ?? 'month') === p && <Check className="h-3.5 w-3.5 text-accent-text" />}
+                    {(config.group_by_granularity ?? 'month') === p && <Check className="h-3.5 w-3.5 text-primary-text" />}
                   </button>
                 ))}
               </>
@@ -139,7 +139,7 @@ export function GroupChip({
                 {(Object.keys(COLUMN_SORT_LABELS) as ColumnSort[]).map((k) => (
                   <button key={k} type="button" className={ROW} onClick={() => onPatch({ column_sort: k })}>
                     {COLUMN_SORT_LABELS[k]}
-                    {columnSort === k && <Check className="h-3.5 w-3.5 text-accent-text" />}
+                    {columnSort === k && <Check className="h-3.5 w-3.5 text-primary-text" />}
                   </button>
                 ))}
               </>

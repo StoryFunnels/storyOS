@@ -484,7 +484,7 @@ export function RelationEditor({
               // relation field's picker never revealed its current value.
               trailing={
                 selectedIds.has(row.id) ? (
-                  <Check className="h-3.5 w-3.5 text-accent" />
+                  <Check className="h-3.5 w-3.5 text-primary-text" />
                 ) : undefined
               }
             />
@@ -493,7 +493,7 @@ export function RelationEditor({
             <button
               className={cn(
                 'flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-info transition-colors',
-                active === rows.length ? 'bg-accent-soft' : 'hover:bg-hover',
+                active === rows.length ? 'bg-active' : 'hover:bg-hover',
               )}
               onMouseEnter={() => setActive(rows.length)}
               onClick={() => createTarget.mutate(trimmed)}

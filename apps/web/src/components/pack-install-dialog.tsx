@@ -20,6 +20,16 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
+import { PackMap, PackWhy, ReuseChoice } from '@/components/pack-review';
+import {
+  existingChoices,
+  reusedNames,
+  reuseNote,
+  reuseResolutions,
+  type ExistingElsewhere,
+  type PackRelation,
+  type ReuseSelection,
+} from '@/lib/pack-review';
 import { InstallList } from '@/components/pack-install-list';
 import {
   buildInstallRows,
@@ -58,6 +68,10 @@ export interface RegistryCard {
   /** #824 — the hero; read from the pack's own manifest. */
   workflow?: { database: string; field: string; stages: string[][] } | null;
   marks?: { agent: boolean; notifies: boolean };
+  /** #1145 — why a person would want the pack (one sentence), what they can do once it is in, and how its databases link. */
+  why?: string | null;
+  can?: string[];
+  relations?: PackRelation[];
 }
 export interface RegistryEntry extends RegistryCard {
   manifest: unknown;
@@ -83,6 +97,8 @@ interface PreviewItem {
   agent_update?: PackAgentUpdate;
   /** #982 — what a reused database gains: fields (name + type), options, views, and what is not applied, with the reason. */
   gains?: PackDatabaseGains;
+  /** #1156 — a same-named database in ANOTHER space: the review offers "create a new one here" (default) or "use your existing one". */
+  existing_elsewhere?: ExistingElsewhere;
 }
 interface UnmetRequirement {
   kind: 'connection' | 'ai';
@@ -229,9 +245,9 @@ function collisionEntries(preview: PreviewResult): CollisionEntry[] {
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
   const style =
     action === 'collision'
-      ? 'bg-[var(--warning-soft,#fef3c7)] text-[var(--warning,#92400e)]'
+      ? 'bg-warning/10 text-warning-text'
       : action === 'create'
-        ? 'bg-accent-soft text-[var(--accent)]'
+        ? 'bg-primary text-[var(--text-on-dark)]'
         : 'bg-hover text-muted';
   const label =
     action === 'collision' ? 'Name collision' : action === 'create' ? 'New' : 'Reuse existing';
@@ -365,14 +381,14 @@ function AgentChoiceControl({
             type="button"
             onClick={() => setShowDiff((v) => !v)}
             aria-expanded={showDiff}
-            className="text-label font-medium text-accent hover:underline"
+            className="text-label font-medium text-primary-text underline"
           >
             {showDiff ? 'Hide changes' : 'Show changes'}
           </button>
         )}
       </span>
       {changesWhatItMayDo(update.changed_fields) && (
-        <span className="mt-1 block text-label text-warning">
+        <span className="mt-1 block text-label text-warning-text">
           Taking the update also changes what this agent is allowed to do:{' '}
           {changedFieldsText(
             update.changed_fields.filter((f) => f === 'scopes' || f === 'approval_policy'),
@@ -600,6 +616,39 @@ export function InstallDialog({
     },
   });
 
+  // #1149 — databases that already exist in ANOTHER space. Nothing is reused unless the person picks it: `reuse` is empty by
+  // default, so the install sends no reuse resolution and the pack creates its own, as before.
+  const [reuse, setReuse] = useState<ReuseSelection>({});
+  const choices = preview.data ? existingChoices(preview.data.databases) : [];
+  const usable = choices.filter((c) => c.hint.reusable);
+  const picked = reuseResolutions(choices, reuse);
+  // What "use existing" would add to each reusable database ("Adds Owner, Industry."): the SAME preview, asked as if every
+  // reusable one were chosen, so the numbers come from the server's own decision functions, not a guess here.
+  const ifReused = useQuery({
+    queryKey: ['pack-preview-reuse', ws, slug, target?.id ?? null, usable.map((c) => c.name).join('|')],
+    enabled: Boolean(entry.data) && usable.length > 0,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/packs/preview' as never,
+        {
+          params: { path: { ws } },
+          body: {
+            manifest: entry.data!.manifest,
+            ...(target ? { target_space_id: target.id } : {}),
+            resolutions: reuseResolutions(usable, Object.fromEntries(usable.map((c) => [c.name, true]))),
+          } as never,
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as PreviewResult;
+    },
+  });
+  const addsFor = (name: string): string[] | undefined => {
+    const gains = ifReused.data?.databases.find((d) => d.name === name)?.gains;
+    return gains ? gains.fields.map((f) => f.name) : undefined;
+  };
+
   const install = useMutation({
     mutationFn: async () => {
       const entries = collisionEntries(preview.data!);
@@ -613,7 +662,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
-            resolutions: { ...payload, ...agentResolutions(preview.data!.agents, agentChoices) },
+            resolutions: { ...payload, ...agentResolutions(preview.data!.agents, agentChoices), ...picked },
           } as never,
         } as never,
       );
@@ -650,9 +699,12 @@ export function InstallDialog({
     },
     // With a target space the server's refusal text IS the message (it names the database and the space it lives in): never a
     // generic one in its place.
+    // A reuse the server refuses (422) says why in its own words: show those, not a generic line.
     onError: (e) =>
       toast.error(
-        target ? apiErrorMessage(e, 'Install failed — try again') : 'Install failed — see the collisions below and try again',
+        target || Object.keys(picked).length > 0
+          ? apiErrorMessage(e, 'Install failed — try again')
+          : 'Install failed — see the collisions below and try again',
       ),
   });
 
@@ -887,8 +939,20 @@ export function InstallDialog({
               </div>
             ) : preview.data && !update ? (
               <>
+                {/* #1149 — the review leads with WHY, then what you can do, then how it fits together. Each draws nothing when the
+                    pack has none of it (a community pack), and the dialog's own gap is the only spacing. */}
                 {source === 'registry' && card ? (
-                  <PackVisual pack={card} />
+                  <>
+                    <PackWhy source={card} />
+                    <PackMap
+                      slug={card.slug}
+                      relations={card.relations}
+                      databaseCount={card.preview.databases}
+                      soleDatabase={card.workflow?.database}
+                      heading
+                    />
+                    <PackVisual pack={card} />
+                  </>
                 ) : entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] ? (
                   <img
                     src={entry.data.screenshots[0]}
@@ -944,6 +1008,20 @@ export function InstallDialog({
                             )}
                           </>
                         )}
+                        {row.kind === 'database' &&
+                          choices
+                            .filter((c) => c.name === row.key)
+                            .map((c) => (
+                              <ReuseChoice
+                                key={c.name}
+                                ws={ws}
+                                choice={c}
+                                newSpace={spaceName ?? 'this space'}
+                                selected={reuse[c.name] === true}
+                                adds={addsFor(c.name)}
+                                onSelect={(useExisting) => setReuse((prev) => ({ ...prev, [c.name]: useExisting }))}
+                              />
+                            ))}
                         {row.kind === 'database' && row.action === 'collision' && (
                           <label className="mt-1 flex items-center gap-1.5 text-label font-medium text-ink">
                             <input
@@ -1012,9 +1090,10 @@ export function InstallDialog({
                 )}
                 <p className="-mb-1 flex items-center gap-1.5 text-label text-muted" data-testid="pack-install-note">
                   <Check className="h-3 w-3 shrink-0" />
-                  {notNew(rows).length === 0
+                  {reuseNote(reusedNames(choices, reuse)) ??
+                    (notNew(rows).length === 0
                     ? 'All new — nothing already in your workspace changes.'
-                    : `${notNew(rows).length === 1 ? 'One thing' : `${notNew(rows).length} things`} already exist in your workspace — see the notes above. Nothing you have is removed.`}
+                    : `${notNew(rows).length === 1 ? 'One thing' : `${notNew(rows).length} things`} already exist in your workspace — see the notes above. Nothing you have is removed.`)}
                 </p>
                 <div className="sticky bottom-0 -mx-[18px] flex justify-end gap-2 border-t border-border-default bg-card px-[18px] pb-3.5 pt-2.5">
                   <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>

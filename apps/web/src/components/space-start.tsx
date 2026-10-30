@@ -19,6 +19,7 @@ import {
 import { NewDatabaseDialog } from '@/components/sidebar';
 import { PACK_FILTERS, useRegistry, type RegistryCard } from '@/components/pack-install-dialog';
 import { packCountsLine, registryVertical } from '@/components/pack-visual';
+import { PackMap } from '@/components/pack-review';
 import { cn } from '@/lib/utils';
 import { ALL_PACKS, FEATURED_SPACE_PACKS, spacePackFilters, visibleSpacePacks } from '@/lib/space-start';
 
@@ -188,9 +189,9 @@ export function StartFromScratchBar({
  * One card per pack, all in ONE style (Ievgen, #1094: "the other packs are not visible, they should be styled the same way"),
  * the featured ones leading. Cards open the install review for THIS space via `onPick`; the page owns the dialog.
  *
- * SEAM for #1145: `why` (the pack's one-line reason to exist) and `map` (its database map, one link per row) arrive from that
- * ticket. Until they do the card shows the pack's own `summary` where the why line goes, and no map: a real sentence, not an
- * invented one. A card with neither prop is a complete card.
+ * #1149 filled the seam #1145 left: the why line is the pack's own `why` (its manifest's one sentence, via the registry listing)
+ * and the map is drawn from the listing's `relations`. A pack with no `why` falls back to its own `summary` — a real sentence,
+ * never an invented one — and a pack with no relations draws no map. `why`/`map` props still override both (tests, other callers).
  */
 export function SpacePackGrid({
   onPick,
@@ -247,8 +248,12 @@ export function SpacePackGrid({
               )}
             >
               <b className="text-prose font-semibold text-ink">{pack.name}</b>
-              <p className="line-clamp-3 text-label leading-[1.45] text-ink-secondary">{why?.(pack) ?? pack.summary}</p>
-              {map?.(pack)}
+              <p className="line-clamp-3 text-label leading-[1.45] text-ink-secondary">{why?.(pack) ?? pack.why ?? pack.summary}</p>
+              {map ? (
+                map(pack)
+              ) : (
+                <PackMap slug={pack.slug} relations={pack.relations} databaseCount={pack.preview.databases} soleDatabase={pack.workflow?.database} limit={4} />
+              )}
               <span className="mt-auto font-mono text-meta text-muted">{packCountsLine(pack.preview)}</span>
             </button>
           </li>

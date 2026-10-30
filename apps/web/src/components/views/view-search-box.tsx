@@ -206,7 +206,7 @@ export function ViewSearchBox({
                 // The palette's own highlight, so the two result lists look alike.
                 className={cn(
                   'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink',
-                  i === active ? 'bg-accent-soft' : 'hover:bg-hover',
+                  i === active ? 'bg-active' : 'hover:bg-hover',
                 )}
               >
                 {row.number != null && <span className="shrink-0 text-meta text-muted">#{row.number}</span>}

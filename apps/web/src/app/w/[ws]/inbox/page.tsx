@@ -182,7 +182,7 @@ export default function InboxPage() {
               className={cn(
                 'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
                 selected?.id === n.id && 'bg-active',
-                !n.read_at && !archived && 'bg-accent-soft/50',
+                !n.read_at && !archived && 'bg-hover-soft',
               )}
             >
               {n.actor ? (

@@ -123,7 +123,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
                 <span
                   className={
                     c.status === 'active'
-                      ? 'rounded bg-accent-soft px-1.5 py-0.5 text-meta text-ink'
+                      ? 'rounded border border-border-default bg-hover px-1.5 py-0.5 text-meta text-ink'
                       : 'rounded bg-hover px-1.5 py-0.5 text-meta text-error'
                   }
                 >
@@ -135,7 +135,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
         </section>
       )}
 
-      <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-5">
+      <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-hover p-5">
         <h2 className="text-sm font-semibold text-ink">Where do items land?</h2>
         <p className="mt-1 text-body text-muted">
           Comments and mentions become ordinary records. Open any database, choose{' '}

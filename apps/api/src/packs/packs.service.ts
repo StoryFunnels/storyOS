@@ -1,5 +1,6 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { stripPublicSharing } from '../views/view-sharing';
+import { DocumentsService } from '../documents/documents.service';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
@@ -9,6 +10,7 @@ import {
   dbRef,
   fieldRef,
   lineDiff,
+  markdownToBlocks,
   optionRef,
   PACK_REF_PATTERN,
   packExportRequestSchema,
@@ -296,6 +298,7 @@ export class PacksService {
     private readonly skills: SkillsService,
     private readonly marketplace: MarketplaceService,
     private readonly access: AccessService,
+    private readonly documents: DocumentsService,
   ) {}
 
   // ── export ─────────────────────────────────────────────────────────────────
@@ -1064,7 +1067,10 @@ export class PacksService {
           const rewritten = refify(value, idToRef, `A sample record of "${db.name}"`, 'drop');
           if (rewritten !== undefined) values[key] = rewritten;
         }
-        out.push({ database: db.name, values });
+        // #1147 — a record's body round-trips: export what import now writes.
+        const doc = await this.documents.get(record.id);
+        const description = doc.content ? blocksToMarkdown(doc.content).trim() : '';
+        out.push({ database: db.name, values, ...(description ? { description } : {}) });
       }
     }
     return out;
@@ -1168,25 +1174,36 @@ export class PacksService {
     const live = await this.databases.list(membership);
     const spaceNames = new Map((await this.spaces.list(membership)).map((s) => [s.id, s.name] as const));
     const where = (spaceId: string) => spaceNames.get(spaceId) ?? 'another space';
-    const trackedReused = existingInstall
+    const trackedDbs = existingInstall
       ? await this.db.query.packInstallItems.findMany({
-          where: and(eq(packInstallItems.packInstallId, existingInstall.id), eq(packInstallItems.kind, 'database'), eq(packInstallItems.action, 'reused')),
+          where: and(eq(packInstallItems.packInstallId, existingInstall.id), eq(packInstallItems.kind, 'database')),
         })
       : [];
     const canEdit = (d: { my_access: string | null }) => d.my_access !== null && ACCESS_RANK[d.my_access as EffectiveRole] >= ACCESS_RANK.editor;
+    // #1157 — the databases this install tracked that are still live (not trashed) and that the installer can EDIT; anything else is
+    // treated as absent, so nothing about a database they cannot edit is used or described.
+    const trackedLive = trackedDbs.flatMap((t) => {
+      const l = live.find((x) => x.id === t.entityId && canEdit(x));
+      return l ? [{ t, l }] : [];
+    });
+    // A tracked database that this pack CREATED is found by id wherever it lives now, but only when this is a re-install INTO where the
+    // pack lives: no explicit target, or a target that still holds at least one of them. A target that holds none is the person
+    // installing somewhere else, which builds a new set there (#1156). One this pack ADOPTED (`reused`) is kept either way (#1156).
+    const anchored = !targetSpaceId || trackedLive.some((x) => x.l.spaceId === targetSpaceId);
     for (const d of manifest.databases) {
-      const homeDb = inHomeSpace(d.name, d.space);
-      if (homeDb) {
-        // A same-named database the install did not create, in the space it installs into: written to only on the person's explicit
-        // `reuse`, and then only if they can edit it, worded as for a database that is not there.
-        const foreign = trackedDbIds.get(norm(d.name)) !== homeDb.id;
-        if (foreign && strict && resolutions[d.name]?.action === 'reuse' && !canEdit(homeDb)) {
+      const home = inHomeSpace(d.name, d.space);
+      const earlier = trackedLive.find((x) => norm(x.t.name) === norm(d.name) && (x.t.action === 'reused' || anchored));
+      const kept = earlier?.l;
+      if (kept && home?.id === kept.id) continue; // already where the name match would find it
+      if (!kept && home) {
+        // A same-named database the install did not create (its id is not the tracked one), in the space it installs into: written to only
+        // on the person's explicit `reuse`, and then only if they can edit it, worded as for a database that is not there (#1156).
+        const foreign = trackedDbIds.get(norm(d.name)) !== home.id;
+        if (foreign && strict && resolutions[d.name]?.action === 'reuse' && !canEdit(home)) {
           throw new UnprocessableEntityException(notFoundReason(d.name));
         }
         continue;
       }
-      const earlier = trackedReused.find((t) => norm(t.name) === norm(d.name));
-      const kept = earlier ? live.find((x) => x.id === earlier.entityId && canEdit(x)) : undefined;
       if (kept) {
         adopt.set(norm(d.name), { id: kept.id, name: kept.name });
         hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true, reusable: true });
@@ -1316,7 +1333,8 @@ export class PacksService {
     const inHomeSpace = await this.architect.homeSpaceMatcher(membership, targetSpaceId ? { id: targetSpaceId } : undefined, trackedDbIds);
     const liveByName = new Map<string, NonNullable<ReturnType<typeof inHomeSpace>>>();
     for (const d of manifest.databases) {
-      const found = inHomeSpace(d.name, d.space) ?? (adopt?.get(norm(d.name)) as ReturnType<typeof inHomeSpace>);
+      // #1157 — a database this install tracked (or the person chose to reuse) wins over a same-named one in the home space.
+      const found = (adopt?.get(norm(d.name)) as ReturnType<typeof inHomeSpace>) ?? inHomeSpace(d.name, d.space);
       if (found) liveByName.set(norm(d.name), found);
     }
 
@@ -2877,6 +2895,10 @@ export class PacksService {
         // person installing it.
         'automation',
       );
+      // #1147 — the record's body, written once at creation (a reused record above is left exactly as the person has it).
+      if (planned.description) {
+        await this.documents.put(membership.workspaceId, dbId, created.id, markdownToBlocks(planned.description), 0, membership.userId, 'automation');
+      }
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
       createdIds.push(created.id);

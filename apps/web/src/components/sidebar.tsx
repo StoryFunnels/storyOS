@@ -114,7 +114,7 @@ function FavoritesSection({ ws }: { ws: string }) {
               className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
             >
               <GlyphSlot>
-                <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+                <Star className="h-3.5 w-3.5 shrink-0 fill-primary-text text-primary-text" />
               </GlyphSlot>
               <span className="overflow-hidden whitespace-nowrap">{f.title}</span>
             </Link>
@@ -629,7 +629,7 @@ function SidebarResizeHandle({
         className={cn(
           'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
           dragging
-            ? 'bg-accent'
+            ? 'bg-primary-text'
             : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
         )}
       />
@@ -847,7 +847,7 @@ function RailButton({
         {children}
         <RailName>{title}</RailName>
         {badge && (
-          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
+          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-[var(--text-on-dark)]">
             {badge}
           </span>
         )}
@@ -1053,7 +1053,7 @@ function RootDropZone({ spaceId, children }: { spaceId: string; children: React.
       // this block, space-level views, docs) never reached the rows INSIDE
       // it. This is the div actually stacking Members/Agents/Runs etc., so
       // the fix belongs here.
-      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {children}
     </div>
@@ -1107,7 +1107,7 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
       style={{ height: GROUP_BAND_H, transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'sticky top-0 z-30 h-auto cursor-grab touch-manipulation bg-frame active:cursor-grabbing',
-        isOver && 'bg-hover ring-1 ring-inset ring-accent/40',
+        isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40',
       )}
       draggable
       {...attributes}
@@ -1132,7 +1132,7 @@ function UngroupedDropZone({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={setNodeRef}
-      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('flex min-h-2 flex-col gap-2 rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {children}
     </div>
@@ -2449,7 +2449,7 @@ function FolderSection({
   return (
     <div
       ref={setDropRef}
-      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-primary-text/40')}
     >
       {/* #380/#742 — a folder sits on the SAME left edge as the databases
           beside it (founder's spec: "folders, dashboards — the same padding

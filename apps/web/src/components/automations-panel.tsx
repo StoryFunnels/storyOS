@@ -364,7 +364,7 @@ function RuleRow({
         </button>
       </div>
       {!rule.enabled && rule.failureStreak >= 10 && (
-        <p className="mt-1 text-label text-warning">
+        <p className="mt-1 text-label text-warning-text">
           Auto-disabled after repeated failures — fix the actions and re-enable.
         </p>
       )}

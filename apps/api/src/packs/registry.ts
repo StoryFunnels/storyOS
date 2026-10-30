@@ -3,6 +3,7 @@ import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
 import { SOCIAL_COMMAND_CENTER_PACK } from './social-command-center';
 import { STARTER_PACKS } from './starter-packs';
 import { TEAM_BOARD_PACK } from './team-board';
+import { TEAM_WIKI_PACK } from './team-wiki';
 
 /**
  * The built-in Business Pack gallery (MN-219 / #161).
@@ -21,6 +22,7 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
   ...STARTER_PACKS,
   SOCIAL_COMMAND_CENTER_PACK,
   TEAM_BOARD_PACK,
+  TEAM_WIKI_PACK,
   {
     slug: 'support-inbox',
     name: 'Support Inbox',

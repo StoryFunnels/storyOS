@@ -122,7 +122,7 @@ plan instead of cramming prose into a record or inventing a database for one pag
 |---|---|
 | `propose_schema` → `build_schema` | Turn a plain-language goal into a plan of databases, fields, relations and states (each create-new or reuse-existing) — creates nothing; then build the approved plan in one call. |
 | `list_templates` / `apply_template` | Single-database or small-space starter templates. They seed sample rows; `remove_sample_data` deletes exactly those and nothing a person added. |
-| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery; install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. Install reuses what already exists by name, so installing a pack again reuses the databases it created before instead of making a second copy. |
+| `list_packs` / `install_pack` / `list_installed_packs` / `uninstall_pack` | The built-in Business Pack gallery, each pack with its `why`, `can` and `relations` (see [Writing a pack manifest](/guides/pack-manifest/#why-and-can-what-a-pack-says-about-itself)); install by slug (idempotent; `preview` shows what it would create without creating it); what's installed, with the **install id** uninstall needs. An install matches its databases by name only within the space it installs into, so installing a pack again reuses the databases it created before instead of making a second copy, and a same-named database in another space is left alone (see [Databases with the same name in other spaces](#databases-with-the-same-name-in-other-spaces)). |
 | `browse_pack_marketplace` / `list_pack_submissions` / `export_pack` | Community packs; your submissions' review status (read-only); turn part of this workspace into an installable pack manifest. |
 | `duplicate_database` / `duplicate_view` | Copy a database's schema, views and self-relations into a new independent database; copy a view with its filters, sorts and layout. |
 | `set_auto_link` / `run_auto_link` | Teach a relation to link itself from matching field pairs; apply the rules to records that already exist (use after an import). |
@@ -145,14 +145,71 @@ space, and the pack's own space is not created. With no `space` the install beha
 - **A personal space is refused (422).** A personal space holds documents and views, not databases.
 - **A pack whose databases sit in more than one space is refused (422)**, and the message names those spaces.
   Install it without choosing a space.
-- **A pack whose databases already exist in a different space is refused (409)**, naming where each one lives.
-  Install reuses a database it finds by name anywhere in the workspace, so without the refusal the target
-  space would be left without it. Open the existing database, or rename it first.
+- **A same-named database in a different space is not a conflict.** The install creates its own database
+  in the target space and leaves the other one alone. See
+  [Databases with the same name in other spaces](#databases-with-the-same-name-in-other-spaces).
+- **A same-named database already in the target space that the pack did not create is refused (409)**,
+  naming it, unless you choose Reuse for it (see below).
 - **Installing twice into the same space reuses** what the first install made rather than creating it again.
 - **Uninstalling removes the pack's content, not the space** you installed it into.
 - **No second pack space is made, but a pack that includes agents or triggers still creates the
   workspace's one shared *Agentic OS* space** they live in, if the workspace does not have it yet.
   Only the pack's own space is skipped.
+
+### Databases with the same name in other spaces
+
+An install, and its `preview`, looks for a pack's databases by name **only in the space it installs into**:
+the target space you chose, otherwise the space the pack names. A database with the same name in another
+space is ignored, so a pack can be installed next to one. For example, a pack with an **Issues** database
+creates its own **Issues** in its space and does not touch another space's **Issues**.
+
+- **Re-installing into the same space adds nothing.** The install recognises the databases it created by
+  the ids it recorded, so a database someone renamed is still found.
+- **A same-named database the pack did not create, already in the target space, is a collision** the
+  install does not decide for you: it is refused with a 409 naming it.
+
+#### Choosing Reuse
+
+Sharing one database between packs is something you ask for, never something an install does on its own.
+To have a pack adopt an existing database wherever it lives, send a resolution of `reuse` for that database's
+name in `resolutions` on the workspace's `packs/preview` and `packs/install` calls, for example
+`{"resolutions": {"Clients": {"action": "reuse"}}}`. The MCP `install_pack` tool has no input for this
+choice; it takes `update_agents` for agent resolutions only.
+
+A database is adopted only when all of these hold:
+
+- **You can edit it.** A database you can only read, and one you cannot read at all, are treated as not
+  there.
+- **Exactly one database with that name is editable by you.** With two or more, the install refuses to guess.
+- **Its fields fit the pack.** A field the pack declares must have the same type in the existing database. A
+  pack's workflow field, such as a Status, needs a select, so an existing Status of another type cannot be used.
+
+If any of these fails, an install with `reuse` is refused with a 422 whose message is the reason, and nothing
+is written. Without a `reuse` the pack creates its own database and the existing one is not changed.
+
+The `preview` reports each database that has a same-named one elsewhere as `existing_elsewhere`, with the
+`space_name` it lives in and its `database_id`, `reusable` (true or false), `adopted` (true when the
+install would use that database, which needs your `reuse` choice or an earlier adoption by the same pack) and, when it cannot be reused, a `reason` in plain words, such as
+`There is no Clients database you can edit.` or a note naming the field and both types.
+
+- **Re-installing a pack that adopted a database keeps using it**, with or without repeating the choice, and
+  does not create a duplicate.
+- **Uninstalling never deletes an adopted database or its data.**
+
+### Uninstalling a pack
+
+`uninstall_pack` (REST: `POST /workspaces/:ws/packs/:installId/uninstall`, with the install id from
+`list_installed_packs`) removes what that install made and returns two lists, `removed` and `kept`. A kept
+item carries a reason.
+
+- **Views the install created are removed if nobody has edited them.** A view whose name, type or
+  configuration differs from what the install stored is kept, with the reason `Changed since install.`
+- **A view the install only reused is kept**, with the reason `Existed before the install.` This is the
+  case when the pack's databases and views were already there, for example from another pack.
+- **A database's default view is never removed.**
+- **Databases, fields, relations and sample records are not touched.** Uninstall covers views,
+  automations, agents and skills only.
+- **Installing the pack again** after an uninstall brings its views back.
 
 ### Automations a pack installs switched off
 

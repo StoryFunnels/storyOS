@@ -649,7 +649,7 @@ function DayCell({
       className={cn(
         'min-h-24 border-b border-r border-border-default p-1',
         !inMonth && 'bg-app',
-        isOver && 'bg-accent-soft',
+        isOver && 'bg-active',
       )}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCreate?.();

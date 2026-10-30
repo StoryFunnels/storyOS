@@ -386,7 +386,7 @@ export function CommandPalette() {
                     ref={(el) => { itemRefs.current[i] = el; }}
                     className={cn(
                       'flex w-full items-center gap-2.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink transition-colors',
-                      active ? 'bg-accent-soft' : 'hover:bg-hover',
+                      active ? 'bg-active' : 'hover:bg-hover',
                     )}
                     onMouseMove={() => setIndex(i)}
                     onClick={row.run}
@@ -394,7 +394,7 @@ export function CommandPalette() {
                     <span
                       className={cn(
                         'flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] border text-muted transition-colors',
-                        active ? 'border-[color:var(--accent)]/30 bg-card text-ink' : 'border-border-default bg-hover',
+                        active ? 'border-border-strong bg-card text-ink' : 'border-border-default bg-hover',
                       )}
                     >
                       {row.icon}
