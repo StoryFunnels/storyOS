@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+/**
+ * ticket #1155 — where a date condition is summarised or edited, a relative date reads in words. `describeCondition` is the one text
+ * behind the pinned chip, the condition's default label and its "Edit name" placeholder; `FilterValueEditor` is the one value control
+ * behind the panel row and the legacy chip. Same harness as filter-value-editor.unit.test.ts (the toolbar module needs the API client stubbed).
+ */
+vi.mock('@/lib/api', () => ({ api: {}, apiFetch: vi.fn() }));
+
+const { describeCondition, FilterValueEditor, opsForField } = await import('./view-toolbar');
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+
+const date = { id: 'f-d', apiName: 'last_reviewed', displayName: 'Last reviewed', type: 'date', config: {} } as never;
+const cond = (op: string, value: unknown) => ({ field: 'last_reviewed', op, value });
+
+function render(op: string, value: unknown): string {
+  const ops = opsForField(date);
+  const activeOp = ops.find((o) => o.op === op)!;
+  const qc = new QueryClient();
+  return renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client: qc },
+      createElement(FilterValueEditor, { field: date, members: [], activeOp, condition: cond(op, value), onChange: () => {}, fill: true }),
+    ),
+  );
+}
+
+describe('describeCondition on a date field', () => {
+  it('reads a relative date in words, on the two ops the API accepts it for', () => {
+    expect(describeCondition(date, cond('before', '$date:-90d'), [])).toBe('Last reviewed more than 90 days ago');
+    expect(describeCondition(date, cond('after', '$date:+3d'), [])).toBe('Last reviewed more than 3 days from now');
+    expect(describeCondition(date, cond('after', '$date:-14d'), [])).toBe('Last reviewed after 2 weeks ago');
+  });
+  it('keeps an absolute date exactly as it was', () => {
+    expect(describeCondition(date, cond('before', '2026-07-31'), [])).toBe('Last reviewed before 2026-07-31');
+    expect(describeCondition(date, cond('eq', '2026-07-31'), [])).toBe('Last reviewed on 2026-07-31');
+  });
+  it('falls back to the raw text for a token it does not understand, and for a token on an op that does not take one', () => {
+    expect(describeCondition(date, cond('before', '$date:-ninety'), [])).toBe('Last reviewed before $date:-ninety');
+    expect(describeCondition(date, cond('eq', '$date:-90d'), [])).toBe('Last reviewed on $date:-90d');
+  });
+  it('an unfinished condition still reads as just the field and operator', () => {
+    expect(describeCondition(date, cond('before', ''), [])).toBe('Last reviewed before');
+  });
+});
+
+describe('the date value editor', () => {
+  it('shows a stored token as an amount and a unit, never as the raw token', () => {
+    const html = render('before', '$date:-90d');
+    expect(html).not.toContain('$date');
+    expect(html).toContain('value="90"');
+    expect(html).toMatch(/<option value="days-ago" selected="">days ago<\/option>/);
+  });
+  it('shows whole weeks as weeks', () => {
+    const html = render('after', '$date:+14d');
+    expect(html).toContain('value="2"');
+    expect(html).toMatch(/<option value="weeks-ahead" selected="">weeks from now<\/option>/);
+  });
+  it('shows an absolute date as the exact-date kind with the date, as before', () => {
+    const html = render('before', '2026-07-31');
+    expect(html).toMatch(/<option value="date" selected="">exact date<\/option>/);
+    expect(html).toContain('2026-07-31');
+  });
+  it('an unknown token renders (as an exact-date control holding the raw text) rather than crashing', () => {
+    expect(() => render('before', '$date:-ninety')).not.toThrow();
+    expect(render('before', '$date:-ninety')).toContain('$date:-ninety');
+  });
+  it('`on` and `is not` take a day, not a relative date: no kind select', () => {
+    expect(render('eq', '2026-07-31')).not.toContain('Date unit');
+  });
+  it('names its controls for a screen reader: the unit and the amount say what they are', () => {
+    const html = render('before', '$date:-90d');
+    expect(html).toContain('aria-label="Date unit"');
+    expect(html).toContain('aria-label="Amount of days"');
+    expect(render('after', '$date:+14d')).toContain('aria-label="Amount of weeks"');
+  });
+  it('a set amount is not flagged invalid, and carries a hint with the allowed range (the unset state is asserted live)', () => {
+    const set = render('before', '$date:-90d');
+    expect(set).not.toContain('aria-invalid');
+    expect(set).toContain('A whole number of days, 1 to 9999');
+  });
+  it('the DOM order is the visual order, so Tab follows the eye: amount then unit for a relative date, unit then date for an exact one', () => {
+    const rel = render('before', '$date:-90d');
+    expect(rel.indexOf('aria-label="Amount of days"')).toBeGreaterThan(-1);
+    expect(rel.indexOf('aria-label="Amount of days"')).toBeLessThan(rel.indexOf('aria-label="Date unit"'));
+    const exact = render('before', '2026-07-31');
+    expect(exact.indexOf('aria-label="Date unit"')).toBeLessThan(exact.indexOf('aria-haspopup="dialog"'));
+  });
+  it('the exact-date button says what it is and that it opens a dialog', () => {
+    expect(render('before', '2026-07-31')).toContain('aria-label="Date: 2026-07-31. Change date"');
+    expect(render('after', '')).toContain('aria-label="Pick a date"');
+    expect(render('before', '2026-07-31')).toContain('aria-expanded="false"');
+  });
+
+  /**
+   * LAYOUT GUARD (ticket #1155, send-back). The repo has no DOM test setup (vitest runs in node with static markup, no jsdom), so this
+   * cannot MEASURE a rendered width; it pins the class contract that decides it, and the rendered measurement is a live Playwright
+   * script whose output is in the PR body. The defect: `boxed` (the fill look) carries `w-full min-w-0`, so the unit select in the
+   * exact-date arrangement filled the row and the date button beside it collapsed to 14px. The select must opt out of that width.
+   */
+  it('exact-date arrangement: the unit select opts out of the full-width look and shares the row with the date button', () => {
+    for (const op of ['before', 'after']) {
+      const html = render(op, '2026-09-14');
+      const select = /<select aria-label="Date unit" class="([^"]*)"/.exec(html);
+      expect(select).not.toBeNull();
+      expect(select![1]).toContain('!w-auto');
+      expect(select![1]).toContain('shrink-0');
+      // select and date button sit in the SAME single-row flex container (no wrap, no column)
+      const row = /<span class="flex min-w-0 items-center gap-1">(.*?)<\/span><span id|<span class="flex min-w-0 items-center gap-1">(.*)$/s.exec(html);
+      expect(row).not.toBeNull();
+      expect(html.indexOf('aria-label="Date unit"')).toBeLessThan(html.indexOf('aria-haspopup="dialog"'));
+      expect(html).toContain('2026-09-14');
+    }
+  });
+  it('relative arrangement: the select grows (flex-1) and the amount keeps its fixed width, so neither collapses', () => {
+    const html = render('before', '$date:-90d');
+    expect(/<select aria-label="Date unit" class="([^"]*)"/.exec(html)![1]).toContain('flex-1');
+    expect(/aria-label="Amount of days"[^>]*class="([^"]*)"/.exec(html)![1]).toMatch(/w-\[42px\].*shrink-0|shrink-0.*w-\[42px\]/);
+  });
+});
