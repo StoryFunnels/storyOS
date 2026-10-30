@@ -639,6 +639,16 @@ export const packPreviewItemSchema = z.object({
       adopted: z.boolean(),
       reusable: z.boolean(),
       reason: z.string().optional(),
+      /**
+       * #1169 — present ONLY when `database_id` is present and `reusable` is true (the person can edit this one database and the pack fits it);
+       * absent in every other case, so a count never confirms a database the review is not naming.
+       *   record_count  how many live records the database holds, as the viewer counts them (trashed records and records the viewer cannot
+       *                 see are not counted); 0 is a real answer and is present
+       *   fields_added  the fields the pack would ADD to it if reused, {name, type}, in install order: the same list as `gains.fields`; a field
+       *                 already there with the pack's type is not listed, and [] means it already has every field the pack needs
+       */
+      record_count: z.number().int().nonnegative().optional(),
+      fields_added: z.array(z.object({ name: z.string(), type: z.string() })).optional(),
     })
     .optional(),
   /**

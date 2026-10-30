@@ -288,10 +288,11 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
     const space = spaces.find((s) => s.id === agencyClients.spaceId)!.name;
     const plain = (await preview(ws, compat)).json().databases.find((d: { name: string }) => d.name === 'Clients');
     expect(plain.action).toBe('create');
-    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false, reusable: true });
+    // #1169: a reusable hint also carries record_count and fields_added (their values are pinned in pack-existing-elsewhere-counts.test.ts)
+    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array) });
     const chosen = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: compat, resolutions: reuseClients });
     expect(chosen.statusCode, chosen.body).toBe(201);
-    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true, reusable: true });
+    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array) });
   });
 
   it('without the explicit choice nothing is adopted: Consulting OS gets its own Clients and Agency OS\'s is untouched', async () => {
