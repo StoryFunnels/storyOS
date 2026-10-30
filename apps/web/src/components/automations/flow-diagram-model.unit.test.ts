@@ -81,6 +81,13 @@ describe('conditionLabel (#283)', () => {
     );
   });
 
+  it('reads a relative date in words (ticket #1155), keeps an absolute one, and leaves an unknown token as written', () => {
+    expect(conditionLabel({ field: 'due', op: 'before', value: '$date:-90d' }, fields)).toBe('due more than 90 days ago');
+    expect(conditionLabel({ field: 'due', op: 'after', value: '$date:+3d' }, fields)).toBe('due more than 3 days from now');
+    expect(conditionLabel({ field: 'due', op: 'before', value: '2026-07-31' }, fields)).toBe('due before 2026-07-31');
+    expect(conditionLabel({ field: 'due', op: 'before', value: '$date:-ninety' }, fields)).toBe('due before $date:-ninety');
+  });
+
   it('is null for no condition', () => {
     expect(conditionLabel(null, fields)).toBeNull();
     expect(conditionLabel(undefined, fields)).toBeNull();
