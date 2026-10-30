@@ -149,6 +149,7 @@ export class AutoLinkService {
           databaseId: relation.databaseAId,
           recordId: fromRecordId,
           relationFieldId: relation.fieldAId,
+          linkDirection: 'link', // #1139 — a pure link, so a link-scoped consumer (the agent wake source) sees it and an unlink rule does not
           actorId,
           depth: 0,
           linkedRelations: [
