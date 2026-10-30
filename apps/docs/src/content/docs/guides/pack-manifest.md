@@ -1,16 +1,48 @@
 ---
 title: Writing a pack manifest
-description: The parts of a pack manifest that decide how an install behaves — option categories, agent AI mode and skills, and which automations install switched off.
+description: The parts of a pack manifest that decide how an install behaves, and what a pack says about itself — why and can lines, option categories, agent AI mode and skills, and which automations install switched off.
 sidebar:
   order: 10
 ---
 
-A pack is a JSON **manifest**. This page covers the three parts of it that change what an install
-does to a workspace. For installing a pack, see [Creating a workspace](/guides/creating-a-workspace/)
+A pack is a JSON **manifest**. This page covers the parts of it that say what a pack is for and the
+parts that change what an install does to a workspace. For installing a pack, see [Creating a workspace](/guides/creating-a-workspace/)
 and, over MCP, [Installing a pack into an existing space](/mcp/tools/#installing-a-pack-into-an-existing-space).
 `export_pack` writes a manifest from a workspace; the rest of the shape is checked on install, and
 a manifest that does not validate is refused with a 422 that names the path and, for an option or an
 agent, its label or name.
+
+## Why and can: what a pack says about itself
+
+A manifest may carry two short texts that say why someone would want the pack. Both are optional.
+
+| Field | What it holds | Limits |
+|---|---|---|
+| `why` | **One sentence** naming the situation the pack is for | 1 to 400 characters |
+| `can` | What a person can do once it is installed, one line each | 1 to 3 lines, each 1 to 300 characters |
+
+- **A second sentence is refused.** A full stop, `!` or `?` (optionally followed by a closing quote or
+  bracket) with more text after it fails validation with the message `why must be a single sentence`. A
+  sentence that only contains punctuation inside it, such as `Is it 3.5 weeks or 4?`, passes.
+- **Empty is refused.** An empty `why`, an empty `can` list, a blank line in `can`, more than three lines,
+  or a line over the limit fails validation.
+- **Leaving them out is fine.** A manifest without `why` and `can` still validates and installs, so older
+  community and exported manifests keep working. Every built-in pack declares both.
+- **Export takes them too.** The `export_pack` input (REST: `POST /workspaces/:ws/packs/export`) accepts
+  `why` and `can` and writes them onto the manifest it produces; without them the exported manifest
+  carries neither.
+
+### What the pack listing returns
+
+`GET /packs/registry` (over MCP, `list_packs`) returns, for each built-in pack, besides its name and
+summary:
+
+- `why`: the sentence, or `null` when the manifest declares none.
+- `can`: the lines, or an empty array.
+- `relations`: the manifest's own relation rows, each with `from`, `to`, `cardinality`, `from_field` and
+  `to_field`. A relation from a database to itself is listed like any other.
+
+This lets a person, or an agent, say why a pack fits before installing it.
 
 ## Option categories
 

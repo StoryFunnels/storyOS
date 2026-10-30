@@ -141,7 +141,7 @@ export function StarterCards({
           onChange={(e) => setPasted(e.target.value)}
           aria-label="Paste a list"
           placeholder={'Ada Lovelace, ada@example.com, London\nAlan Turing, alan@example.com, Manchester'}
-          className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+          className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint"
         />
         <div className="mt-2 flex items-center gap-2">
           <button

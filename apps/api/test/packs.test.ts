@@ -208,6 +208,8 @@ async function buildSourceBusinessViaApi(wsId: string) {
       column_widths: { [score.id]: 220 },
       sorts: [],
       hidden_field_ids: [],
+      // #1158 — per-option hidden columns must round-trip as option refs.
+      hidden_option_ids: [optionId(status, 'Won')],
     },
   });
   expect(view.statusCode, view.body).toBe(201);
@@ -323,6 +325,11 @@ describe('export', () => {
     expect(Object.keys(view.config.column_widths as object)).toEqual(['$field:leads.score']);
   });
 
+  it('#1158 — hidden board columns export as option refs (by label), never ids', () => {
+    const view = manifest.views.find((v) => v.name === 'Pipeline')!;
+    expect(view.config.hidden_option_ids).toEqual(['$option:leads.status.won']);
+  });
+
   it('rewrites automation trigger and condition, option ids included', () => {
     const rule = manifest.automations.find((a) => a.name === 'Greet new leads')!;
     expect(rule.trigger.field_id).toBe('$field:leads.status');
@@ -402,6 +409,23 @@ describe('round trip into a clean workspace', () => {
     expect(view!.config.card_field_ids).toEqual([targetScore.id]);
     // The keyed-by-id shape survived, rewritten.
     expect(view!.config.column_widths).toEqual({ [targetScore.id]: 220 });
+  });
+
+  it("#1158 — the hidden column installs as the TARGET workspace's own option id", async () => {
+    const leads = await dbNamed(targetWs, 'Leads');
+    const detail = await detailOf(targetWs, leads.id);
+    const status = fieldNamed(detail.fields, 'Status');
+    const view = detail.views.find((v) => v.name === 'Pipeline')!;
+    expect(view.config.hidden_option_ids).toEqual([optionId(status, 'Won')]);
+  });
+
+  it('#1158 — a manifest naming a state that does not exist is a 422, not a silent skip', async () => {
+    const bad = structuredClone(manifest);
+    const pipeline = bad.views.find((v) => v.name === 'Pipeline')!;
+    pipeline.config.hidden_option_ids = ['$option:leads.status.nonexistent'];
+    const ws = await newWorkspace('RT Bad Hidden');
+    const res = await installPack(ws, bad);
+    expect(res.statusCode, res.body).toBe(422);
   });
 
   it('the automation points at the new workspace, option id and all', async () => {

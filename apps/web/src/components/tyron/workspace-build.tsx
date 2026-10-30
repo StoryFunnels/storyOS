@@ -240,7 +240,7 @@ export function WorkspaceBuild({
         }}
         placeholder="We run a small design studio — client projects, invoices, and a content calendar."
         aria-label="Describe your business"
-        className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+        className="mt-3 min-h-0 w-full resize-none px-2.5 placeholder:text-faint"
       />
       <button
         type="button"
