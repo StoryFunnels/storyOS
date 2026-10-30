@@ -1,14 +1,19 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { ModuleRef } from '@nestjs/core';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, linearCommentPushes, user } from '../db/schema';
+import { approvals, comments, linearCommentPushes, memberships, records, user } from '../db/schema';
 import { env } from '../config/env';
 import { MAX_ATTEMPTS, nextAttemptDelayMs } from '../common/backoff-schedule';
 import { CommentsService, commentBodyMentions } from '../comments/comments.service';
 import type { CommentBody } from '../comments/comments.service';
 import { renderCommentText } from '../comments/comment-render';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ApprovalsService } from '../automations/approvals.service';
+import type { LinearCommentPushAction } from '../automations/approvals.service';
+import type { EventOrigin } from '../common/credential-context';
+import { logAgentOriginOutward } from '../activity/agent-origin-log';
 import { LinearService } from './linear.service';
 
 /** The one Linear mutation this service ever sends. A test asserts nothing else is (no issue field is ever written). */
@@ -61,6 +66,8 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
     private readonly linear: LinearService,
     private readonly commentsService: CommentsService,
     private readonly notifications: NotificationsService,
+    // ApprovalsService lives in AutomationsModule, which imports this module: resolved lazily so no module cycle is introduced
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   onModuleInit() {
@@ -137,6 +144,8 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
         await this.db.update(linearCommentPushes).set({ status: 'failed', lastError: 'comment was deleted before it was sent' }).where(eq(linearCommentPushes.commentId, commentId));
         return;
       }
+      // #1179 — an agent's comment waits for a person first, when the admin asked for that (a person's comment is never held)
+      if (await this.holdIfRequired(workspaceId, comment, linearIssueId)) return;
       const apiKey = await this.linear.apiKeyFor(workspaceId);
       // #1102 — attempts > 1 means an earlier attempt may have reached Linear before its outcome was recorded (a crash
       // leaves the row 'sending'; a dropped response looks like a failure). Ask Linear before sending again. A lookup
@@ -161,6 +170,7 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
         .update(linearCommentPushes)
         .set({ status: 'sent', lastError: null, linearCommentId: created.comment.id, linearCommentUrl: created.comment.url ?? null })
         .where(eq(linearCommentPushes.commentId, commentId));
+      await this.logAgentCaused(workspaceId, comment, `Posted an agent's comment to the Linear issue (${created.comment.url ?? linearIssueId})`);
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
       const delay = nextAttemptDelayMs(attempts);
@@ -181,6 +191,79 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
           .catch(() => undefined);
       }
     }
+  }
+
+  /** #1179 — the agent behind a comment, when an agent wrote it (a run credential, or a server-run agent: no Runner then). */
+  private originOf(comment: typeof comments.$inferSelect): EventOrigin | null {
+    if (comment.source !== 'agent' || !comment.agentId) return null;
+    return { agentId: comment.agentId, agentName: comment.agentName, runId: comment.runId ?? null, runnerId: comment.runnerId ?? '', runnerName: comment.runnerName ?? null };
+  }
+
+  /** Logged with the agent and the run (ADR-0021 §7): the destination is the admin's own Linear, so it runs as configured. Never fails the push. */
+  private async logAgentCaused(workspaceId: string, comment: typeof comments.$inferSelect, summary: string): Promise<void> {
+    const origin = this.originOf(comment);
+    if (!origin) return;
+    const record = await this.db.query.records.findFirst({ where: eq(records.id, comment.recordId), columns: { title: true } });
+    await logAgentOriginOutward(this.db, { workspaceId, recordId: comment.recordId, recordTitle: record?.title ?? null, channel: 'linear_comment', summary, origin }).catch((error: unknown) =>
+      this.logger.warn(`linear write-back: could not log the agent origin: ${String(error)}`),
+    );
+  }
+
+  /**
+   * #1179 / ADR-0021 §7 — `write_back.require_approval_for_agent_comments`: a comment AN AGENT wrote waits for a person before it is
+   * posted to Linear. The approval is the same table, card and Inbox as every other hold (`caused by agent "X" (run N)`), approved by a
+   * workspace admin; approving puts the outbox row back in the queue, rejecting (or expiry) fails it and says so on the comment.
+   * Returns true when this attempt must stop (held, or refused); false to send. The source of truth for "was it approved" is the
+   * approvals row, so a retry after approval never asks again. A held attempt is not a send attempt (`attempts` goes back to 0), so the
+   * approved send is attempt 1 and does not pay for the "did an earlier try already reach Linear?" lookup (#1102). Off (the default) or a person's comment: nothing here.
+   */
+  private async holdIfRequired(workspaceId: string, comment: typeof comments.$inferSelect, linearIssueId: string): Promise<boolean> {
+    const origin = this.originOf(comment);
+    if (!origin) return false;
+    const settings = await this.linear.readLinearSettings(workspaceId);
+    if (!settings.write_back?.require_approval_for_agent_comments) return false;
+    const prior = await this.db.query.approvals.findFirst({
+      where: and(
+        eq(approvals.workspaceId, workspaceId),
+        sql`${approvals.actionSnapshot} #>> '{action,type}' = 'linear_comment_push'`,
+        sql`${approvals.actionSnapshot} #>> '{action,comment_id}' = ${comment.id}`,
+      ),
+      orderBy: [desc(approvals.createdAt)],
+    });
+    if (prior?.status === 'approved') return false;
+    if (prior?.status === 'pending') {
+      await this.db.update(linearCommentPushes).set({ status: 'held', attempts: 0 }).where(eq(linearCommentPushes.commentId, comment.id));
+      return true;
+    }
+    if (prior) {
+      await this.db.update(linearCommentPushes).set({ status: 'failed', lastError: `Not sent to Linear. The approval was ${prior.status}.` }).where(eq(linearCommentPushes.commentId, comment.id));
+      return true;
+    }
+    const record = await this.db.query.records.findFirst({ where: eq(records.id, comment.recordId), columns: { title: true, databaseId: true } });
+    const admin = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.role, 'admin'), eq(memberships.status, 'active')),
+      orderBy: [asc(memberships.createdAt)],
+    });
+    const approverId = admin?.userId ?? comment.authorId;
+    const text = renderCommentText(comment.body as CommentBody, { userNames: new Map() }).replace(/\s+/g, ' ').trim().slice(0, 200);
+    const action: LinearCommentPushAction = { type: 'linear_comment_push', comment_id: comment.id, linear_issue_id: linearIssueId };
+    await this.moduleRef.get(ApprovalsService, { strict: false }).create({
+      workspaceId,
+      databaseId: record?.databaseId ?? null,
+      ruleId: null,
+      runId: null,
+      // No recordId on purpose: the approval's own audit comment ("Approved: ...") would land on the mirrored record, and this outbox
+      // pushes every person's comment on it to Linear, so the internal decision text (a rejection reason) would be posted there.
+      // The card names the record in its text, and `databaseId` still scopes who can see it.
+      recordId: null,
+      actionIndex: 0,
+      action,
+      previewText: `Post a comment to Linear${record?.title ? ` on "${record.title}"` : ''}: ${text}`,
+      requesterActorId: approverId,
+      origin,
+    });
+    await this.db.update(linearCommentPushes).set({ status: 'held', attempts: 0 }).where(eq(linearCommentPushes.commentId, comment.id));
+    return true;
   }
 
   /** #1102 — the Linear comment on this issue that carries this StoryOS comment's marker, if one is there. */

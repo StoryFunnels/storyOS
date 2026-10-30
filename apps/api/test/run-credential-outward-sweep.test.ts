@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import http from 'node:http';
 import https from 'node:https';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +12,7 @@ import { ABSENT, fill, liveRoutes } from './helpers/route-sweep';
 import type { AuditRoute } from './helpers/route-sweep';
 import { buildRunCredentialWorld } from './helpers/run-credential-fixture';
 import type { RunCredentialWorld } from './helpers/run-credential-fixture';
-import { EXPLICIT, FANOUT_PROOF, HELD_DELETE_ROUTES, OWN_STATE_DELETE_ROUTES, isDeleteCapable, mechanismOf } from './helpers/outward-audit';
+import { EXPLICIT, FANOUT_CONSUMERS, FANOUT_PROOF, HELD_DELETE_ROUTES, OWN_STATE_DELETE_ROUTES, isDeleteCapable, mechanismOf } from './helpers/outward-audit';
 import { AgentDeleteHoldService } from '../src/action-gates/agent-delete-hold.service';
 import type { Mechanism } from './helpers/outward-audit';
 import { connections } from '../src/db/schema';
@@ -133,6 +133,26 @@ describe('1. every live route and every MCP tool is classified', () => {
     expect(dead, 'EXPLICIT entries for routes that no longer exist').toEqual([]);
     const contradicted = Object.keys(EXPLICIT).filter((k) => live.has(k) && mech(live.get(k)!) !== null);
     expect(contradicted, 'EXPLICIT entries for routes a guard already refuses (delete the entry: the mechanism is the verdict)').toEqual([]);
+  });
+
+  // ticket #1179 — what reacts to a record write WITHOUT a request (a domain-event subscriber, a timer-driven sender) is invisible to
+  // the route table. Enumerated from the source, so a new consumer fails here until someone decides held / logged / none for it.
+  describe('1c. every fan-out consumer (event subscriber or timer sender) is classified', () => {
+    const SRC = join(__dirname, '..', 'src');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith('.ts') && !e.name.endsWith('.test.ts') ? [join(dir, e.name)] : []));
+    const live = walk(SRC).filter((f) => /\b(domainEvents|membershipEvents)\.subscribe\(|setInterval\(/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(SRC.length + 1));
+    it('sanity: the scan finds the known consumers', () => {
+      expect(live).toEqual(expect.arrayContaining(['calendar-sync/calendar-sync.service.ts', 'integrations/linear-write-back.service.ts', 'records/ai-field.subscriber.ts']));
+    });
+    it('no consumer is unclassified, and no entry names a file that is gone or no longer a consumer', () => {
+      expect(live.filter((f) => !FANOUT_CONSUMERS[f]), 'classify these in helpers/outward-audit.ts FANOUT_CONSUMERS').toEqual([]);
+      expect(Object.keys(FANOUT_CONSUMERS).filter((f) => !live.includes(f)), 'stale entries').toEqual([]);
+    });
+    it('held and logged entries name their proof file, and the three #1179 paths are listed', () => {
+      for (const [f, e] of Object.entries(FANOUT_CONSUMERS)) if (e.verdict !== 'none') expect(e.why, f).toMatch(/Proof: run-credential-outward-(staging|part2)\.test\.ts/);
+      for (const f of ['calendar-sync/calendar-sync.service.ts', 'integrations/linear-write-back.service.ts', 'records/ai-field.subscriber.ts']) expect(FANOUT_CONSUMERS[f]!.why).toContain('run-credential-outward-part2.test.ts');
+    });
   });
 
   // ticket #1178 — the agent's own `delete` approval_policy applies to every delete a run credential can reach. The enumeration is the

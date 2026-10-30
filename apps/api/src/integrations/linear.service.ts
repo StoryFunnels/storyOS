@@ -142,7 +142,7 @@ interface LinearSettings {
   team_keys?: string[];
   auto_sync?: { enabled: boolean; interval_minutes: number; actor_id?: string; enabled_at?: string };
   /** #907 — push StoryOS comments on mirrored records to Linear. Off until an admin switches it on. */
-  write_back?: { enabled: boolean; enabled_at?: string };
+  write_back?: { enabled: boolean; enabled_at?: string; require_approval_for_agent_comments?: boolean };
   sync_status?: LinearSyncStatus;
 }
 
@@ -479,6 +479,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       .catch(() => undefined);
   }
 
+  async readLinearSettings(workspaceId: string) {
+    return this.readLinear(workspaceId);
+  }
+
   private async readLinear(workspaceId: string): Promise<LinearSettings> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     return (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
@@ -505,7 +509,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       team_keys: linear.team_keys ?? [],
       has_key: Boolean(linear.api_key),
       auto_sync: { enabled, interval_minutes: interval },
-      write_back: { enabled: Boolean(linear.write_back?.enabled), ...pushes },
+      write_back: { enabled: Boolean(linear.write_back?.enabled), require_approval_for_agent_comments: Boolean(linear.write_back?.require_approval_for_agent_comments), ...pushes },
       sync: {
         last_success_at: status.last_success_at ?? null,
         last_attempt_at: status.last_attempt_at ?? null,
@@ -522,7 +526,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   async saveConfig(
     workspaceId: string,
-    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean } },
+    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean; require_approval_for_agent_comments?: boolean } },
     actorId?: string,
   ) {
     const existing = await this.readLinear(workspaceId);
@@ -545,9 +549,19 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     if (config.write_back?.enabled !== undefined) {
       const was = existing.write_back?.enabled ?? false;
       linear.write_back = {
+        ...existing.write_back,
         enabled: config.write_back.enabled,
         // Only comments written AFTER this moment are ever pushed: switching it on never replays history.
         enabled_at: config.write_back.enabled && !was ? new Date().toISOString() : existing.write_back?.enabled_at,
+      };
+    }
+    // #1179 — hold a comment an AGENT wrote for a person's approval before it goes to Linear. Off by default (the destination is the
+    // admin's own Linear, so an agent's comment goes as configured and is logged with the agent); independent of `enabled`.
+    if (config.write_back?.require_approval_for_agent_comments !== undefined) {
+      linear.write_back = {
+        enabled: linear.write_back?.enabled ?? false,
+        ...linear.write_back,
+        require_approval_for_agent_comments: config.write_back.require_approval_for_agent_comments,
       };
     }
     await this.writeLinear(workspaceId, linear);

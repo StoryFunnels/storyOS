@@ -72,6 +72,19 @@ The ten routes a run credential can reach that delete shared content carry `@Hol
 
 Judgement calls: a document, space view or skill that is PERSONAL keeps its title off the card (an approval is listed to admins; personal content is private from them); a delete that finds nothing to delete is not held; the own-state routes are not held (nothing shared is lost).
 
+### F8 (FIXED by ticket #1179): three agent-caused paths #1174 neither held nor listed, and two Inbox findings
+
+Vera's review of #1174 enumerated the subscribers and senders by hand and found three that react to a record write: **calendar-sync** (pushes the record to Google Calendar), the **Linear comment outbox** (posts a StoryOS comment to the mirrored Linear issue, so an agent's `add_comment` text goes out), and **AI fields** (sends the record's prompt values to the workspace's AI). Applying #1174's rule (hold where the agent can steer the destination or content to outsiders, log where an admin fixed the destination):
+
+- Calendar: the calendar is the admin's, so the push runs and is logged as `outward.calendar_sync`. An event cannot carry guests today (summary, description, dates, a private marker; no `attendees`, no `sendUpdates`), so no invitation can reach an outsider. `assertNoInvitees` is the tripwire: a body with a guest list is refused for every cause until the invitation is staged like an email to a non-member.
+- Linear: posted signed with the AGENT's name (it always was) and logged as `outward.linear_comment`. The outbox had no approval option, so `settings.linear.write_back.require_approval_for_agent_comments` (default off, no migration) holds an agent-written comment as an approval; a person's comment is never held. Rejecting or expiry fails the push and says so on the comment.
+- AI field: not held (the workspace's own configured AI), logged as `outward.ai_field`. The recompute writes its value without a domain event, so agent write to AI field to agent wake cannot loop; a test pins it. Usage counting waits for #1138.
+- The Inbox row and the approval card name the agent: notification rows and approval responses carry `caused_by` (agent, run number, a ready `label`). A repeat approve or reject answers 200 with `already_decided: true`, never a 201 that reads as a second send.
+
+Found on the way, NOT fixed: an approval's own audit comment ("Approved: ...") lands on the record, and on a Linear-mirrored record the outbox pushes it to Linear like any person's comment, so a rejection reason can reach Linear. The Linear hold avoids it (its approval has no record); other approvals on a mirrored record still do.
+
+The sweep now enumerates the fan-out consumers from the source (`FANOUT_CONSUMERS`, group 1c of `run-credential-outward-sweep.test.ts`): every file that subscribes to domain events or runs a timer must be classified held, logged or none. Proof: `run-credential-outward-part2.test.ts`.
+
 ### Fixed in this PR (each was OUTWARD AND UNGATED; each is now refused to a run credential only, a person and a PAT are unaffected)
 
 | # | Route / tool | What a run credential could do | Why it was ungated | Fix |
@@ -146,6 +159,7 @@ These are refusals, not approvals: a Runner agent has no staging path for them y
 ## Keeping this true
 
 - A new route that no guard refuses fails `run-credential-outward-sweep.test.ts` until it has a verdict in `apps/api/test/helpers/outward-audit.ts`. If it leaves StoryOS and has no approval step, mark it `@NoRunCredential()` (the sweep then proves the refusal) instead of writing `internal`. An `internal` entry whose path says webhook, slack, email, publish, share, invite, portal, credential, rotate or export must start its reason with `reviewed:`.
+- A new domain-event subscriber or timer-driven sender fails group 1c of the sweep until it has a verdict in `FANOUT_CONSUMERS` (`held`, `logged` or `none`, with its proof). The limit: the scan reads the words `domainEvents.subscribe(`, `membershipEvents.subscribe(` and `setInterval(`; a consumer built another way (a queue worker with no timer) is found only by the all-routes review.
 - A new DELETE (or delete/remove/purge/unlink) route a run credential can reach fails the sweep until it carries `@HoldsAgentDeletes(kind)` and calls `AgentDeleteHoldService.holdIfAgentPolicy` (F7, ticket #1178), or is listed in `OWN_STATE_DELETE_ROUTES`. The limit of that enumeration is its words: a route that deletes under a name without delete/remove/purge/unlink, and is not a `DELETE`, is only found by the all-routes review above.
 - A new MCP tool is classified from the routes it calls; a tool that calls no route directly must be added to `LOCAL_TOOLS` with a reason.
 - Regenerate the tool table below with `OUTWARD_AUDIT_DUMP=/path/audit.json pnpm --filter @storyos/api test run-credential-outward-sweep`.

@@ -13,7 +13,17 @@ import { activityEvents } from '../db/schema';
  * or fires a record-scoped webhook; the record is named in the payload (`object`), which is what the audit log's entity filter
  * reads. Outside an agent run credential it writes nothing: a person's mention is not an "agent outward" event.
  */
-export type AgentOutwardChannel = 'slack_mention_mirror' | 'mention_email' | 'watcher_email';
+export type AgentOutwardChannel =
+  | 'slack_mention_mirror'
+  | 'mention_email'
+  | 'watcher_email'
+  // #1179 — the three paths the first sweep missed (calendar-sync, the Linear comment outbox, an AI field's recompute): each has an
+  // admin-fixed destination (the bound calendar, the workspace's own Linear key, the workspace's own configured AI), so it runs as
+  // configured and is LOGGED with the agent. What can reach an outsider (calendar invitees, an agent comment when the admin asked for
+  // approval) is held instead: see calendar-sync.service.ts `assertNoInvitees` and linear-write-back.service.ts `holdIfRequired`.
+  | 'calendar_sync'
+  | 'linear_comment'
+  | 'ai_field';
 
 export async function logAgentOriginOutward(
   db: Db,
@@ -32,7 +42,8 @@ export async function logAgentOriginOutward(
     agentId: origin.agentId,
     agentName: origin.agentName,
     runId: origin.runId,
-    runnerId: origin.runnerId,
+    // a server-run agent has no Runner: its origin carries '' (EventOrigin.runnerId is required), the column is a uuid
+    runnerId: origin.runnerId || null,
     runnerName: origin.runnerName,
   });
 }

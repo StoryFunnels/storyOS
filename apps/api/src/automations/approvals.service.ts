@@ -4,7 +4,7 @@ import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, databases, linearCommentPushes, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
 import type { EventOrigin } from '../common/credential-context';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
@@ -23,7 +23,8 @@ import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { asApprovedAgentWrite } from '../records/agent-write-context';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import type { AgentDeleteSnapshot } from '../action-gates/agent-delete-hold.service';
-import { describeEventOrigin } from '../common/describe-origin';
+import { describeEventOrigin, presentEventOrigins } from '../common/describe-origin';
+import type { PresentedOrigin } from '../common/describe-origin';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
@@ -60,6 +61,19 @@ export interface WriteBackPushAction {
   source_id: string;
   external_key: string;
   values: Record<string, unknown>;
+}
+
+/**
+ * #1179 — an agent-authored comment held before it is pushed to Linear (linear-write-back.service.ts), when the admin switched on
+ * `write_back.require_approval_for_agent_comments`. The comment is already in StoryOS; what waits is the outbox row, which approving
+ * puts back in the queue (the outbox sends it with its own retries) and rejecting fails. The text is NOT frozen here: it is read from
+ * the comment at send time, as the outbox always did, so an edit before approval is what goes out; the card shows the text it was
+ * asked about.
+ */
+export interface LinearCommentPushAction {
+  type: 'linear_comment_push';
+  comment_id: string;
+  linear_issue_id: string;
 }
 
 /**
@@ -162,7 +176,7 @@ export interface SkillPublishPublicSnapshot {
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot | AgentDeleteSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot | AgentDeleteSnapshot | LinearCommentPushAction;
   /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
   ctx: {
     workspaceId: string;
@@ -182,7 +196,7 @@ export interface CreateApprovalInput {
   recordId: string | null;
   actionIndex: number;
   /** Already rendered — see ApprovalActionSnapshot's doc. */
-  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | SkillPublishPublicSnapshot;
+  action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | SkillPublishPublicSnapshot | LinearCommentPushAction;
   previewText: string;
   /** The rule's run actor (or the button-presser, when there's no rule) —
    * used as the approver only when no rule (and hence no owner) exists. */
@@ -214,7 +228,7 @@ function presentSnapshot(snapshot: unknown): unknown {
   return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
 }
 
-function toDto(row: ApprovalRow) {
+function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null) {
   return {
     id: row.id,
     rule_id: row.ruleId,
@@ -230,6 +244,8 @@ function toDto(row: ApprovalRow) {
     reason: row.reason,
     expires_at: row.expiresAt,
     created_at: row.createdAt,
+    /** #1179 — the agent and run behind this approval ({ label: 'Sales assistant (run 42)', agent_name, run_number, ... }), or null when a person (or a rule) caused it: what the Inbox header names. */
+    caused_by: causedBy,
   };
 }
 
@@ -293,6 +309,14 @@ export class ApprovalsService implements OnModuleInit {
     this.jobs.registerExecutor('agent_delete', async (payload) => {
       const { action, ctx } = payload as { action: AgentDeleteSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
       await this.agentDeletes.applyApproved(action, { workspaceId: ctx.workspaceId, actorId: ctx.actorId, origin: ctx.origin ?? null });
+    });
+    // #1179 — an approved Linear comment push: the outbox row waiting as `held` goes back in the queue and the outbox sends it.
+    this.jobs.registerExecutor('linear_comment_push', async (payload) => {
+      const { action } = payload as { action: LinearCommentPushAction };
+      await this.db
+        .update(linearCommentPushes)
+        .set({ status: 'pending', nextAttemptAt: new Date(), lastError: null })
+        .where(and(eq(linearCommentPushes.commentId, action.comment_id), eq(linearCommentPushes.status, 'held')));
     });
     this.jobs.registerExecutor('action_class_gate', async (payload) => {
       const { action, ctx } = payload as { action: ActionClassGateSnapshot; ctx: ApprovalActionSnapshot['ctx'] };
@@ -511,7 +535,15 @@ export class ApprovalsService implements OnModuleInit {
             const databaseId = (r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
             return databaseId !== null && visible.has(databaseId); // a database-less approval (a skill) is not a guest's to see
           });
-    return scoped.map(toDto);
+    return this.toDtos(scoped);
+  }
+
+  /** The rows as the API shows them, with `caused_by` resolved for the whole page in one lookup. */
+  private async toDtos(rows: ApprovalRow[]) {
+    const origins = rows.map((r) => (r.actionSnapshot as ApprovalActionSnapshot).ctx?.origin ?? null);
+    const presented = await presentEventOrigins(this.db, origins.filter((o): o is EventOrigin => Boolean(o)));
+    let next = 0;
+    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null));
   }
 
   /**
@@ -577,12 +609,19 @@ export class ApprovalsService implements OnModuleInit {
     return Boolean(effective);
   }
 
+  /**
+   * #1179 — `already_decided: true` when this call changed nothing because the approval was ALREADY in the state asked for (a second
+   * click, a retried request, the loser of a race). The controller answers that with 200, not the 201 a POST that created something
+   * gets: a 201 read as "a second send went out", and none did (the first decision enqueued the one job; this enqueues nothing).
+   */
   async approve(workspaceId: string, id: string, actorId: string) {
-    return toDto(await this.resolve(workspaceId, id, actorId, 'approved'));
+    const { row, applied } = await this.resolve(workspaceId, id, actorId, 'approved');
+    return { ...(await this.toDtos([row]))[0]!, already_decided: !applied };
   }
 
   async reject(workspaceId: string, id: string, actorId: string, reason?: string) {
-    return toDto(await this.resolve(workspaceId, id, actorId, 'rejected', reason));
+    const { row, applied } = await this.resolve(workspaceId, id, actorId, 'rejected', reason);
+    return { ...(await this.toDtos([row]))[0]!, already_decided: !applied };
   }
 
   /**
@@ -657,7 +696,7 @@ export class ApprovalsService implements OnModuleInit {
     actorId: string,
     verdict: 'approved' | 'rejected',
     reason?: string,
-  ): Promise<ApprovalRow> {
+  ): Promise<{ row: ApprovalRow; applied: boolean }> {
     const approval = await this.get(workspaceId, id);
     const preSnapshot = approval.actionSnapshot as ApprovalActionSnapshot;
     if (preSnapshot.action.type === 'agent_proposed_action') {
@@ -673,7 +712,7 @@ export class ApprovalsService implements OnModuleInit {
       // OPPOSITE decision must be REFUSED with the reason, never returned as a success: a person who
       // realises too late and clicks Reject was told "Rejected" while the approved action stayed in
       // force. A security control that says "done" and does nothing is the dangerous half (MN-125).
-      if (updated.status === (verdict === 'approved' ? 'approved' : 'rejected')) return updated;
+      if (updated.status === (verdict === 'approved' ? 'approved' : 'rejected')) return { row: updated, applied: false };
       throw new ConflictException(
         updated.status === 'expired'
           ? 'This approval expired and can no longer be decided.'
@@ -716,6 +755,8 @@ export class ApprovalsService implements OnModuleInit {
         status: 'rejected',
         stats: { pushed: false, external_key: action.external_key, pushed_keys: Object.keys(action.values), approval_id: updated.id, decided_by: actorId, reason: reason ?? null },
       });
+    } else if (snapshot.action.type === 'linear_comment_push') {
+      await this.failLinearPush(snapshot.action.comment_id, `An approver declined it${reason ? `: ${reason}` : ''}`);
     } else if (snapshot.action.type === 'tyron_tool_call') {
       // #542 — the member is waiting in their own thread, not watching this
       // approval row; a rejection has to reach them there or it reads as
@@ -730,7 +771,7 @@ export class ApprovalsService implements OnModuleInit {
         content: `${action.message}\n\nA workspace admin reviewed this and said no.${reason ? ` Their reason: ${reason}` : ''}`,
       });
     }
-    return updated;
+    return { row: updated, applied: true };
   }
 
   /**
@@ -738,6 +779,15 @@ export class ApprovalsService implements OnModuleInit {
    * second timer. A pending approval nobody decided on within 7 days never
    * runs and never runs silently — the audit comment says so.
    */
+  /** #1179 — a held Linear comment that will never be approved: say so on the outbox row and on the comment, where its author reads it. */
+  private async failLinearPush(commentId: string, why: string): Promise<void> {
+    await this.db
+      .update(linearCommentPushes)
+      .set({ status: 'failed', lastError: `Not sent to Linear. ${why}` })
+      .where(and(eq(linearCommentPushes.commentId, commentId), eq(linearCommentPushes.status, 'held')));
+    await this.comments.appendNote(commentId, `Not sent to Linear. ${why}.`).catch(() => undefined);
+  }
+
   async expireStale(): Promise<void> {
     const expired = await this.db
       .update(approvals)
@@ -745,6 +795,8 @@ export class ApprovalsService implements OnModuleInit {
       .where(and(eq(approvals.status, 'pending'), lt(approvals.expiresAt, new Date())))
       .returning();
     for (const approval of expired) {
+      const action = (approval.actionSnapshot as ApprovalActionSnapshot).action;
+      if (action.type === 'linear_comment_push') await this.failLinearPush(action.comment_id, 'It expired without a decision');
       if (!approval.recordId) continue;
       await this.comments
         .create(
