@@ -1,0 +1,14 @@
+# #1053 — workflow actions are pinned to commit shas (scripts/actions-pinned.test.mjs
+# enforces it); Dependabot proposes the bumps so the pins don't go stale.
+# One grouped PR a week keeps the noise down.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
