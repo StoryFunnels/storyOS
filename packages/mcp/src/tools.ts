@@ -6359,7 +6359,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. Set human_gate:true to make the agent STAGE its action for a person to approve rather than apply it; that is the ADR-0010 gate, and it is the right default for anything that writes to something a customer sees. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. With human_gate:true the trigger NEVER fires by itself: a person has to start each run, so it is the right choice for anything that writes to something a customer sees (ADR-0010). A gated trigger is stored enabled but starts nothing on its own; leave human_gate off only when the agent should start by itself the moment a record reaches the state. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6370,7 +6370,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         human_gate: z
           .boolean()
           .optional()
-          .describe('true = the agent stages its action for a person to approve instead of applying it (ADR-0010).'),
+          .describe('true = this trigger never starts a run by itself; a person starts each run (ADR-0010). Not the same as holding the agent\'s writes for approval.'),
         enabled: z.boolean().optional().describe('Default true.'),
       },
     },

@@ -163,7 +163,7 @@ export const planTriggerSchema = z.object({
   database: nameSchema,
   state_field: nameSchema,
   state_option: nameSchema,
-  /** A gated state never auto-fires an agent *out* of it — humans only. */
+  /** True = this trigger never starts a run by itself (ADR-0010 §5): a person starts each run. */
   human_gate: z.boolean().default(false),
 });
 export type PlanTrigger = z.infer<typeof planTriggerSchema>;

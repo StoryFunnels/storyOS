@@ -348,7 +348,7 @@ export function buildProposePrompt(goal: string): string {
             database: 'string — database name',
             state_field: 'string — the select field name',
             state_option: 'string — the option label that fires this agent',
-            human_gate: 'boolean — true means a human must move it out manually',
+            human_gate: 'boolean — true means the trigger never starts a run by itself: a person starts each run',
           },
         ],
       },
