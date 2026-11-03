@@ -6,6 +6,7 @@ import { useSession } from '@/lib/auth-client';
 import { useDatabases, useWorkspace } from '@/lib/queries';
 import { canUseRunners } from './access';
 import { agentSystemDatabases } from '@/lib/system-databases';
+import type { EffectiveRole } from '@/lib/access';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
@@ -88,7 +89,7 @@ interface RecordList {
 }
 
 /** Every agent the viewer can read, from the Agents system database (an agent IS a record there). `loading` until both the list and its fields are known. */
-export function useAgents(ws: string): { agents: AgentView[]; dbId: string | null; loading: boolean; error: boolean } {
+export function useAgents(ws: string): { agents: AgentView[]; dbId: string | null; myAccess: EffectiveRole | undefined; settingsFieldsReady: boolean; loading: boolean; error: boolean } {
   const dbs = useDatabases(ws);
   const agentsDb = agentSystemDatabases(dbs.data ?? []).agents;
   const detail = useDatabase(ws, agentsDb?.id ?? '');
@@ -103,9 +104,34 @@ export function useAgents(ws: string): { agents: AgentView[]; dbId: string | nul
   return {
     agents,
     dbId: agentsDb?.id ?? null,
+    // Ticket #1180 — the viewer's own access to the Agents database: the bar for changing an agent's tools and model.
+    myAccess: detail.data?.my_access,
+    // An Agents database that predates ticket #1180 has no `tools` / `model` fields until the (idempotent) ensure adds them.
+    settingsFieldsReady: ['tools', 'model'].every((n) => fields.some((f) => f.apiName === n)),
     loading: dbs.isPending || (Boolean(agentsDb) && (rows.isPending || detail.isPending)),
     error: dbs.isError || rows.isError || detail.isError,
   };
+}
+
+/**
+ * Ticket #1180 — save an agent's `tools` and/or `model` on its record (an agent IS a record; the field api_names are `tools` and
+ * `model`). `null` clears a value: no saved tools = the essentials, no model = follow the workspace. The API validates both
+ * (`validateAgentSettings`) and answers a refusal with a sentence the caller shows as it is.
+ */
+export function useSaveAgentSettings(ws: string, dbId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ agentId, values, ensureFields }: { agentId: string; values: { tools?: string | null; model?: string | null }; ensureFields?: boolean }) => {
+      if (ensureFields) {
+        unwrap<unknown>(await api.POST('/api/v1/workspaces/{ws}/agents/ensure', { params: { path: { ws } } } as never));
+        await qc.invalidateQueries({ queryKey: ['database', ws, dbId] });
+      }
+      return unwrap<unknown>(
+        await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws, db: dbId!, rec: agentId } }, body: { values } } as never),
+      );
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: runnerKeys.agents(ws) }),
+  });
 }
 
 export function useRunnerMutations(ws: string) {
