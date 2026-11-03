@@ -7260,6 +7260,8 @@ export interface components {
                     /** @enum {string} */
                     action: "reuse" | "rename" | "skip" | "update";
                     rename_to?: string;
+                    /** Format: uuid */
+                    database_id?: string;
                 };
             };
             /** Format: uuid */

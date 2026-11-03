@@ -289,10 +289,10 @@ describe('#1156 deliberate sharing: an explicit reuse adopts a database from ano
     const plain = (await preview(ws, compat)).json().databases.find((d: { name: string }) => d.name === 'Clients');
     expect(plain.action).toBe('create');
     // #1169: a reusable hint also carries record_count and fields_added (their values are pinned in pack-existing-elsewhere-counts.test.ts)
-    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array) });
+    expect(plain.existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: false, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array), candidates: [expect.objectContaining({ database_id: agencyClients.id, space_name: space, reusable: true })] });
     const chosen = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: compat, resolutions: reuseClients });
     expect(chosen.statusCode, chosen.body).toBe(201);
-    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array) });
+    expect(chosen.json().databases.find((d: { name: string }) => d.name === 'Clients').existing_elsewhere).toEqual({ database_id: agencyClients.id, space_name: space, adopted: true, reusable: true, record_count: expect.any(Number), fields_added: expect.any(Array), candidates: [expect.objectContaining({ database_id: agencyClients.id, space_name: space, reusable: true })] });
   });
 
   it('without the explicit choice nothing is adopted: Consulting OS gets its own Clients and Agency OS\'s is untouched', async () => {
@@ -430,7 +430,7 @@ describe('#1156 existing_elsewhere says whether the database can be reused, and 
     try {
       const res = await preview(ws, await consultingManifest());
       const hint = pvClients(res.json())!.existing_elsewhere!;
-      expect(hint).toEqual({ adopted: false, reusable: false, reason: "Can't use one: you have more than one Clients database (in Alpha and Bravo). Create a new one here." });
+      expect(hint).toEqual({ adopted: false, reusable: false, reason: "Can't use one: you have more than one Clients database (in Alpha and Bravo). Create a new one here.", candidates: expect.any(Array) });
       // the leak check: the database the installer cannot edit is neither named nor counted, and nothing identifies any database
       expect(res.body).not.toContain('Charlie');
       expect(res.body).not.toContain(made['Hidden Charlie']);
