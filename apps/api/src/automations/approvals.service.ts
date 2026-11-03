@@ -4,7 +4,8 @@ import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, databases, memberships, records as recordsTable, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import type { EventOrigin } from '../common/credential-context';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
@@ -160,7 +161,14 @@ export interface SkillPublishPublicSnapshot {
 export interface ApprovalActionSnapshot {
   action: AutomationAction | WriteBackPushAction | AgentProposedActionSnapshot | TyronToolCallSnapshot | ActionClassGateSnapshot | SkillPublishPublicSnapshot | AgentWriteGateSnapshot;
   /** `databaseId` is null for an approval that belongs to no database (a skill, #867). */
-  ctx: { workspaceId: string; databaseId: string | null; recordId: string | null; actorId: string };
+  ctx: {
+    workspaceId: string;
+    databaseId: string | null;
+    recordId: string | null;
+    actorId: string;
+    /** #1174 — the agent and Runner run that caused the event this action came from; absent when a person (or an automation) did. */
+    origin?: EventOrigin | null;
+  };
 }
 
 export interface CreateApprovalInput {
@@ -177,6 +185,11 @@ export interface CreateApprovalInput {
    * used as the approver only when no rule (and hence no owner) exists. */
   requesterActorId: string;
   /**
+   * #1174 / ADR-0021 §7 — the run credential that CAUSED this (an agent's write fired the rule). Named on the card (the preview
+   * text) and kept in the snapshot's ctx, so the approver sees WHICH agent and WHICH run before deciding.
+   */
+  origin?: EventOrigin | null;
+  /**
    * #603 — an agent run's gate wants the SAME notification the direct
    * `agents.service.ts` staging code always sent (`approval_requested`, a
    * summary naming the agent and the action), not the automation-shaped
@@ -192,7 +205,10 @@ export interface CreateApprovalInput {
 function presentSnapshot(snapshot: unknown): unknown {
   const snap = snapshot as Partial<ApprovalActionSnapshot> | null;
   if (!snap || typeof snap !== 'object' || !snap.action) return snapshot;
-  return { ...snap, action: presentActionHeaders([snap.action])[0] };
+  // #1174 — the stored origin is camelCase (it rides in job payloads); the API speaks snake_case.
+  const o = snap.ctx?.origin;
+  const ctx = snap.ctx && o ? { ...snap.ctx, origin: { agent_id: o.agentId, agent_name: o.agentName, run_id: o.runId, runner_id: o.runnerId, runner_name: o.runnerName } } : snap.ctx;
+  return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
 }
 
 function toDto(row: ApprovalRow) {
@@ -369,6 +385,18 @@ export class ApprovalsService implements OnModuleInit {
     return fallbackActorId;
   }
 
+  /** #1174 — 'Caused by agent "X" (run 12): ' — the sentence an approver reads first. The run's public number is looked up live. */
+  private async describeOrigin(origin: EventOrigin): Promise<string> {
+    let runNumber: number | null = null;
+    if (origin.runId) {
+      const row = await this.db.query.records.findFirst({ where: eq(recordsTable.id, origin.runId), columns: { number: true } });
+      runNumber = row?.number ?? null;
+    }
+    const agent = origin.agentName ? `agent "${origin.agentName}"` : 'an agent';
+    const run = origin.runId ? ` (run ${runNumber ?? origin.runId}${origin.runnerName ? `, on ${origin.runnerName}` : ''})` : origin.runnerName ? ` (on ${origin.runnerName})` : '';
+    return `Caused by ${agent}${run}: `;
+  }
+
   /**
    * #603 — the shared insert+notify core, extracted so a non-automation
    * producer (agents.service.ts) can get the real row back (it needs the id
@@ -380,7 +408,8 @@ export class ApprovalsService implements OnModuleInit {
   async createRow(input: CreateApprovalInput): Promise<ApprovalRow> {
     // #1068 — the preview names the webhook URL; its userinfo must not reach the
     // stored preview or the approver's notification.
-    const previewText = maskUserinfoInText(input.previewText);
+    const causedBy = input.origin ? await this.describeOrigin(input.origin) : '';
+    const previewText = maskUserinfoInText(`${causedBy}${input.previewText}`);
     const approverId = await this.approverFor(input.ruleId, input.requesterActorId);
     const snapshot: ApprovalActionSnapshot = {
       action: input.action,
@@ -389,6 +418,7 @@ export class ApprovalsService implements OnModuleInit {
         databaseId: input.databaseId,
         recordId: input.recordId,
         actorId: input.requesterActorId,
+        ...(input.origin ? { origin: input.origin } : {}),
       },
     };
     const [created] = await this.db

@@ -63,3 +63,43 @@ export function classRulesFor(actionType: string): ActionClassRules | null {
   const cls = actionClassOf(actionType);
   return cls ? (RULES[cls] ?? null) : null;
 }
+
+/**
+ * #1174 / ADR-0021 §7 — the automation actions that reach OUTSIDE StoryOS. ONE constant, shared by the staging decision
+ * (actions.service.ts) and by anything that needs to ask "is this outward?", so a new outward action kind is added in one place.
+ *
+ * When the event that fired a rule was caused by a RUN CREDENTIAL (an agent running on a member's own machine), every one of these
+ * is held for a person regardless of the rule's `require_approval`: the agent can steer the content, and for an address or URL
+ * built from a record field, the destination. `send_email` keeps its member-only exception (see `agentOriginHoldsAction`).
+ */
+export const OUTWARD_AUTOMATION_ACTION_TYPES: ReadonlySet<string> = new Set(['send_email', 'send_slack_message', 'send_webhook', 'http_request', 'post_social']);
+
+/**
+ * The agent's own `approval_policy` vocabulary (agents/agent-runtime.ts APPROVAL_POLICY_KINDS) that each outward action belongs to.
+ * An `outward` and a `webhook` proposal can both apply through send_webhook, which is why the policy and the executor differ.
+ */
+const POLICY_CLASSES_OF_ACTION: Readonly<Record<string, readonly string[]>> = {
+  send_email: ['email', 'outward'],
+  send_webhook: ['webhook', 'outward'],
+  http_request: ['webhook', 'outward'],
+  send_slack_message: ['outward'],
+  post_social: ['outward'],
+};
+
+/** True when the agent's declared `approval_policy` lists a class this action belongs to. */
+export function agentPolicyHoldsAction(policy: ReadonlySet<string>, actionType: string): boolean {
+  return (POLICY_CLASSES_OF_ACTION[actionType] ?? []).some((c) => policy.has(c));
+}
+
+/**
+ * The staging rule for an action whose event was caused by a run credential. `recipientsAllMembers` is only meaningful for
+ * `send_email` (every rendered to+cc address is an active member's). Pure so the five kinds are tested without a database.
+ *  - not outward: not held here;
+ *  - send_email to members only: held only if the agent's own approval_policy lists a class it belongs to;
+ *  - every other outward kind, and send_email to anyone else: held.
+ */
+export function agentOriginHoldsAction(actionType: string, opts: { recipientsAllMembers: boolean; policy: ReadonlySet<string> }): boolean {
+  if (!OUTWARD_AUTOMATION_ACTION_TYPES.has(actionType)) return false;
+  if (actionType === 'send_email' && opts.recipientsAllMembers) return agentPolicyHoldsAction(opts.policy, actionType);
+  return true;
+}

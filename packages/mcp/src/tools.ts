@@ -256,14 +256,14 @@ export const OPS_BY_FIELD_TYPE = {
   'text/url/email': ['eq', 'neq', 'contains', 'not_contains', 'is_empty', 'not_empty'],
   'number/id': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'],
   date: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'],
-  select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  select: ['eq', 'neq', 'has', 'has_none', 'category_is', 'category_is_not', 'is_empty', 'not_empty'],
   // #558 — a workflow field is single-select-shaped (query-compiler.ts's own
   // comment: "a workflow value is a single option id — filtered exactly like
   // select"), so it shares select's exact op list rather than getting its own.
   // Absence from THIS table (not from query-compiler.ts, which already
   // supported it) was the whole defect: nothing told a caller workflow was
   // filterable at all.
-  workflow: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  workflow: ['eq', 'neq', 'has', 'has_none', 'category_is', 'category_is_not', 'is_empty', 'not_empty'],
   multi_select: ['has', 'has_none', 'is_empty', 'not_empty'],
   user: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   // #391 — presence only, matching query-compiler.ts, which refuses everything
@@ -315,11 +315,11 @@ export const FILTER_GUIDE = [
   opsRow('text/url/email', 'value = a string'),
   opsRow('number/id', 'value = a number'),
   opsRow('date', 'value = ISO string, or a relative token for "within"'),
-  opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none'),
+  opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none; category_is/category_is_not take state categories, not labels'),
   // #558 — was missing entirely; the canonical status field on every database
   // (e.g. "state") is workflow-typed, so this was the single most commonly
   // needed row absent from the cheat sheet.
-  opsRow('workflow', 'the canonical status field; same ops and auto-mapping as select'),
+  opsRow('workflow', 'the canonical status field; same ops and auto-mapping as select. "open" = category_is_not ["completed","canceled"] (categories: backlog, unstarted, started, completed, canceled); it follows a new done-like state, a list of option ids does not'),
   opsRow('multi_select', 'value = [labels or ids]'),
   opsRow('user', 'value = "@me" or user id(s); eq/neq auto-map to has/has_none'),
   // #391 — presence only. Nobody filters on a file uuid; "posts with no cover"
@@ -550,6 +550,8 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
   // Agents naturally write eq/neq on a select or person; the API models those as
   // has/has_none over an id ARRAY. Translate so the intuitive filter Just Works,
   // instead of a "op eq not valid for select" 422 (#204).
+  // #1154 — category ops carry state CATEGORY names, not option labels or ids: nothing to map.
+  if (cond.op === 'category_is' || cond.op === 'category_is_not') return node;
   let op = cond.op;
   let value = cond.value;
   if (op === 'eq' || op === 'neq') {

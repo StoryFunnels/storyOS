@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { createSourceSchema, sourceDiscoverRequestSchema, updateSourceSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -65,6 +65,8 @@ export class SourcesController {
     return this.sourcesService.listYoutubeChannels(req.membership.workspaceId, connectionId);
   }
 
+  /** #1135: sources call a third party with the workspace's connection credential (an Apify actor runs and bills; a Shopify source can PUSH edits back), so a run credential is refused all four writes below. */
+  @NoRunCredential()
   @Post('discover')
   @RequiresScope('write')
   @ApiOperation({ summary: 'MN-262: preview a provider\'s field keys before creating a source (point-and-click mapping)' })
@@ -73,6 +75,7 @@ export class SourcesController {
     return this.sourcesService.discover(req.membership.workspaceId, body);
   }
 
+  @NoRunCredential()
   @Post()
   @RequiresScope('write')
   @ApiOperation({ summary: 'Configure a new source: provider + connection + field mapping + schedule' })
@@ -81,6 +84,7 @@ export class SourcesController {
     return this.sourcesService.create(req.membership.workspaceId, dbId, body, req.user.id);
   }
 
+  @NoRunCredential()
   @Patch(':id')
   @RequiresScope('write')
   @ApiOperation({ summary: 'Reconfigure a source' })
@@ -102,6 +106,7 @@ export class SourcesController {
     return this.sourcesService.remove(dbId, id);
   }
 
+  @NoRunCredential()
   @Post(':id/sync-now')
   @RequiresScope('write')
   @ApiOperation({ summary: 'Run one sync cycle immediately, ignoring the schedule gate' })

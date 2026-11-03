@@ -20,6 +20,9 @@ export const filterOpSchema = z.enum([
   'within',
   'has',
   'has_none',
+  /** #1154 — a workflow / select field's option CATEGORY (backlog, unstarted, started, completed, canceled), not its option ids. */
+  'category_is',
+  'category_is_not',
   'is_empty',
   'not_empty',
 ]);
