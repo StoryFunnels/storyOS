@@ -1,0 +1,127 @@
+
+##### admin: gear -> /w/8109ec66-cbad-449f-b575-605bf0bb8b91/settings (1 click)
+nav: [["You",["Profile","Preferences","Notifications"]],["Workspace",["General","Members2 expired","Packs"]],["AI",["Connect your AI","Runners","Agent rules"]],["Connections",["Integrations","API tokens1","Webhooks"]],["Data & security",["Export","Trash","Audit log"]]]
+cards: ["You | Iris admin | Profile, preferences, notifications","Members | 3 people | 2 invitations expired","Connect your AI | 1 connection working","API tokens | 1 token | Never used","Integrations | Nothing connected","Packs | None installed","Data & security | Export · Trash · Audit log"]
+  /settings/account: opens
+  /settings/preferences: opens
+  /settings/notifications: opens
+  /settings/general: opens
+  /settings/members: opens
+  /packs: opens
+  /settings/connect-ai: opens
+  /settings/runners: opens
+  /settings/governance: opens
+  /settings/integrations: opens
+  /settings/api: opens
+  /settings/webhooks: opens
+  /settings/export: opens
+  /settings/trash: opens
+  /settings/audit-log: opens
+-- old URLs as admin:
+  /account                         -> /account       page  (http 200)
+  /api                             -> /api           page  (http 200)
+  /audit-log                       -> /audit-log     page  (http 200)
+  /billing                         -> /billing       page  (http 200)
+  /connect-ai                      -> /connect-ai    page  (http 200)
+  /connections                     -> /connections   page  (http 200)
+  /export                          -> /export        page  (http 200)
+  /general                         -> /general       page  (http 200)
+  /governance                      -> /governance    page  (http 200)
+  /integrations                    -> /integrations  page  (http 200)
+  /integrations/delegate-agent     -> /integrations/delegate-agent page  (http 200)
+  /integrations/github             -> /integrations/github page  (http 200)
+  /integrations/google-calendar    -> /integrations/google-calendar page  (http 200)
+  /integrations/linear             -> /integrations/linear page  (http 200)
+  /integrations/linkedin           -> /integrations/linkedin page  (http 200)
+  /integrations/mcp                -> /connect-ai    page  (http 200)
+  /integrations/meta               -> /integrations/meta page  (http 200)
+  /integrations/shopify            -> /integrations/shopify page  (http 200)
+  /integrations/slack              -> /integrations/slack page  (http 200)
+  /integrations/x                  -> /integrations/x page  (http 200)
+  /integrations/youtube            -> /integrations/youtube page  (http 200)
+  /members                         -> /members       page  (http 200)
+  /notifications                   -> /notifications page  (http 200)
+  /preferences                     -> /preferences   page  (http 200)
+  /referrals                       -> /referrals     page  (http 200)
+  /runners                         -> /runners       page  (http 200)
+  /trash                           -> /trash         page  (http 200)
+  /webhooks                        -> /webhooks      page  (http 200)
+
+##### member: gear -> /w/8109ec66-cbad-449f-b575-605bf0bb8b91/settings (1 click)
+nav: [["You",["Profile","Preferences","Notifications"]],["AI",["Connect your AI","Runners"]],["Connections",["API tokens"]]]
+cards: ["You | Iris member | Profile, preferences, notifications","Connect your AI | No AI connected | Connect Claude, ChatGPT or Cursor to work in StoryOS as you","API tokens | 0 tokens | None yet"]
+  /settings/account: opens
+  /settings/preferences: opens
+  /settings/notifications: opens
+  /settings/connect-ai: opens
+  /settings/runners: opens
+  /settings/api: opens
+-- old URLs as member:
+  /account                         -> /account       page  (http 200)
+  /api                             -> /api           page  (http 200)
+  /audit-log                       -> /audit-log     refusal  (http 200)
+  /billing                         -> /billing       refusal  (http 200)
+  /connect-ai                      -> /connect-ai    page  (http 200)
+  /connections                     -> /connections   refusal  (http 200)
+  /export                          -> /export        refusal  (http 200)
+  /general                         -> /general       refusal  (http 200)
+  /governance                      -> /governance    refusal  (http 200)
+  /integrations                    -> /integrations  refusal  (http 200)
+  /integrations/delegate-agent     -> /integrations/delegate-agent refusal  (http 200)
+  /integrations/github             -> /integrations/github refusal  (http 200)
+  /integrations/google-calendar    -> /integrations/google-calendar refusal  (http 200)
+  /integrations/linear             -> /integrations/linear refusal  (http 200)
+  /integrations/linkedin           -> /integrations/linkedin refusal  (http 200)
+  /integrations/mcp                -> /integrations/mcp refusal  (http 200)
+  /integrations/meta               -> /integrations/meta refusal  (http 200)
+  /integrations/shopify            -> /integrations/shopify refusal  (http 200)
+  /integrations/slack              -> /integrations/slack refusal  (http 200)
+  /integrations/x                  -> /integrations/x refusal  (http 200)
+  /integrations/youtube            -> /integrations/youtube refusal  (http 200)
+  /members                         -> /members       refusal  (http 200)
+  /notifications                   -> /notifications page  (http 200)
+  /preferences                     -> /preferences   page  (http 200)
+  /referrals                       -> /referrals     page  (http 200)
+  /runners                         -> /runners       page  (http 200)
+  /trash                           -> /trash         refusal  (http 200)
+  /webhooks                        -> /webhooks      refusal  (http 200)
+
+##### guest: gear -> /w/8109ec66-cbad-449f-b575-605bf0bb8b91/settings (1 click)
+nav: [["You",["Profile","Preferences","Notifications"]]]
+cards: ["You | Iris guest | Profile, preferences, notifications"]
+  /settings/account: opens
+  /settings/preferences: opens
+  /settings/notifications: opens
+-- old URLs as guest:
+  /account                         -> /account       page  (http 200)
+  /api                             -> /api           page  (http 200)
+  /audit-log                       -> /audit-log     refusal  (http 200)
+  /billing                         -> /billing       refusal  (http 200)
+  /connect-ai                      -> /connect-ai    page  (http 200)
+  /connections                     -> /connections   refusal  (http 200)
+  /export                          -> /export        refusal  (http 200)
+  /general                         -> /general       refusal  (http 200)
+  /governance                      -> /governance    refusal  (http 200)
+  /integrations                    -> /integrations  refusal  (http 200)
+  /integrations/delegate-agent     -> /integrations/delegate-agent refusal  (http 200)
+  /integrations/github             -> /integrations/github refusal  (http 200)
+  /integrations/google-calendar    -> /integrations/google-calendar refusal  (http 200)
+  /integrations/linear             -> /integrations/linear refusal  (http 200)
+  /integrations/linkedin           -> /integrations/linkedin refusal  (http 200)
+  /integrations/mcp                -> /integrations/mcp refusal  (http 200)
+  /integrations/meta               -> /integrations/meta refusal  (http 200)
+  /integrations/shopify            -> /integrations/shopify refusal  (http 200)
+  /integrations/slack              -> /integrations/slack refusal  (http 200)
+  /integrations/x                  -> /integrations/x refusal  (http 200)
+  /integrations/youtube            -> /integrations/youtube refusal  (http 200)
+  /members                         -> /members       refusal  (http 200)
+  /notifications                   -> /notifications page  (http 200)
+  /preferences                     -> /preferences   page  (http 200)
+  /referrals                       -> /referrals     page  (http 200)
+  /runners                         -> /runners       page  (http 200)
+  /trash                           -> /trash         refusal  (http 200)
+  /webhooks                        -> /webhooks      refusal  (http 200)
+
+mobile 390 admin: page scrollWidth=390 vs 390; nav strip scrollWidth/clientWidth=1357,390
+
+mobile 390 member: page scrollWidth=390 vs 390; nav strip scrollWidth/clientWidth=621,390
