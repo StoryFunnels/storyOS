@@ -659,6 +659,24 @@ export const packPreviewItemSchema = z.object({
        */
       record_count: z.number().int().nonnegative().optional(),
       fields_added: z.array(z.object({ name: z.string(), type: z.string() })).optional(),
+      /**
+       * #1176 — every same-named database the person could pick, so a review can offer a choice. ONLY databases they can EDIT (a read-only,
+       * hidden, built-in or personal-space one is never listed), each with its own verdict: `reusable` false carries `reason` (a type
+       * clash names the field and both types; a database synced from Linear is never reusable). `record_count`/`fields_added` as above,
+       * present only when that candidate is reusable. Send the chosen one's id as `resolutions[name].database_id`. Absent when there is none.
+       */
+      candidates: z
+        .array(
+          z.object({
+            database_id: z.string(),
+            space_name: z.string(),
+            reusable: z.boolean(),
+            reason: z.string().optional(),
+            record_count: z.number().int().nonnegative().optional(),
+            fields_added: z.array(z.object({ name: z.string(), type: z.string() })).optional(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
   /**
@@ -728,9 +746,19 @@ export const packInstallResolutionSchema = z
      */
     action: z.enum(['reuse', 'rename', 'skip', 'update']),
     rename_to: z.string().min(1).max(200).optional(),
+    /**
+     * #1176 — with `reuse` on a DATABASE: WHICH same-named database to adopt, when the person has more than one. It must be one of the
+     * `existing_elsewhere.candidates` the preview listed (a database they can edit, not a built-in one, not in a personal space, and one
+     * the pack fits); anything else is refused with the same 422 as a database that is not there. Omitted: today's behaviour (the one
+     * match; with several, the ambiguous refusal).
+     */
+    database_id: z.string().uuid().optional(),
   })
   .refine((v) => v.action !== 'rename' || Boolean(v.rename_to), {
     message: '`rename` requires `rename_to`',
+  })
+  .refine((v) => v.database_id === undefined || v.action === 'reuse', {
+    message: '`database_id` only goes with `reuse`',
   });
 export type PackInstallResolution = z.infer<typeof packInstallResolutionSchema>;
 

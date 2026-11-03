@@ -61,6 +61,7 @@ import {
   views as viewsTable,
   workspaces,
 } from '../db/schema';
+import { spaceCanHoldDatabases } from '../access/access.service';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService, type ArchitectBuildProgress } from '../agents/architect.service';
@@ -261,7 +262,23 @@ interface AgentOsSnapshot {
  * is what makes the round trip closed rather than merely hopeful.
  */
 /** #1156 — what the preview says about a same-named database in another space (see `packPreviewItemSchema.existing_elsewhere`). */
-type ExistingElsewhere = { database_id?: string; space_name?: string; adopted: boolean; reusable: boolean; reason?: string };
+type ReuseCandidate = {
+  database_id: string;
+  space_name: string;
+  reusable: boolean;
+  reason?: string;
+  record_count?: number;
+  fields_added?: Array<{ name: string; type: string }>;
+};
+type ExistingElsewhere = {
+  database_id?: string;
+  space_name?: string;
+  adopted: boolean;
+  reusable: boolean;
+  reason?: string;
+  /** #1176 - every database the person could pick (editable only); see `packPreviewItemSchema.existing_elsewhere.candidates`. */
+  candidates?: ReuseCandidate[];
+};
 
 /** "A", "A and B", "A, B and C": the names, once each, in a stable order. */
 function readableList(names: string[]): string {
@@ -280,6 +297,9 @@ const notFoundReason = (dbName: string) => `There is no ${dbName} database you c
 /** #1166 — an explicit `reuse` aimed at a system database. */
 const builtinReason = (dbName: string) =>
   `"${dbName}" is a built-in StoryOS database, and a pack never changes those, so it cannot be reused. Leave it out of your choices and the pack installs its own separate "${dbName}".`;
+/** #1176 - a database mirrored from Linear: the sync owns State, Priority, Estimate and Assignee and rewrites them every run, so a pack must not adopt it. */
+const linearMirrorReason = (dbName: string) =>
+  `This ${dbName} database is synced from Linear, which rewrites its State, Priority and Estimate on every sync, so a pack cannot be added to it. Create a new one here.`;
 /** Only databases the person can EDIT are counted and named, so a hidden or read-only one never appears here. */
 const ambiguousReason = (dbName: string, spaceNames: string[]) =>
   `Can't use one: you have more than one ${dbName} database (in ${readableList(spaceNames)}). Create a new one here.`;
@@ -1181,6 +1201,8 @@ export class PacksService {
           where: and(eq(packInstallItems.packInstallId, existingInstall.id), eq(packInstallItems.kind, 'database')),
         })
       : [];
+    // #1176 - the spaces a pack may put a database in; a personal space is not one of them.
+    const holdable = new Set((await this.spaces.list(membership)).filter((sp) => spaceCanHoldDatabases(sp)).map((sp) => sp.id));
     const canEdit = (d: { my_access: string | null }) => d.my_access !== null && ACCESS_RANK[d.my_access as EffectiveRole] >= ACCESS_RANK.editor;
     // #1157 — the databases this install tracked that are still live (not trashed) and that the installer can EDIT; anything else is
     // treated as absent, so nothing about a database they cannot edit is used or described.
@@ -1197,7 +1219,8 @@ export class PacksService {
       const earlier = trackedLive.find((x) => norm(x.t.name) === norm(d.name) && (x.t.action === 'reused' || anchored));
       const kept = earlier?.l;
       if (kept && home?.id === kept.id) continue; // already where the name match would find it
-      if (!kept && home) {
+      const wanted = resolutions[d.name]?.action === 'reuse' ? resolutions[d.name]?.database_id : undefined;
+      if (!kept && home && !(wanted && wanted !== home.id)) {
         // A same-named database the install did not create (its id is not the tracked one), in the space it installs into: written to only
         // on the person's explicit `reuse`, and then only if they can edit it, worded as for a database that is not there (#1156).
         const foreign = trackedDbIds.get(norm(d.name)) !== home.id;
@@ -1211,23 +1234,44 @@ export class PacksService {
         hints.set(norm(d.name), { database_id: kept.id, space_name: where(kept.spaceId), adopted: true, reusable: true });
         continue;
       }
-      const same = live.filter((x) => norm(x.name) === norm(d.name) && !isSystemDatabase(x));
+      // #1176 - a personal-space database is never a candidate (a pack never lands in one), so it leaves no trace here either.
+      const same = live.filter((x) => norm(x.name) === norm(d.name) && !isSystemDatabase(x) && holdable.has(x.spaceId));
       const editable = same.filter(canEdit);
-      const chose = resolutions[d.name]?.action === 'reuse';
+      const resolution = resolutions[d.name];
+      const chose = resolution?.action === 'reuse';
+      const chosenId = chose ? resolution?.database_id : undefined;
+      // One verdict per editable candidate: a database synced from Linear first, then whether the pack's fields fit.
+      const mirrors = await this.linearMirrors(editable.map((x) => x.id));
+      const verdicts = new Map<string, string | undefined>();
+      for (const x of editable) {
+        verdicts.set(x.id, mirrors.has(x.id) ? linearMirrorReason(d.name) : await this.incompatibility(membership, manifest, d.name, x.id));
+      }
+      const candidates: ReuseCandidate[] = editable.map((x) => {
+        const why = verdicts.get(x.id);
+        return { database_id: x.id, space_name: where(x.spaceId), reusable: !why, ...(why ? { reason: why } : {}) };
+      });
       let hint: ExistingElsewhere | undefined;
-      if (editable.length > 1) {
+      if (chosenId) {
+        // The person named WHICH one: it must be a candidate (editable, not built-in, not personal). Anything else reads as "not there".
+        const picked = editable.find((x) => x.id === chosenId);
+        const why = picked ? verdicts.get(picked.id) : notFoundReason(d.name);
+        hint = picked
+          ? { database_id: picked.id, space_name: where(picked.spaceId), adopted: !why, reusable: !why, ...(why ? { reason: why } : {}) }
+          : { adopted: false, reusable: false, reason: why };
+        if (picked && !why) adopt.set(norm(d.name), { id: picked.id, name: picked.name });
+      } else if (editable.length > 1) {
         hint = { adopted: false, reusable: false, reason: ambiguousReason(d.name, editable.map((x) => where(x.spaceId))) };
       } else if (editable.length === 1) {
         const only = editable[0]!;
-        const reason = await this.incompatibility(membership, manifest, d.name, only.id);
-        hint = { database_id: only.id, space_name: where(only.spaceId), adopted: chose && !reason, reusable: !reason, ...(reason ? { reason } : {}) };
-        if (chose && !reason) adopt.set(norm(d.name), { id: only.id, name: only.name });
+        const why = verdicts.get(only.id);
+        hint = { database_id: only.id, space_name: where(only.spaceId), adopted: chose && !why, reusable: !why, ...(why ? { reason: why } : {}) };
+        if (chose && !why) adopt.set(norm(d.name), { id: only.id, name: only.name });
       } else if (same.length > 0) {
         hint = { adopted: false, reusable: false, reason: notFoundReason(d.name) };
       }
+      if (hint && candidates.length > 0) hint.candidates = candidates;
       if (chose && strict) {
-        // #1166 — an explicit `reuse` of a database that is only a SYSTEM one is refused for what it is, plainly. (System databases are
-        // listed for anyone who can read them, so this names nothing that person could not already see.)
+        // #1166 - an explicit `reuse` of a database that is only a SYSTEM one is refused for what it is, plainly.
         if (!hint && live.some((x) => norm(x.name) === norm(d.name) && isSystemDatabase(x))) {
           throw new UnprocessableEntityException(builtinReason(d.name));
         }
@@ -1237,6 +1281,16 @@ export class PacksService {
       if (hint) hints.set(norm(d.name), hint);
     }
     return { adopt, hints };
+  }
+
+  /** #1176 - which of these databases carry the Linear importer's own `linear_id` field (the only marker of a Linear mirror: no column says so). */
+  private async linearMirrors(databaseIds: string[]): Promise<Set<string>> {
+    if (databaseIds.length === 0) return new Set();
+    const rows = await this.db
+      .select({ databaseId: fieldsTable.databaseId })
+      .from(fieldsTable)
+      .where(and(inArray(fieldsTable.databaseId, databaseIds), eq(fieldsTable.apiName, 'linear_id'), isNull(fieldsTable.deletedAt)));
+    return new Set(rows.map((r) => r.databaseId));
   }
 
   /** #1156 — why the pack's version of `dbName` cannot use the live database `liveId` as it is, in plain language; undefined when it can. */
@@ -1328,6 +1382,19 @@ export class PacksService {
    *    (it is part of the install's plan), so those are reused rather than recomputed; otherwise it is a what-if of reusing THIS database alone.
    */
   private async describeReusable(membership: Membership, manifest: PackManifest, databases: PackPreviewItem[]): Promise<void> {
+    // #1176 - each reusable CANDIDATE carries its own count and field list too (a what-if of reusing that one alone).
+    for (const item of databases) {
+      for (const c of item.existing_elsewhere?.candidates ?? []) {
+        if (!c.reusable) continue;
+        const counted = await this.records.aggregate(c.database_id, { op: 'count' }, membership.userId, membership);
+        c.record_count = counted.value ?? 0;
+        const what =
+          item.gains && item.existing_elsewhere?.database_id === c.database_id
+            ? item.gains
+            : (await this.databaseGains(membership, manifest, new Map([[norm(item.name), { id: c.database_id, name: item.name }]]), [])).get(norm(item.name));
+        c.fields_added = (what?.fields ?? []).map((f) => ({ name: f.name, type: f.type }));
+      }
+    }
     const open = databases.filter((i) => i.existing_elsewhere?.database_id && i.existing_elsewhere.reusable);
     if (open.length === 0) return;
     for (const item of open) {

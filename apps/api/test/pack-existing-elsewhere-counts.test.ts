@@ -96,6 +96,7 @@ describe('record_count and fields_added on a reusable existing_elsewhere (#1169)
         { name: 'Budget', type: 'number' },
         { name: 'Notes', type: 'rich_text' },
       ],
+      candidates: [expect.objectContaining({ database_id: live.id, reusable: true, record_count: 4 })],
     });
   });
 
@@ -115,7 +116,7 @@ describe('record_count and fields_added on a reusable existing_elsewhere (#1169)
     expect(hint.reusable).toBe(false);
     expect(hint.reason).toMatch(/Budget is a text here but this pack needs a number/);
     // the one editable match IS named (as #1156 specifies), but it carries no count and no field list: those are for a database that can be used
-    expect(Object.keys(hint).sort(), 'nothing extra when not reusable').toEqual(['adopted', 'database_id', 'reason', 'reusable', 'space_name']);
+    expect(Object.keys(hint).sort(), 'nothing extra when not reusable').toEqual(['adopted', 'candidates', 'database_id', 'reason', 'reusable', 'space_name']);
   });
 
   it('with reuse chosen (adopted) the same count and fields come back, and agree with the item\'s own gains', async () => {
@@ -143,7 +144,7 @@ describe('who may see the count (#1169)', () => {
     await seedClients(ws, 'Bravo', [], 7);
     const hint = clientsItem((await preview(ws, pack())).json()).existing_elsewhere!;
     expect(hint.reusable).toBe(false);
-    expect(Object.keys(hint).sort()).toEqual(['adopted', 'reason', 'reusable']);
+    expect(Object.keys(hint).sort()).toEqual(['adopted', 'candidates', 'reason', 'reusable']);
   });
 
   it('a database the person can only READ: exactly the wording for one that is not there, and no count', async () => {

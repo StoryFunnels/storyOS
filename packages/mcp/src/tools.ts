@@ -3095,7 +3095,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3121,6 +3121,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Labels ("Database.Rule name", as preview lists them) of automations that send something outside the workspace (email, Slack, webhook, HTTP, social post) or run an agent, which a pack installs SWITCHED OFF, that you want switched ON. Only name one when the person asked for it; a pack\'s own enabled:true on such a rule is ignored. Preview and the install result list every automation with enabled / enabled_on_install and, when off for what it does, switched_off_because.',
           ),
+        reuse_databases: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            'Reuse an EXISTING database instead of creating the pack\'s own, and say WHICH one when you have several of that name: {"Issues": "<database id>"}. The id must be one of the `existing_elsewhere.candidates` the preview lists for that database (editable by you, reusable: true); a database synced from Linear, a built-in one, a personal-space one, one you cannot edit or one the pack does not fit is refused with the reason. Without it, a database name that exists once elsewhere is not reused (preview says why), and with several the install stops at the ambiguity.',
+          ),
         enable_agent_triggers: z
           .array(z.string())
           .optional()
@@ -3129,7 +3135,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, enable_automations, enable_agent_triggers }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3143,8 +3149,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         body: {
           manifest: pack.manifest,
           ...(space ? { target_space_id: await resolveSpaceId(ws.id, space) } : {}),
-          ...(update_agents?.length
-            ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
+          ...(update_agents?.length || (reuse_databases && Object.keys(reuse_databases).length)
+            ? {
+                resolutions: {
+                  ...Object.fromEntries(update_agents?.map((name) => [name, { action: 'update' }]) ?? []),
+                  ...Object.fromEntries(Object.entries(reuse_databases ?? {}).map(([name, database_id]) => [name, { action: 'reuse', database_id }])),
+                },
+              }
             : {}),
           ...(enable_automations?.length ? { enable_automations } : {}),
           ...(enable_agent_triggers?.length ? { enable_agent_triggers } : {}),
