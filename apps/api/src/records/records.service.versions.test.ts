@@ -63,6 +63,9 @@ function makeDb(opts: {
     select: vi.fn(() => ({
       from: () => ({
         where: () => ({
+          // #1180: restoreVersion by an agent source looks up whether the database is the Agents system database (.where().limit()):
+          // in this fake it is an ordinary database, so no row. The real refusal is tested in test/agent-tools-model.test.ts.
+          limit: async () => [],
           orderBy: () => ({
             limit: async () =>
               (opts.versionRows ?? []).map((r) => ({ ...r, cursorTs: r.createdAt.toISOString().replace('Z', '000Z') })),
