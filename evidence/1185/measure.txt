@@ -1,0 +1,26 @@
+
+=== light ===
+navItem          ALL MATCH
+navActive        ALL MATCH
+navGroup         ALL MATCH
+navCount         color: build=rgb(153, 64, 0) proto=rgb(201, 112, 31) | bc: build=rgb(153, 64, 0) proto=rgb(201, 112, 31)
+title            ALL MATCH
+lead             ALL MATCH
+card             ALL MATCH
+cardTitle        ALL MATCH
+cardHead         ALL MATCH
+cardDetail       color: build=rgb(153, 64, 0) proto=rgb(201, 112, 31) | bc: build=rgb(153, 64, 0) proto=rgb(201, 112, 31)
+cardDetailMuted  ALL MATCH
+
+=== dark ===
+navItem          ALL MATCH
+navActive        ALL MATCH
+navGroup         ALL MATCH
+navCount         color: build=rgb(255, 138, 42) proto=rgb(224, 150, 90) | bc: build=rgb(255, 138, 42) proto=rgb(224, 150, 90)
+title            ALL MATCH
+lead             ALL MATCH
+card             ALL MATCH
+cardTitle        ALL MATCH
+cardHead         ALL MATCH
+cardDetail       color: build=rgb(255, 138, 42) proto=rgb(224, 150, 90) | bc: build=rgb(255, 138, 42) proto=rgb(224, 150, 90)
+cardDetailMuted  ALL MATCH
