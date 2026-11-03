@@ -19,7 +19,9 @@ const SETTINGS_DIR = join(SRC, 'app/w/[ws]/settings');
 const read = (p: string) => readFileSync(p, 'utf8');
 
 /** The hubs: the Settings home and the Integrations index. (The nav table is checked separately.) */
-const HUBS = [join(SETTINGS_DIR, 'page.tsx'), join(SETTINGS_DIR, 'integrations/page.tsx')];
+const HOME_HUB = join(SETTINGS_DIR, 'page.tsx');
+const INTEGRATIONS_HUB = join(SETTINGS_DIR, 'integrations/page.tsx');
+const HUBS = [HOME_HUB, INTEGRATIONS_HUB];
 
 /** Routes that are deliberately linked from nowhere, each with its reason. */
 const EXEMPT: Record<string, string> = {
@@ -53,7 +55,7 @@ function reachable(route: string): { ok: boolean; how: string } {
   if (linksTo(hubSource, route)) return { ok: true, how: 'hub link' };
   const provider = /^\/integrations\/([a-z-]+)$/.exec(route)?.[1];
   // Provider pages are reached from the Integrations index through `settings/integrations/${entry.id}`, for each id in the registry.
-  if (provider && /settings\/integrations\/\$\{entry\.id\}/.test(read(HUBS[1])) && registry.includes(`id: '${provider}'`)) {
+  if (provider && /settings\/integrations\/\$\{entry\.id\}/.test(read(INTEGRATIONS_HUB)) && registry.includes(`id: '${provider}'`)) {
     return { ok: true, how: 'integrations index, via the registry' };
   }
   return { ok: false, how: 'nothing in Settings links to it' };
@@ -75,7 +77,7 @@ describe('every settings route is reachable from Settings (ticket #1185)', () =>
 
   it('Connections specifically: not a nav row (its design merges it into the provider pages, ticket #1188), so it needs the Integrations link', () => {
     expect(navRoutes.has('/connections')).toBe(false);
-    expect(linksTo(read(HUBS[1]), '/connections')).toBe(true);
+    expect(linksTo(read(INTEGRATIONS_HUB), '/connections')).toBe(true);
   });
 
   it('an exemption is not a way to hide a gap: an exempt route really is linked from nowhere in the hubs', () => {
