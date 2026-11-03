@@ -2944,7 +2944,8 @@ export class RecordsService implements OnModuleInit {
           },
         ] as CommentSegment[],
         mentions: [],
-        source,
+        // #1181: StoryOS's own note, not a person's comment: 'automation' keeps it out of every external mirror
+        source: 'automation',
       });
     }
 

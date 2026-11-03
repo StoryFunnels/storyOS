@@ -711,7 +711,8 @@ export class ApprovalsService implements OnModuleInit {
           ? `Approved: ${updated.previewText}`
           : `Rejected: ${updated.previewText}${reason ? ` — ${reason}` : ''}`;
       await this.comments
-        .create(workspaceId, updated.recordId, [{ type: 'text', text }], actorId)
+        // #1181: 'automation' = a system note, never pushed to an external mirror (the approver's name stays as the author)
+        .create(workspaceId, updated.recordId, [{ type: 'text', text }], actorId, 'automation')
         .catch((error: unknown) => this.logger.warn(`approval audit comment failed: ${String(error)}`));
     }
     return { row: updated, applied: true };
@@ -844,6 +845,7 @@ export class ApprovalsService implements OnModuleInit {
           approval.recordId,
           [{ type: 'text', text: `Expired without a decision (7 days): ${approval.previewText}` }],
           approval.approverId ?? approval.ruleId ?? 'system',
+          'automation', // #1181: a system note, never pushed to an external mirror
         )
         .catch((error: unknown) => this.logger.warn(`expiry audit comment failed: ${String(error)}`));
     }

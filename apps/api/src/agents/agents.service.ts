@@ -1841,7 +1841,9 @@ export class AgentsService implements OnModuleInit {
     // real id/name means the thread no longer needs the "🤖 Delegated to
     // {name}" text prefix to establish who posted it (kept here anyway since
     // rendering surfaces haven't caught up yet — see the ticket's AC2).
-    await this.comments.create(workspaceId, recordId, body, actorId, 'agent', agentId, agentName).catch(() => undefined);
+    // #1181: a delegation/run status line is StoryOS's own notice, not the agent speaking: 'automation' keeps it out of the Linear
+    // outbox (the agent id and name stay on the row, so provenance is not lost).
+    await this.comments.create(workspaceId, recordId, body, actorId, 'automation', agentId, agentName).catch(() => undefined);
   }
 
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
