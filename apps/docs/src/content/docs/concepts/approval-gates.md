@@ -124,6 +124,38 @@ is read-only:
   does not reveal which;
 - an agent's own token cannot read its own gates through its owner's access.
 
+## When an agent's write fires an outward action
+
+This applies to an [agent running on a Runner](/concepts/agent-runs/#agents-on-your-own-ai), whose
+writes are made with a short-lived credential that belongs to that run. When such a write fires an
+[automation rule](/concepts/automations/#when-an-agents-write-fires-a-rule), each action in the rule
+that reaches outside StoryOS is held in the Inbox as an ordinary approval, regardless of the rule's
+own approval setting: **send email**, **send a Slack message**, **send a webhook**, **call an API**
+and **post to social**.
+
+- **An email whose recipients are all workspace members is not held by this rule.** Every other
+  outward action, and an email with even one outside recipient, is.
+- **The agent's own approval policy also applies.** The policy's `email`, `webhook` and `outward`
+  entries hold the matching actions an agent's write fires. A policy that lists `email` holds an
+  email to members only; a policy that lists only `webhook` does not.
+- **The card says where it came from:** *Caused by agent "X" (run N, on the Runner's name): …*, and
+  the approver decides it as in [Deciding](#deciding).
+- **Approving sends what was frozen at the moment it was held**, not a later edit of the record.
+- **What is not covered.** A write made with an ordinary personal access token, and a write by an
+  agent that StoryOS runs itself, are not held by this rule; the rule's own setting decides.
+
+### Destinations an admin fixed in advance
+
+Some outward paths have a destination an admin chose and the agent cannot change. These are **not
+held** when an agent's write causes them; they run as configured, and the agent and the run are
+recorded so "what did that agent's write send, and where" can be answered afterwards:
+
+| Destination | Where the agent shows up |
+|---|---|
+| An outbound [webhook subscription](/guides/webhooks/) | The delivery body carries `caused_by` with `source: "agent"`, `agent_id`, `agent_name`, `run_id`, `runner_id` and `runner_name`. |
+| The Slack mirror of an @-mention, and the mention and watcher emails to members | The [audit log](/concepts/record-history/#when-the-agent-ran-on-a-runner) holds an `outward.slack_mention_mirror`, `outward.mention_email` or `outward.watcher_email` event naming the agent and the run. |
+| Write-back on a source whose admin turned approval off | The source's run log records `caused_by`. On a source with approval on, the write-back is held and its card names the agent. |
+
 ## What gets held
 
 This section describes the action-class gate above.
