@@ -16,7 +16,7 @@
  * — never a 500.
  */
 
-import { scheduleProblems } from '@storyos/schemas/schedule';
+import { scheduleProblems } from '@storyos/schemas/schedule-cadence';
 
 /** The subset of a field's schema these helpers need (structurally compatible with
  * tools.ts's FieldDef and the API's describe_database field shape). */

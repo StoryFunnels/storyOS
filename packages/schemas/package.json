@@ -10,9 +10,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./schedule": {
-      "types": "./dist/schedule.d.ts",
-      "default": "./dist/schedule.js"
+    "./schedule-cadence": {
+      "types": "./dist/schedule-cadence.d.ts",
+      "default": "./dist/schedule-cadence.js"
     },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
