@@ -1936,11 +1936,13 @@ export class FieldsService {
       if (field.type === 'multi_select') throw new UnprocessableEntityException('A multi-select option has no state category: only a workflow or select option does.');
       if (patch.category === null && field.type === 'workflow') throw new UnprocessableEntityException('A workflow option always has a state category; pick one.');
     }
-    return this.db.transaction(async (tx) => {
+    let categoryChanged = false;
+    const updated = await this.db.transaction(async (tx) => {
       // #961 — serialise per field: the update and the renumber below must not interleave with another option write.
       await tx.execute(sql`SELECT 1 FROM ${fields} WHERE ${fields.id} = ${fieldId} FOR UPDATE`);
       const found = await tx.query.selectOptions.findFirst({ where: and(eq(selectOptions.id, optionId), eq(selectOptions.fieldId, fieldId)) });
       if (!found) throw new NotFoundException('Option not found');
+      categoryChanged = patch.category !== undefined && (patch.category ?? null) !== found.category;
       if (Object.keys(rest).length > 0) await tx.update(selectOptions).set(rest).where(eq(selectOptions.id, optionId));
       // `position` is the INDEX to move the option to (0 = first): the others shift, and positions stay dense 0..n-1. Callers that
       // set a whole order one option at a time, 0..n-1 in order (the web editor, the Linear importer), therefore land on that
@@ -1948,6 +1950,25 @@ export class FieldsService {
       if (position !== undefined) await this.moveOption(tx, fieldId, optionId, position);
       return (await tx.query.selectOptions.findFirst({ where: eq(selectOptions.id, optionId) }))!;
     });
+    // #1154 — a rollup that counts by CATEGORY changes meaning when an option moves between categories, with no record write to
+    // trigger its recompute. Best-effort, like the other rollup backfills: never fails the option update.
+    if (categoryChanged) await this.recomputeCategoryRollups(field.apiName).catch(() => undefined);
+    return updated;
+  }
+
+  /**
+   * #1154 — recompute every rollup whose filter has a `category_is` / `category_is_not` condition on a field called `apiName`.
+   * Matched by name across databases (a rollup's filter names a field of its TARGET database, and finding which database that is
+   * would cost a relation walk): a rollup on an unrelated same-named field is recomputed for nothing, which is harmless.
+   */
+  private async recomputeCategoryRollups(apiName: string) {
+    const rollups = await this.db.query.fields.findMany({ where: and(eq(fields.type, 'rollup'), isNull(fields.deletedAt)) });
+    for (const rollup of rollups) {
+      const filter = (rollup.config as Record<string, unknown>)['filter'];
+      if (filter && JSON.stringify(filter).includes('"category_is') && JSON.stringify(filter).includes(`"field":${JSON.stringify(apiName)}`)) {
+        await this.recordsService.recomputeRollupFieldForAllRecords(rollup.databaseId, rollup.id).catch(() => undefined);
+      }
+    }
   }
 
   /** #961 — move one option to `index` (clamped) and rewrite the field's positions as 0..n-1. Writes only rows that change. */

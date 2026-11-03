@@ -27,6 +27,8 @@ export interface StartOptions {
   /** Inject an adapter (tests). */
   adapter?: RunnerAdapter;
   concurrency?: number;
+  /** The wall-clock limit for one run, in minutes (`--run-timeout`). */
+  runTimeoutMinutes?: number;
   mcpUrl?: string;
   log?: Logger;
   detect?: () => Promise<ToolReport[]>;
@@ -158,15 +160,16 @@ export async function start(opts: StartOptions): Promise<number> {
       })();
 
       // An adapter for the tool the person chose. This version has only the stub, and only when asked for by name.
-      let adapter: RunnerAdapter | null = opts.adapter ?? resolveAdapter(chosenTool, opts.adapterOverride ?? opts.env?.STORYOS_RUNNER_ADAPTER);
+      const resolveOptions = { log, env: opts.env ?? process.env, ...(opts.runTimeoutMinutes ? { runTimeoutMinutes: opts.runTimeoutMinutes } : {}) };
+      let adapter: RunnerAdapter | null = opts.adapter ?? resolveAdapter(chosenTool, opts.adapterOverride ?? opts.env?.STORYOS_RUNNER_ADAPTER, resolveOptions);
       let said = false;
       while (!adapter && !signal.aborted) {
         if (!said) {
-          log.warn(`This Runner version has no adapter for ${chosenTool ?? 'the tool you chose'} yet, so it claims nothing and your agents' wakes wait in StoryOS.`);
+          log.warn(`This Runner version has no adapter for ${chosenTool ?? 'the tool you chose'} yet (Claude Code is supported, Cursor is not), so it claims nothing and your agents' wakes wait in StoryOS.`);
           said = true;
         }
         await sleep(everyMs, signal);
-        adapter = resolveAdapter(chosenTool, opts.adapterOverride ?? opts.env?.STORYOS_RUNNER_ADAPTER);
+        adapter = resolveAdapter(chosenTool, opts.adapterOverride ?? opts.env?.STORYOS_RUNNER_ADAPTER, resolveOptions);
       }
       if (adapter) {
         if (adapter.id === 'stub') log.warn('Using the STUB adapter: wakes are claimed and reported, but no real work is done.');

@@ -1,3 +1,9 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# #1053 — don't resolve a package version until it has been public for 3 days
+# (minutes). Most malicious releases (Shai-Hulud, the axios 2026 compromise) were
+# caught and pulled within hours. Only affects resolving new versions
+# (`pnpm add` / `pnpm update`); a frozen-lockfile install is unchanged.
+minimumReleaseAge: 4320
