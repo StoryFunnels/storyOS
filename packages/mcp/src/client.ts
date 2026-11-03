@@ -84,6 +84,11 @@ export interface EffectiveScope {
    * role is not advertised (the API still refuses the call). Absent = unknown = nothing hidden: fail open, as for scope.
    */
   role?: WorkspaceRole;
+  /**
+   * #1177 — an explicit tool allowlist (a tool profile, tool-profiles.ts). Advertising only, like scope and role: a tool not in it is
+   * never registered. Absent = no filter (every person's connection).
+   */
+  onlyTools?: ReadonlySet<string>;
 }
 
 /**
