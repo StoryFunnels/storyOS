@@ -34,7 +34,7 @@ export default function AccountPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Account</h1>
+      <h1 className="mb-1 text-lg font-semibold text-ink">Profile</h1>
       <p className="mb-6 text-body text-muted">Manage your profile and sign-in details.</p>
 
       <div className="flex flex-col gap-8">
