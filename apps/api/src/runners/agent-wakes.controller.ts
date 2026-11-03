@@ -6,6 +6,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AgentWakesService } from './agent-wakes.service';
+import { AgentCatchUpService } from './agent-catch-up.service';
 
 const listQuerySchema = z.object({
   agent: z.string().max(64).optional(),
@@ -26,7 +27,10 @@ class WakeListQueryDto extends createZodDto(listQuerySchema) {}
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/agent-wakes')
 export class AgentWakesController {
-  constructor(private readonly wakes: AgentWakesService) {}
+  constructor(
+    private readonly wakes: AgentWakesService,
+    private readonly catchUp: AgentCatchUpService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -40,9 +44,14 @@ export class AgentWakesController {
   @Get('summary')
   @ApiOperation({
     summary:
-      'Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted.',
+      'Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent\'s owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.',
   })
-  summary(@Req() req: WorkspaceRequest) {
-    return this.wakes.summary(req.membership);
+  async summary(@Req() req: WorkspaceRequest) {
+    const out = await this.wakes.summary(req.membership);
+    // ticket #1152: `catch_up` = records already waiting in the agent's trigger state(s) that no wake was ever made for. A number
+    // (0 included) for the agent's owner or an admin; null for everyone else and for an agent that cannot take wakes.
+    const agents = [];
+    for (const a of out.agents) agents.push({ ...a, catch_up: await this.catchUp.countForSummary(req.membership, a.agent_id) });
+    return { ...out, agents };
   }
 }

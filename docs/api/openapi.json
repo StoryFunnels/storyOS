@@ -10928,6 +10928,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agents/{agent}/catch-up": {
+      "post": {
+        "operationId": "RunnersController_startOnWaiting",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary.",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
     "/api/v1/runner/v1/pair": {
       "post": {
         "operationId": "RunnerApiController_pair",
@@ -11143,7 +11172,7 @@
             "bearer": []
           }
         ],
-        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted.",
+        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.",
         "tags": [
           "agent-wakes"
         ]
