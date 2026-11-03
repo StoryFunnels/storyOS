@@ -98,9 +98,8 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       return { exit: 'error', usage: null, summary: '', error: 'The StoryOS MCP address is not a valid http(s) URL. Set it with --mcp-url (or STORYOS_MCP_URL).', toolVersion };
     }
 
-    // #1177/#1180: an agent with a saved Tools list is offered only those StoryOS tools (the server filters `tools/list`;
-    // `--allowedTools` cannot do this, it only grants permission and the CLI still sends every schema: 36,958 vs 7,667 tokens per
-    // request). With no saved list there is no profile and the role's whole set is offered.
+    // #1177/#1180: the run is offered the essentials (8 tools) plus the agent's chosen extras, or every role-allowed tool on `all`
+    // (the server filters `tools/list`; `--allowedTools` cannot do this, it only grants permission and the CLI still sends every schema).
     const profiled = withRunProfile(url, wake.mcpTools ?? []);
     if (profiled.dropped.length) this.log.warn(`wake ${wake.wakeId}: ignored extra MCP tool name(s) that are not tool names: ${profiled.dropped.map((n) => JSON.stringify(redact(n))).join(', ')}`);
     url = profiled.url;

@@ -249,3 +249,52 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /public/forms/:token/relations/:fieldId': { verdict: 'public', why: 'public form: the form token is the credential; inbound only' },
   'POST /public/forms/:token/relations/:fieldId': { verdict: 'public', why: 'public form: the form token is the credential; inbound only' },
 };
+
+/**
+ * #1178 — the DELETE-capable routes a run credential CAN reach, and what happens to each when the agent's own `approval_policy` lists
+ * `delete`. The set is read from the live route table by `isDeleteCapable` (every DELETE route, plus any route whose path or handler
+ * says delete/remove/purge/unlink), and every member is in exactly ONE place:
+ *
+ *  - derived-unreachable: the route's guards refuse a run credential (admin scope, session only, no_run_credential, ...). Proven by
+ *    the sweep's own real requests; nothing to list here.
+ *  - HELD_DELETE_ROUTES: the credential can reach it and, with the policy, the call is STAGED for a person (202 pending_approval).
+ *    The handler carries `@HoldsAgentDeletes(kind)` (action-gates/agent-delete-route.ts); run-credential-delete-policy.test.ts calls
+ *    every entry with a real credential and fails when an entry has no fixture.
+ *  - OWN_STATE_DELETE_ROUTES: it clears the member's OWN view or preference (a pin, a personal filter, a favourite, a watch), or is
+ *    refused inside the handler for a credential. Nothing shared is lost, so the policy does not hold it. Each says why.
+ *
+ * A NEW delete-capable route that is none of these FAILS the sweep: it cannot ship with the policy silently not applying. The limit
+ * of `isDeleteCapable` is its words: a route that deletes under a name without delete/remove/purge/unlink and is not a DELETE is not
+ * found by it. The outward sweep's own classification of every route (above) still makes a human review that route once.
+ */
+export const HELD_DELETE_ROUTES: Record<string, { kind: string }> = {
+  'DELETE /workspaces/:ws/databases/:db/records/:rec': { kind: 'record' },
+  'POST /workspaces/:ws/databases/:db/records/batch-delete': { kind: 'record' },
+  'DELETE /workspaces/:ws/databases/:db/records/:rec/links/:field': { kind: 'link' },
+  'DELETE /workspaces/:ws/databases/:db/records/:rec/comments/:comment': { kind: 'comment' },
+  'DELETE /workspaces/:ws/databases/:db/records/:rec/attachments/:att': { kind: 'attachment' },
+  'DELETE /workspaces/:ws/documents/:doc': { kind: 'document' },
+  'DELETE /workspaces/:ws/databases/:db/sources/:id': { kind: 'source' },
+  'DELETE /workspaces/:ws/skills/:id': { kind: 'skill' },
+  'DELETE /workspaces/:ws/views/:view': { kind: 'space_view' },
+  'DELETE /workspaces/:ws/templates/sample-data': { kind: 'sample_data' },
+};
+
+const OWN = "clears only the member's OWN preference or view state: nothing shared is lost, so the agent's delete policy does not hold it";
+export const OWN_STATE_DELETE_ROUTES: Record<string, string> = {
+  'DELETE /workspaces/:ws/databases/:db/records/:rec/watch': `${OWN} (a watch subscription)`,
+  'DELETE /workspaces/:ws/databases/:db/fields/:field/personal-collection-view': `${OWN} (a personal collection view)`,
+  'DELETE /workspaces/:ws/databases/:db/views/:view/personal-filter': `${OWN} (a personal filter)`,
+  'DELETE /workspaces/:ws/databases/:db/pinned-tabs': `${OWN} (pinned tabs)`,
+  'DELETE /workspaces/:ws/dismissed-hints': `${OWN} (dismissed hints)`,
+  'DELETE /workspaces/:ws/favorites/:type/:id': `${OWN} (a favourite)`,
+  'DELETE /me/ai-connections/:id': 'refused inside the handler for a credential (assertSession): only a signed-in session may disconnect an AI connection',
+  'DELETE /me/tokens/:token': 'refused inside the handler for a credential (assertSession): only a signed-in session may manage tokens',
+  'DELETE /workspaces/:ws/runners/pairing-codes/:id': 'refused inside the handler for a credential (assertPerson): session only',
+  'DELETE /workspaces/:ws/runners/:id': 'refused inside the handler for a credential (assertPerson): session only',
+};
+
+/** The route table's own words for "this can delete": the DELETE method, or delete/remove/purge/unlink in the path or the handler name. */
+export function isDeleteCapable(r: { method: string; path: string; handler: string }): boolean {
+  return r.method === 'DELETE' || /delet|remov|purge|unlink/i.test(r.path) || /delet|remov|purge|unlink/i.test(r.handler);
+}

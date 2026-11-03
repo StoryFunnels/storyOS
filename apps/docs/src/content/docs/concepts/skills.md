@@ -37,14 +37,26 @@ their visibility.
 - **Publishing a skill gives the reader no access to your data.** A skill is text that runs in the
   reader's own AI, against the reader's own workspace, with the reader's own permissions. StoryOS
   stores, versions and governs it; it does not run it.
-- **There is no "Run" button in the app, on purpose.** Running means your own AI carries the
-  instructions out, so a button inside StoryOS would imply a managed model that doesn't exist.
+- **There is no "Run" button in the Skills library, on purpose.** A skill is instructions for an AI,
+  so carrying them out is your own AI's job, not a button's.
 
 ## Running a skill
 
-There is no managed AI model inside StoryOS. Running a skill **resolves its instructions and
-records that it ran**; it does not execute anything. **Your own AI** carries the instructions out
-(through MCP, never metered), or you apply them by hand.
+Running a skill through MCP (`run_skill`) **resolves its instructions** and returns them; it does
+not call a model or execute anything. **Your own AI** carries the instructions out (through MCP,
+never metered), or you apply them by hand.
+
+**An agent can name skills.** An agent record has a **Skills** field listing skills by name. When
+the agent runs, the names are looked up in the workspace's skills when the run starts, so an edit
+made since the last run is what the next run uses. A run whose agent names a skill that no longer
+exists fails, naming it, instead of quietly running without it.
+
+**On a Runner, the Skills field is passed on as written.** An agent set to **Your own AI** runs in
+your own AI tool through a [Runner](/concepts/agent-runs/#agents-on-your-own-ai). What the tool
+receives under "Your skills" is the text of the agent's Skills field, which is the skill names as typed.
+StoryOS does not add each skill's instructions to that prompt on this path (read from the code on
+2026-11-03, not seen in a live run), so write what the agent must do in its own instructions as well
+as naming the skill.
 
 A skill has no identity of its own. It always runs **as the person who runs it**, capped by their
 workspace role: an admin runs it with admin power, a member with write power, a guest with read

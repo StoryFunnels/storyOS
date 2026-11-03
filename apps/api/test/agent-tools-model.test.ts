@@ -223,12 +223,19 @@ describe('the claim carries them', () => {
     expect(w.agent.model).toBe('claude-sonnet-4-5');
   });
 
-  it('a saved list whose names have ALL left the registry is still a saved list (the floor), never silently "all tools"', async () => {
+  it('a saved list whose names have ALL left the registry is the essentials (empty), never silently "all tools"', async () => {
     const agent = await mkAgent(owner, 'All gone bot', { tools: 'link_records' });
     const toolsId = (await pool.query("select id from fields where database_id = $1 and api_name = 'tools'", [agentsDbId])).rows[0].id as string;
     await pool.query('update records set values = values || $2::jsonb where id = $1', [agent, JSON.stringify({ [toolsId]: 'removed_long_ago' })]);
     await pairRunner(owner, [agent]).then((r) => (runner = r));
-    expect((await claimFor(agent)).agent.tools).toEqual(['get_record', 'add_comment']);
+    expect((await claimFor(agent)).agent.tools).toEqual([]);
+  });
+
+  it('`all` is the explicit opt-in: the claim carries exactly [\'all\'] (even next to other names), and the write validator accepts it', async () => {
+    const agent = await mkAgent(owner, 'All tools bot', { tools: 'all' });
+    expect((await as(owner.token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { tools: 'link_records, all' } })).statusCode).toBe(200);
+    await pairRunner(owner, [agent]).then((r) => (runner = r));
+    expect((await claimFor(agent)).agent.tools).toEqual(['all']);
   });
 
   it('what is stale or unsafe in a stored value is not sent: a name that left the registry is dropped, a model that fails the rule is null', async () => {

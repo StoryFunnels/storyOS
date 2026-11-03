@@ -58,33 +58,33 @@ export function buildToolPolicy(allowedNativeTools: string[]): ToolPolicy {
   };
 }
 
-/** The MCP server's tool profile for an agent with a SAVED Tools list (packages/mcp tool-profiles.ts, #1177/#1180). The server owns the list. */
-export const MCP_SELECTED_PROFILE = 'agent-selected';
+/** The MCP server's tool profile for an agent run: the ESSENTIALS (packages/mcp tool-profiles.ts, #1177). The server owns the list. */
+export const MCP_RUN_PROFILE = 'agent-run';
+/** The `tools` value that opts in to every tool the credential's role allows (@storyos/schemas AGENT_TOOLS_ALL; the Runner cannot import it). */
+export const TOOLS_ALL = 'all';
 const MCP_TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
- * The MCP address for a run (#1180). An agent with NO saved Tools gets NO profile: the server offers every tool the credential's role and
- * scope allow (the default; measured cost is on ticket #1180). An agent with a saved list gets `profile=agent-selected&tools=<its list>`:
- * only those tools (plus the server's always-on floor), because every tool definition is billed on every request of the run. An older MCP
- * server ignores the query and offers its full set: more tokens, never fewer tools than before. A name that is not a tool name is dropped
- * here, loudly, not sent; if every name was dropped the list is still a saved list (profile with the floor only), never silently "all".
- * Any profile or tools value already on the URL is replaced, never stacked.
+ * The MCP address for a run (#1177, #1180). The DEFAULT is the essentials profile (8 tools, ~12k input tokens a run); the agent's saved
+ * Tools are EXTRAS added to it (`tools=a,b`); the explicit value `all` sends NO profile, so the server offers every tool the credential's
+ * role and scope allow (~97k a run). Every tool definition is billed on every request of the run, which is why the default is small.
+ * An older MCP server ignores the query and offers its full set: more tokens, never fewer tools than before. A name that is not a tool name
+ * is dropped here, loudly, not sent. Any profile or tools value already on the URL is replaced, never stacked.
  */
-export function withRunProfile(url: URL, tools: readonly string[] = []): { url: URL; dropped: string[] } {
+export function withRunProfile(url: URL, extraTools: readonly string[] = []): { url: URL; dropped: string[] } {
   const out = new URL(url.toString());
   out.searchParams.delete('profile');
   out.searchParams.delete('tools');
+  if (extraTools.some((t) => t.trim() === TOOLS_ALL)) return { url: out, dropped: [] };
+  out.searchParams.set('profile', MCP_RUN_PROFILE);
   const dropped: string[] = [];
   const keep: string[] = [];
-  for (const raw of tools) {
+  for (const raw of extraTools) {
     const name = raw.trim();
     if (MCP_TOOL_NAME.test(name)) keep.push(name);
     else dropped.push(name);
   }
-  if (tools.length > 0) {
-    out.searchParams.set('profile', MCP_SELECTED_PROFILE);
-    if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
-  }
+  if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
   return { url: out, dropped };
 }
 

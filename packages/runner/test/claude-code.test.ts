@@ -109,7 +109,7 @@ describe('how the CLI is called', () => {
     expect(r.tokenInEnv).toBe(CREDENTIAL);
     // The config named it by variable, was 0600 while it existed, and is gone now.
     const cfg = JSON.parse(r.mcpConfig!) as { mcpServers: { storyos: { type: string; url: string; headers: { Authorization: string } } } };
-    expect(cfg.mcpServers.storyos).toEqual({ type: 'http', url: 'https://mcp.example.test/mcp', headers: { Authorization: 'Bearer ${STORYOS_RUN_TOKEN}' } });
+    expect(cfg.mcpServers.storyos).toEqual({ type: 'http', url: 'https://mcp.example.test/mcp?profile=agent-run', headers: { Authorization: 'Bearer ${STORYOS_RUN_TOKEN}' } });
     expect(r.mcpConfig).not.toContain(CREDENTIAL);
     expect(r.mcpConfigMode).toBe(0o600);
     expect(existsSync(r.mcpConfigPath!)).toBe(false);
@@ -199,47 +199,49 @@ describe('the allowlist', () => {
   });
 });
 
-describe('the tool list (#1177, #1180): the default is the role\'s whole set, a saved list narrows it', () => {
+describe('the tool list (#1177, #1180): the default is the 8 essentials, saved Tools are extras added to them, `all` opts in to every role-allowed tool', () => {
   const cfgUrl = (r: Recorded) => new URL((JSON.parse(r.mcpConfig!) as { mcpServers: { storyos: { url: string } } }).mcpServers.storyos.url);
 
-  it('#1180: an agent with NO saved Tools gets no profile and no tools= (every tool its role allows), keeping the address and any query the operator set', async () => {
+  it('an agent with NO saved Tools gets the essentials profile and no tools=, keeping the address and any query the operator set', async () => {
     const { adapter, recorded } = make('success');
     await adapter.execute(wake({ mcp: { url: 'https://mcp.example.test/mcp?x=1', token: CREDENTIAL } }), new AbortController().signal);
     const u = cfgUrl(recorded());
     expect(u.origin + u.pathname).toBe('https://mcp.example.test/mcp');
-    expect(u.searchParams.has('profile')).toBe(false);
+    expect(u.searchParams.get('profile')).toBe('agent-run');
     expect(u.searchParams.has('tools')).toBe(false);
     expect(u.searchParams.get('x')).toBe('1');
   });
 
-  it('#1180: an empty saved list is the same as none', async () => {
+  it('an empty saved list is the same as none', async () => {
     const { adapter, recorded } = make('success');
     await adapter.execute(wake({ mcpTools: [] }), new AbortController().signal);
-    expect(cfgUrl(recorded()).search).toBe('');
+    const u = cfgUrl(recorded());
+    expect(u.searchParams.get('profile')).toBe('agent-run');
+    expect(u.searchParams.has('tools')).toBe(false);
   });
 
-  it('#1180: a saved list is sent as the agent-selected profile with exactly its names (de-duplicated)', async () => {
+  it('chosen extras are sent as tools= (de-duplicated) next to the essentials profile', async () => {
     const { adapter, recorded } = make('success');
-    await adapter.execute(wake({ mcpTools: ['create_record', 'link_records', 'create_record'] }), new AbortController().signal);
+    await adapter.execute(wake({ mcpTools: ['link_records', 'unlink_records', 'link_records'] }), new AbortController().signal);
     const u = cfgUrl(recorded());
-    expect(u.searchParams.get('profile')).toBe('agent-selected');
-    expect(u.searchParams.get('tools')).toBe('create_record,link_records');
+    expect(u.searchParams.get('profile')).toBe('agent-run');
+    expect(u.searchParams.get('tools')).toBe('link_records,unlink_records');
+  });
+
+  it('the explicit value `all` sends NO profile and no tools=: every tool the credential\'s role allows', async () => {
+    const { adapter, recorded } = make('success');
+    await adapter.execute(wake({ mcp: { url: 'https://mcp.example.test/mcp?x=1', token: CREDENTIAL }, mcpTools: ['all'] }), new AbortController().signal);
+    const u = cfgUrl(recorded());
+    expect(u.search).toBe('?x=1');
   });
 
   it('refuses a name that is not a tool name (logged, not sent), so the URL cannot carry anything else', async () => {
     const { adapter, recorded, lines } = make('success');
     await adapter.execute(wake({ mcpTools: ['get_record&profile=full', 'ok_tool', '../x'] }), new AbortController().signal);
-    expect(cfgUrl(recorded()).searchParams.get('tools')).toBe('ok_tool');
-    expect(cfgUrl(recorded()).searchParams.getAll('profile')).toEqual(['agent-selected']);
-    expect(lines.join('\n')).toContain('not tool names');
-  });
-
-  it('a saved list whose every name was refused is still a SAVED list (the floor only), never silently all tools', async () => {
-    const { adapter, recorded } = make('success');
-    await adapter.execute(wake({ mcpTools: ['../x'] }), new AbortController().signal);
     const u = cfgUrl(recorded());
-    expect(u.searchParams.get('profile')).toBe('agent-selected');
-    expect(u.searchParams.has('tools')).toBe(false);
+    expect(u.searchParams.get('tools')).toBe('ok_tool');
+    expect(u.searchParams.getAll('profile')).toEqual(['agent-run']);
+    expect(lines.join('\n')).toContain('not tool names');
   });
 
   it('#1180: no model setting = NO --model flag at all (the customer\'s own default stands), an empty string too', async () => {
@@ -288,10 +290,10 @@ describe('the tool list (#1177, #1180): the default is the role\'s whole set, a 
 
   it('withRunProfile replaces a profile or tools value already on the URL instead of stacking it', () => {
     const { url } = withRunProfile(new URL('https://m.test/mcp?profile=full&tools=delete_database'), ['get_record']);
-    expect(url.searchParams.getAll('profile')).toEqual(['agent-selected']);
+    expect(url.searchParams.getAll('profile')).toEqual(['agent-run']);
     expect(url.searchParams.getAll('tools')).toEqual(['get_record']);
-    // and with no saved list a stale profile on the operator's URL is removed too: the default is the full set
-    expect(withRunProfile(new URL('https://m.test/mcp?profile=agent-run&tools=x'), []).url.search).toBe('');
+    // and for `all` a stale profile on the operator's URL is removed too: the full role-allowed set
+    expect(withRunProfile(new URL('https://m.test/mcp?profile=agent-run&tools=x'), ['all']).url.search).toBe('');
   });
 });
 

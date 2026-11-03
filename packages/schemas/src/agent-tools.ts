@@ -3,11 +3,12 @@ import { z } from 'zod';
 /**
  * #1180 - what a manager can set on an agent that runs on a Runner: the MCP tools it is offered and its model.
  *
- * TOOLS (the agent record's `tools` text, comma-separated names): EMPTY / not saved = every tool the agent's credential may call
- * (its role and scope decide; this is the default). A SAVED list = exactly those tools, plus AGENT_TOOLS_ALWAYS_ON, which cannot be
- * unticked because a run that cannot read its record or comment ends as a failed run. Each tool definition is billed on every request
- * of every run, so the list is a COST control, never a permission: the credential's role still decides at call time.
- * AGENT_RUN_PRESET_TOOLS is the named short preset (the #1177 profile): a manager can choose it, it is not the default.
+ * TOOLS (the agent record's `tools` text, comma-separated names). The DEFAULT, with nothing saved, is the 8-tool ESSENTIALS preset
+ * (AGENT_RUN_PRESET_TOOLS: read the record and its comments, find and count records, describe a database, change a field, comment,
+ * create a record; ~12k input tokens a run). A saved list names EXTRA tools, ADDED to the essentials (which are always offered, so
+ * get_record and add_comment can never be missing). The one-word value `all` (AGENT_TOOLS_ALL) is the explicit opt-in to EVERY tool the
+ * credential's role allows (~97k a run on the measured wake). Each offered tool is billed on every request of every run, so this is a
+ * COST control, never a permission: the credential's role and scope still decide at call time.
  *
  * MODEL: the agent's own `model` (empty = use the workspace default), then the workspace's `default_agent_model` (empty = pass nothing,
  * the customer's own CLI default). Both validated by the one rule below, at write time.
@@ -234,10 +235,10 @@ export const agentModelSchema = z
   .max(AGENT_MODEL_MAX)
   .regex(AGENT_MODEL_PATTERN, 'must be a model name: letters, digits and . _ : / [ ] - only, starting with a letter or digit (no spaces, no leading dash)');
 
-/** Tools every run keeps whatever is unticked: a run that cannot read its record or comment fails (the must-comment rule). */
-export const AGENT_TOOLS_ALWAYS_ON: readonly string[] = ['get_record', 'add_comment'];
+/** The value of `tools` that opts in to every tool the credential's role allows (instead of the essentials plus chosen extras). */
+export const AGENT_TOOLS_ALL = 'all';
 
-/** The short record-work preset (packages/mcp tool-profiles.ts AGENT_RUN_BASE_TOOLS; a test keeps the two equal). Not the default. */
+/** The ESSENTIALS: what an agent with no saved Tools is offered (packages/mcp tool-profiles.ts AGENT_RUN_BASE_TOOLS; a test keeps the two equal). */
 export const AGENT_RUN_PRESET_TOOLS: readonly string[] = [
   'get_record',
   'list_comments',
@@ -267,11 +268,11 @@ export function validateAgentSettings(values: { tools?: unknown; model?: unknown
     if (typeof values.tools !== 'string') {
       problems.push({ field: 'tools', message: '"tools" must be text: tool names separated by commas.' });
     } else {
-      const unknown = parseAgentTools(values.tools).filter((t) => !MCP_TOOL_NAMES.includes(t));
+      const unknown = parseAgentTools(values.tools).filter((t) => t !== AGENT_TOOLS_ALL && !MCP_TOOL_NAMES.includes(t));
       if (unknown.length > 0) {
         problems.push({
           field: 'tools',
-          message: `Unknown tool name${unknown.length === 1 ? '' : 's'}: ${unknown.map((u) => JSON.stringify(u.slice(0, 60))).join(', ')}. Valid names: ${MCP_TOOL_NAMES.join(', ')}.`,
+          message: `Unknown tool name${unknown.length === 1 ? '' : 's'}: ${unknown.map((u) => JSON.stringify(u.slice(0, 60))).join(', ')}. Valid names: ${AGENT_TOOLS_ALL}, ${MCP_TOOL_NAMES.join(', ')}.`,
         });
       }
     }
