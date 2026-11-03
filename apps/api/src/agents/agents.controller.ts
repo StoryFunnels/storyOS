@@ -23,7 +23,7 @@ const createTriggerSchema = z
     state_option_id: z.uuid().optional(),
     /** Relation binding: a relation field on that database that points at the Agents database. Linking it to the agent wakes it. */
     relation_field_id: z.uuid().optional(),
-    /** A gated state never auto-fires an agent out of it — humans only. State bindings only. */
+    /** True = this trigger never starts a run by itself (ADR-0010 §5): a person starts each run. State bindings only. */
     human_gate: z.boolean().optional(),
     enabled: z.boolean().optional(),
   })
