@@ -5107,6 +5107,7 @@ export interface components {
             name?: string;
             private_attachments?: boolean;
             agents_may_publish_skills?: boolean;
+            default_agent_model?: string | null;
             description?: string | null;
             branding?: {
                 logo_url?: string | null;

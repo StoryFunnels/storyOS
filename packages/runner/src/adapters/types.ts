@@ -41,10 +41,16 @@ export interface WakeContext {
   /** The per-agent folder: the session's working directory, and the only directory it is given. */
   workdir: string;
   /**
-   * StoryOS MCP tools this agent's role adds to the default record-work set (#1177), by tool name. Empty by default: nothing sends it
-   * yet. A run is offered ONLY the default set plus these, because every tool definition is billed on every request of the run.
+   * The EXTRA StoryOS MCP tools the manager chose for this agent (#1180), by tool name, added to the essentials every agent has; or the
+   * single value `all` for every tool the credential's role allows. Absent or empty = the essentials only. Every tool definition is billed
+   * on every request of the run.
    */
   mcpTools?: string[];
+  /**
+   * The model the manager chose for this agent (#1180), passed to a tool that has a model flag. Absent = the customer's own tool default
+   * stands and NO flag is sent. An adapter without a model flag ignores it.
+   */
+  model?: string;
   /** Native tools the manager allowed for this agent. Empty by default (ADR-0021 section 7). */
   allowedNativeTools: string[];
   protocol: number;

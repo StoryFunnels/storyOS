@@ -1,10 +1,11 @@
+import { AGENT_TOOLS_ALL, MCP_TOOL_NAMES, parseAgentTools, validateAgentSettings } from '@storyos/schemas';
 import type { TokenScope } from '@storyos/schemas';
 import { RunCredentialsService } from '../tokens/run-credentials.service';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { agentWakes, comments, databases, fields, memberships, records, runnerAgents, runners, selectOptions, spaces } from '../db/schema';
+import { agentWakes, comments, databases, fields, memberships, records, runnerAgents, runners, selectOptions, spaces, workspaces } from '../db/schema';
 import { codedException } from '../common/coded-exception';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -113,7 +114,7 @@ export interface ClaimedWake {
   reasons: WakeReasonEntry[];
   depth: number;
   run_id: string | null;
-  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; target_databases: string | null };
+  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; target_databases: string | null; model: string | null; tools: string[] };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;
   /**
@@ -186,7 +187,7 @@ export class AgentWakesService {
     });
     if (!db) return null;
     const fieldRows = await this.db.query.fields.findMany({
-      where: and(eq(fields.databaseId, db.id), inArray(fields.apiName, ['enabled', 'ai_mode', 'goal', 'instructions', 'skills', 'target_databases'])),
+      where: and(eq(fields.databaseId, db.id), inArray(fields.apiName, ['enabled', 'ai_mode', 'goal', 'instructions', 'skills', 'target_databases', 'tools', 'model'])),
       columns: { id: true, apiName: true },
     });
     const byName = new Map(fieldRows.map((f) => [f.apiName, f.id]));
@@ -195,6 +196,26 @@ export class AgentWakesService {
       ? await this.db.query.selectOptions.findFirst({ where: and(eq(selectOptions.fieldId, aiModeFieldId), eq(selectOptions.label, 'Your own AI')), columns: { id: true } })
       : null;
     return { id: db.id, spaceId: db.spaceId, fieldIds: byName, ownAiOptionId: ownAiOption?.id ?? null };
+  }
+
+  /** The agent's `model` setting as the claim sends it: text that passes the write-time rule, else null (= the customer's own default). */
+  private agentModel(raw: unknown): string | null {
+    if (typeof raw !== 'string' || raw.trim() === '') return null;
+    const model = raw.trim();
+    return validateAgentSettings({ model }).length === 0 ? model : null;
+  }
+
+  private async workspaceDefaultModel(workspaceId: string): Promise<string | null> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId), columns: { settings: true } });
+    const v = (ws?.settings as Record<string, unknown> | undefined)?.['default_agent_model'];
+    return typeof v === 'string' ? v : null;
+  }
+
+  /** [] = the essentials only; names = extras added to them; ['all'] = every tool the credential's role allows. Names that left the registry are dropped. */
+  private agentTools(raw: unknown): string[] {
+    const saved = parseAgentTools(raw);
+    if (saved.includes(AGENT_TOOLS_ALL)) return [AGENT_TOOLS_ALL];
+    return saved.filter((t) => MCP_TOOL_NAMES.includes(t));
   }
 
   private agentFacts(info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>, values: Record<string, unknown>) {
@@ -521,6 +542,11 @@ export class AgentWakesService {
         instructions: plainText(text('instructions')),
         skills: typeof text('skills') === 'string' ? (text('skills') as string) : null,
         target_databases: typeof text('target_databases') === 'string' ? (text('target_databases') as string) : null,
+        // ticket #1180: the manager's settings. MODEL: the agent's own, else the workspace default, else null (= send nothing: the
+        // customer's own tool default); a stored value that no longer passes the write-time rule is skipped, never sent.
+        model: this.agentModel(text('model')) ?? this.agentModel(await this.workspaceDefaultModel(wake.workspaceId)),
+        // TOOLS: [] = the 8 essentials (the default); names = extras added to them; ['all'] = every tool the credential's role allows.
+        tools: this.agentTools(text('tools')),
       },
       record: rec ? { id: rec.id, database_id: rec.databaseId, number: rec.number } : null,
       context: wake.context,

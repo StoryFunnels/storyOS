@@ -366,6 +366,8 @@ export class ClaimLoop {
       ...(wake.context != null ? { context: wake.context } : {}),
       mcp: { url: this.o.mcpUrl, token: wake.credential.token },
       workdir,
+      ...(wake.agent.tools?.length ? { mcpTools: wake.agent.tools } : {}),
+      ...(wake.agent.model ? { model: wake.agent.model } : {}),
       allowedNativeTools: [],
       protocol: PROTOCOL_VERSION,
     };
