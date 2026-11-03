@@ -1,4 +1,4 @@
-import { AGENT_TOOLS_ALWAYS_ON, MCP_TOOL_NAMES, parseAgentTools, validateAgentSettings } from '@storyos/schemas';
+import { AGENT_TOOLS_ALL, MCP_TOOL_NAMES, parseAgentTools, validateAgentSettings } from '@storyos/schemas';
 import type { TokenScope } from '@storyos/schemas';
 import { RunCredentialsService } from '../tokens/run-credentials.service';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -211,11 +211,11 @@ export class AgentWakesService {
     return typeof v === 'string' ? v : null;
   }
 
+  /** [] = the essentials only; names = extras added to them; ['all'] = every tool the credential's role allows. Names that left the registry are dropped. */
   private agentTools(raw: unknown): string[] {
     const saved = parseAgentTools(raw);
-    if (saved.length === 0) return [];
-    const live = saved.filter((t) => MCP_TOOL_NAMES.includes(t));
-    return live.length > 0 ? live : [...AGENT_TOOLS_ALWAYS_ON];
+    if (saved.includes(AGENT_TOOLS_ALL)) return [AGENT_TOOLS_ALL];
+    return saved.filter((t) => MCP_TOOL_NAMES.includes(t));
   }
 
   private agentFacts(info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>, values: Record<string, unknown>) {
@@ -545,8 +545,7 @@ export class AgentWakesService {
         // ticket #1180: the manager's settings. MODEL: the agent's own, else the workspace default, else null (= send nothing: the
         // customer's own tool default); a stored value that no longer passes the write-time rule is skipped, never sent.
         model: this.agentModel(text('model')) ?? this.agentModel(await this.workspaceDefaultModel(wake.workspaceId)),
-        // TOOLS: [] = every tool the credential's role allows (the default). A saved list is exactly that list; one whose names have all
-        // left the registry is still a SAVED list (the always-on floor), never silently "all".
+        // TOOLS: [] = the 8 essentials (the default); names = extras added to them; ['all'] = every tool the credential's role allows.
         tools: this.agentTools(text('tools')),
       },
       record: rec ? { id: rec.id, database_id: rec.databaseId, number: rec.number } : null,

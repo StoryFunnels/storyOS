@@ -41,9 +41,9 @@ export interface WakeContext {
   /** The per-agent folder: the session's working directory, and the only directory it is given. */
   workdir: string;
   /**
-   * The StoryOS MCP tools the manager saved for this agent (#1180), by tool name. Absent or empty = the agent has no saved list and is
-   * offered every tool its credential's role allows. A saved list is the whole list (the server adds an always-on floor), because every
-   * tool definition is billed on every request of the run.
+   * The EXTRA StoryOS MCP tools the manager chose for this agent (#1180), by tool name, added to the essentials every agent has; or the
+   * single value `all` for every tool the credential's role allows. Absent or empty = the essentials only. Every tool definition is billed
+   * on every request of the run.
    */
   mcpTools?: string[];
   /**
