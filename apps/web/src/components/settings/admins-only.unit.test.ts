@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import { canOpenAdminSettings, workspaceSettingsLinks } from '@/lib/settings-nav';
+import { SETTINGS_PAGES, canOpenAdminSettings } from '@/lib/settings-nav';
 import { AdminsOnlyNotice } from './admins-only';
 
 const SETTINGS = fileURLToPath(new URL('../../app/w/[ws]/settings', import.meta.url));
@@ -25,13 +25,10 @@ describe('admin-only settings pages refuse a member in-page (#1092)', () => {
   });
 
   it('every route the settings nav shows ONLY to an admin refuses a non-admin in-page: a layout wrapping AdminsOnly, or its own isAdmin check', () => {
-    // The nav says which pages are admin-only; derive the set from it (an admin sees every link, a member only their own), so a new
-    // admin-only nav entry fails here until its page refuses, rather than relying on this list being remembered.
-    const base = '/w/x/settings';
-    const asAdmin = new Set(workspaceSettingsLinks(base, { isAdmin: true, canEdit: true, billingEnabled: true }).map((l) => l.href));
-    const asMember = new Set(workspaceSettingsLinks(base, { isAdmin: false, canEdit: true, billingEnabled: true }).map((l) => l.href));
-    const adminOnly = [...asAdmin].filter((h) => !asMember.has(h)).map((h) => h.replace(`${base}/`, ''));
-    expect(adminOnly.length).toBeGreaterThanOrEqual(6);
+    // The nav declaration says which pages are admin-only; derive the set from it, so a new admin-only entry fails here until its page
+    // refuses, rather than relying on this list being remembered.
+    const adminOnly = SETTINGS_PAGES.filter((p) => p.access === 'admins' && p.path).map((p) => p.path!.slice(1));
+    expect(adminOnly.length).toBeGreaterThanOrEqual(9);
     for (const d of adminOnly) {
       const layout = join(SETTINGS, d, 'layout.tsx');
       const page = join(SETTINGS, d, 'page.tsx');
@@ -47,12 +44,12 @@ describe('admin-only settings pages refuse a member in-page (#1092)', () => {
   it('the pages the ticket names are wrapped from a layout, so every page under them (and any added later) is covered', () => {
     for (const d of ['billing', 'webhooks', 'connections', 'integrations', 'members']) {
       expect(dirs).toContain(d);
-      expect(read(join(SETTINGS, d, 'layout.tsx')), `${d}/layout.tsx`).toMatch(/<AdminsOnly title="[A-Za-z]+">\{children\}<\/AdminsOnly>/);
+      expect(read(join(SETTINGS, d, 'layout.tsx')), `${d}/layout.tsx`).toMatch(/<AdminsOnly title="[^"]+">\{children\}<\/AdminsOnly>/);
     }
   });
 
   it('personal pages and the pages a member may use are NOT wrapped (the gate must not over-refuse)', () => {
-    for (const d of ['account', 'preferences', 'notifications', 'referrals', 'api', 'connect-ai', 'general']) {
+    for (const d of ['account', 'preferences', 'notifications', 'referrals', 'api', 'connect-ai']) {
       let src = '';
       try { src = read(join(SETTINGS, d, 'layout.tsx')); } catch { /* none */ }
       expect(src).not.toContain('AdminsOnly');
