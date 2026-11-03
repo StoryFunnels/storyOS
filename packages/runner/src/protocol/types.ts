@@ -65,6 +65,14 @@ export interface ClaimRequest {
 }
 
 /** One claimed wake: ids, a reason and counts, NEVER record text (ADR-0021 section 7), plus the run credential, shown once. */
+/** One skill a Runner run receives (#1184). `truncated` is set when the server cut the text, with the original and kept sizes. */
+export interface ClaimedSkill {
+  name: string;
+  when_to_use: string;
+  instructions: string;
+  truncated: { chars: number; kept: number } | null;
+}
+
 export interface ClaimedWake {
   id: string;
   nonce: string;
@@ -81,6 +89,8 @@ export interface ClaimedWake {
     goal: string | null;
     instructions: string | null;
     skills: string | null;
+    /** #1184: each attached skill's instructions, resolved by the server at claim. Absent from an older server (the names above are all it sends). */
+    skill_instructions?: ClaimedSkill[];
     target_databases: string | null;
     /** #1180: absent from an older server. */
     model?: string | null;

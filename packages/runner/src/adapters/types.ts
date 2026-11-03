@@ -25,6 +25,11 @@ export interface WakeContext {
     goal: string | null;
     instructions: string;
     skills: string | null;
+    /**
+     * The attached skills' instructions (#1184), written by the workspace's managers like `instructions`, so they go in the same trusted
+     * place. Absent when the server is older and sends only the names in `skills`.
+     */
+    skillInstructions?: Array<{ name: string; whenToUse: string; instructions: string; truncated: { chars: number; kept: number } | null }>;
     targetDatabases: string | null;
   };
   /** The workspace this wake belongs to: StoryOS tools take it as a parameter. */
