@@ -196,6 +196,36 @@ install would use that database, which needs your `reuse` choice or an earlier a
   does not create a duplicate.
 - **Uninstalling never deletes an adopted database or its data.**
 
+#### Reuse in the web install review
+
+The web install review offers the same choice. When the preview finds a database with the same name in
+another space (`existing_elsewhere`) that an earlier install of this pack has not already adopted, that
+database's row in the review shows two options:
+
+- **Create a new *Name* here**, the default: an empty database in the space the pack installs into.
+- **Use your existing *Name* (in *space*)**: shown with how many records it has now, which fields the pack
+  would add to it (or that it already has every field the pack needs), and that nothing in it is removed
+  or renamed. It also says that people who cannot open the other space will not see those records here.
+
+Nothing is reused unless you pick it. When the preview says the database cannot be reused, the second option
+is shown disabled with the preview's reason as written, rather than left out. A choice is sent as the same
+`reuse` resolution described above.
+
+#### Built-in databases are never reused or changed
+
+A pack never matches, reuses or writes into a built-in StoryOS database, such as **Members**, **Agents**,
+**Agent Triggers** or **Agent Runs**. A built-in database is recognised by the system flag the product sets
+on it, not by its name, so a database you made yourself and named *Members* is an ordinary one.
+
+- **A pack database named like a built-in one is created as its own separate database**, and the built-in
+  one is left as it was, even when you install into the space that holds it.
+- **Choosing Reuse for a built-in database is refused** with a 422 saying that it is a built-in StoryOS
+  database and that a pack never changes those, and that leaving it out of your choices makes the pack
+  install its own separate one. Nothing is written.
+- **The preview never offers one.** A built-in database does not appear as a collision or as
+  `existing_elsewhere`, and a `reuse` choice does not make it adoptable. The install review therefore never
+  shows the Reuse choice for it.
+
 ### Uninstalling a pack
 
 `uninstall_pack` (REST: `POST /workspaces/:ws/packs/:installId/uninstall`, with the install id from
@@ -269,6 +299,12 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
   `eq`/`neq` to `has`/`has_none` for you. See the [operator × type
   matrix](/api/conventions/#operator--type-matrix) for the raw API's own shape, which wants the
   option **id** only — the label resolution above is an MCP-side convenience.
+- **Filter by state category instead of naming options.** On a `workflow` or `select` field, `describe_database`'s
+  `ops` also lists `category_is` and `category_is_not`, whose values are state categories (`backlog`,
+  `unstarted`, `started`, `completed`, `canceled`), not option labels. "Open" is
+  `category_is_not ["completed","canceled"]`; unlike a list of option ids it keeps working when someone
+  adds a new done-like state. `query_records` and `count_records` send these values as written. A
+  `multi_select` has no categories and refuses both ops. See [Querying records](/api/querying/).
 
 For the concepts these tools operate on, see [databases & fields](/concepts/databases-and-fields/),
 [relations](/concepts/relations/), and [views](/concepts/views/).

@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import {
   BadRequestException,
   Body,
@@ -285,6 +286,7 @@ export class LinksController {
     ));
   }
 
+  @HoldsAgentDeletes('link')
   @Delete()
   @ApiOperation({ summary: 'Remove specific links' })
   @ApiParam({

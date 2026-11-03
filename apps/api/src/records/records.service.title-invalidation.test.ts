@@ -129,6 +129,8 @@ function makeService(db: Db) {
     { enforce: vi.fn().mockResolvedValue(undefined) } as never,
     // #1104: no per-agent write gate is declared in these unit tests.
     { check: vi.fn().mockResolvedValue({ held: false }), matching: vi.fn().mockResolvedValue([]) } as never,
+    // #1178: no run credential in these unit tests, so the agent's delete policy is never consulted.
+    { holdIfAgentPolicy: vi.fn().mockResolvedValue(undefined) } as never,
   );
 }
 

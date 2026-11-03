@@ -95,9 +95,13 @@ revisited only at a major version.
 | `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — | — |
 | `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — | — |
 | `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (record ids) |
+| `category_is` / `category_is_not` | — | — | — | — | ✅ | ✅ | — | — | — |
 | `is_empty` / `not_empty` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-`within` accepts relative ranges (`today`, `next_7_days`, `this_month`, …). User filters accept the
+`within` accepts relative ranges (`today`, `next_7_days`, `this_month`, …). `before` and `after` also
+accept a relative day such as `$date:-90d` or `$date:+3d`. `category_is` / `category_is_not` take
+state categories (`backlog`, `unstarted`, `started`, `completed`, `canceled`) rather than option ids; both
+are described in [Querying records](/api/querying/). User filters accept the
 literal `"me"`, resolved server-side. An invalid op-for-type returns `422`.
 
 **`not_contains` treats an unset field as a match** — `null`/empty counts as "doesn't contain X",

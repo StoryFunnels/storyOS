@@ -56,6 +56,27 @@ one. The webhook list shows each webhook's `owner_id`, and a `paused_reason` whe
   until an admin takes it over.
 - **For an admin-owned webhook nothing changes**, since an admin reads every record.
 
+## When an agent caused the event
+
+If the change behind an event was made by an [agent running on a Runner](/concepts/agent-runs/#agents-on-your-own-ai),
+the delivery body gains a `caused_by` object next to `actor_id`:
+
+```json
+"caused_by": {
+  "source": "agent",
+  "agent_id": "<the agent's record id>",
+  "agent_name": "Sales assistant",
+  "run_id": "<the Run's record id>",
+  "runner_id": "<the Runner's id>",
+  "runner_name": "Ievgen's MacBook"
+}
+```
+
+Deliveries for changes made by anyone or anything else have no `caused_by` key. A webhook is a
+destination an admin fixed in advance, so an agent's change is delivered as configured and not held
+for approval; `caused_by` is how your receiver can tell. See
+[approval gates](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
+
 ## What you can rely on, and what you can't
 
 - **Each event is queued at most once per webhook** — at most, not exactly: see the limit below

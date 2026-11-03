@@ -2,10 +2,12 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import sharp from 'sharp';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import type { Readable } from 'node:stream';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -33,11 +35,22 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 const FETCH_TIMEOUT_MS = 20_000;
 
 @Injectable()
-export class AttachmentsService {
+export class AttachmentsService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly domainEvents: DomainEventsService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's attachment delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved attachment delete runs as the acting member (record access re-checked first), through the same remove().
+    this.agentDeletes.registerApplier('attachment', async ({ workspaceId, actorId, recordId, params }) => {
+      const attachmentId = params['attachment_id'] as string | undefined;
+      if (!recordId || !attachmentId) throw new UnprocessableEntityException('This held delete names no attachment; nothing was deleted');
+      await this.remove(workspaceId, recordId, attachmentId, actorId);
+    });
+  }
 
   /**
    * The record-level BAG (MN-029), unchanged by #391.
@@ -324,6 +337,18 @@ export class AttachmentsService {
   /** Best-effort object deletion; record hard-deletes leave orphans for a future sweep (documented). */
   async remove(workspaceId: string, recordId: string, attachmentId: string, actorId: string) {
     const row = await this.getRow(recordId, attachmentId);
+    // #1178 — after the row is found (a missing one stays a 404), before anything is removed: the agent's own `delete` policy holds a
+    // run credential's delete (202).
+    const owner = await this.db.query.records.findFirst({ where: eq(records.id, recordId), columns: { databaseId: true } });
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId,
+      kind: 'attachment',
+      actorId,
+      databaseId: owner?.databaseId ?? null,
+      recordId,
+      label: `the attachment "${row.filename}"`,
+      params: { attachment_id: attachmentId },
+    });
     // #391 — a field's value must not outlive the file it points at.
     if (row.fieldId) await this.detachFromField(workspaceId, recordId, row.fieldId, attachmentId, actorId);
     await this.db.delete(attachments).where(eq(attachments.id, attachmentId));

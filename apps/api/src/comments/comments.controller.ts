@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import {
   Body,
   Controller,
@@ -122,6 +123,7 @@ export class CommentsController {
     );
   }
 
+  @HoldsAgentDeletes('comment')
   @Delete(':comment')
   @ApiOperation({ summary: 'Delete own comment (admins: any)' })
   async remove(
