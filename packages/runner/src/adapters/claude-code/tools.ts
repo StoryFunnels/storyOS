@@ -58,26 +58,42 @@ export function buildToolPolicy(allowedNativeTools: string[]): ToolPolicy {
   };
 }
 
-/** The MCP server's tool profile for an agent run (packages/mcp tool-profiles.ts, #1177). The server owns the list; this is its name. */
-export const MCP_RUN_PROFILE = 'agent-run';
+/** The MCP server's tool profile for an agent with a SAVED Tools list (packages/mcp tool-profiles.ts, #1177/#1180). The server owns the list. */
+export const MCP_SELECTED_PROFILE = 'agent-selected';
 const MCP_TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
- * The MCP address for a run: the configured URL plus the profile, and the role's extra tools. The profile is what keeps ~120 tool
- * definitions out of every request (measured ~31k tokens each). An older MCP server ignores the query and offers its full set: more
- * tokens, never fewer tools than before. A name that is not a tool name is dropped here, loudly, not sent.
+ * The MCP address for a run (#1180). An agent with NO saved Tools gets NO profile: the server offers every tool the credential's role and
+ * scope allow (the default; measured cost is on ticket #1180). An agent with a saved list gets `profile=agent-selected&tools=<its list>`:
+ * only those tools (plus the server's always-on floor), because every tool definition is billed on every request of the run. An older MCP
+ * server ignores the query and offers its full set: more tokens, never fewer tools than before. A name that is not a tool name is dropped
+ * here, loudly, not sent; if every name was dropped the list is still a saved list (profile with the floor only), never silently "all".
+ * Any profile or tools value already on the URL is replaced, never stacked.
  */
-export function withRunProfile(url: URL, extraTools: readonly string[] = []): { url: URL; dropped: string[] } {
+export function withRunProfile(url: URL, tools: readonly string[] = []): { url: URL; dropped: string[] } {
   const out = new URL(url.toString());
-  out.searchParams.set('profile', MCP_RUN_PROFILE);
+  out.searchParams.delete('profile');
+  out.searchParams.delete('tools');
   const dropped: string[] = [];
   const keep: string[] = [];
-  for (const raw of extraTools) {
+  for (const raw of tools) {
     const name = raw.trim();
     if (MCP_TOOL_NAME.test(name)) keep.push(name);
     else dropped.push(name);
   }
-  if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
-  else out.searchParams.delete('tools');
+  if (tools.length > 0) {
+    out.searchParams.set('profile', MCP_SELECTED_PROFILE);
+    if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
+  }
   return { url: out, dropped };
+}
+
+/**
+ * #1180: the model setting, as a value that is safe to pass to `--model`. The server already refuses anything else at write time; this
+ * is the Runner's own check, because the Runner does not trust what a server (or an old record) hands it. Same rule as the server's.
+ */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,99}$/;
+export function safeModelName(raw: string): string | null {
+  const model = raw.trim();
+  return MODEL_NAME.test(model) ? model : null;
 }

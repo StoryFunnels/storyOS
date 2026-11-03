@@ -100,6 +100,12 @@ export class WorkspaceController {
         'Whether agents may publish skills to the workspace is decided by a person: it cannot be changed through an API token or a connected AI, even one acting for an admin. Change it in Settings > General.',
       );
     }
+    // #1180 — the model every agent uses by default is a COST decision for the workspace, made by an admin who is a person: an agent
+    // (its run credential, any token or a connected AI) must not pick a pricier model for all agents. Refused when the key is
+    // PRESENT, either value, like the switch above.
+    if (body.default_agent_model !== undefined && (req.auth?.source ?? 'human') !== 'human') {
+      throw new ForbiddenException('The default model for agents is decided by a person: it cannot be changed through an API token or a connected AI, even one acting for an admin. Change it in Agent rules.');
+    }
     return this.workspaces.update(req.membership.workspaceId, body);
   }
 

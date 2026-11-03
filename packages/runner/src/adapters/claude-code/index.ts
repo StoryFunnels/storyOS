@@ -12,7 +12,7 @@ import { runProcess } from './process.js';
 import type { ProcessRunner } from './process.js';
 import { MCP_BLOCKING_ENV } from './pins.js';
 import { buildSystemPrompt, buildTaskText, newDataMarker } from './prompt.js';
-import { buildToolPolicy, MCP_SERVER_NAME, withRunProfile } from './tools.js';
+import { buildToolPolicy, MCP_SERVER_NAME, safeModelName, withRunProfile } from './tools.js';
 
 /**
  * The Claude Code adapter (ticket #1135, ADR-0021 sections 5-7): runs the customer's own logged-in `claude` CLI, headless, once per
@@ -98,8 +98,9 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       return { exit: 'error', usage: null, summary: '', error: 'The StoryOS MCP address is not a valid http(s) URL. Set it with --mcp-url (or STORYOS_MCP_URL).', toolVersion };
     }
 
-    // #1177: offer the run only its role's StoryOS tools (the server filters `tools/list`); `--allowedTools` cannot do this, it only
-    // grants permission and the CLI still sends every schema (measured: 36,958 vs 7,667 tokens per request).
+    // #1177/#1180: an agent with a saved Tools list is offered only those StoryOS tools (the server filters `tools/list`;
+    // `--allowedTools` cannot do this, it only grants permission and the CLI still sends every schema: 36,958 vs 7,667 tokens per
+    // request). With no saved list there is no profile and the role's whole set is offered.
     const profiled = withRunProfile(url, wake.mcpTools ?? []);
     if (profiled.dropped.length) this.log.warn(`wake ${wake.wakeId}: ignored extra MCP tool name(s) that are not tool names: ${profiled.dropped.map((n) => JSON.stringify(redact(n))).join(', ')}`);
     url = profiled.url;
@@ -125,12 +126,21 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       // allows `Bash` would re-open what this list closes.
       '--setting-sources', '',
       '--disable-slash-commands',
-      // #1177: moves the per-machine parts of the CLI's system prompt (working directory, environment, repository state) into the first
-      // user message, so the system prompt and tool list are identical from run to run and the provider's prompt cache can serve them
-      // to the next run instead of re-creating them. Same total tokens; fewer of them are cache writes. Exists on claude 2.1.104.
-      '--exclude-dynamic-system-prompt-sections',
-      '--append-system-prompt', buildSystemPrompt(wake, nativeRules),
+      // #1180: REPLACES Claude Code's own system prompt (a coding assistant's: shell, files, git, ~5.6k tokens on every request) with the
+      // StoryOS agent prompt, which is complete on its own (who the agent is, the data rule, the must-comment rule, its instructions).
+      // Measured on claude 2.1.104, same wake, ticket #1180: 113,848 -> 96,654 input tokens with all role-allowed tools, 28,840 -> 12,476
+      // with the 8-tool preset, and the agent still read, updated, commented and ignored an injected instruction in every run. (This flag
+      // also makes --exclude-dynamic-system-prompt-sections moot: it only applies to the default prompt, so it is no longer sent.)
+      '--system-prompt', buildSystemPrompt(wake, nativeRules),
     ];
+
+    // #1180: the model is the manager's choice for THIS agent. Absent = no flag at all: the customer's own default stands (their AI,
+    // their choice). It goes in as its own argv element (no shell), and a value that could be read as a flag is refused, loudly.
+    if (wake.model) {
+      const model = safeModelName(wake.model);
+      if (model) args.push('--model', model);
+      else this.log.warn(`wake ${wake.wakeId}: ignored the agent's Model setting because it is not a model name: ${JSON.stringify(redact(wake.model).slice(0, 60))}`);
+    }
 
     const env: NodeJS.ProcessEnv = { ...this.env };
     for (const name of STRIPPED) if (!(name === 'ANTHROPIC_API_KEY' && this.options.keepApiKey)) delete env[name];

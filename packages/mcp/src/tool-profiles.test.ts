@@ -47,6 +47,17 @@ describe('the agent-run profile', () => {
     expect([...offered].sort()).toEqual([...AGENT_RUN_BASE_TOOLS].sort());
   });
 
+  it('#1180: the default set is the 8 intended tools, create_record among them, and a write run credential is offered exactly those', () => {
+    expect([...AGENT_RUN_BASE_TOOLS].sort()).toEqual(
+      ['add_comment', 'count_records', 'create_record', 'describe_database', 'get_record', 'list_comments', 'query_records', 'update_record'],
+    );
+    expect(advertised({ ...RUN_CRED, onlyTools: allow }).has('create_record')).toBe(true);
+  });
+
+  it('#1180: create_record in the default set does not widen scope: a read-scoped credential is not offered it', () => {
+    expect(advertised({ scope: 'read', allowRunButton: false, role: 'member', onlyTools: allow }).has('create_record')).toBe(false);
+  });
+
   it('NEW-TOOL DEFAULT: a tool that is not named in the profile is not offered, whatever the registry grows', () => {
     const all = advertised(FULL);
     const offeredToAnAdminCredential = advertised({ ...FULL, onlyTools: allow });
@@ -69,7 +80,7 @@ describe('the agent-run profile', () => {
   it('tools outside the role are not offered: delete, schema, members, webhooks, run_button', () => {
     const offered = advertised({ ...RUN_CRED, onlyTools: allow });
     const live = advertised(RUN_CRED);
-    const outside = ['delete_record', 'delete_database', 'create_database', 'list_members', 'list_runners', 'create_automation', 'create_record', 'link_records'].filter((n) => live.has(n));
+    const outside = ['delete_record', 'delete_database', 'create_database', 'list_members', 'list_runners', 'create_automation', 'link_records', 'create_records', 'delete_records'].filter((n) => live.has(n));
     // without profile these ARE offered to the same credential: the check means something only for names that really exist
     expect(outside.length).toBeGreaterThanOrEqual(5);
     for (const n of outside) expect(offered.has(n), n).toBe(false);
@@ -78,9 +89,9 @@ describe('the agent-run profile', () => {
 
 describe('a role can add tools', () => {
   it('extras are added to the base set and are offered, within the credential\'s own scope', () => {
-    const allow = profile(`profile=${AGENT_RUN_PROFILE}&tools=create_record,link_records`)!;
+    const allow = profile(`profile=${AGENT_RUN_PROFILE}&tools=duplicate_record,link_records`)!;
     const offered = advertised({ ...RUN_CRED, onlyTools: allow });
-    expect(offered.has('create_record')).toBe(true);
+    expect(offered.has('duplicate_record')).toBe(true);
     expect(offered.has('link_records')).toBe(true);
     expect(offered.has('get_record')).toBe(true);
     expect(offered.size).toBe(AGENT_RUN_BASE_TOOLS.length + 2);
@@ -100,7 +111,7 @@ describe('a mistake never silently turns the diet off', () => {
   it('an unknown profile and tools= without a profile are errors, not the full set', () => {
     const unknown = resolveToolProfile(new URLSearchParams('profile=agent_run'));
     expect(unknown.ok).toBe(false);
-    expect(resolveToolProfile(new URLSearchParams('tools=create_record')).ok).toBe(false);
+    expect(resolveToolProfile(new URLSearchParams('tools=duplicate_record')).ok).toBe(false);
   });
 });
 

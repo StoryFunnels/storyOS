@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentModelSchema } from './agent-tools';
 import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
@@ -61,6 +62,9 @@ export const updateWorkspaceSchema = atLeastOneField(z.object({
    * whatever this says. Settable ONLY from a human-sourced request: the controller refuses the key
    * from any other source, either value, because a switch an agent can flip is decorative. */
   agents_may_publish_skills: z.boolean().optional(),
+  /** #1180 — the model every agent on a Runner uses unless its own `model` says otherwise. null clears it (= the customer's own tool
+   * default). A cost decision for the whole workspace: settable ONLY from a human-sourced admin request, same reasoning as above. */
+  default_agent_model: agentModelSchema.nullable().optional(),
   /** #400 — null clears it. */
   description: descriptionPatchSchema,
   /** #539 — merged over the existing value; a field omitted here is left

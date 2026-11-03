@@ -82,6 +82,9 @@ export interface ClaimedWake {
     instructions: string | null;
     skills: string | null;
     target_databases: string | null;
+    /** #1180: absent from an older server. */
+    model?: string | null;
+    tools?: string[];
   };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;

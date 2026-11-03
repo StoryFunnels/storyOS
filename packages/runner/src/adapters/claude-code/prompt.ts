@@ -6,7 +6,7 @@ import { MCP_SERVER_NAME } from './tools.js';
 /**
  * The prompt a wake gets. Two pieces, with different trust:
  *
- *  - the SYSTEM prompt (`--append-system-prompt`): the rules, then the agent's own goal, instructions and skills, which a manager of
+ *  - the SYSTEM prompt (`--system-prompt`, #1180: it replaces Claude Code's own): the rules, then the agent's own goal, instructions and skills, which a manager of
  *    this workspace wrote. Nothing a person typed into a record, a comment or a form ever goes here.
  *  - the TASK (stdin): which wake, which record, and, ONLY IF the wake carries one, the note the person who started the run typed,
  *    inside a block whose delimiter carries a random value chosen for this run, so text inside it cannot fake the closing line.

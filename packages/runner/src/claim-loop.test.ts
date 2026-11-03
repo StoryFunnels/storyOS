@@ -101,6 +101,25 @@ async function runFor(loop: ClaimLoop, until: () => boolean, ms = 3000) {
 }
 
 describe('the claim loop', () => {
+  it('#1180: the agent\'s Tools and Model reach the adapter as mcpTools and model; absent from an older server = neither is set', async () => {
+    const seen: Array<{ mcpTools?: string[]; model?: string }> = [];
+    const capture: RunnerAdapter['execute'] = async (ctx) => {
+      seen.push({ mcpTools: ctx.mcpTools, model: ctx.model });
+      return ok();
+    };
+    const withSettings = wake();
+    withSettings.agent = { ...withSettings.agent, tools: ['link_records', 'delete_record'], model: 'claude-sonnet-4-5' };
+    const old = wake(); // no tools / model keys at all
+    const empty = wake();
+    empty.agent = { ...empty.agent, tools: [], model: null };
+    const client = scripted([{ wakes: [withSettings] }, { wakes: [old] }, { wakes: [empty] }]);
+    const { loop } = loopOf(client, adapterOf(capture));
+    await runFor(loop, () => seen.length === 3);
+    expect(seen[0]).toEqual({ mcpTools: ['link_records', 'delete_record'], model: 'claude-sonnet-4-5' });
+    expect(seen[1]).toEqual({ mcpTools: undefined, model: undefined });
+    expect(seen[2]).toEqual({ mcpTools: undefined, model: undefined });
+  });
+
   it('asks for as many wakes as it has free slots, and never claims while full', async () => {
     const w1 = wake();
     const release: Array<() => void> = [];

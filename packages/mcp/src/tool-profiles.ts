@@ -20,9 +20,9 @@
 export const AGENT_RUN_PROFILE = 'agent-run';
 
 /**
- * Record work: read the record and its comments, find related records, check a count, change a field, comment. `describe_database` is
+ * Record work: read the record and its comments, find related records, check a count, change a field, comment, file a new record. `describe_database` is
  * here because `update_record` needs the field names and select-option ids; `count_records` because an agent must never state a count it
- * did not get from a tool (CLAUDE.md, Tyron rules). Everything else (create/delete/link/schema/skills/webhooks/...) is a role EXTRA.
+ * did not get from a tool (CLAUDE.md, Tyron rules). Everything else (delete/link/schema/skills/webhooks/...) is a role EXTRA.
  */
 export const AGENT_RUN_BASE_TOOLS = [
   'get_record',
@@ -32,9 +32,19 @@ export const AGENT_RUN_BASE_TOOLS = [
   'describe_database',
   'update_record',
   'add_comment',
+  // #1180: agents routinely file a task or a note. A role EXTRA used to be needed for this; it is the one write that is almost always wanted.
+  'create_record',
 ] as const;
 
-const PROFILES: Record<string, readonly string[]> = { [AGENT_RUN_PROFILE]: AGENT_RUN_BASE_TOOLS };
+/**
+ * #1180: the profile an agent with a SAVED Tools list uses: the manager's `tools=` list, plus this floor that cannot be unticked (a run that
+ * cannot read its record or comment ends as a failed run). An agent with NO saved list gets no profile at all: every tool its credential's
+ * role allows. agent-tools.test.ts keeps this equal to AGENT_TOOLS_ALWAYS_ON in @storyos/schemas, which the settings screen reads.
+ */
+export const AGENT_SELECTED_PROFILE = 'agent-selected';
+export const AGENT_SELECTED_FLOOR = ['get_record', 'add_comment'] as const;
+
+const PROFILES: Record<string, readonly string[]> = { [AGENT_RUN_PROFILE]: AGENT_RUN_BASE_TOOLS, [AGENT_SELECTED_PROFILE]: AGENT_SELECTED_FLOOR };
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 

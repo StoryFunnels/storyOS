@@ -347,6 +347,20 @@ export class AgentsService implements OnModuleInit {
   }
 
   /**
+   * ticket #1180: what a manager can set on an agent that runs on a Runner. `tools` = extra MCP tool names (comma-separated; the default
+   * record-work set is always offered), `model` = the model the tool runs it on (empty = the customer's own default). Validated on write
+   * (records.service.ts assertAgentSettingsWritable) and read at claim (agent-wakes.service.ts). No migration: a field is a row, added
+   * for a new workspace and for one whose Agents database predates it alike. ONE query once both exist (this runs on every ensure).
+   */
+  private async ensureAgentSettingsFields(agentsDbId: string): Promise<void> {
+    const have = new Set(
+      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, agentsDbId), inArray(fieldsTable.apiName, ['tools', 'model'])))).map((r) => r.apiName),
+    );
+    if (!have.has('tools')) await this.fields.create(agentsDbId, { display_name: 'Tools', type: 'text', config: { multiline: true } });
+    if (!have.has('model')) await this.fields.create(agentsDbId, { display_name: 'Model', type: 'text', config: {} });
+  }
+
+  /**
    * #1133 / ADR-0021 §5-6: the run record a Runner run leaves. No migration: a field is a row, added here for a new workspace and for
    * a workspace whose Runs database predates it alike. Idempotent and ONE query once they all exist (this runs on every ensure,
    * which every dispatch calls), and a run that predates a field simply has no value for it, the honest answer, never a guessed one.
@@ -490,6 +504,7 @@ export class AgentsService implements OnModuleInit {
       // ticket #1130: and a pack provisioned before relation bindings gains their field (idempotent, one lookup once it exists).
       await this.ensureField(existing.triggersDb.id, 'relation_field', { display_name: 'Relation field', type: 'text', config: {} });
       await this.ensureRunnerRunFields(existing.runsDb.id); // ticket #1133: and the run record's fields
+      await this.ensureAgentSettingsFields(existing.agentsDb.id); // ticket #1180: and the agent's Tools and Model
       return {
         agentsDb: existing.agentsDb,
         runsDb: existing.runsDb,
@@ -604,6 +619,8 @@ export class AgentsService implements OnModuleInit {
       type: 'text',
       config: { multiline: true },
     });
+
+    await this.ensureAgentSettingsFields(agentsDb.id); // ticket #1180
 
     let runsDb = existing.runsDb;
     if (!runsDb) {

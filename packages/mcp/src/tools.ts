@@ -5489,6 +5489,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
        * on to let agents publish is decorative. A tool for it could only ever 403, so it is not
        * offered; a person changes it in Settings > General.
        *
+       * Nor `default_agent_model` (#1180), for the same reason: the model every agent runs on is a cost decision the server refuses from
+       * any non-human source, so a tool for it could only ever 403. An admin sets it in Agent rules.
+       *
        * `branding` (#539) is the opposite call: cosmetic client-portal
        * configuration, not a security posture, so it's exposed like rename/
        * description above rather than excluded like private_attachments.

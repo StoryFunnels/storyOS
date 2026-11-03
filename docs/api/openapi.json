@@ -12261,6 +12261,12 @@
           "agents_may_publish_skills": {
             "type": "boolean"
           },
+          "default_agent_model": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/[\\]-]*$",
+            "nullable": true
+          },
           "description": {
             "type": "string",
             "maxLength": 200,
