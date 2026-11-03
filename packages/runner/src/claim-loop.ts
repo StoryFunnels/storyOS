@@ -359,6 +359,9 @@ export class ClaimLoop {
         goal: wake.agent.goal,
         instructions: wake.agent.instructions ?? '',
         skills: wake.agent.skills,
+        ...(wake.agent.skill_instructions
+          ? { skillInstructions: wake.agent.skill_instructions.map((s) => ({ name: s.name, whenToUse: s.when_to_use, instructions: s.instructions, truncated: s.truncated })) }
+          : {}),
         targetDatabases: wake.agent.target_databases,
       },
       ...(wake.record ? { record: { id: wake.record.id, databaseId: wake.record.database_id, ref: wake.record.number != null ? `#${wake.record.number}` : wake.record.id } } : {}),

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { TileComparison } from '@storyos/schemas';
 import { OPTION_COLORS, OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
+import { visibleBoardColumns } from '@/components/views/board-columns';
 import { targetProgress } from '@/components/views/dashboard-tiles';
 
 export interface PublicViewField {
@@ -32,6 +33,8 @@ interface PublicViewBoard {
   column_sort: string | null;
   hide_empty_groups: boolean;
   hide_empty_no_value_group: boolean;
+  /** #1182 — option ids of columns the owner hides (API ticket #1158). Optional: a payload from before it has none. */
+  hidden_option_ids?: string[];
 }
 /** #555/#709 — one tile as the public payload computes it server-side
  * (`RecordsService.aggregate`, never raw records shipped to reduce
@@ -283,7 +286,15 @@ function BoardColumns({ def }: { def: PublicViewDef }) {
   columns.push({ key: '__no_value__', label: 'No value', color: null, cards: noValue });
 
   const complete = !records.has_more;
-  const visible = columns.filter((col) => {
+  // #1182 — the owner's hidden columns, through the same helper the signed-in board uses (it matches on `id`). Not gated
+  // on `complete`: a hidden column is a choice, not an inference from the pages loaded so far.
+  const shown = new Set(
+    visibleBoardColumns(
+      columns.map((c) => ({ id: c.key })),
+      board!.hidden_option_ids,
+    ).map((c) => c.id),
+  );
+  const visible = columns.filter((col) => shown.has(col.key)).filter((col) => {
     if (!complete) return true; // B2 — never hide while pagination is incomplete.
     if (col.key === '__no_value__') return !board!.hide_empty_no_value_group || col.cards.length > 0;
     return !board!.hide_empty_groups || col.cards.length > 0;

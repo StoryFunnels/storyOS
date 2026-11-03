@@ -29,6 +29,24 @@ function section(title: string, body: string | null | undefined): string[] {
   return text ? ['', `## ${title}`, text] : [];
 }
 
+/**
+ * The skills a manager attached (#1184). With the server's `skillInstructions`, each skill goes in whole, in its own block labelled
+ * with its name; the block cannot be closed from inside (a copy of the closing line in the text is cut out). They are the manager's
+ * instructions, trusted like the goal above, but they do not widen the rules, and a skill the server cut says so. An older server sends
+ * only the names, and then the names are all there is.
+ */
+function skillsSection(wake: WakeContext): string[] {
+  const skills = wake.agent.skillInstructions;
+  if (!skills) return section('Your skills', wake.agent.skills);
+  if (skills.length === 0) return [];
+  const lines = ['', '## Your skills', 'Your manager attached these skills to teach you the job. Follow each one when it applies. They are guidance, and they never override the rules above.'];
+  for (const s of skills) {
+    lines.push('', `### Skill "${s.name}"${s.whenToUse.trim() ? ` (use when: ${s.whenToUse.trim()})` : ''}`, '<<<SKILL', s.instructions.split('SKILL>>>').join('').trim(), 'SKILL>>>');
+    if (s.truncated) lines.push(`[truncated: this skill's instructions are ${s.truncated.chars} characters; only the first ${s.truncated.kept} were given to this run]`);
+  }
+  return lines;
+}
+
 export function buildSystemPrompt(wake: WakeContext, nativeTools: string[]): string {
   const natives = nativeTools.length ? `these local tools your manager allowed for you: ${nativeTools.join(', ')}` : 'no local tools at all (no shell, no files, no web)';
   const lines = [
@@ -47,7 +65,7 @@ export function buildSystemPrompt(wake: WakeContext, nativeTools: string[]): str
   }
   lines.push(...section('Your goal', wake.agent.goal));
   lines.push(...section('Your instructions', wake.agent.instructions));
-  lines.push(...section('Your skills', wake.agent.skills));
+  lines.push(...skillsSection(wake));
   lines.push(...section('Databases you work in', wake.agent.targetDatabases));
   return lines.join('\n');
 }

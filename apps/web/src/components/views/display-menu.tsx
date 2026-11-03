@@ -36,6 +36,7 @@ import { canGroupBoardBy, canGroupListBy } from './groupable-fields';
 import { directionLabel, pickPrimarySort, sortableFields } from './sort-config';
 import { optionsFromChildren } from './menu-options';
 import { FieldsMenu } from './fields-menu';
+import { HiddenColumnsList } from './hidden-columns-list';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
 import { TOOLBAR_BTN } from './toolbar-chip';
@@ -355,6 +356,14 @@ export function DisplayMenu({
                   </option>
                 ))}
               </SelectRow>
+              {/* #1182 — the renderer (board-view) hides these columns, so the way to bring one back lives with
+                  the grouping they belong to. Only a select/workflow field has options to hide. */}
+              <HiddenColumnsList
+                options={fields.find((f) => f.id === config.group_by_field_id)?.options ?? []}
+                hiddenOptionIds={config.hidden_option_ids}
+                onChange={(next) => onPatch({ hidden_option_ids: next })}
+                sectionClass={SECTION}
+              />
             </>
           )}
 
